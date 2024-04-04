@@ -83,26 +83,26 @@ public:
     T const* LookupEntry(uint32 id) const { return (id >= _indexTableSize) ? nullptr : reinterpret_cast<T const*>(_indexTable[id]); }
     T const* AssertEntry(uint32 id) const { return ASSERT_NOTNULL(LookupEntry(id)); }
 
-#ifdef ELUNA
-    void SetEntry(uint32 id, T* t)
-    {
-        if (id >= _indexTableSize)
-        {
-            // Resize
-            typedef char* ptr;
-            size_t newSize = id + 1;
-            ptr* newArr = new ptr[newSize];
-            memset(newArr, 0, newSize * sizeof(ptr));
-            memcpy(newArr, _indexTable.AsChar, _indexTableSize * sizeof(ptr));
-            delete[] reinterpret_cast<char*>(_indexTable.AsT);
-            _indexTable.AsChar = newArr;
-            _indexTableSize = newSize;
-        }
-
-        delete _indexTable.AsT[id];
-        _indexTable.AsT[id] = t;
-    }
-#endif
+//#ifdef ELUNA
+//    void SetEntry(uint32 id, T* t)
+//    {
+//        if (id >= _indexTableSize)
+//        {
+//            // Resize
+//            typedef char* ptr;
+//            size_t newSize = id + 1;
+//            ptr* newArr = new ptr[newSize];
+//            memset(newArr, 0, newSize * sizeof(ptr));
+//            memcpy(newArr, _indexTable.AsChar, _indexTableSize * sizeof(ptr));
+//            delete[] reinterpret_cast<char*>(_indexTable.AsT);
+//            _indexTable.AsChar = newArr;
+//            _indexTableSize = newSize;
+//        }
+//
+//        delete _indexTable.AsT[id];
+//        _indexTable.AsT[id] = t;
+//    }
+//#endif
 
     iterator begin() const { return iterator(reinterpret_cast<T const* const*>(_indexTable), _indexTableSize, _minId); }
     iterator end() const { return iterator(reinterpret_cast<T const* const*>(_indexTable), _indexTableSize, _indexTableSize); }
