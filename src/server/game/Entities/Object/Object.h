@@ -806,7 +806,6 @@ class TC_GAME_API WorldObject : public Object, public WorldLocation
 
         Player* FindNearestPlayer(float range, bool alive = true);
         std::list<Creature*> FindNearestCreatures(std::list<uint32> entrys, float range) const;
-        template<class NOTIFIER> void VisitNearbyGridObject(const float& radius, NOTIFIER& notifier) const;
 
     protected:
         std::string m_name;

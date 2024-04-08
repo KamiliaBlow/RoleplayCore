@@ -3955,13 +3955,6 @@ std::list<Creature*> WorldObject::FindNearestCreatures(std::list<uint32> entrys,
     return creatureList;
 }
 
-template<class NOTIFIER>
-void WorldObject::VisitNearbyGridObject(const float& radius, NOTIFIER& notifier) const
-{
-    if (IsInWorld())
-        GetMap()->VisitGrid(GetPositionX(), GetPositionY(), radius, notifier);
-}
-
 template TC_GAME_API void WorldObject::GetCreatureListInGrid(std::list<Creature*>&, float) const;
 template TC_GAME_API void WorldObject::GetCreatureListInGrid(std::deque<Creature*>&, float) const;
 template TC_GAME_API void WorldObject::GetCreatureListInGrid(std::vector<Creature*>&, float) const;
