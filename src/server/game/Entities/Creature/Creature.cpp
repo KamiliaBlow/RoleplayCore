@@ -749,8 +749,8 @@ void Creature::ApplyAllStaticFlags(CreatureStaticFlagsHolder const& flags)
 }
 
 // copy paste from ClearChangesMask
-template<typename Derived, typename T, uint32 BlockBit, uint32 Bit>
-static uint32 GetUpdateFieldHolderIndex(UF::UpdateField<T, BlockBit, Bit>(Derived::* /*field*/))
+template<typename Derived, typename T, uint32 BlockBit, int32 Bit>
+static int32 GetUpdateFieldHolderIndex(UF::UpdateField<T, BlockBit, Bit>(Derived::* /*field*/))
 {
     return Bit;
 }
