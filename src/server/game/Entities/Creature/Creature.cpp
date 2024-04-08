@@ -748,16 +748,10 @@ void Creature::ApplyAllStaticFlags(CreatureStaticFlagsHolder const& flags)
     m_updateFlag.NoBirthAnim = flags.HasFlag(CREATURE_STATIC_FLAG_4_NO_BIRTH_ANIM);
 }
 
-// copy paste from ClearChangesMask
-template<typename Derived, typename T, uint32 BlockBit, int32 Bit>
-static int32 GetUpdateFieldHolderIndex(UF::UpdateField<T, BlockBit, Bit>(Derived::* /*field*/))
-{
-    return Bit;
-}
-
 void Creature::Update(uint32 diff)
 {
-    if (m_outfit && !m_values.HasChanged(GetUpdateFieldHolderIndex(&UF::UnitData::DisplayID)) && Unit::GetDisplayId() == CreatureOutfit::invisible_model)
+    // 5 - is UpdateField<uint32, 0, 5> DisplayID;
+    if (m_outfit && !m_values.HasChanged(5) && Unit::GetDisplayId() == CreatureOutfit::invisible_model)
     {
         // has outfit, displayid is invisible and displayid update already sent to clients
         // set outfit display

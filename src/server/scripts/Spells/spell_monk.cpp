@@ -74,9 +74,7 @@ enum MonkSpells
     SPELL_MONK_TOUCH_OF_DEATH_AMPLIFIER                 = 271232,
     SPELL_MONK_DISABLE                                  = 116095,
     SPELL_MONK_DISABLE_ROOT                             = 116706,
-    SPELL_MONK_RING_OF_PEACE_DISARM                     = 137461,
-    SPELL_MONK_RING_OF_PEACE_SILENCE                    = 137460,
-    SPELL_MONK_RING_OF_PEACE_KNOCKBACK                  = 142895,
+    SPELL_MONK_RING_OF_PEACE_KNOCKBACK                  = 237371,
     SPELL_MONK_SPEAR_HAND_STRIKE_SILENCE                = 173320,
     SPELL_MONK_TRANSCENDENCE_CLONE_TARGET               = 119051,
     SPELL_MONK_TRANSCENDENCE_VISUAL                     = 119053,
@@ -154,7 +152,6 @@ enum StormEarthAndFireSpells
     SPELL_MONK_SEF_SUMMONS_STATS                        = 138130,
     SPELL_MONK_SEF_CHARGE_TARGET                        = 196860,
     SPELL_MONK_SEF_FIXATE                               = 221771,
-    SPELL_MONK_RING_OF_PEACE_AURA                       = 142895,
 
     NPC_FIRE_SPIRIT                                     = 69791,
     NPC_EARTH_SPIRIT                                    = 69792,
@@ -1185,29 +1182,33 @@ struct at_monk_ring_of_peace : AreaTriggerAI
         if (!caster->ToPlayer())
             return;
 
-        for (auto itr : at->GetInsideUnits())
+        if (!caster->IsFriendlyTo(unit))
         {
-            Unit* target = ObjectAccessor::GetUnit(*caster, itr);
-            if (!caster->IsFriendlyTo(unit))
-            {
-                caster->CastSpell(unit, SPELL_MONK_RING_OF_PEACE_KNOCKBACK, true);
-                caster->CastSpell(unit, 237371, true);
-            }
+            caster->CastSpell(unit, SPELL_MONK_RING_OF_PEACE_KNOCKBACK, true);
         }
     }
 };
 
 // Song of Chi-Ji - 198898
-// AreaTriggerID - 5484
+// AreaTriggerID - 5484 
 struct at_monk_song_of_chi_ji : AreaTriggerAI
 {
     at_monk_song_of_chi_ji(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
 
-    void OnUnitEnter(Unit* target) override
+    void OnUnitEnter(Unit* unit) override
     {
-        if (at->GetCaster())
-            if (at->GetCaster()->IsValidAttackTarget(target))
-                target->CastSpell(target, SPELL_MONK_SONG_OF_CHI_JI_STUN, true);
+        Unit* caster = at->GetCaster();
+
+        if (!caster || !unit)
+            return;
+
+        if (!caster->ToPlayer())
+            return;
+
+        if (!caster->IsFriendlyTo(unit))
+        {
+            caster->CastSpell(unit, SPELL_MONK_SONG_OF_CHI_JI_STUN, true);
+        }
     }
 };
 
@@ -1230,7 +1231,7 @@ public:
 
             if (caster->IsFriendlyTo(target))
                 caster->CastSpell(target, 132464, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT1, GetEffectValue()));
-            else if (caster->IsValidAttackTarget(target))
+            else if (!caster->IsFriendlyTo(target))
                 caster->CastSpell(target, 132467, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT1, GetEffectValue()));
         }
 
@@ -1345,21 +1346,137 @@ public:
     }
 };
 
+// 132466 - Chi Wave (target selector)
+class spell_monk_chi_wave_target_selector : public SpellScript
+{
+    class DamageUnitCheck
+    {
+    public:
+        DamageUnitCheck(Unit const* source, float range) : m_source(source), m_range(range) {}
+        bool operator()(WorldObject* object)
+        {
+            Unit* unit = object->ToUnit();
+            if (!unit)
+                return true;
+
+            if (m_source->IsValidAttackTarget(unit) && unit->isTargetableForAttack() && m_source->IsWithinDistInMap(unit, m_range))
+            {
+                m_range = m_source->GetDistance(unit);
+                return false;
+            }
+
+            return true;
+        }
+    private:
+        Unit const* m_source;
+        float m_range;
+    };
+
+    class HealUnitCheck
+    {
+    public:
+        HealUnitCheck(Unit const* source) : m_source(source) {}
+        bool operator()(WorldObject* object)
+        {
+            Unit* unit = object->ToUnit();
+            if (!unit)
+                return true;
+
+            if (m_source->IsFriendlyTo(unit))
+                return false;
+
+            return true;
+        }
+    private:
+        Unit const* m_source;
+    };
+
+    bool Load() override
+    {
+        m_shouldHeal = true; // just for initializing
+        return true;
+    }
+
+    void SelectTarget(std::list<WorldObject*>& targets)
+    {
+        if (targets.empty())
+            return;
+
+        SpellInfo const* spellInfo = GetTriggeringSpell();
+        if (spellInfo->Id == 132467) // Triggered by damage, so we need heal selector
+        {
+            targets.remove_if(HealUnitCheck(GetCaster()));
+            targets.sort(Trinity::HealthPctOrderPred(false)); // Reverse order due to target is selected via std::list back
+            m_shouldHeal = true;
+        }
+        else if (spellInfo->Id == 132464) // Triggered by heal, so we need damage selector
+        {
+            targets.remove_if(DamageUnitCheck(GetCaster(), 25.0f));
+            m_shouldHeal = false;
+        }
+
+        if (targets.empty())
+            return;
+
+        WorldObject* target = targets.back();
+        if (!target)
+            return;
+
+        targets.clear();
+        targets.push_back(target);
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (!GetEffectValue()) // Ran out of bounces
+            return;
+
+        if (!GetExplTargetUnit() || !GetOriginalCaster())
+            return;
+
+        Unit* target = GetHitUnit();
+        if (m_shouldHeal)
+            GetExplTargetUnit()->CastSpell(target, 132464, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT1, GetEffectValue()).SetOriginalCaster(GetOriginalCaster()->GetGUID()));
+        else
+            GetExplTargetUnit()->CastSpell(target, 132467, CastSpellExtraArgs(TRIGGERED_FULL_MASK).AddSpellMod(SPELLVALUE_BASE_POINT1, GetEffectValue()).SetOriginalCaster(GetOriginalCaster()->GetGUID()));
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_chi_wave_target_selector::SelectTarget, EFFECT_1, TARGET_UNIT_DEST_AREA_ENTRY);
+        OnEffectHitTarget += SpellEffectFn(spell_monk_chi_wave_target_selector::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+
+    bool m_shouldHeal;
+};
+
 //123986, 5300
 struct at_monk_chi_burst : AreaTriggerAI
 {
     at_monk_chi_burst(AreaTrigger* at) : AreaTriggerAI(at) { }
 
-    void OnUnitEnter(Unit* target) override
+    void OnUnitEnter(Unit* unit) override
     {
-        if (!at->GetCaster())
+        Unit* caster = at->GetCaster();
+
+        if (!caster || !unit)
             return;
 
-        if (at->GetCaster()->IsValidAssistTarget(target))
-            at->GetCaster()->CastSpell(target, SPELL_MONK_CHI_BURST_HEAL, true);
+        if (!caster->ToPlayer())
+            return;
 
-        if (at->GetCaster()->IsValidAttackTarget(target))
-            at->GetCaster()->CastSpell(target, SPELL_MONK_CHI_BURST_DAMAGE, true);
+        for (auto itr : at->GetInsideUnits())
+        {
+            Unit* target = ObjectAccessor::GetUnit(*caster, itr);
+            if (!caster->IsFriendlyTo(unit))
+            {
+                caster->CastSpell(unit, SPELL_MONK_CHI_BURST_HEAL, true);
+            }
+            else
+            {
+                caster->CastSpell(unit, SPELL_MONK_CHI_BURST_DAMAGE, true);
+            }
+        }
     }
 };
 
@@ -1495,11 +1612,7 @@ struct npc_monk_jade_serpent_statue : public ScriptedAI
             if (Player* player = owner->ToPlayer())
             {
                 if (player->GetClass() != CLASS_MONK)
-                    return;
-                else
-                {
                     me->DespawnOrUnsummon();
-                }
             }
         }
     }
@@ -2758,17 +2871,18 @@ void AddSC_monk_spell_scripts()
     new spell_monk_purifying_brew();
     new spell_monk_breath_of_fire();
     new spell_monk_dampen_harm();
-    RegisterSpellScript(spell_monk_clash); //Dont stun
+    RegisterSpellScript(spell_monk_clash); //Dont stun  NEED FIX
     new spell_monk_healing_elixirs_aura();
-    RegisterAreaTriggerAI(at_monk_ring_of_peace); //Need correct
-    RegisterAreaTriggerAI(at_monk_song_of_chi_ji); //Dont have damage
+    RegisterAreaTriggerAI(at_monk_ring_of_peace);
+    RegisterAreaTriggerAI(at_monk_song_of_chi_ji);
     new spell_monk_chi_wave();
     new spell_monk_chi_wave_damage_missile();
     new spell_monk_chi_wave_heal_missile();
     new spell_monk_chi_wave_healing_bolt();
-    RegisterAreaTriggerAI(at_monk_chi_burst); //Dont have damage
+    RegisterSpellScript(spell_monk_chi_wave_target_selector);
+    RegisterAreaTriggerAI(at_monk_chi_burst);
     new spell_monk_chi_burst_heal();
-    new spell_monk_black_ox_brew(); // ??
+    new spell_monk_black_ox_brew(); // ??  NEED FIX
     new spell_monk_jade_serpent_statue();
     RegisterCreatureAI(npc_monk_jade_serpent_statue);
     RegisterSpellScript(spell_monk_transcendence);
@@ -2783,11 +2897,11 @@ void AddSC_monk_spell_scripts()
     RegisterSpellScript(spell_monk_renewing_mist_jump);
     RegisterSpellScript(spell_monk_essence_font);
     new spell_monk_essence_font_heal();
-    RegisterSpellAndAuraScriptPair(spell_monk_mana_tea, aura_monk_mana_tea); // How get stack???
+    RegisterSpellAndAuraScriptPair(spell_monk_mana_tea, aura_monk_mana_tea); // Not del stack  NEED FIX
     new spell_monk_enveloping_mist();
-    RegisterSpellScript(spell_monk_storm_earth_and_fire); //npc not work and not despawn
-    RegisterCreatureAI(npc_monk_sef_spirit); //npc not work and not despawn
-    new playerScript_monk_earth_fire_storm; //npc not work and not despawn
+    RegisterSpellScript(spell_monk_storm_earth_and_fire); //npc not work and not despawn    NEED FIX
+    RegisterCreatureAI(npc_monk_sef_spirit); //npc not work and not despawn                 NEED FIX
+    new playerScript_monk_earth_fire_storm; //npc not work and not despawn                  NEED FIX
     new spell_monk_touch_of_karma();
     RegisterSpellScript(spell_monk_touch_of_karma_buff);
     new spell_monk_fists_of_fury();
@@ -2796,8 +2910,8 @@ void AddSC_monk_spell_scripts()
     new spell_monk_fists_of_fury_visual();
     new spell_monk_fists_of_fury_visual_filter();
     RegisterCreatureAI(npc_monk_xuen);
-    new playerScript_monk_whirling_dragon_punch(); //need testing
-    RegisterSpellScript(spell_monk_whirling_dragon_punch); //not check
+    new playerScript_monk_whirling_dragon_punch(); //need testing    NEED FIX
+    RegisterSpellScript(spell_monk_whirling_dragon_punch); //not check NEED FIX
     new spell_monk_flying_serpent_kick();
 
 }
