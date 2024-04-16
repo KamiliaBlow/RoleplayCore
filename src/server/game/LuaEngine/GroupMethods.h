@@ -146,17 +146,27 @@ namespace LuaGroup
         return 1;
     }
 
-    /*int IsLFGGroup(lua_State* L, Group* group) // TODO: Implementation
+    /**
+     * Returns 'true' if the [Group] is a LFG group
+     *
+     * @return bool isLFGGroup
+     */
+    int IsLFGGroup(lua_State* L, Group* group)
     {
         Eluna::Push(L, group->isLFGGroup());
         return 1;
-    }*/
+    }
 
-    /*int IsBFGroup(lua_State* L, Group* group) // TODO: Implementation
+    /**
+     * Returns 'true' if the [Group] is a battleground [Group]
+     *
+     * @return bool isBG
+     */
+    int IsBFGroup(lua_State* L, Group* group)
     {
         Eluna::Push(L, group->isBFGroup());
         return 1;
-    }*/
+    }
 
     /**
      * Returns a table with the [Player]s in this [Group]
@@ -364,11 +374,17 @@ namespace LuaGroup
         return 0;
     }
 
-    /*int ConvertToLFG(lua_State* L, Group* group) // TODO: Implementation
+    /**
+     * Converts the [Group] to a LFG group
+     *
+     * In multistate, this method is only available in the WORLD state
+     *
+     */
+    int ConvertToLFG(lua_State* L, Group* group)
     {
         group->ConvertToLFG();
         return 0;
-    }*/
+    }
 };
 
 #endif

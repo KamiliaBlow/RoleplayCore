@@ -196,11 +196,16 @@ namespace LuaItem
         return 1;
     }
 
-    /*int IsRefundExpired(lua_State* L, Item* item)// TODO: Implement core support
+    /**
+     * Returns 'true' if the refund period has expired for this [Item], 'false' otherwise
+     *
+     * @return bool isRefundExpired
+     */
+    int IsRefundExpired(lua_State* L, Item* item)
     {
         Eluna::Push(L, item->IsRefundExpired());
         return 1;
-    }*/
+    }
 
     /**
      * Returns the chat link of the [Item]

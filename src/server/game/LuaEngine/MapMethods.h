@@ -268,21 +268,6 @@ namespace LuaMap
     }
 
     /**
-     * Saves the [Map]'s instance data to the database.
-     */
-    //int SaveInstanceData(lua_State* /*L*/, Map* map)
-    //{
-    //    ElunaInstanceAI* iAI = NULL;
-    //    if (InstanceMap* inst = map->ToInstanceMap())
-    //        iAI = dynamic_cast<ElunaInstanceAI*>(inst->GetInstanceScript());
-
-    //    if (iAI)
-    //        iAI->SaveToDB();
-
-    //    return 0;
-    //}
-
-    /**
     * Returns a table with all the current [Player]s in the map
     *
     *     enum TeamId

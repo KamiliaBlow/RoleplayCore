@@ -591,64 +591,49 @@ namespace LuaPlayer
         return 1;
     }
 
-    /*int HasReceivedQuestReward(lua_State* L, Player* player)
+    int HasReceivedQuestReward(lua_State* L, Player* player)
     {
         uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
 
         Eluna::Push(L, player->IsQuestRewarded(entry));
         return 1;
-    }*/
+    }
 
-    /*int IsOutdoorPvPActive(lua_State* L, Player* player)
+    int IsOutdoorPvPActive(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->IsOutdoorPvPActive());
         return 1;
-    }*/
+    }
 
-    /*int IsImmuneToEnvironmentalDamage(lua_State* L, Player* player)
+    int IsImmuneToEnvironmentalDamage(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->IsImmuneToEnvironmentalDamage());
         return 1;
-    }*/
+    }
 
-    /*int InRandomLfgDungeon(lua_State* L, Player* player)
+    int InRandomLfgDungeon(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->inRandomLfgDungeon());
         return 1;
-    }*/
+    }
 
-    /*int IsUsingLfg(lua_State* L, Player* player)
+    int IsUsingLfg(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->isUsingLfg());
         return 1;
-    }*/
+    }
 
-    /*int IsNeverVisible(lua_State* L, Player* player)
+    int IsNeverVisible(lua_State* L, Player* player)
     {
-        Eluna::Push(L, player->IsNeverVisible());
+        Eluna::Push(L, player->IsNeverVisibleFor(player, true));
         return 1;
-    }*/
+    }
 
-    /*int CanFlyInZone(lua_State* L, Player* player)
-    {
-        uint32 mapid = Eluna::CHECKVAL<uint32>(L, 2);
-        uint32 zone = Eluna::CHECKVAL<uint32>(L, 2);
-
-        Eluna::Push(L, player->IsKnowHowFlyIn(mapid, zone));
-        return 1;
-    }*/
-
-    /*int HasPendingBind(lua_State* L, Player* player)
-    {
-        Eluna::Push(L, player->PendingHasPendingBind());
-        return 1;
-    }*/
-
-    /*int IsARecruiter(lua_State* L, Player* player)
+    int IsARecruiter(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->GetSession()->IsARecruiter() || (player->GetSession()->GetRecruiterId() != 0));
         return 1;
-    }*/
+    }
 
     /**
      * Returns the amount of available specs the [Player] currently has
@@ -660,17 +645,6 @@ namespace LuaPlayer
         Eluna::Push(L, MAX_SPECIALIZATIONS);
         return 1;
     }
-
-    /**
-     * Returns the [Player]s active spec ID
-     *
-     * @return uint32 specId
-     */
-    //int GetActiveSpec(lua_State* L, Player* player)
-    //{
-    //    Eluna::Push(L, player->GetPrimarySpecialization());
-    //    return 1;
-    //}
 
     /**
      * Returns the [Player]s cooldown delay by specified [Spell] ID
@@ -1397,29 +1371,29 @@ namespace LuaPlayer
         return 1;
     }
 
-    /*int GetRecruiterId(lua_State* L, Player* player)
+    int GetRecruiterId(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->GetSession()->GetRecruiterId());
         return 1;
-    }*/
+    }
 
-    /*int GetSelectedPlayer(lua_State* L, Player* player)
+    int GetSelectedPlayer(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->GetSelectedPlayer());
         return 1;
-    }*/
+    }
 
-    /*int GetSelectedUnit(lua_State* L, Player* player)
+    int GetSelectedUnit(lua_State* L, Player* player)
     {
         Eluna::Push(L, player->GetSelectedUnit());
         return 1;
-    }*/
+    }
 
-    /*int GetNearbyGameObject(lua_State* L, Player* player)
+    int GetNearbyGameObject(lua_State* L, Player* player)
     {
         Eluna::Push(L, ChatHandler(player->GetSession()).GetNearbyGameObject());
         return 1;
-    }*/
+    }
     
     /**
      * Locks the player controls and disallows all movement and casting.
@@ -1734,14 +1708,6 @@ namespace LuaPlayer
         return 0;
     }
 
-    /*int SetMovement(lua_State* L, Player* player)
-    {
-        int32 pType = Eluna::CHECKVAL<int32>(L, 2);
-
-        player->SetMovement((PlayerMovementType)pType);
-        return 0;
-    }*/
-
     /**
      * Reset the [Player]s completed achievements
      */
@@ -1805,25 +1771,6 @@ namespace LuaPlayer
     }
 
     /**
-     * Rewards the given quest entry for the [Player] if he has completed it.
-     *
-     * @param uint32 entry : quest entry
-     */
-    //int RewardQuest(lua_State* L, Player* player)
-    //{
-    //    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
-
-    //    Quest const* quest = eObjectMgr->GetQuestTemplate(entry);
-
-    //    // If player doesn't have the quest
-    //    if (!quest || player->GetQuestStatus(entry) != QUEST_STATUS_COMPLETE)
-    //        return 0;
-
-    //    player->RewardQuest(quest, 0, player);
-    //    return 0;
-    //}
-
-    /**
      * Sends an auction house window to the [Player] from the [Unit] specified
      *
      * @param [Unit] sender
@@ -1857,20 +1804,6 @@ namespace LuaPlayer
         player->GetSession()->SendSpiritResurrect();
         return 0;
     }
-
-    /**
-     * Sends a tabard vendor window to the [Player] from the [WorldObject] specified
-     *
-     * @param [WorldObject] sender
-     * Need more arg (maybe fix later)
-     */
-    /*int SendTabardVendorActivate(lua_State* L, Player* player)
-    {
-        WorldObject* obj = Eluna::CHECKOBJ<WorldObject>(L, 2);
-
-        player->GetSession()->SendTabardVendorActivate(obj->GET_GUID());
-        return 0;
-    }*/
 
     /**
      * Sends a bank window to the [Player] from the [WorldObject] specified.
@@ -2663,15 +2596,6 @@ namespace LuaPlayer
     }
 
     /**
-     * Advances all of the [Player]s weapon skills to the maximum amount available
-     */
-    //int AdvanceSkillsToMax(lua_State* /*L*/, Player* player)
-    //{
-    //    player->UpdateSkillsToMaxSkillsForLevel();
-    //    return 0;
-    //}
-
-    /**
      * Advances all of the [Player]s skills to the amount specified
      *
      * @param uint32 skillStep
@@ -3289,89 +3213,76 @@ namespace LuaPlayer
         return 0;
     }
 
-    /*int BindToInstance(lua_State* L, Player* player)
-    {
-    player->BindToInstance();
-    return 0;
-    }*/
-
     /*int AddTalent(lua_State* L, Player* player)
     {
-    uint32 spellId = Eluna::CHECKVAL<uint32>(L, 2);
-    uint8 spec = Eluna::CHECKVAL<uint8>(L, 3);
-    bool learning = Eluna::CHECKVAL<bool>(L, 4, true);
-    if (spec >= MAX_TALENT_SPECS)
-    Eluna::Push(L, false);
-    else
-    Eluna::Push(L, player->AddTalent(spellId, spec, learning));
-    return 1;
+        uint32 spellId = Eluna::CHECKVAL<uint32>(L, 2);
+        uint8 spec = Eluna::CHECKVAL<uint8>(L, 3);
+        bool learning = Eluna::CHECKVAL<bool>(L, 4, true);
+
+        if (spec >= MAX_TALENT_SPECS)
+            Eluna::Push(L, false);
+        else
+            Eluna::Push(L, player->AddTalent(spellId, spec, learning));
+        return 1;
     }*/
 
-    /*int GainSpellComboPoints(lua_State* L, Player* player)
+    int KillGOCredit(lua_State* L, Player* player)
     {
-    int8 count = Eluna::CHECKVAL<int8>(L, 2);
+        uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
+        ObjectGuid guid = Eluna::CHECKVAL<ObjectGuid>(L, 3);
 
-    player->GainSpellComboPoints(count);
-    return 0;
-    }*/
+        player->KillCreditGO(entry, guid);
+        return 0;
+    }
 
-    /*int KillGOCredit(lua_State* L, Player* player)
+    int KilledPlayerCredit(lua_State* L, Player* player)
     {
-    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
-    ObjectGuid guid = Eluna::CHECKVAL<uint64>(L, 3);
-    player->KillCreditGO(entry, guid);
-    return 0;
-    }*/
+        ObjectGuid victimguid = Eluna::CHECKVAL<ObjectGuid>(L, 2);
 
-    /*int KilledPlayerCredit(lua_State* L, Player* player)
+        player->KilledPlayerCredit(victimguid);
+        return 0;
+    }
+
+    int RemoveRewardedQuest(lua_State* L, Player* player)
     {
-    player->KilledPlayerCredit();
-    return 0;
-    }*/
+        uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
 
-    /*int RemoveRewardedQuest(lua_State* L, Player* player)
+        player->RemoveRewardedQuest(entry);
+        return 0;
+    }
+
+    int RemoveActiveQuest(lua_State* L, Player* player)
     {
-    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
+        uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
 
-    player->RemoveRewardedQuest(entry);
-    return 0;
-    }*/
+        player->RemoveActiveQuest(entry);
+        return 0;
+    }
 
-    /*int RemoveActiveQuest(lua_State* L, Player* player)
+    int SummonPet(lua_State* L, Player* player)
     {
-    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
+        uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
+        int mode = Eluna::CHECKVAL<int>(L, 3, PET_SAVE_AS_DELETED);
+        float x = Eluna::CHECKVAL<float>(L, 4);
+        float y = Eluna::CHECKVAL<float>(L, 5);
+        float z = Eluna::CHECKVAL<float>(L, 6);
+        float o = Eluna::CHECKVAL<float>(L, 7);
+        uint32 despwtime = Eluna::CHECKVAL<uint32>(L, 8);
 
-    player->RemoveActiveQuest(entry);
-    return 0;
-    }*/
+        player->SummonPet(entry, (PetSaveMode)mode, x, y, z, o, despwtime);
+        return 0;
+    }
 
-    /*int SummonPet(lua_State* L, Player* player)
+    int RemovePet(lua_State* L, Player* player)
     {
-    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
-    float x = Eluna::CHECKVAL<float>(L, 3);
-    float y = Eluna::CHECKVAL<float>(L, 4);
-    float z = Eluna::CHECKVAL<float>(L, 5);
-    float o = Eluna::CHECKVAL<float>(L, 6);
-    uint32 petType = Eluna::CHECKVAL<uint32>(L, 7);
-    uint32 despwtime = Eluna::CHECKVAL<uint32>(L, 8);
+        int mode = Eluna::CHECKVAL<int>(L, 2, PET_SAVE_AS_DELETED);
+        bool returnreagent = Eluna::CHECKVAL<bool>(L, 2, false);
 
-    if (petType >= MAX_PET_TYPE)
-    return 0;
+        if (!player->GetPet())
+        return 0;
 
-    player->SummonPet(entry, x, y, z, o, (PetType)petType, despwtime);
-    return 0;
-    }*/
-
-    /*int RemovePet(lua_State* L, Player* player)
-    {
-    int mode = Eluna::CHECKVAL<int>(L, 2, PET_SAVE_AS_DELETED);
-    bool returnreagent = Eluna::CHECKVAL<bool>(L, 2, false);
-
-    if (!player->GetPet())
-    return 0;
-
-    player->RemovePet(player->GetPet(), (PetSaveMode)mode, returnreagent);
-    return 0;
-    }*/
+        player->RemovePet(player->GetPet(), (PetSaveMode)mode, returnreagent);
+        return 0;
+    }
 };
 #endif

@@ -248,6 +248,7 @@ namespace LuaCreature
             Eluna::Push(L, info->GetCategory() && creature->GetSpellHistory()->HasCooldown(spell));
         else
             Eluna::Push(L, false);
+
         return 1;
     }
 
@@ -499,6 +500,7 @@ namespace LuaCreature
             Eluna::Push(L, creature->GetSpellHistory()->GetRemainingCooldown(spellInfo));
         else
             Eluna::Push(L, 0);
+
         return 1;
     }
 
@@ -600,12 +602,10 @@ namespace LuaCreature
         int32 aura = Eluna::CHECKVAL<int32>(L, 6, 0);
 
         auto const& threatlist = creature->GetThreatManager().GetSortedThreatList();
-
         std::list<Unit*> targetList;
         for (ThreatReference const* itr : threatlist)
         {
             Unit* target = itr->GetVictim();
-
             if (!target)
                 continue;
             if (playerOnly && target->GetTypeId() != TYPEID_PLAYER)
@@ -674,13 +674,15 @@ namespace LuaCreature
      */
     int GetAITargets(lua_State* L, Creature* creature)
     {
-        auto const& threatlist = creature->GetThreatManager().GetThreatenedByMeList();
-        lua_createtable(L, threatlist.size(), 0);
+        auto const& threatlist = creature->GetThreatManager().GetSortedThreatList();
+
+        lua_createtable(L, creature->GetThreatManager().GetThreatListSize(), 0);
         int tbl = lua_gettop(L);
+
         uint32 i = 0;
-        for (auto itr = threatlist.begin(); itr != threatlist.end(); ++itr)
+        for (ThreatReference const* itr : threatlist)
         {
-            Unit* target = itr->second->GetOwner();
+            Unit* target = itr->GetVictim();
             if (!target)
                 continue;
             Eluna::Push(L, target);
@@ -698,7 +700,7 @@ namespace LuaCreature
      */
     int GetAITargetsCount(lua_State* L, Creature* creature)
     {
-        Eluna::Push(L, creature->GetThreatManager().GetThreatenedByMeList().size());
+        Eluna::Push(L, (double)creature->GetThreatManager().GetThreatListSize());
         return 1;
     }
 
@@ -716,7 +718,21 @@ namespace LuaCreature
         return 1;
     }
 
-    int GetLootMode(lua_State* L, Creature* creature) // TODO: Implement LootMode features
+    /**
+     * Returns the loot mode for the [Creature].
+     *
+     * <pre>
+     *   LOOT_MODE_DEFAULT          = 1,
+     *   LOOT_MODE_HARD_MODE_1      = 2,
+     *   LOOT_MODE_HARD_MODE_2      = 4,
+     *   LOOT_MODE_HARD_MODE_3      = 8,
+     *   LOOT_MODE_HARD_MODE_4      = 16,
+     *   LOOT_MODE_JUNK_FISH        = 32768
+     * </pre>
+     *
+     * @return uint16 lootMode
+     */
+    int GetLootMode(lua_State* L, Creature* creature)
     {
         Eluna::Push(L, creature->GetLootMode());
         return 1;
@@ -729,7 +745,7 @@ namespace LuaCreature
      */
     int GetDBTableGUIDLow(lua_State* L, Creature* creature)
     {
-        Eluna::Push(L, (uint32)creature->GetSpawnId());
+        Eluna::Push(L, creature->GetSpawnId());
         return 1;
     }
 
@@ -772,7 +788,21 @@ namespace LuaCreature
         return 0;
     }
 
-    int SetLootMode(lua_State* L, Creature* creature) // TODO: Implement LootMode features
+    /**
+     * Sets the loot mode for the [Creature].
+     *
+     * <pre>
+     *   LOOT_MODE_DEFAULT          = 1,
+     *   LOOT_MODE_HARD_MODE_1      = 2,
+     *   LOOT_MODE_HARD_MODE_2      = 4,
+     *   LOOT_MODE_HARD_MODE_3      = 8,
+     *   LOOT_MODE_HARD_MODE_4      = 16,
+     *   LOOT_MODE_JUNK_FISH        = 32768
+     * </pre>
+     *
+     * @param uint16 lootMode
+     */
+    int SetLootMode(lua_State* L, Creature* creature)
     {
         uint16 lootMode = Eluna::CHECKVAL<uint16>(L, 2);
 
@@ -863,7 +893,7 @@ namespace LuaCreature
      */
     int SetInCombatWithZone(lua_State* /*L*/, Creature* creature)
     {
-        if (creature->AI())
+        if (creature->IsAIEnabled())
             creature->AI()->DoZoneInCombat();
         return 0;
     }
@@ -1163,6 +1193,190 @@ namespace LuaCreature
             Eluna::Push(L, cInfo->family);
 
         return 1;
+    }
+
+    /**
+    * Adds threat to the [Creature] from the victim.
+    *
+    * <pre>
+    * enum SpellSchoolMask
+    * {
+    *     SPELL_SCHOOL_MASK_NONE    = 0,
+    *     SPELL_SCHOOL_MASK_NORMAL  = 1,
+    *     SPELL_SCHOOL_MASK_HOLY    = 2,
+    *     SPELL_SCHOOL_MASK_FIRE    = 4,
+    *     SPELL_SCHOOL_MASK_NATURE  = 8,
+    *     SPELL_SCHOOL_MASK_FROST   = 16,
+    *     SPELL_SCHOOL_MASK_SHADOW  = 32,
+    *     SPELL_SCHOOL_MASK_ARCANE  = 64,
+    * }
+    * </pre>
+    *
+    * @param [Unit] victim : [Unit] that caused the threat
+    * @param float threat : threat amount
+    * @param [SpellSchoolMask] schoolMask = 0 : [SpellSchoolMask] of the threat causer
+    * @param uint32 spell = 0 : spell entry used for threat
+    */
+    int AddThreat(lua_State* L, Creature* creature)
+    {
+        Unit* victim = Eluna::CHECKOBJ<Unit>(L, 2);
+        float threat = Eluna::CHECKVAL<float>(L, 3, true);
+        uint32 spell = Eluna::CHECKVAL<uint32>(L, 4, 0);
+
+        creature->GetThreatManager().AddThreat(victim, threat, spell ? sSpellMgr->GetSpellInfo(spell, DIFFICULTY_NONE) : NULL, true, true);
+        return 0;
+    }
+
+    /**
+     * Returns the threat of a [Unit] in this [Creature]'s threat list.
+     *
+     * @param [Unit] target
+     * @return float threat
+     */
+    int GetThreat(lua_State* L, Creature* creature)
+    {
+        Unit* target = Eluna::CHECKOBJ<Unit>(L, 2);
+
+        Eluna::Push(L, creature->GetThreatManager().GetThreat(target));
+        return 1;
+    }
+
+    /**
+     * Clears the [Creature]'s fixated target.
+     */
+    int ClearFixate(lua_State* /*L*/, Creature* creature)
+    {
+        creature->GetThreatManager().ClearFixate();
+        return 0;
+    }
+
+    /**
+     * Clear the threat of a [Unit] in this [Creature]'s threat list.
+     *
+     * @param [Unit] target
+     */
+    int ClearThreat(lua_State* L, Creature* creature)
+    {
+        Unit* target = Eluna::CHECKOBJ<Unit>(L, 2);
+
+        creature->GetThreatManager().ClearThreat(target);
+        return 0;
+    }
+
+    /**
+     * Clear the [Creature]'s threat list. This will cause evading.
+     */
+    int ClearThreatList(lua_State* /*L*/, Creature* creature)
+    {
+        creature->GetThreatManager().ClearAllThreat();
+        return 0;
+    }
+
+    /**
+     * Forces the [Creature] to fixate on the [Unit], regardless of threat. Requires the [Unit] to be in the threat list.
+     *
+     * @param [Unit] target
+     */
+    int FixateTarget(lua_State* L, Creature* creature)
+    {
+        Unit* target = Eluna::CHECKOBJ<Unit>(L, 2);
+
+        creature->GetThreatManager().FixateTarget(target);
+
+        return 0;
+    }
+
+    /**
+     * Returns the [Creature]'s Extra flags.
+     *
+     * These are used to control whether the NPC is a civilian, uses pathfinding,
+     *   if it's a guard, etc.
+     *
+     * @return [ExtraFlags] extraFlags
+     */
+    int GetExtraFlags(lua_State* L, Creature* creature)
+    {
+        Eluna::Push(L, creature->GetCreatureTemplate()->flags_extra);
+        return 1;
+    }
+
+    /**
+     * Returns the radius the [Creature] is permitted to wander from its
+     *   respawn point.
+     *
+     * @return float wanderRadius
+     */
+    int GetWanderRadius(lua_State* L, Creature* creature)
+    {
+        Eluna::Push(L, creature->GetWanderDistance());
+        return 1;
+    }
+
+    /**
+     * Returns `true` if the [Creature]'s flags_extra includes Dungeon Boss (0x1000000),
+     *   and returns `false` otherwise.
+     *
+     * @return bool isDungeonBoss
+     */
+    int IsDungeonBoss(lua_State* L, Creature* creature)
+    {
+        Eluna::Push(L, creature->IsDungeonBoss());
+        return 1;
+    }
+
+    /**
+    * Removes [Creature] from the world
+    *
+    * The object is no longer reachable after this and it is not respawned.
+    *
+    * @param bool deleteFromDB : if true, it will delete the [Creature] from the database
+    */
+    int RemoveFromWorld(lua_State* L, Creature* creature)
+    {
+        bool deldb = Eluna::CHECKVAL<bool>(L, 2, false);
+        if (deldb)
+        {
+            ObjectGuid::LowType spawnId = creature->GetSpawnId();
+            Creature::DeleteFromDB(spawnId);
+        }
+
+        creature->RemoveFromWorld();
+        return 0;
+    }
+
+    /**
+     * Resets the [Creature]'s threat list, setting all threat targets' threat to 0.
+     */
+    int ResetAllThreat(lua_State* /*E*/, Creature* creature)
+    {
+        creature->GetThreatManager().ResetAllThreat();
+        return 0;
+    }
+
+    /**
+     * Sets whether the [Creature] can regenerate health or not.
+     *
+     * @param bool enable = true : `true` to enable health regeneration, `false` to disable it
+     */
+    int SetRegeneratingHealth(lua_State* L, Creature* creature)
+    {
+        bool enable = Eluna::CHECKVAL<bool>(L, 2, true);
+
+        creature->SetRegenerateHealth(enable);
+        return 0;
+    }
+
+    /**
+     * Sets the distance the [Creature] can wander from it's spawn point.
+     *
+     * @param float distance
+     */
+    int SetWanderRadius(lua_State* L, Creature* creature)
+    {
+        float dist = Eluna::CHECKVAL<float>(L, 2);
+
+        creature->SetWanderDistance(dist);
+        return 0;
     }
 };
 #endif

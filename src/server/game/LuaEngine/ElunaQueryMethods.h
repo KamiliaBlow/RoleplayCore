@@ -253,64 +253,6 @@ namespace LuaQuery
         Eluna::Push(L, RESULT->NextRow());
         return 1;
     }
-
-    /**
-     * Returns a table from the current row where keys are field names and values are the row's values.
-     *
-     * All numerical values will be numbers and everything else is returned as a string.
-     *
-     * **For example,** the query:
-     *
-     *     SELECT entry, name FROM creature_template
-     *
-     * would result in a table like:
-     *
-     *     { entry = 123, name = "some creature name" }
-     *
-     * To move to next row use [ElunaQuery:NextRow].
-     *
-     * @return table rowData : table filled with row columns and data where `T[column] = data`
-     */
-    // int GetRow(lua_State* L, ElunaQuery* result)
-    // {
-    //     uint32 col = RESULT->GetFieldCount();
-    //     Field* row = RESULT->Fetch();
-    // 
-    //     lua_createtable(L, 0, col);
-    //     int tbl = lua_gettop(L);
-    // 
-    //     for (uint32 i = 0; i < col; ++i)
-    //     {
-    //         Eluna::Push(L, RESULT->GetFieldName(i));
-    // 
-    //         const char* str = row[i].GetCString();
-    //         if (row[i].IsNull() || !str)
-    //             Eluna::Push(L);
-    //         else
-    //         {
-    //             // MYSQL_TYPE_LONGLONG Interpreted as string for lua
-    //             switch (row[i].GetType())
-    //             {
-    //                 case DatabaseFieldTypes::Int8:
-    //                 case DatabaseFieldTypes::Int16:
-    //                 case DatabaseFieldTypes::Int32:
-    //                 case DatabaseFieldTypes::Int64:
-    //                 case DatabaseFieldTypes::Float:
-    //                 case DatabaseFieldTypes::Double:
-    //                     Eluna::Push(L, strtod(str, NULL));
-    //                     break;
-    //                 default:
-    //                     Eluna::Push(L, str);
-    //                     break;
-    //             }
-    //         }
-    // 
-    //         lua_rawset(L, tbl);
-    //     }
-    // 
-    //     lua_settop(L, tbl);
-    //     return 1;
-    // }
 };
 #undef RESULT
 

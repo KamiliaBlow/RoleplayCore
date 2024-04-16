@@ -91,28 +91,6 @@ namespace LuaQuest
     }
 
     /**
-     * Returns the [Quest]'s level.
-     *
-     * @return uint32 level
-     */
-    /*int GetLevel(lua_State* L, Quest* quest)
-    {
-        Eluna::Push(L, quest->GetQuestLevel());
-        return 1;
-    }*/
-
-    /**
-     * Returns the minimum level required to pick up the [Quest].
-     *
-     * @return uint32 minLevel
-     */
-    /*int GetMinLevel(lua_State* L, Quest* quest)
-    {
-        Eluna::Push(L, quest->GetMinLevel());
-        return 1;
-    }*/
-
-    /**
      * Returns the next [Quest] entry ID.
      *
      * @return int32 entryId
@@ -169,10 +147,15 @@ namespace LuaQuest
         return 1;
     }
 
-    /*int GetMaxLevel(lua_State* L, Quest* quest)
+    /**
+     * Returns the maximum level where the [Quest] can still be picked up.
+     *
+     * @return uint32 maxLevel
+     */
+    int GetMaxLevel(lua_State* L, Quest* quest)
     {
         Eluna::Push(L, quest->GetMaxLevel());
         return 1;
-    }*/
+    }
 };
 #endif

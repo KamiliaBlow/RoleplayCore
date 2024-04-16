@@ -460,18 +460,33 @@ namespace LuaUnit
         return 1;
     }
 
+    /**
+     * Returns true if the [Unit] is visible, false otherwise.
+     *
+     * @return bool isVisible
+     */
     int IsVisible(lua_State* L, Unit* unit)
     {
         Eluna::Push(L, unit->IsVisible());
         return 1;
     }
 
+    /**
+     * Returns true if the [Unit] is moving, false otherwise.
+     *
+     * @return bool isMoving
+     */
     int IsMoving(lua_State* L, Unit* unit)
     {
         Eluna::Push(L, unit->isMoving());
         return 1;
     }
 
+    /**
+     * Returns true if the [Unit] is flying, false otherwise.
+     *
+     * @return bool isFlying
+     */
     int IsFlying(lua_State* L, Unit* unit)
     {
         Eluna::Push(L, unit->IsFlying());
@@ -537,14 +552,12 @@ namespace LuaUnit
      * Returns the GUID of the [Unit]'s charmed entity.
      *
      * @return ObjectGuid charmedGUID
-     *
-     * Deprecated feature, has been stripped
      */
-    /*int GetCharmGUID(lua_State* L, Unit* unit)
+    int GetCharmGUID(lua_State* L, Unit* unit)
     {
-        Eluna::Push(L, unit->GetCharmGUID());
+        Eluna::Push(L, unit->GetCharmedGUID());
         return 1;
-    }*/
+    }
 
     /**
      * Returns the GUID of the [Unit]'s pet.
@@ -1104,13 +1117,11 @@ namespace LuaUnit
         return 1;
     }
 
-    /*
     int GetVehicle(lua_State* L, Unit* unit)
     {
     Eluna::Push(L, unit->GetVehicle());
     return 1;
     }
-    */
 
     /**
      * Returns the Critter Guid
@@ -1652,9 +1663,9 @@ namespace LuaUnit
 
     int SetStunned(lua_State* L, Unit* unit)
     {
-    bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
-    unit->SetControlled(apply, UNIT_STATE_STUNNED);
-    return 0;
+        bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
+        unit->SetControlled(apply, UNIT_STATE_STUNNED);
+        return 0;
     }
 
     /**
@@ -1699,6 +1710,7 @@ namespace LuaUnit
     int SetVisible(lua_State* L, Unit* unit)
     {
         bool x = Eluna::CHECKVAL<bool>(L, 2, true);
+
         unit->SetVisible(x);
         return 0;
     }
@@ -2486,61 +2498,28 @@ namespace LuaUnit
         return 0;
     }
 
-    /*int RemoveBindSightAuras(lua_State* L, Unit* unit)
+    int RemoveBindSightAuras(lua_State* L, Unit* unit)
     {
         unit->RemoveBindSightAuras();
         return 0;
-    }*/
+    }
 
-    /*int RemoveCharmAuras(lua_State* L, Unit* unit)
+    int RemoveCharmAuras(lua_State* L, Unit* unit)
     {
         unit->RemoveCharmAuras();
         return 0;
-    }*/
-
-    /*int DisableMelee(lua_State* L, Unit* unit)
-    {
-    bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
-    if (apply)
-    unit->AddUnitState(UNIT_STATE_CANNOT_AUTOATTACK);
-    else
-    unit->ClearUnitState(UNIT_STATE_CANNOT_AUTOATTACK);
-    return 0;
-    }*/
-
-    /*int SummonGuardian(lua_State* L, Unit* unit)
-    {
-    uint32 entry = Eluna::CHECKVAL<uint32>(L, 2);
-    float x = Eluna::CHECKVAL<float>(L, 3);
-    float y = Eluna::CHECKVAL<float>(L, 4);
-    float z = Eluna::CHECKVAL<float>(L, 5);
-    float o = Eluna::CHECKVAL<float>(L, 6);
-    uint32 desp = Eluna::CHECKVAL<uint32>(L, 7, 0);
-    SummonPropertiesEntry const* properties = sSummonPropertiesStore.LookupEntry(61);
-    if (!properties)
-    return 1;
-    Position pos;
-    pos.Relocate(x,y,z,o);
-    TempSummon* summon = unit->GetMap()->SummonCreature(entry, pos, properties, desp, unit);
-    if (!summon)
-    return 1;
-    if (summon->HasUnitTypeMask(UNIT_MASK_GUARDIAN))
-    ((Guardian*)summon)->InitStatsForLevel(unit->getLevel());
-    if (properties && properties->category == SUMMON_CATEGORY_ALLY)
-    summon->SetFaction(unit->GetFaction());
-    if (summon->GetEntry() == 27893)
-    {
-    if (uint32 weapon = unit->GetUInt32Value(PLAYER_VISIBLE_ITEM_16_ENTRYID))
-    {
-    summon->SetDisplayId(11686);
-    summon->SetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID, weapon);
     }
-    else
-    summon->SetDisplayId(1126);
+
+    int DisableMelee(lua_State* L, Unit* unit)
+    {
+        bool apply = Eluna::CHECKVAL<bool>(L, 2, true);
+
+        if (apply)
+            unit->AddUnitState(UNIT_STATE_CANNOT_AUTOATTACK);
+        else
+            unit->ClearUnitState(UNIT_STATE_CANNOT_AUTOATTACK);
+
+        return 0;
     }
-    summon->AI()->EnterEvadeMode();
-    Eluna::Push(L, summon);
-    return 1;
-    }*/
 };
 #endif

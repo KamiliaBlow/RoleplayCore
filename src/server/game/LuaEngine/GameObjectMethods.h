@@ -59,11 +59,16 @@ namespace LuaGameObject
         return 1;
     }
 
-    /*int IsDestructible(lua_State* L, GameObject* go) // TODO: Implementation core side
+    /**
+     * Returns true if the [GameObject] is a destructible, false otherwise.
+     *
+     * @return bool isDestructible
+     */
+    int IsDestructible(lua_State* L, GameObject* go)
     {
         Eluna::Push(L, go->IsDestructibleBuilding());
         return 1;
-    }*/
+    }
 
     /**
      * Returns display ID of the [GameObject]
@@ -126,7 +131,7 @@ namespace LuaGameObject
      */
     int GetDBTableGUIDLow(lua_State* L, GameObject* go)
     {
-        Eluna::Push(L, (uint32)go->GetSpawnId());
+        Eluna::Push(L, go->GetSpawnId());
         return 1;
     }
 
@@ -211,24 +216,20 @@ namespace LuaGameObject
     {
         bool deldb = Eluna::CHECKVAL<bool>(L, 2, false);
 
-        //// cs_gobject.cpp copy paste
-        //ObjectGuid ownerGuid = go->GetOwnerGUID();
-        //if (!ownerGuid)
-        //    return 0;
+        // cs_gobject.cpp copy paste
+        ObjectGuid ownerGuid = go->GetOwnerGUID();
 
-        //Unit* owner = eObjectAccessor()GetUnit(*go, ownerGuid);
-        //if (!owner || !ownerGuid.IsPlayer())
-        //    return 0;
+        Unit* owner = eObjectAccessor()GetUnit(*go, ownerGuid);
+        if (!owner || !ownerGuid.IsPlayer())
+            return 0;
 
-        //owner->RemoveGameObject(go, false);
+        owner->RemoveGameObject(go, false);
 
-        //if (deldb)
-        //    GameObject::DeleteFromDB(go->GetSpawnId());
+        if (deldb)
+            GameObject::DeleteFromDB(go->GetSpawnId());
 
         go->SetRespawnTime(0);
         go->Delete();
-        if (deldb)
-            go->DeleteFromDB(go->GetSpawnId());
 
         Eluna::CHECKOBJ<ElunaObject>(L, 1)->Invalidate();
         return 0;
@@ -320,5 +321,7 @@ namespace LuaGameObject
         go = GameObject::CreateGameObjectFromDB(guid, map);
         return 0;
     }
+
+
 };
 #endif
