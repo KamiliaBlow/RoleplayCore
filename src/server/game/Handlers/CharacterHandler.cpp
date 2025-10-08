@@ -3014,3 +3014,8 @@ void WorldSession::SendUndeleteCharacterResponse(CharacterUndeleteResult result,
 
     SendPacket(response.Write());
 }
+
+void WorldSession::HandleSetupWarbandGroups(WorldPackets::Character::SetupWarbandGroups& packet)
+{
+    TC_LOG_DEBUG("network", "Account {} sent CMSG_SETUP_WARBAND_GROUPS with {} groups", GetAccountId(), packet.WarbandGroups.size());
+}

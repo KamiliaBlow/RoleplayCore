@@ -879,4 +879,31 @@ WorldPacket const* NeutralPlayerFactionSelectResult::Write()
 
     return &_worldPacket;
 }
+
+void SetupWarbandGroups::Read()
+{
+    WarbandGroup group;
+
+    _worldPacket >> group.GroupID;
+    _worldPacket >> group.OrderIndex;
+    _worldPacket >> group.WarbandSceneID;
+    _worldPacket >> group.Flags;
+
+    uint16 symbolCount;
+    _worldPacket >> symbolCount;
+
+    size_t expectedByteLength = symbolCount * 2;
+    size_t remaining = _worldPacket.size() - _worldPacket.rpos();
+
+    if (expectedByteLength > remaining)
+        expectedByteLength = remaining;
+
+    std::vector<uint8> utf8(expectedByteLength);
+    _worldPacket.read(utf8.data(), expectedByteLength);
+    group.Name.assign(reinterpret_cast<char*>(utf8.data()), expectedByteLength);
+
+    group.Members.clear();
+
+    WarbandGroups.push_back(std::move(group));
+}
 }

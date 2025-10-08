@@ -281,6 +281,7 @@ namespace WorldPackets
         class SetWatchedFaction;
         class SetPlayerDeclinedNames;
         class SavePersonalEmblem;
+        class SetupWarbandGroups;
 
         enum class LoginFailureReason : uint8;
     }
@@ -1271,6 +1272,8 @@ class TC_GAME_API WorldSession
             bool checkRequiredDependentChoices, Trinity::IteratorPair<UF::ChrCustomizationChoice const*> selectedChoices) const;
         bool ValidateAppearance(Races race, Classes playerClass, Gender gender,
             Trinity::IteratorPair<UF::ChrCustomizationChoice const*> customizations); // customizations must be sorted
+
+        void HandleSetupWarbandGroups(WorldPackets::Character::SetupWarbandGroups& packet);
 
         void SendCharCreate(ResponseCodes result, ObjectGuid const& guid = ObjectGuid::Empty);
         void SendCharDelete(ResponseCodes result);
