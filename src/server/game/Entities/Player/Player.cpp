@@ -22339,7 +22339,14 @@ void Player::RemovePet(Pet* pet, PetSaveMode mode, bool returnreagent)
     pet->SavePetToDB(mode);
 
     PetStable::PetInfo const* currentPet = m_petStable->GetCurrentPet();
-    ASSERT(currentPet && currentPet->PetNumber == pet->GetCharmInfo()->GetPetNumber());
+    if (currentPet && currentPet->PetNumber == pet->GetCharmInfo()->GetPetNumber())
+    {
+        if (mode == PET_SAVE_AS_CURRENT)
+            GetPetStable()->CurrentPetIndex = std::nullopt;
+        else if (mode >= PET_SAVE_FIRST_ACTIVE_SLOT && mode < PET_SAVE_LAST_ACTIVE_SLOT)
+            GetPetStable()->CurrentPetIndex = std::nullopt;
+    }
+
     if (mode == PET_SAVE_NOT_IN_SLOT)
         m_petStable->CurrentPetIndex.reset();
     else if (mode == PET_SAVE_AS_DELETED)

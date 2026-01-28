@@ -543,7 +543,6 @@ void Pet::SavePetToDB(PetSaveMode mode)
             TC_LOG_ERROR("entities.pet", "Pet::SavePetToDB: Could not find PetInfo for pet {} (Slot: {}). Data not saved in memory structure.", m_charmInfo->GetPetNumber(), mode);
         }
 
-        ASSERT(owner->GetPetStable()->GetCurrentPet() && owner->GetPetStable()->GetCurrentPet()->PetNumber == m_charmInfo->GetPetNumber());
         FillPetInfo(owner->GetPetStable()->GetCurrentPet(), owner->GetTemporaryPetReactState());
 
         stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_PET);
@@ -751,7 +750,9 @@ void Pet::Remove(PetSaveMode mode, bool returnreagent)
         Player* owner = GetOwner();
         if (owner)
         {
-            for (Unit* controlled : owner->m_Controlled)
+            std::vector<Unit*> controlledList(owner->m_Controlled.begin(), owner->m_Controlled.end());
+
+            for (Unit* controlled : controlledList)
             {
                 if (controlled == this)
                     continue;
@@ -762,7 +763,7 @@ void Pet::Remove(PetSaveMode mode, bool returnreagent)
 
                     if (otherPet->getPetType() == HUNTER_PET && otherPet->IsSecondaryPet())
                     {
-                        otherPet->UnSummon();
+                        otherPet->Remove(otherPet->m_saveSlot, false);
                         break;
                     }
                 }

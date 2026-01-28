@@ -34,18 +34,17 @@
 #include "TaskScheduler.h"
 
 #include "AreaTrigger.h"
-#include "AreaTriggerAI.h"
 #include "Cell.h"
 #include "Creature.h"
 #include "DB2Stores.h"
 #include "GridNotifiers.h"
 #include "MotionMaster.h"
-#include "ObjectAccessor.h"
 #include "PetPackets.h"
 #include "PhasingHandler.h"
 #include "Player.h"
 #include "TemporarySummon.h"
 #include "Unit.h"
+#include "CharmInfo.h"
 
 enum HunterSpells
 {
@@ -2555,6 +2554,10 @@ class spell_hun_call_companion : public SpellScript
 
                             pet->SetReactState(REACT_ASSIST);
 
+                            pet->GetMotionMaster()->Clear();
+
+                            pet->GetCharmInfo()->SetCommandState(COMMAND_FOLLOW);
+
                             pet->GetMotionMaster()->MoveFollow(player, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
 
                             std::list<uint32> spellsToRemove;
@@ -2569,9 +2572,7 @@ class spell_hun_call_companion : public SpellScript
                             }
 
                             pet->m_autospells.clear();
-
                             pet->m_Events.KillAllEvents(true);
-
                             pet->SetCreatedBySpell(GetSpellInfo()->Id);
 
                             TC_LOG_INFO("scripts", " spell_hun_call_companion: Summoned and initialized companion {}", petInfo->PetNumber);
