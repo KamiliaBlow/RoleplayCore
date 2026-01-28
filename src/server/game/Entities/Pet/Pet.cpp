@@ -46,7 +46,7 @@
 Pet::Pet(Player* owner, PetType type) :
     Guardian(nullptr, owner, true), m_removed(false),
     m_petType(type), m_duration(0), m_loading(false), m_groupUpdateMask(0),
-    m_petSpecialization(0)
+    m_petSpecialization(0), m_saveSlot(PET_SAVE_AS_DELETED)
 {
     ASSERT(GetOwner());
 
@@ -212,7 +212,10 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
     std::pair<PetStable::PetInfo const*, PetSaveMode> info = GetLoadPetInfo(*petStable, petEntry, petnumber, forcedSlot);
     PetStable::PetInfo const* petInfo = info.first;
     PetSaveMode slot = info.second;
-    if (!petInfo || (slot >= PET_SAVE_FIRST_STABLE_SLOT && slot < PET_SAVE_LAST_STABLE_SLOT))
+
+    m_saveSlot = slot;
+
+    if (!petInfo)
     {
         m_loading = false;
         return false;
@@ -359,7 +362,7 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
 
         petStable->SetCurrentUnslottedPetIndex(std::distance(petStable->UnslottedPets.begin(), unslottedPetItr));
     }
-    else if (PET_SAVE_FIRST_ACTIVE_SLOT <= slot && slot <= PET_SAVE_LAST_ACTIVE_SLOT)
+    else if (slot >= PET_SAVE_FIRST_ACTIVE_SLOT && slot < PET_SAVE_FIRST_STABLE_SLOT)
     {
         auto activePetItr = std::find_if(petStable->ActivePets.begin(), petStable->ActivePets.end(), [&](Optional<PetStable::PetInfo> const& pet)
         {
@@ -483,9 +486,13 @@ void Pet::SavePetToDB(PetSaveMode mode)
     // save auras before possibly removing them
     _SaveAuras(trans);
 
-    if (mode == PET_SAVE_AS_CURRENT)
+    if (IsSecondaryPet())
+        mode = m_saveSlot;
+    else if (mode == PET_SAVE_AS_CURRENT)
+    {
         if (Optional<uint32> activeSlot = owner->GetPetStable()->GetCurrentActivePetIndex())
             mode = PetSaveMode(*activeSlot);
+    }
 
     // stable and not in slot saves
     if (mode < PET_SAVE_FIRST_ACTIVE_SLOT || mode >= PET_SAVE_LAST_ACTIVE_SLOT)
@@ -509,6 +516,33 @@ void Pet::SavePetToDB(PetSaveMode mode)
         // save pet
         std::string actionBar = GenerateActionBarData();
 
+        PetStable::PetInfo* petInfoTarget = nullptr;
+
+        if (IsSecondaryPet())
+        {
+            for (Optional<PetStable::PetInfo>& info : owner->GetPetStable()->StabledPets)
+            {
+                if (info && info->PetNumber == m_charmInfo->GetPetNumber())
+                {
+                    petInfoTarget = &info.value();
+                    break;
+                }
+            }
+        }
+        else
+        {
+            petInfoTarget = owner->GetPetStable()->GetCurrentPet();
+        }
+
+        if (petInfoTarget)
+        {
+            FillPetInfo(petInfoTarget, owner->GetTemporaryPetReactState());
+        }
+        else
+        {
+            TC_LOG_ERROR("entities.pet", "Pet::SavePetToDB: Could not find PetInfo for pet {} (Slot: {}). Data not saved in memory structure.", m_charmInfo->GetPetNumber(), mode);
+        }
+
         ASSERT(owner->GetPetStable()->GetCurrentPet() && owner->GetPetStable()->GetCurrentPet()->PetNumber == m_charmInfo->GetPetNumber());
         FillPetInfo(owner->GetPetStable()->GetCurrentPet(), owner->GetTemporaryPetReactState());
 
@@ -520,7 +554,9 @@ void Pet::SavePetToDB(PetSaveMode mode)
         stmt->setUInt8(4, GetLevel());
         stmt->setUInt32(5, m_unitData->PetExperience);
         stmt->setUInt8(6, owner->GetTemporaryPetReactState().value_or(GetReactState()));
-        stmt->setInt16(7, owner->GetPetStable()->GetCurrentActivePetIndex().value_or(PET_SAVE_NOT_IN_SLOT));
+
+        stmt->setInt16(7, mode);
+
         stmt->setString(8, m_name);
         stmt->setUInt8(9, HasPetFlag(UNIT_PET_FLAG_CAN_BE_RENAMED) ? 0 : 1);
         stmt->setUInt32(10, curhealth);
@@ -649,10 +685,9 @@ void Pet::Update(uint32 diff)
 
             if (isControlled())
             {
-                if (owner->GetPetGUID() != GetGUID())
+                if (!IsSecondaryPet() && owner->GetPetGUID() != GetGUID())
                 {
                     TC_LOG_ERROR("entities.pet", "Pet {} is not pet of owner {}, removed", GetEntry(), GetOwner()->GetName());
-                    ASSERT(getPetType() != HUNTER_PET, "Unexpected unlinked pet found for owner %s", owner->GetSession()->GetPlayerInfo().c_str());
                     Remove(PET_SAVE_NOT_IN_SLOT);
                     return;
                 }
@@ -711,6 +746,30 @@ void Pet::Update(uint32 diff)
 
 void Pet::Remove(PetSaveMode mode, bool returnreagent)
 {
+    if (IsPermanentPetFor(GetOwner()) && !IsSecondaryPet())
+    {
+        Player* owner = GetOwner();
+        if (owner)
+        {
+            for (Unit* controlled : owner->m_Controlled)
+            {
+                if (controlled == this)
+                    continue;
+
+                if (controlled->ToPet())
+                {
+                    Pet* otherPet = controlled->ToPet();
+
+                    if (otherPet->getPetType() == HUNTER_PET && otherPet->IsSecondaryPet())
+                    {
+                        otherPet->UnSummon();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     GetOwner()->RemovePet(this, mode, returnreagent);
 }
 

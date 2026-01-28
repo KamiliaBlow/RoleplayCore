@@ -146,6 +146,8 @@ class TC_GAME_API Pet final : public Guardian
 
         std::string GetDebugInfo() const override;
 
+        bool IsSecondaryPet() const { return m_saveSlot >= PET_SAVE_FIRST_STABLE_SLOT; }
+
     protected:
         PetType m_petType;
         int32   m_duration;                                 // time until unsummon (used mostly for summoned guardians and not used for controlled pets)
@@ -156,6 +158,8 @@ class TC_GAME_API Pet final : public Guardian
         std::unique_ptr<DeclinedName> m_declinedname;
 
         uint16 m_petSpecialization;
+
+        PetSaveMode m_saveSlot;
 
     private:
         void SaveToDB(uint32, std::vector<Difficulty> const&) override              // override of Creature::SaveToDB     - must not be called

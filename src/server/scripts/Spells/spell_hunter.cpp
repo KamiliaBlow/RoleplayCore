@@ -2523,6 +2523,77 @@ class spell_hun_call_pet : public SpellScript
     }
 };
 
+// 273277 - Summon Animal Companion
+class spell_hun_call_companion : public SpellScript
+{
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        if (Unit* caster = GetCaster())
+        {
+            if (Player* player = caster->ToPlayer())
+            {
+                if (player->GetClass() != CLASS_HUNTER)
+                    return;
+
+                PetStable* stable = player->GetPetStable();
+                if (!stable)
+                    return;
+
+                for (Optional<PetStable::PetInfo>& petInfo : stable->StabledPets)
+                {
+                    if (petInfo && petInfo->PetNumber > 0)
+                    {
+                        Pet* pet = new Pet(player, HUNTER_PET);
+
+                        if (pet->LoadPetFromDB(player, 0, petInfo->PetNumber, false, std::nullopt))
+                        {
+                            if (!pet->IsAlive())
+                                pet->setDeathState(ALIVE);
+
+                            pet->SetHealth(pet->GetMaxHealth());
+                            pet->SetPower(POWER_MANA, pet->GetMaxPower(POWER_MANA));
+
+                            pet->SetReactState(REACT_ASSIST);
+
+                            pet->GetMotionMaster()->MoveFollow(player, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
+
+                            std::list<uint32> spellsToRemove;
+                            for (auto iter : pet->m_spells)
+                                spellsToRemove.push_back(iter.first);
+
+                            for (uint32 id : spellsToRemove)
+                            {
+                                auto iter = pet->m_spells.find(id);
+                                if (iter != pet->m_spells.end())
+                                    pet->m_spells.erase(iter);
+                            }
+
+                            pet->m_autospells.clear();
+
+                            pet->m_Events.KillAllEvents(true);
+
+                            pet->SetCreatedBySpell(GetSpellInfo()->Id);
+
+                            TC_LOG_INFO("scripts", " spell_hun_call_companion: Summoned and initialized companion {}", petInfo->PetNumber);
+                            return;
+                        }
+                        else
+                        {
+                            delete pet;
+                        }
+                    }
+                }
+                TC_LOG_INFO("scripts", " spell_hun_call_companion: No pets in stable.");
+            }
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_hun_call_companion::HandleScript, EFFECT_0, SPELL_EFFECT_SUMMON_STABLED_PET);
+    }
+};
+
 void AddSC_hunter_spell_scripts()
 {
     RegisterSpellScript(spell_hun_a_murder_of_crows);
@@ -2598,4 +2669,5 @@ void AddSC_hunter_spell_scripts()
     RegisterAreaTriggerAI(at_hunter_shrapnel_bomb); //unused
     RegisterAreaTriggerAI(at_hunter_volatile_bomb); //unused
     RegisterSpellScript(spell_hun_call_pet);
+    RegisterSpellScript(spell_hun_call_companion);
 }

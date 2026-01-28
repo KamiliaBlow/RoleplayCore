@@ -6390,23 +6390,33 @@ void Unit::SetMinion(Minion *minion, bool apply)
         // Can only have one pet. If a new one is summoned, dismiss the old one.
         if (minion->IsGuardianPet())
         {
-            if (Guardian* oldPet = GetGuardianPet())
+            bool isSecondary = false;
+            if (minion->IsPet())
             {
-                if (oldPet != minion && (oldPet->IsPet() || minion->IsPet() || oldPet->GetEntry() != minion->GetEntry()))
+                if (minion->ToPet()->IsSecondaryPet())
+                    isSecondary = true;
+            }
+
+            if (!isSecondary)
+            {
+                if (Guardian* oldPet = GetGuardianPet())
                 {
-                    // remove existing minion pet
-                    if (Pet* oldPetAsPet = oldPet->ToPet())
-                        oldPetAsPet->Remove(PET_SAVE_NOT_IN_SLOT);
-                    else
-                        oldPet->UnSummon();
+                    if (oldPet != minion && (oldPet->IsPet() || minion->IsPet() || oldPet->GetEntry() != minion->GetEntry()))
+                    {
+                        // remove existing minion pet
+                        if (Pet* oldPetAsPet = oldPet->ToPet())
+                            oldPetAsPet->Remove(PET_SAVE_NOT_IN_SLOT);
+                        else
+                            oldPet->UnSummon();
+                        SetPetGUID(minion->GetGUID());
+                        SetMinionGUID(ObjectGuid::Empty);
+                    }
+                }
+                else
+                {
                     SetPetGUID(minion->GetGUID());
                     SetMinionGUID(ObjectGuid::Empty);
                 }
-            }
-            else
-            {
-                SetPetGUID(minion->GetGUID());
-                SetMinionGUID(ObjectGuid::Empty);
             }
         }
 
