@@ -18,6 +18,7 @@
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
 #include "CellImpl.h"
+#include "CombatAI.h"
 #include "Containers.h"
 #include "Conversation.h"
 #include "ConversationAI.h"
@@ -40,19 +41,12 @@
 #include "TemporarySummon.h"
 
 #define QUEST_THE_SHADOW_GRAVE 28608
+#define QUEST_BEYOND_THE_GRAVE 25089
 #define NPC_DARNEL             49141
 
 // Area IDs
 #define AREA_NIGHT_WEBS_HOLLOW 2117
-#define AREA_DEATHKNELL        5692
-
-enum Texts {
-    SAY_SPAWN                  = 0,
-    SAY_THIS_WAY               = 2,
-    SAY_RANDOM_MIN             = 3,
-    SAY_RANDOM_MAX             = 8,
-    SAY_FOUND                  = 9
-};
+#define AREA_DEATHKNELL_GRAVEYARD 5692
 
 enum PlaceDescription {
     UNKNOWN                    = 0,
@@ -101,12 +95,12 @@ struct npc_darnell_grave : public ScriptedAI
                 playerGUID = player->GetGUID();
                 m_modus = 1;
                 m_OldPosition = player->GetPosition();
-                Talk(SAY_SPAWN);
+                Talk(0, player);
             }
         }
     }
 
-    void MovementInform(uint32 type, uint32 id) override
+    void MovementInform(uint32 type, uint32 /*id*/) override
     {
         if (!CheckPlayerValid())
             return;
@@ -185,7 +179,7 @@ struct npc_darnell_grave : public ScriptedAI
         uint32 areaId = player->GetAreaId();
         float z = player->GetPositionZ();
 
-        if (areaId == AREA_DEATHKNELL)
+        if (areaId == AREA_DEATHKNELL_GRAVEYARD)
             return PlaceDescription::OUTSIDE;
 
         if (areaId == AREA_NIGHT_WEBS_HOLLOW)
@@ -224,9 +218,9 @@ struct npc_darnell_grave : public ScriptedAI
         if (GetMovedPlayerDistance() > 1.0f)
             m_counter = 0;
 
-        if (m_counter >= 10)
+        if (m_counter >= 5)
         {
-            Talk(SAY_THIS_WAY);
+            Talk(2);
             me->GetMotionMaster()->MovePoint(1, 1665.368896f, 1662.722656f, 141.850983f);
             m_path = 1;
             m_arrived = false;
@@ -240,9 +234,9 @@ struct npc_darnell_grave : public ScriptedAI
         if (GetMovedPlayerDistance() > 1.0f)
             m_counter = 0;
 
-        if (m_counter >= 10)
+        if (m_counter >= 5)
         {
-            Talk(SAY_THIS_WAY);
+            Talk(2);
             me->GetMotionMaster()->MovePoint(2, 1642.761963f, 1662.547729f, 132.477753f);
             m_path = 2;
             m_arrived = false;
@@ -256,9 +250,8 @@ struct npc_darnell_grave : public ScriptedAI
         if (GetMovedPlayerDistance() > 1.0f)
             m_counter = 0;
 
-        if (m_counter >= 10)
+        if (m_counter >= 3)
         {
-            Talk(SAY_THIS_WAY);
             me->GetMotionMaster()->MovePoint(3, 1642.498779f, 1677.809937f, 126.932129f);
             m_path = 3;
             m_arrived = false;
@@ -272,9 +265,8 @@ struct npc_darnell_grave : public ScriptedAI
         if (GetMovedPlayerDistance() > 1.0f)
             m_counter = 0;
 
-        if (m_counter >= 10)
+        if (m_counter >= 3)
         {
-            Talk(SAY_THIS_WAY);
             me->GetMotionMaster()->MovePoint(4, 1656.714478f, 1678.538330f, 120.718788f);
             m_path = 4;
             m_arrived = false;
@@ -290,7 +282,7 @@ struct npc_darnell_grave : public ScriptedAI
         if (CheckPlayerFoundItems())
         {
             m_ItemsFound = true;
-            Talk(SAY_FOUND);
+            Talk(9);
             m_timer = 10000;
             return;
         }
@@ -360,7 +352,9 @@ struct npc_darnell_grave : public ScriptedAI
 
     void SearchingOnCorner()
     {
-        Talk(urand(SAY_RANDOM_MIN, SAY_RANDOM_MAX));
+        Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
+        if (player)
+            Talk(urand(3, 8), player);
         m_timer = 6000;
         m_modus = 2;
     }
@@ -390,7 +384,99 @@ struct npc_darnell_grave : public ScriptedAI
     }
 };
 
+// 49337 - Darnell for quest 25089 and 26800
+struct npc_darnell_deathknell_corpse : public ScriptedAI
+{
+    npc_darnell_deathknell_corpse(Creature* creature) : ScriptedAI(creature)
+    {
+        isWaitingForTurnIn = false;
+        eventTriggered = false;
+    }
+
+    ObjectGuid playerGUID;
+    bool isWaitingForTurnIn;
+    bool eventTriggered;
+
+    void Reset() override
+    {
+        isWaitingForTurnIn = false;
+        eventTriggered = false;
+        me->SetReactState(REACT_PASSIVE);
+    }
+
+    void IsSummonedBy(WorldObject * summoner) override
+    {
+        Player* player = nullptr;
+        if (summoner->ToPlayer())
+            player = summoner->ToPlayer();
+        else
+            player = me->SelectNearestPlayer(10.0f);
+
+        if (player)
+        {
+            playerGUID = player->GetGUID();
+            Talk(0);
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
+        if (!player)
+            return;
+
+        if (isWaitingForTurnIn)
+        {
+            QuestStatus status = player->GetQuestStatus(QUEST_BEYOND_THE_GRAVE);
+
+            if (status == QUEST_STATUS_REWARDED)
+            {
+                isWaitingForTurnIn = false;
+            }
+            else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED)
+            {
+                me->DespawnOrUnsummon();
+            }
+
+            return;
+        }
+
+        if (!eventTriggered)
+        {
+            if (player->IsWithinDist3d(1685.670f, 1647.569f, 137.326f, 15.0f))
+            {
+                eventTriggered = true;
+                isWaitingForTurnIn = true;
+
+                Talk(2);
+
+                me->StopMoving();
+                me->GetMotionMaster()->Clear();
+                me->GetMotionMaster()->MoveIdle();
+
+                me->GetMotionMaster()->MovePoint(1, 1864.78f, 1604.89f, 94.606f);
+            }
+        }
+    }
+
+    void MovementInform(uint32 moveType, uint32 pointId) override
+    {
+        if (moveType != POINT_MOTION_TYPE)
+            return;
+
+        if (pointId == 1)
+        {
+            Talk(3);
+
+            me->StopMoving();
+            me->GetMotionMaster()->Clear();
+            me->GetMotionMaster()->MoveIdle();
+        }
+    }
+};
+
 void AddSC_zone_tirisfal_glades()
 {
     RegisterCreatureAI(npc_darnell_grave);
+    RegisterCreatureAI(npc_darnell_deathknell_corpse);
 }
