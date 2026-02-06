@@ -404,24 +404,25 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
         me->SetReactState(REACT_PASSIVE);
     }
 
-    void IsSummonedBy(WorldObject * summoner) override
+    void IsSummonedBy(WorldObject* summoner) override
     {
-        Player* player = nullptr;
-        if (summoner->ToPlayer())
-            player = summoner->ToPlayer();
-        else
-            player = me->SelectNearestPlayer(10.0f);
+        Unit* owner = me->GetCharmerOrOwner();
 
-        if (player)
+        if (owner->ToPlayer()->hasQuest(QUEST_BEYOND_THE_GRAVE) && owner && owner->IsPlayer())
         {
-            playerGUID = player->GetGUID();
+            playerGUID = owner->GetGUID();
             Talk(0);
+        }
+        else
+        {
+            me->DespawnOrUnsummon(100ms);
         }
     }
 
     void UpdateAI(uint32 diff) override
     {
         Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
+
         if (!player)
             return;
 
@@ -433,7 +434,7 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
             {
                 isWaitingForTurnIn = false;
             }
-            else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED)
+            else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_INCOMPLETE)
             {
                 me->DespawnOrUnsummon();
             }
@@ -443,7 +444,7 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
 
         if (!eventTriggered)
         {
-            if (player->IsWithinDist3d(1685.670f, 1647.569f, 137.326f, 15.0f))
+            if (player->HasQuest(QUEST_BEYOND_THE_GRAVE) && player->IsWithinDist3d(1816.332f, 1589.852f, 96.523f, 3.0f))
             {
                 eventTriggered = true;
                 isWaitingForTurnIn = true;
