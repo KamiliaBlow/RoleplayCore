@@ -351,11 +351,10 @@ class spell_whack_gnoll_whack : public SpellScriptLoader
             SpellCastResult CheckCast()
             {
                 Unit* caster = GetCaster();
-
-                Player* player = caster->ToPlayer();
-
                 if (!caster)
                     return SPELL_CAST_OK;
+
+                Player* player = caster->ToPlayer();
 
 
                 // Todo : On peut rendre le code plus propre en changant la TargetA du spell par 46 et ajouter des conditions, mais perso j'ai la flemme
@@ -371,7 +370,7 @@ class spell_whack_gnoll_whack : public SpellScriptLoader
 
                 Creature* target = targetList.front();
 
-                if (!caster->isInFront(target, M_PI / 2))
+                if (!caster->isInFront(target, static_cast<float>(M_PI / 2)))
                     return SPELL_FAILED_UNIT_NOT_INFRONT;
 
                 int8 score{};

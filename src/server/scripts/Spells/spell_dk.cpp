@@ -1601,8 +1601,11 @@ class spell_dk_scourge_strike : public SpellScript
                     caster->CastSpell(caster, SPELL_DK_UNHOLY_FRENZY_BUFF, true);
 
                 if (Aura* pestilentPustulesAura = caster->GetAura(SPELL_DK_PESTILENT_PUSTULES))
-                    if (festeringWoundAura->GetStackAmount() >= pestilentPustulesAura->HasEffect(EFFECT_0))
-                        caster->ModifyPower(POWER_RUNES, 1);
+                    if (AuraEffect* pustulesEff = pestilentPustulesAura->GetEffect(EFFECT_0))
+                    {
+                        if (festeringWoundAura->GetStackAmount() >= pustulesEff->GetAmount())
+                            caster->ModifyPower(POWER_RUNES, 1);
+                    }
 
                 uint8 festeringWoundBurst = 1;
                 if (Aura* castiragorAura = caster->GetAura(SPELL_DK_CASTIGATOR))

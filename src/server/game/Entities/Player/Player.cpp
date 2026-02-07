@@ -29688,6 +29688,12 @@ bool Player::AddItemBonus(uint32 itemId, uint32 count, uint32 bonusId)
     }
 
     Item* item = StoreNewItem(dest, itemId, true, GenerateItemRandomBonusListId(itemId), GuidSet(), ItemContext::NONE, &bonusListIDs, true);
+
+    if (item)
+    {
+        SendNewItem(item, count, true, false, true);
+    }
+
     return true;
 }
 

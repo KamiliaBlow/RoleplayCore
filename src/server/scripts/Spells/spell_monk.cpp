@@ -1932,37 +1932,36 @@ public:
                 }
                 if (Unit* target = GetTarget())
                 {
+                    Creature* statue = nullptr;
+
                     std::list<Unit*> playerList;
                     std::list<Creature*> tempList;
-                    std::list<Creature*> statueList;
-                    Creature* statue;
+
                     player->GetPartyMembers(playerList);
+
                     if (playerList.size() > 1)
                     {
                         playerList.remove(target);
                         playerList.sort(Trinity::HealthPctOrderPred());
                         playerList.resize(1);
                     }
+
                     player->GetCreatureListWithEntryInGrid(tempList, 60849, 100.0f);
-                    player->GetCreatureListWithEntryInGrid(statueList, 60849, 100.0f);
-                    for (std::list<Creature*>::iterator i = tempList.begin(); i != tempList.end(); ++i)
+                    for (Creature* tempCreature : tempList)
                     {
-                        Unit* owner = (*i)->GetOwner();
-                        if (owner && owner == player && (*i)->IsSummon())
-                            continue;
-                        statueList.remove((*i));
+                        Unit* owner = tempCreature->GetOwner();
+                        if (owner && owner == player && tempCreature->IsSummon())
+                        {
+                            statue = tempCreature;
+                            break;
+                        }
                     }
+
                     for (auto itr : playerList)
                     {
-                        if (statueList.size() == 1)
+                        if (statue)
                         {
-                            for (auto itrBis : statueList)
-                                statue = itrBis;
-                            if (statue->GetOwner() && statue->GetOwner()->GetGUID() == player->GetGUID())
-                            {
-                                if (statue->GetOwner() && statue->GetOwner()->GetGUID() == player->GetGUID())
-                                    statue->CastSpell(statue->GetOwner()->ToPlayer()->GetSelectedUnit(), SPELL_SERPENT_STATUE_SOOTHING_MIST, false);
-                            }
+                            statue->CastSpell(itr, SPELL_SERPENT_STATUE_SOOTHING_MIST, false);
                         }
                     }
                 }

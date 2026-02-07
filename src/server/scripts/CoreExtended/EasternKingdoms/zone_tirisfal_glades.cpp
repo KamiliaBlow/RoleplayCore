@@ -404,7 +404,7 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
         me->SetReactState(REACT_PASSIVE);
     }
 
-    void IsSummonedBy(WorldObject* summoner) override
+    void IsSummonedBy(WorldObject* /*summoner*/) override
     {
         Unit* owner = me->GetCharmerOrOwner();
 
@@ -419,7 +419,7 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
         }
     }
 
-    void UpdateAI(uint32 diff) override
+    void UpdateAI(uint32 /*diff*/) override
     {
         Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
 

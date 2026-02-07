@@ -900,6 +900,8 @@ class spell_warl_health_funnel : public AuraScript
         Unit const* caster = GetCaster();
         if (!caster)
             return false;
+
+        return true;
     }
 
     void HandleEffectApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
@@ -1984,9 +1986,25 @@ class spell_warl_corruption_effect : public AuraScript
         if (!target || !caster)
             return;
 
-        //If the target is a player, only cast for the time said in ABSOLUTE_CORRUPTION
         if (caster->HasAura(SPELL_WARLOCK_ABSOLUTE_CORRUPTION))
-            GetAura()->SetDuration(target->GetTypeId() == TYPEID_PLAYER ? sSpellMgr->GetSpellInfo(SPELL_WARLOCK_ABSOLUTE_CORRUPTION, DIFFICULTY_NONE)->GetEffect(EFFECT_0).BasePoints * IN_MILLISECONDS : 60 * 60 * IN_MILLISECONDS); //If not player, 1 hour
+        {
+            int32 duration = 60 * 60 * IN_MILLISECONDS;
+
+            if (target->GetTypeId() == TYPEID_PLAYER)
+            {
+                if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(SPELL_WARLOCK_ABSOLUTE_CORRUPTION, DIFFICULTY_NONE))
+                {
+                    SpellEffectInfo const& effect = spellInfo->GetEffect(EFFECT_0);
+
+                    if (effect.IsEffect())
+                    {
+                        duration = static_cast<int32>(effect.BasePoints * static_cast<float>(IN_MILLISECONDS));
+                    }
+                }
+            }
+
+            GetAura()->SetDuration(duration);
+        }
     }
 
     /*
