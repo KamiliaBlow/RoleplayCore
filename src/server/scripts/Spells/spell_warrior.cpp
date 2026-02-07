@@ -133,9 +133,6 @@ enum WarriorSpells
     SPELL_WARRIOR_REVENGE                           = 6572,
     SPELL_WARRIOR_INTERVENE_CHARGE                  = 316531,
     SPELL_WARRIOR_INTERVENE_AURA                    = 147833,
-    SPELL_WARRIOR_THUNDER_CLAP_SLOW                 = 435203,
-    SPELL_WARRIOR_REND                              = 772,
-    SPELL_WARRIOR_REND_AURA                         = 388539,
     SPELL_WARRIOR_RAVAGER_SUMMON                    = 227876,
     SPELL_WARRIOR_RAVAGER_DAMAGE                    = 156287,
     SPELL_WARRIOR_RAVAGER_ENERGIZE                  = 334934,
@@ -1967,72 +1964,6 @@ class spell_warr_pain_and_gain_heal : public SpellScript
     }
 };
 
-// 6343 - Thunder Clap
-class spell_warr_thunder_clap : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_THUNDER_CLAP_SLOW });
-    }
-
-    void HandleSlow(SpellEffIndex /*effIndex*/) const
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_THUNDER_CLAP_SLOW, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-            });
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_thunder_clap::HandleSlow, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
-    }
-};
-
-// 6343 - Thunder Clap (Rend)
-class spell_warr_thunder_clap_rend : public SpellScript
-{
-public:
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({
-            SPELL_WARRIOR_REND,
-            SPELL_WARRIOR_REND_AURA
-            });
-    }
-
-    bool Load() override
-    {
-        if (Player* player = GetCaster()->ToPlayer())
-            return player->HasSpell(SPELL_WARRIOR_REND);
-        return false;
-    }
-
-    void HandleRend(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-
-        if (_applicationCount >= 5)
-            return;
-
-        caster->CastSpell(target, SPELL_WARRIOR_REND_AURA, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-            });
-
-        ++_applicationCount;
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_thunder_clap_rend::HandleRend, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
-    }
-
-private:
-    uint8 _applicationCount = 0;
-};
-
 // 23920 Spell Reflect
 class spell_warr_spell_reflect : public SpellScriptLoader
 {
@@ -2812,8 +2743,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_intervene);
     RegisterSpellScript(spell_warr_intervene_charge);
     RegisterSpellScript(spell_warr_pain_and_gain_heal);
-    RegisterSpellScript(spell_warr_thunder_clap);
-    RegisterSpellScript(spell_warr_thunder_clap_rend);
 
     //new
     new spell_warr_spell_reflect();
