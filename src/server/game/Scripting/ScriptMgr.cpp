@@ -1747,6 +1747,8 @@ bool ScriptMgr::OnQuestAccept(Player* player, Item* item, Quest const* quest)
     GET_SCRIPT_RET(ItemScript, item->GetScriptId(), tmpscript, false);
     player->PlayerTalkClass->ClearMenus();
     return tmpscript->OnQuestAccept(player, item, quest);
+
+    player->PlayerTalkClass->SendCloseGossip();
 }
 
 bool ScriptMgr::OnItemUse(Player* player, Item* item, SpellCastTargets const& targets, ObjectGuid castId)

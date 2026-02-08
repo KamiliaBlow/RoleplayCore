@@ -39,17 +39,19 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include "TemporarySummon.h"
+#include "Log.h"
 
 #define QUEST_THE_SHADOW_GRAVE 28608
 #define QUEST_BEYOND_THE_GRAVE 25089
 #define NPC_DARNEL             49141
+#define NPC_DARNEL_2           49337
 
-// Area IDs
+ // Area IDs
 #define AREA_NIGHT_WEBS_HOLLOW 2117
 #define AREA_DEATHKNELL_GRAVEYARD 5692
 
 enum PlaceDescription {
-    UNKNOWN                    = 0,
+    UNKNOWN = 0,
     OUTSIDE,
     ENTRANCE,
     STAIRS1,
@@ -57,13 +59,23 @@ enum PlaceDescription {
     GROUND,
 };
 
+static Creature* GetDarnell(Player* player)
+{
+    if (!player)
+        return nullptr;
+
+    for (Unit::ControlList::const_iterator itr = player->m_Controlled.begin(); itr != player->m_Controlled.end(); ++itr)
+    {
+        if (*itr && (*itr)->GetEntry() == NPC_DARNEL_2)
+            return (*itr)->ToCreature();
+    }
+    return nullptr;
+}
+
 // 49141 - Darnell for quest 28608
 struct npc_darnell_grave : public ScriptedAI
 {
-    npc_darnell_grave(Creature* creature) : ScriptedAI(creature)
-    {
-        Reset();
-    }
+    npc_darnell_grave(Creature* creature) : ScriptedAI(creature) { Reset(); }
 
     ObjectGuid playerGUID;
     uint32 m_timer;
@@ -127,9 +139,7 @@ struct npc_darnell_grave : public ScriptedAI
         if (m_arrived && me->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
         {
             if (me->GetDistance(player) < 4.0f)
-            {
                 me->GetMotionMaster()->MoveFollow(player, 0.0f, 0.0f);
-            }
         }
 
         if (m_timer <= diff)
@@ -151,23 +161,12 @@ struct npc_darnell_grave : public ScriptedAI
 
         switch (GetPlaceDescription())
         {
-        case PlaceDescription::OUTSIDE:
-            InviteToFollow();
-            break;
-        case PlaceDescription::ENTRANCE:
-            InviteToFollowDeeper1();
-            break;
-        case PlaceDescription::STAIRS1:
-            InviteToFollowDeeper2();
-            break;
-        case PlaceDescription::STAIRS2:
-            InviteToFollowToGround();
-            break;
-        case PlaceDescription::GROUND:
-            SearchOnGround();
-            break;
-        default:
-            break;
+        case PlaceDescription::OUTSIDE: InviteToFollow(); break;
+        case PlaceDescription::ENTRANCE: InviteToFollowDeeper1(); break;
+        case PlaceDescription::STAIRS1: InviteToFollowDeeper2(); break;
+        case PlaceDescription::STAIRS2: InviteToFollowToGround(); break;
+        case PlaceDescription::GROUND: SearchOnGround(); break;
+        default: break;
         }
     }
 
@@ -190,12 +189,8 @@ struct npc_darnell_grave : public ScriptedAI
                 return PlaceDescription::GROUND;
             }
 
-            if (z < 127.0f)
-                return PlaceDescription::STAIRS2;
-
-            if (z < 133.0f)
-                return PlaceDescription::STAIRS1;
-
+            if (z < 127.0f) return PlaceDescription::STAIRS2;
+            if (z < 133.0f) return PlaceDescription::STAIRS1;
             return PlaceDescription::ENTRANCE;
         }
 
@@ -384,16 +379,66 @@ struct npc_darnell_grave : public ScriptedAI
     }
 };
 
-// 49337 - Darnell for quest 25089 and 26800
-struct npc_darnell_deathknell_corpse : public ScriptedAI
+// npc_deathguard_saltain
+class npc_deathguard_saltain : public CreatureScript
 {
-    npc_darnell_deathknell_corpse(Creature* creature) : ScriptedAI(creature)
+public:
+    npc_deathguard_saltain() : CreatureScript("npc_deathguard_saltain") {}
+
+    struct npc_deathguard_saltainAI : public ScriptedAI
+    {
+        npc_deathguard_saltainAI(Creature* creature) : ScriptedAI(creature) {}
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_deathguard_saltainAI(creature);
+    }
+
+    bool OnQuestAccept(Player* player, Creature* /*creature*/, Quest const* quest) override
+    {
+        std::cout << "QUEST ACCEPT!!" << "\n";
+        std::cout << "QUEST: " << quest << "\n";
+        if (quest->GetQuestId() == 26800)
+        {
+            if (player && !player->IsInWorld())
+                return true;
+
+            player->CastSpell(player, 91938, true);
+        }
+        return true;
+    }
+
+    bool OnQuestReward(Player* player, Creature* /*creature*/, Quest const* quest, uint32 /*opt*/) override
+    {
+        if (quest->GetQuestId() == 26800)
+        {
+            if (Creature* darnell = GetDarnell(player))
+            {
+                if (Vehicle* kit = darnell->GetVehicleKit())
+                    kit->RemoveAllPassengers();
+
+                darnell->DespawnOrUnsummon(1000ms);
+            }
+        }
+        return true;
+    }
+};
+
+// 49337 - Darnell for quest 25089 and 26800
+struct npc_darnell_deathknell_corpse : public VehicleAI
+{
+    npc_darnell_deathknell_corpse(Creature* c) : VehicleAI(c)
     {
         isWaitingForTurnIn = false;
         eventTriggered = false;
+        m_seat = 0;
+        m_scarletGUID.Clear();
     }
 
     ObjectGuid playerGUID;
+    ObjectGuid m_scarletGUID;
+    uint8 m_seat;
     bool isWaitingForTurnIn;
     bool eventTriggered;
 
@@ -401,16 +446,40 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
     {
         isWaitingForTurnIn = false;
         eventTriggered = false;
+        m_seat = 0;
+        m_scarletGUID.Clear();
         me->SetReactState(REACT_PASSIVE);
     }
 
-    void IsSummonedBy(WorldObject* /*summoner*/) override
+    void IsSummonedBy(WorldObject* summoner) override
     {
-        Unit* owner = me->GetCharmerOrOwner();
+        if (!summoner)
+            return;
 
-        if (owner->ToPlayer()->hasQuest(QUEST_BEYOND_THE_GRAVE) && owner && owner->IsPlayer())
+        Player* player = nullptr;
+
+        if (summoner->IsPlayer())
+            player = summoner->ToPlayer();
+        else
         {
-            playerGUID = owner->GetGUID();
+            Unit* owner = me->GetCharmerOrOwner();
+            if (owner && owner->IsPlayer())
+                player = owner->ToPlayer();
+        }
+
+        if (!player)
+        {
+            me->DespawnOrUnsummon(100ms);
+            return;
+        }
+
+        playerGUID = player->GetGUID();
+
+        bool hasQuest26800 = player->HasQuest(26800);
+        bool hasQuest25089 = player->HasQuest(25089);
+
+        if (hasQuest26800 || hasQuest25089)
+        {
             Talk(0);
         }
         else
@@ -419,43 +488,78 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
         }
     }
 
-    void UpdateAI(uint32 /*diff*/) override
+    void PassengerBoarded(Unit* passenger, int8 /*seatId*/, bool apply) override
     {
-        Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
+        if (!apply)
+        {
+            if (Creature* scarlet = passenger->ToCreature())
+            {
+                scarlet->SetDisableGravity(false);
+                scarlet->DespawnOrUnsummon(500ms);
+            }
+        }
+    }
 
+    void SetGUID(ObjectGuid const& guid, int32 id) override
+    {
+        if (id == 49340)
+            m_scarletGUID = guid;
+    }
+
+    void DoAction(int32 param) override
+    {
+        if (param == 1)
+        {
+            if (Creature* scarlet = ObjectAccessor::GetCreature(*me, m_scarletGUID))
+            {
+                me->CastSpell(scarlet, 91945, true);
+                scarlet->AddAura(46598, scarlet);
+                scarlet->SetDisableGravity(true);
+                scarlet->EnterVehicle(me, m_seat);
+                m_seat++;
+                me->CastSpell(scarlet, 91935, true);
+                me->CastSpell(scarlet, 193710, true);
+            }
+        }
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        VehicleAI::UpdateAI(diff);
+
+        Player* player = ObjectAccessor::GetPlayer(*me, playerGUID);
         if (!player)
             return;
 
         if (isWaitingForTurnIn)
         {
-            QuestStatus status = player->GetQuestStatus(QUEST_BEYOND_THE_GRAVE);
+            QuestStatus status26800 = player->GetQuestStatus(26800);
+            QuestStatus status25089 = player->GetQuestStatus(QUEST_BEYOND_THE_GRAVE);
 
-            if (status == QUEST_STATUS_REWARDED)
-            {
-                isWaitingForTurnIn = false;
-            }
-            else if (status == QUEST_STATUS_NONE || status == QUEST_STATUS_FAILED || status == QUEST_STATUS_INCOMPLETE)
+            if (status26800 != QUEST_STATUS_INCOMPLETE && status25089 != QUEST_STATUS_INCOMPLETE && status25089 != QUEST_STATUS_FAILED && status26800 != QUEST_STATUS_FAILED)
             {
                 me->DespawnOrUnsummon();
             }
-
             return;
         }
 
         if (!eventTriggered)
         {
-            if (player->HasQuest(QUEST_BEYOND_THE_GRAVE) && player->IsWithinDist3d(1816.332f, 1589.852f, 96.523f, 3.0f))
+            if (player->IsWithinDist3d(1816.332f, 1589.852f, 96.523f, 3.0f))
             {
-                eventTriggered = true;
-                isWaitingForTurnIn = true;
+                if (player->GetQuestStatus(QUEST_BEYOND_THE_GRAVE) == QUEST_STATUS_COMPLETE)
+                {
+                    eventTriggered = true;
+                    isWaitingForTurnIn = true;
 
-                Talk(2);
+                    Talk(2);
 
-                me->StopMoving();
-                me->GetMotionMaster()->Clear();
-                me->GetMotionMaster()->MoveIdle();
+                    me->StopMoving();
+                    me->GetMotionMaster()->Clear();
+                    me->GetMotionMaster()->MoveIdle();
 
-                me->GetMotionMaster()->MovePoint(1, 1864.78f, 1604.89f, 94.606f);
+                    me->GetMotionMaster()->MovePoint(1, 1864.78f, 1604.89f, 94.606f);
+                }
             }
         }
     }
@@ -476,8 +580,32 @@ struct npc_darnell_deathknell_corpse : public ScriptedAI
     }
 };
 
+// npc_scarlet_corpse_49340
+struct npc_scarlet_corpse : public ScriptedAI
+{
+    npc_scarlet_corpse(Creature* c) : ScriptedAI(c) {}
+
+    void SpellHit(WorldObject* caster, SpellInfo const* /*spell*/) override
+    {
+        if (Player* player = caster->ToPlayer())
+        {
+            if (player->GetQuestStatus(26800) == QUEST_STATUS_INCOMPLETE)
+            {
+                if (Creature* darnell = GetDarnell(player))
+                {
+                    darnell->AI()->SetGUID(me->GetGUID(), me->GetEntry());
+                    darnell->CastSpell(darnell, 91935, true);
+                    darnell->AI()->DoAction(1);
+                }
+            }
+        }
+    }
+};
+
 void AddSC_zone_tirisfal_glades()
 {
     RegisterCreatureAI(npc_darnell_grave);
+    new npc_deathguard_saltain();
     RegisterCreatureAI(npc_darnell_deathknell_corpse);
+    RegisterCreatureAI(npc_scarlet_corpse);
 }
