@@ -2154,6 +2154,98 @@ struct HolidaysEntry
     std::array<int32, 3> TextureFileDataID;
 };
 
+struct HouseEntry
+{
+    uint32 ID;
+    char const* InternalName;
+    int32 HouseTypeID;
+    int32 MapID;
+    int32 Flags;
+};
+
+struct HouseDecorEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    DBCPosition3D Scale;
+    int32 ItemID;
+    int32 SpellVisualKitID;
+    int32 FileDataID;
+    uint8 CategoryID;
+    uint8 SubCategoryID;
+    int32 PlacementFlags;
+    int32 CollisionType;
+    int32 SoundKitID;
+    int32 AnimKitID;
+    float InteractionRadius;
+    int32 RequiredHouseLevel;
+    int32 CurrencyCost;
+    int8 QualityTier;
+    int32 PlayerConditionID;
+    int32 ContentTuningID;
+};
+
+struct HouseDecorMaterialEntry
+{
+    uint32 ID;
+    uint64 MaterialGUID;
+    int32 HouseDecorID;
+    int32 MaterialIndex;
+    int32 DefaultDyeID;
+    int32 AllowedDyeMask;
+};
+
+struct HouseDecorThemeSetEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int32 ThemeID;
+    int32 IconFileDataID;
+};
+
+struct HouseExteriorWmoDataEntry
+{
+    uint32 ID;
+    char const* WmoFilePath;
+};
+
+struct HouseLevelDataEntry
+{
+    uint32 ID;
+    int32 RequiredFavor;
+    int32 MaxDecorCount;
+};
+
+struct HouseLevelRewardInfoEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    LocalizedString Description;
+    int32 HouseLevelID;
+    int32 RewardType;
+    int32 RewardValue;
+};
+
+struct HouseRoomEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int8 Size;
+    int32 WmoFileDataID;
+    int32 DoorCount;
+    int32 BaseRoomFlags;
+    int32 RequiredHouseLevel;
+    int32 CurrencyCost;
+};
+
+struct HouseThemeEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int32 IconFileDataID;
+    int32 CategoryID;
+};
+
 struct ImportPriceArmorEntry
 {
     uint32 ID;
@@ -3124,6 +3216,84 @@ struct NamesReservedLocaleEntry
     uint32 ID;
     char const* Name;
     uint8 LocaleMask;
+};
+
+struct NeighborhoodInitiativeEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    LocalizedString Description;
+    int32 InitiativeType;
+    int32 Duration;
+    int32 RequiredParticipants;
+    int32 RewardCurrencyID;
+    int32 RewardCurrencyAmount;
+    int32 PlayerConditionID;
+};
+
+struct NeighborhoodInitiativeRewardEntry
+{
+    uint32 ID;
+    int32 InitiativeID;
+    float ChanceWeight;
+    int32 RewardValue;
+};
+
+struct NeighborhoodInitiativeTaskEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    LocalizedString Description;
+    int32 TaskType;
+    int32 RequiredCount;
+    int32 TargetID;
+    float ProgressWeight;
+    int32 PlayerConditionID;
+};
+
+struct NeighborhoodInitiativeXTaskEntry
+{
+    uint32 ID;
+    int32 TaskID;
+    int32 InitiativeID;
+};
+
+struct NeighborhoodMapEntry
+{
+    uint32 ID;
+    DBCPosition3D Position;
+    int32 MapID;
+    float Radius;
+    uint32 PlotCount;
+    int32 FactionRestriction;
+};
+
+struct NeighborhoodNameGenEntry
+{
+    uint32 ID;
+    LocalizedString Prefix;
+    LocalizedString Suffix;
+    LocalizedString FullName;
+    int32 NeighborhoodMapID;
+};
+
+struct NeighborhoodPlotEntry
+{
+    uint32 ID;
+    uint64 PlotGUID;
+    char const* InternalName;
+    DBCPosition3D Position;
+    DBCPosition3D Orientation;
+    DBCPosition3D BoundsMin;
+    DBCPosition3D BoundsMax;
+    DBCPosition3D EntryPoint;
+    DBCPosition3D CornerstonePos;
+    DBCPosition3D ExteriorPos;
+    int32 NeighborhoodMapID;
+    int32 PlotSize;
+    int32 PlotFlags;
+    int32 AreaTriggerID;
+    int32 PhaseID;
 };
 
 struct NumTalentsAtLevelEntry
