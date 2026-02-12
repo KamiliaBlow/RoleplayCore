@@ -63,6 +63,8 @@
 #include "Garrison.h"
 #include "GarrisonMgr.h"
 #include "GitRevision.h"
+#include "Housing.h"
+#include "HousingMgr.h"
 #include "GossipDef.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -18542,6 +18544,14 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWER_ABILITIES)))
         _garrison = std::move(garrison);
 
+    std::unique_ptr<Housing> housing = std::make_unique<Housing>(this);
+    if (housing->LoadFromDB(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_DECOR),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG)))
+        _housing = std::move(housing);
+
     _InitHonorLevelOnLoadFromDB(fields.honor, fields.honorLevel);
 
     _restMgr->LoadRestBonus(REST_TYPE_HONOR, fields.honorRestState, fields.honorRestBonus);
@@ -20521,6 +20531,8 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
     _SaveCharacterBankTabSettings(trans);
     if (_garrison)
         _garrison->SaveToDB(trans);
+    if (_housing)
+        _housing->SaveToDB(trans);
 
     // check if stats should only be saved on logout
     // save stats can be out of transaction
@@ -29685,6 +29697,22 @@ void Player::DeleteGarrison()
     {
         _garrison->Delete();
         _garrison.reset();
+    }
+}
+
+void Player::CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex)
+{
+    std::unique_ptr<Housing> housing(new Housing(this));
+    if (housing->Create(neighborhoodGuid, plotIndex) == HOUSING_RESULT_SUCCESS)
+        _housing = std::move(housing);
+}
+
+void Player::DeleteHousing()
+{
+    if (_housing)
+    {
+        _housing->Delete();
+        _housing.reset();
     }
 }
 

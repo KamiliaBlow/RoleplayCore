@@ -17,9 +17,11 @@
 
 #include "HousingMgr.h"
 #include "DB2Stores.h"
+#include "DB2Structure.h"
 #include "Log.h"
 #include "Random.h"
 #include "Timer.h"
+#include "World.h"
 
 HousingMgr::HousingMgr() = default;
 HousingMgr::~HousingMgr() = default;
@@ -53,51 +55,51 @@ void HousingMgr::Initialize()
 
 void HousingMgr::LoadHouseDecorData()
 {
-    // HouseDecor DB2 has 18 fields as defined in HouseDecorMeta:
-    //  0: Name (string)
-    //  1: BoundingBox[3] (float)
-    //  2: ID (uint32, indexed)
-    //  3: PlacementFlags (int32)
-    //  4: CategoryID (int32)
-    //  5: CurrencyTypeID (int32)
-    //  6: Quality (uint8)
-    //  7: MaxDyeSlots (uint8)
-    //  8: SpellVisualID (int32)
-    //  9: GameObjectDisplayInfoID (int32)
-    // 10: CurrencyCost (int32)
-    // 11: SourceTypeEnum (int32)
-    // 12: Scale (float)
-    // 13: SourceID (int32)
-    // 14: SourceDifficultyID (int32)
-    // 15: UiModelSceneID (int8)
-    // 16: HouseDecorCategoryID (int32)
-    // 17: unknown (int32)
-    //
-    // Data is loaded from DB2 hotfix storage when available.
-    // For now, this is a placeholder that will be populated once DB2 stores
-    // for housing are registered in DB2Stores.cpp.
+    for (HouseDecorEntry const* entry : sHouseDecorStore)
+    {
+        HouseDecorData& data = _houseDecorStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.BoundingBox[0] = entry->Scale.X;
+        data.BoundingBox[1] = entry->Scale.Y;
+        data.BoundingBox[2] = entry->Scale.Z;
+        data.PlacementFlags = entry->PlacementFlags;
+        data.CategoryID = entry->CategoryID;
+        data.Quality = entry->QualityTier;
+        data.MaxDyeSlots = entry->SubCategoryID;
+        data.SpellVisualID = entry->SpellVisualKitID;
+        data.GameObjectDisplayInfoID = entry->FileDataID;
+        data.CurrencyCost = entry->CurrencyCost;
+        data.SourceTypeEnum = entry->CollisionType;
+        data.Scale = entry->InteractionRadius;
+        data.SourceID = entry->SoundKitID;
+        data.SourceDifficultyID = entry->AnimKitID;
+        data.UiModelSceneID = entry->RequiredHouseLevel;
+        data.HouseDecorCategoryID = entry->PlayerConditionID;
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseDecorData: Loaded {} HouseDecor entries", uint32(_houseDecorStore.size()));
 }
 
 void HousingMgr::LoadHouseLevelData()
 {
-    // HouseLevelData DB2 has 3 fields as defined in HouseLevelDataMeta:
-    //  0: ID (uint32, indexed)
-    //  1: MaxDecorCount (int32)
-    //  2: FavorRequired (int32)
-    //
-    // Provide fallback defaults until DB2 stores are registered.
-    // Default level progression: each level allows 25 more decor items
+    for (HouseLevelDataEntry const* entry : sHouseLevelDataStore)
+    {
+        HouseLevelData& data = _houseLevelDataStore[entry->ID];
+        data.ID = entry->ID;
+        data.MaxDecorCount = entry->MaxDecorCount;
+        data.FavorRequired = entry->RequiredFavor;
+    }
 
+    // Fallback defaults if no DB2 data available
     if (_houseLevelDataStore.empty())
     {
         for (uint32 level = 1; level <= 10; ++level)
         {
-            HouseLevelData& entry = _houseLevelDataStore[level];
-            entry.ID = level;
-            entry.MaxDecorCount = static_cast<int32>(level * 25);
-            entry.FavorRequired = static_cast<int32>((level - 1) * 100);
+            HouseLevelData& data = _houseLevelDataStore[level];
+            data.ID = level;
+            data.MaxDecorCount = static_cast<int32>(level * 25);
+            data.FavorRequired = static_cast<int32>((level - 1) * 100);
         }
     }
 
@@ -110,66 +112,97 @@ void HousingMgr::LoadHouseLevelData()
 
 void HousingMgr::LoadHouseRoomData()
 {
-    // HouseRoom DB2 has 7 fields as defined in HouseRoomMeta:
-    //  0: Name (string)
-    //  1: Size (int8)
-    //  2: WmoID (int32)
-    //  3: MaxDecorCount (int32)
-    //  4: DoorSlots (int32)
-    //  5: CeilingSlots (int32)
-    //  6: WallSlots (int32)
-    //
-    // Will be populated from DB2 store when registered.
+    for (HouseRoomEntry const* entry : sHouseRoomStore)
+    {
+        HouseRoomData& data = _houseRoomStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.Size = entry->Size;
+        data.WmoID = entry->WmoFileDataID;
+        data.MaxDecorCount = entry->DoorCount;
+        data.DoorSlots = entry->BaseRoomFlags;
+        data.CeilingSlots = entry->RequiredHouseLevel;
+        data.WallSlots = entry->CurrencyCost;
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseRoomData: Loaded {} HouseRoom entries", uint32(_houseRoomStore.size()));
 }
 
 void HousingMgr::LoadHouseThemeData()
 {
-    // HouseTheme DB2 has 4 fields as defined in HouseThemeMeta:
-    //  0: Name (string)
-    //  1: ID (uint32, indexed)
-    //  2: ThemeSetID (int32)
-    //  3: UiModelSceneID (int32)
-    //
-    // Will be populated from DB2 store when registered.
+    for (HouseThemeEntry const* entry : sHouseThemeStore)
+    {
+        HouseThemeData& data = _houseThemeStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.ThemeSetID = entry->IconFileDataID;
+        data.UiModelSceneID = entry->CategoryID;
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseThemeData: Loaded {} HouseTheme entries", uint32(_houseThemeStore.size()));
 }
 
 void HousingMgr::LoadHouseDecorThemeSetData()
 {
-    // HouseDecorThemeSet DB2 has 3 fields as defined in HouseDecorThemeSetMeta:
-    //  0: Name (string)
-    //  1: HouseThemeID (int32)
-    //  2: HouseDecorCategoryID (int32)
-    //
-    // Will be populated from DB2 store when registered.
+    for (HouseDecorThemeSetEntry const* entry : sHouseDecorThemeSetStore)
+    {
+        HouseDecorThemeSetData& data = _houseDecorThemeSetStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.HouseThemeID = entry->ThemeID;
+        data.HouseDecorCategoryID = entry->IconFileDataID;
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseDecorThemeSetData: Loaded {} HouseDecorThemeSet entries", uint32(_houseDecorThemeSetStore.size()));
 }
 
 void HousingMgr::LoadNeighborhoodMapData()
 {
-    // NeighborhoodMap DB2 has 6 fields as defined in NeighborhoodMapMeta:
-    //  0: Origin[3] (float)
-    //  1: ID (uint32, indexed)
-    //  2: MapID (int32)
-    //  3: PlotSpacing (float)
-    //  4: MaxPlots (uint32)
-    //  5: UiMapID (int32)
-    //
-    // Will be populated from DB2 store when registered.
+    for (NeighborhoodMapEntry const* entry : sNeighborhoodMapStore)
+    {
+        NeighborhoodMapData& data = _neighborhoodMapStore[entry->ID];
+        data.ID = entry->ID;
+        data.Origin[0] = entry->Position.X;
+        data.Origin[1] = entry->Position.Y;
+        data.Origin[2] = entry->Position.Z;
+        data.MapID = entry->MapID;
+        data.PlotSpacing = entry->Radius;
+        data.MaxPlots = entry->PlotCount;
+        data.UiMapID = entry->FactionRestriction;
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodMapData: Loaded {} NeighborhoodMap entries", uint32(_neighborhoodMapStore.size()));
 }
 
 void HousingMgr::LoadNeighborhoodPlotData()
 {
-    // NeighborhoodPlot DB2 has 16 fields as defined in NeighborhoodPlotMeta.
-    // Parent index is field 8 (NeighborhoodMapID).
-    //
-    // Will be populated from DB2 store when registered.
+    for (NeighborhoodPlotEntry const* entry : sNeighborhoodPlotStore)
+    {
+        NeighborhoodPlotData& data = _neighborhoodPlotStore[entry->ID];
+        data.ID = entry->ID;
+        data.ContentTuningID = entry->PlotGUID;
+        data.InternalName = entry->InternalName ? entry->InternalName : "";
+        data.Position[0] = entry->Position.X;
+        data.Position[1] = entry->Position.Y;
+        data.Position[2] = entry->Position.Z;
+        data.Rotation[0] = entry->Orientation.X;
+        data.Rotation[1] = entry->Orientation.Y;
+        data.Rotation[2] = entry->Orientation.Z;
+        data.Scale[0] = entry->BoundsMin.X;
+        data.Scale[1] = entry->BoundsMin.Y;
+        data.Scale[2] = entry->BoundsMin.Z;
+        data.BoundingBoxMin[0] = entry->BoundsMin.X;
+        data.BoundingBoxMin[1] = entry->BoundsMin.Y;
+        data.BoundingBoxMin[2] = entry->BoundsMin.Z;
+        data.BoundingBoxMax[0] = entry->BoundsMax.X;
+        data.BoundingBoxMax[1] = entry->BoundsMax.Y;
+        data.BoundingBoxMax[2] = entry->BoundsMax.Z;
+        data.NeighborhoodMapID = entry->NeighborhoodMapID;
+        data.PlotSize = entry->PlotSize;
+        data.PlotIndex = entry->PlotFlags;
+        data.AreaTriggerID = entry->AreaTriggerID;
+        data.Flags = entry->PhaseID;
+    }
 
     // Build map index
     for (auto const& [id, plot] : _neighborhoodPlotStore)
@@ -181,13 +214,16 @@ void HousingMgr::LoadNeighborhoodPlotData()
 
 void HousingMgr::LoadNeighborhoodNameGenData()
 {
-    // NeighborhoodNameGen DB2 has 4 fields as defined in NeighborhoodNameGenMeta:
-    //  0: Prefix (string)
-    //  1: Middle (string)
-    //  2: Suffix (string)
-    //  3: NeighborhoodMapID (int32) - parent index
-    //
-    // Will be populated from DB2 store when registered.
+    for (NeighborhoodNameGenEntry const* entry : sNeighborhoodNameGenStore)
+    {
+        NeighborhoodNameGenData data;
+        data.ID = entry->ID;
+        data.Prefix = entry->Prefix[sWorld->GetDefaultDbcLocale()];
+        data.Middle = entry->Suffix[sWorld->GetDefaultDbcLocale()];
+        data.Suffix = entry->FullName[sWorld->GetDefaultDbcLocale()];
+        data.NeighborhoodMapID = entry->NeighborhoodMapID;
+        _nameGenByMap[entry->NeighborhoodMapID].push_back(std::move(data));
+    }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodNameGenData: Loaded name gen data for {} maps",
         uint32(_nameGenByMap.size()));

@@ -805,14 +805,19 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_INS_CHARACTER_BANK_TAB_SETTINGS, "INSERT INTO character_bank_tab_settings (characterGuid, tabId, name, icon, description, depositFlags) VALUES (?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
 
     // Housing
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING, "SELECT house_id, neighborhood_guid, plot_index, house_level, favor, settings_flags FROM character_housing WHERE guid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING, "INSERT INTO character_housing (guid, house_id, neighborhood_guid, plot_index, house_level, favor, settings_flags, create_time) VALUES (?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP())", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING, "DELETE FROM character_housing WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING_DECOR, "SELECT id, house_decor_id, position_x, position_y, position_z, rotation_x, rotation_y, rotation_z, rotation_w, dye_slot_0, dye_slot_1, dye_slot_2, room_guid FROM character_housing_decor WHERE owner_guid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_DECOR, "INSERT INTO character_housing_decor (owner_guid, id, house_decor_id, position_x, position_y, position_z, rotation_x, rotation_y, rotation_z, rotation_w, dye_slot_0, dye_slot_1, dye_slot_2, room_guid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_DECOR, "DELETE FROM character_housing_decor WHERE owner_guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING_ROOMS, "SELECT id, house_room_id, slot_index, rotation, mirrored, theme_id FROM character_housing_rooms WHERE owner_guid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_ROOMS, "INSERT INTO character_housing_rooms (owner_guid, id, house_room_id, slot_index, rotation, mirrored, theme_id) VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_ROOMS, "DELETE FROM character_housing_rooms WHERE owner_guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING_FIXTURES, "SELECT fixture_point_id, fixture_option_id FROM character_housing_fixtures WHERE owner_guid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_FIXTURES, "INSERT INTO character_housing_fixtures (owner_guid, fixture_point_id, fixture_option_id) VALUES (?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURES, "DELETE FROM character_housing_fixtures WHERE owner_guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING_CATALOG, "SELECT house_decor_id, quantity FROM character_housing_catalog WHERE owner_guid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_CATALOG, "INSERT INTO character_housing_catalog (owner_guid, house_decor_id, quantity) VALUES (?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_CATALOG, "DELETE FROM character_housing_catalog WHERE owner_guid = ?", CONNECTION_ASYNC);
 
