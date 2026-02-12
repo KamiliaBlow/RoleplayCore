@@ -96,6 +96,7 @@ void NeighborhoodCharter::SaveToDB(CharacterDatabaseTransaction trans)
         index = 0;
         stmt->setUInt64(index++, _id);
         stmt->setUInt64(index++, signerGuid.GetCounter());
+        stmt->setUInt32(index++, _createTime);
         trans->Append(stmt);
     }
 
@@ -144,6 +145,7 @@ bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
     uint8 index = 0;
     stmt->setUInt64(index++, _id);
     stmt->setUInt64(index++, signerGuid.GetCounter());
+    stmt->setUInt32(index++, static_cast<uint32>(GameTime::GetGameTime()));
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 

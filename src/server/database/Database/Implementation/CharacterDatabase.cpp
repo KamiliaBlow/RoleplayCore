@@ -838,6 +838,8 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_INVITE, "DELETE FROM neighborhood_invites WHERE neighborhoodGuid = ? AND inviteeGuid = ?", CONNECTION_ASYNC);
 
     // Neighborhood Charters
+    PrepareStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER, "SELECT id, creatorGuid, name, neighborhoodMapId, factionFlags, isGuild, createTime FROM neighborhood_charters WHERE id = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER_SIGNATURES, "SELECT signerGuid FROM neighborhood_charter_signatures WHERE charterId = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_REP_NEIGHBORHOOD_CHARTER, "REPLACE INTO neighborhood_charters (id, creatorGuid, name, neighborhoodMapId, factionFlags, isGuild, createTime) VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_CHARTER, "DELETE FROM neighborhood_charters WHERE id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_NEIGHBORHOOD_CHARTER_SIGNATURE, "INSERT INTO neighborhood_charter_signatures (charterId, signerGuid, signTime) VALUES (?, ?, ?)", CONNECTION_ASYNC);

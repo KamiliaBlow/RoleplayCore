@@ -132,32 +132,63 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_CONFIRMATION_RESPONSE received for player {}",
         player->GetGUID().ToString());
 
-    // Finalize charter: create the neighborhood from charter data
-    // For now, we create a default neighborhood since the charter state
-    // is stored in DB. In a complete system this would load the charter
-    // back and verify signatures before creating.
+    // Load charter from DB using player's GUID counter as charter ID
+    uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
+    stmt->setUInt64(0, charterId);
+    PreparedQueryResult charterResult = CharacterDatabase.Query(stmt);
+
+    if (!charterResult)
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: No charter found for player {}",
+            player->GetGUID().ToString());
+        return;
+    }
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER_SIGNATURES);
+    stmt->setUInt64(0, charterId);
+    PreparedQueryResult sigResult = CharacterDatabase.Query(stmt);
+
+    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
+    if (!charter.LoadFromDB(charterResult, sigResult))
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Failed to load charter {} from DB",
+            charterId);
+        return;
+    }
+
+    // Verify enough signatures
+    if (!charter.HasEnoughSignatures())
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Charter {} has only {}/{} signatures",
+            charterId, charter.GetSignatureCount(), MIN_CHARTER_SIGNATURES);
+        return;
+    }
+
+    // Create neighborhood from charter data
     Neighborhood* neighborhood = sNeighborhoodMgr.CreateNeighborhood(
         player->GetGUID(),
-        "New Neighborhood",
-        0,  // Will be loaded from charter
-        0   // No faction restriction by default
+        charter.GetName(),
+        charter.GetNeighborhoodMapID(),
+        charter.GetFactionFlags()
     );
 
     if (neighborhood)
     {
-        TC_LOG_DEBUG("housing", "Player {} finalized charter, created neighborhood {}",
-            player->GetGUID().ToString(), neighborhood->GetGuid().ToString());
+        TC_LOG_DEBUG("housing", "Player {} finalized charter '{}', created neighborhood {}",
+            player->GetGUID().ToString(), charter.GetName(),
+            neighborhood->GetGuid().ToString());
 
         // Clean up charter from DB
-        uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
         CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
         NeighborhoodCharter::DeleteFromDB(charterId, trans);
         CharacterDatabase.CommitTransaction(trans);
     }
     else
     {
-        TC_LOG_DEBUG("housing", "Player {} failed to finalize charter - neighborhood creation failed",
-            player->GetGUID().ToString());
+        TC_LOG_DEBUG("housing", "Player {} failed to finalize charter '{}' - neighborhood creation failed",
+            player->GetGUID().ToString(), charter.GetName());
     }
 }
 
@@ -170,11 +201,44 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_SIGN CharterGuid: {}",
         neighborhoodCharterAddSignature.CharterGuid.ToString());
 
-    // Player signs a charter presented to them
-    // The CharterGuid maps to the charter creator's player GUID counter
-    // In a full implementation, we'd load the charter from DB, add signature, re-save
-    TC_LOG_DEBUG("housing", "Player {} signed charter {}",
-        player->GetGUID().ToString(), neighborhoodCharterAddSignature.CharterGuid.ToString());
+    // CharterGuid counter maps to charter DB ID
+    uint64 charterId = neighborhoodCharterAddSignature.CharterGuid.GetCounter();
+
+    // Load charter from DB
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
+    stmt->setUInt64(0, charterId);
+    PreparedQueryResult charterResult = CharacterDatabase.Query(stmt);
+
+    if (!charterResult)
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Charter {} not found in DB",
+            charterId);
+        return;
+    }
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER_SIGNATURES);
+    stmt->setUInt64(0, charterId);
+    PreparedQueryResult sigResult = CharacterDatabase.Query(stmt);
+
+    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
+    if (!charter.LoadFromDB(charterResult, sigResult))
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Failed to load charter {} from DB",
+            charterId);
+        return;
+    }
+
+    // Add player's signature (validates not already signed, not creator)
+    if (!charter.AddSignature(player->GetGUID()))
+    {
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Player {} could not sign charter {}",
+            player->GetGUID().ToString(), charterId);
+        return;
+    }
+
+    TC_LOG_DEBUG("housing", "Player {} signed charter {} ({}/{} signatures)",
+        player->GetGUID().ToString(), charterId,
+        charter.GetSignatureCount(), MIN_CHARTER_SIGNATURES);
 }
 
 void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::Neighborhood::NeighborhoodCharterSendSignatureRequest const& neighborhoodCharterSendSignatureRequest)
