@@ -291,6 +291,11 @@ void InvitePlayerToNeighborhood::Read()
     _worldPacket >> NeighborhoodGuid;
 }
 
+void GuildGetOthersOwnedHouses::Read()
+{
+    _worldPacket >> PlayerGuid;
+}
+
 // --- SMSG Packets ---
 
 WorldPacket const* QueryNeighborhoodNameResponse::Write()

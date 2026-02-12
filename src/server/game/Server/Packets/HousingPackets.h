@@ -554,6 +554,16 @@ namespace WorldPackets::Housing
         ObjectGuid NeighborhoodGuid;
     };
 
+    class GuildGetOthersOwnedHouses final : public ClientPacket
+    {
+    public:
+        explicit GuildGetOthersOwnedHouses(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_GET_OTHERS_OWNED_HOUSES, std::move(packet)) { }
+
+        void Read() override;
+
+        ObjectGuid PlayerGuid;
+    };
+
     // ============================================================
     // SMSG Packets
     // ============================================================

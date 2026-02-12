@@ -523,7 +523,7 @@ void OpcodeTable::InitializeClientOpcodes()
     DEFINE_HANDLER(CMSG_GUILD_DEMOTE_MEMBER,                                STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildDemoteMember);
     DEFINE_HANDLER(CMSG_GUILD_EVENT_LOG_QUERY,                              STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildEventLogQuery);
     DEFINE_HANDLER(CMSG_GUILD_GET_ACHIEVEMENT_MEMBERS,                      STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildGetAchievementMembers);
-    DEFINE_HANDLER(CMSG_GUILD_GET_OTHERS_OWNED_HOUSES,                      STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
+    DEFINE_HANDLER(CMSG_GUILD_GET_OTHERS_OWNED_HOUSES,                      STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildGetOthersOwnedHouses);
     DEFINE_HANDLER(CMSG_GUILD_GET_RANKS,                                    STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildGetRanks);
     DEFINE_HANDLER(CMSG_GUILD_GET_ROSTER,                                   STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildGetRoster);
     DEFINE_HANDLER(CMSG_GUILD_INVITE_BY_NAME,                               STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGuildInviteByName);

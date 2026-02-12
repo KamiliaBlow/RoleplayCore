@@ -465,6 +465,7 @@ namespace WorldPackets
         class DeclineNeighborhoodInvites;
         class QueryNeighborhoodInfo;
         class InvitePlayerToNeighborhood;
+        class GuildGetOthersOwnedHouses;
     }
 
     namespace Neighborhood
@@ -1576,6 +1577,7 @@ class TC_GAME_API WorldSession
         void HandleDeclineNeighborhoodInvites(WorldPackets::Housing::DeclineNeighborhoodInvites const& declineNeighborhoodInvites);
         void HandleQueryNeighborhoodInfo(WorldPackets::Housing::QueryNeighborhoodInfo const& queryNeighborhoodInfo);
         void HandleInvitePlayerToNeighborhood(WorldPackets::Housing::InvitePlayerToNeighborhood const& invitePlayerToNeighborhood);
+        void HandleGuildGetOthersOwnedHouses(WorldPackets::Housing::GuildGetOthersOwnedHouses const& guildGetOthersOwnedHouses);
 
         // Neighborhood - Charter System
         void HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Neighborhood::NeighborhoodCharterOpenConfirmationUI const& neighborhoodCharterOpenConfirmationUI);
