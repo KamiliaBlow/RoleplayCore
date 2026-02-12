@@ -21,6 +21,7 @@
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include <cmath>
 
 Housing::Housing(Player* owner)
     : _owner(owner)
@@ -321,6 +322,11 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
 
+    // Validate coordinate sanity (reject NaN/Inf and extreme values)
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        !std::isfinite(rotX) || !std::isfinite(rotY) || !std::isfinite(rotZ) || !std::isfinite(rotW))
+        return HOUSING_RESULT_INVALID_POSITION;
+
     // Validate decor entry exists in the HousingMgr DB2 data
     HousingResult validationResult = sHousingMgr.ValidateDecorPlacement(decorEntryId, Position(x, y, z), _level);
     if (validationResult != HOUSING_RESULT_SUCCESS)
@@ -331,12 +337,22 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (GetDecorCount() >= maxDecor)
         return HOUSING_RESULT_DECOR_LIMIT_REACHED;
 
-    // Validate room exists if specified
+    // Validate room exists if specified, and check per-room decor limit
     if (!roomGuid.IsEmpty())
     {
         auto roomItr = _rooms.find(roomGuid);
         if (roomItr == _rooms.end())
             return HOUSING_RESULT_INVALID_ROOM;
+
+        // Enforce per-room decor limit
+        uint32 roomDecorCount = 0;
+        for (auto const& [guid, decor] : _placedDecor)
+        {
+            if (decor.RoomGuid == roomGuid)
+                ++roomDecorCount;
+        }
+        if (roomDecorCount >= MAX_HOUSING_DECOR_PER_ROOM)
+            return HOUSING_RESULT_DECOR_LIMIT_REACHED;
     }
 
     // Check catalog for available copies
@@ -377,6 +393,11 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
+
+    // Validate coordinate sanity
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        !std::isfinite(rotX) || !std::isfinite(rotY) || !std::isfinite(rotZ) || !std::isfinite(rotW))
+        return HOUSING_RESULT_INVALID_POSITION;
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
@@ -459,6 +480,10 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
 
+    // Validate orientation (0-3 for cardinal directions)
+    if (orientation > 3)
+        return HOUSING_RESULT_INVALID_SLOT;
+
     // Check room limit
     if (_rooms.size() >= MAX_HOUSING_ROOMS_PER_HOUSE)
         return HOUSING_RESULT_ROOM_LIMIT_REACHED;
@@ -533,7 +558,7 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, ObjectGuid swapRoomGuid, uint32 swapSlotIndex)
+HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, ObjectGuid swapRoomGuid, uint32 /*swapSlotIndex*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
