@@ -38,6 +38,8 @@ public:
     std::string GetDebugInfo() const override;
 
     UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
+    UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;
+    UF::UpdateField<UF::NeighborhoodMirrorData, int32(WowCS::EntityFragment::FNeighborhoodMirrorData_C), 0> m_neighborhoodMirrorData;
 
 protected:
     UF::UpdateFieldFlag GetUpdateFieldFlagsFor(Player const* target) const override;

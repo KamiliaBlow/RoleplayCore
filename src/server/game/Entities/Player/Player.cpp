@@ -3731,6 +3731,7 @@ void Player::ClearUpdateMask(bool remove)
 {
     m_values.ClearChangesMask(&Player::m_playerData);
     m_values.ClearChangesMask(&Player::m_activePlayerData);
+    m_values.ClearChangesMask(&Player::m_playerHouseInfoComponentData);
     Unit::ClearUpdateMask(remove);
 }
 

@@ -145,18 +145,19 @@ void WorldSession::SendFeatureSystemStatusGlueScreen()
     WorldPackets::System::MirrorVarSingle vars[] =
     {
         { "raidLockoutExtendEnabled"sv, "1"sv },
+        { "sellAllJunkEnabled"sv, "1"sv },
         { "bypassItemLevelScalingCode"sv, "0"sv },
         { "shop2Enabled"sv, "0"sv },
         { "bpayStoreEnable"sv, "0"sv },
         { "recentAlliesEnabledClient"sv, "0"sv },
         { "browserEnabled"sv, "0"sv },
-        { "housingEnableCreateGuildNeighborhood"sv, "0"sv },
-        { "housingEnableDeleteHouse"sv, "0"sv },
-        { "housingServiceEnabled"sv, "0"sv },
-        { "housingEnableMoveHouse"sv, "0"sv },
-        { "housingEnableCreateCharterNeighborhood"sv, "0"sv },
-        { "housingEnableBuyHouse"sv, "0"sv },
-        { "housingMarketEnabled"sv, "0"sv },
+        { "housingEnableCreateGuildNeighborhood"sv, "1"sv },
+        { "housingEnableDeleteHouse"sv, "1"sv },
+        { "housingServiceEnabled"sv, "1"sv },
+        { "housingEnableMoveHouse"sv, "1"sv },
+        { "housingEnableCreateCharterNeighborhood"sv, "1"sv },
+        { "housingEnableBuyHouse"sv, "1"sv },
+        { "housingMarketEnabled"sv, "1"sv },
     };
 
     WorldPackets::System::MirrorVars variables;

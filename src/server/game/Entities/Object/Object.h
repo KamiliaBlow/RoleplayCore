@@ -162,6 +162,12 @@ class TC_GAME_API Object : public BaseEntity
 
         UF::UpdateField<UF::ObjectData, int32(WowCS::EntityFragment::CGObject), TYPEID_OBJECT> m_objectData;
 
+        // Housing entity fragments (optional - only set on housing entities)
+        UF::OptionalUpdateField<UF::HousingDecorData, int32(WowCS::EntityFragment::FHousingDecor_C), 0> m_housingDecorData;
+        UF::OptionalUpdateField<UF::HousingRoomData, int32(WowCS::EntityFragment::FHousingRoom_C), 0> m_housingRoomData;
+        UF::OptionalUpdateField<UF::HousingRoomComponentMeshData, int32(WowCS::EntityFragment::FHousingRoomComponentMesh_C), 0> m_housingRoomComponentMeshData;
+        UF::OptionalUpdateField<UF::HousingFixtureData, int32(WowCS::EntityFragment::FHousingFixture_C), 0> m_housingFixtureData;
+
         std::string GetDebugInfo() const override;
 
         Trinity::unique_weak_ptr<Object> GetWeakPtr() const { return m_scriptRef; }

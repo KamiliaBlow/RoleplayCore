@@ -126,6 +126,10 @@ void Object::BuildValuesUpdateWithFlag(ByteBuffer* data, UF::UpdateFieldFlag /*f
 void Object::ClearUpdateMask(bool remove)
 {
     m_values.ClearChangesMask(&Object::m_objectData);
+    m_values.ClearChangesMask(&Object::m_housingDecorData);
+    m_values.ClearChangesMask(&Object::m_housingRoomData);
+    m_values.ClearChangesMask(&Object::m_housingRoomComponentMeshData);
+    m_values.ClearChangesMask(&Object::m_housingFixtureData);
     BaseEntity::ClearUpdateMask(remove);
 }
 
