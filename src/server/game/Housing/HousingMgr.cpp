@@ -22,6 +22,7 @@
 #include "Random.h"
 #include "Timer.h"
 #include "World.h"
+#include <algorithm>
 
 HousingMgr::HousingMgr() = default;
 HousingMgr::~HousingMgr() = default;
@@ -87,6 +88,7 @@ void HousingMgr::LoadHouseDecorData()
         data.SourceDifficultyID = entry->AnimKitID;
         data.UiModelSceneID = entry->RequiredHouseLevel;
         data.HouseDecorCategoryID = entry->PlayerConditionID;
+        data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseDecorData: Loaded {} HouseDecor entries", uint32(_houseDecorStore.size()));
@@ -100,6 +102,11 @@ void HousingMgr::LoadHouseLevelData()
         data.ID = entry->ID;
         data.MaxDecorCount = entry->MaxDecorCount;
         data.FavorRequired = entry->RequiredFavor;
+        data.QuestID = entry->QuestID;
+        data.InteriorDecorPlacementBudget = entry->InteriorDecorPlacementBudget;
+        data.ExteriorDecorPlacementBudget = entry->ExteriorDecorPlacementBudget;
+        data.RoomPlacementBudget = entry->RoomPlacementBudget;
+        data.ExteriorFixtureBudget = entry->ExteriorFixtureBudget;
     }
 
     // Fallback defaults if no DB2 data available
@@ -111,6 +118,11 @@ void HousingMgr::LoadHouseLevelData()
             data.ID = level;
             data.MaxDecorCount = static_cast<int32>(level * 25);
             data.FavorRequired = static_cast<int32>((level - 1) * 100);
+            data.QuestID = 0;
+            data.InteriorDecorPlacementBudget = static_cast<int32>(50 + level * 25);
+            data.ExteriorDecorPlacementBudget = static_cast<int32>(25 + level * 15);
+            data.RoomPlacementBudget = static_cast<int32>(20 + level * 10);
+            data.ExteriorFixtureBudget = static_cast<int32>(10 + level * 5);
         }
     }
 
@@ -134,6 +146,8 @@ void HousingMgr::LoadHouseRoomData()
         data.DoorSlots = entry->BaseRoomFlags;
         data.CeilingSlots = entry->RequiredHouseLevel;
         data.WallSlots = entry->CurrencyCost;
+        data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
+        data.RoomWmoDataID = entry->RoomWmoDataID;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseRoomData: Loaded {} HouseRoom entries", uint32(_houseRoomStore.size()));
@@ -339,15 +353,82 @@ uint32 HousingMgr::GetMaxDecorForLevel(uint32 level) const
     return 0;
 }
 
+uint32 HousingMgr::GetQuestForLevel(uint32 level) const
+{
+    HouseLevelData const* levelData = GetLevelData(level);
+    if (levelData && levelData->QuestID > 0)
+        return static_cast<uint32>(levelData->QuestID);
+
+    return 0;
+}
+
+uint32 HousingMgr::GetInteriorDecorBudgetForLevel(uint32 level) const
+{
+    HouseLevelData const* levelData = GetLevelData(level);
+    if (levelData && levelData->InteriorDecorPlacementBudget > 0)
+        return static_cast<uint32>(levelData->InteriorDecorPlacementBudget);
+
+    // Fallback: 50 base + 25 per level
+    return 50 + level * 25;
+}
+
+uint32 HousingMgr::GetExteriorDecorBudgetForLevel(uint32 level) const
+{
+    HouseLevelData const* levelData = GetLevelData(level);
+    if (levelData && levelData->ExteriorDecorPlacementBudget > 0)
+        return static_cast<uint32>(levelData->ExteriorDecorPlacementBudget);
+
+    // Fallback: 25 base + 15 per level
+    return 25 + level * 15;
+}
+
+uint32 HousingMgr::GetRoomBudgetForLevel(uint32 level) const
+{
+    HouseLevelData const* levelData = GetLevelData(level);
+    if (levelData && levelData->RoomPlacementBudget > 0)
+        return static_cast<uint32>(levelData->RoomPlacementBudget);
+
+    // Fallback: 20 base + 10 per level
+    return 20 + level * 10;
+}
+
+uint32 HousingMgr::GetFixtureBudgetForLevel(uint32 level) const
+{
+    HouseLevelData const* levelData = GetLevelData(level);
+    if (levelData && levelData->ExteriorFixtureBudget > 0)
+        return static_cast<uint32>(levelData->ExteriorFixtureBudget);
+
+    // Fallback: 10 base + 5 per level
+    return 10 + level * 5;
+}
+
+uint32 HousingMgr::GetDecorWeightCost(uint32 decorEntryId) const
+{
+    HouseDecorData const* decorData = GetHouseDecorData(decorEntryId);
+    if (decorData)
+        return static_cast<uint32>(std::max<int32>(decorData->WeightCost, 1));
+
+    return 1;
+}
+
+uint32 HousingMgr::GetRoomWeightCost(uint32 roomEntryId) const
+{
+    HouseRoomData const* roomData = GetHouseRoomData(roomEntryId);
+    if (roomData)
+        return static_cast<uint32>(std::max<int32>(roomData->WeightCost, 1));
+
+    return 1;
+}
+
 HousingResult HousingMgr::ValidateDecorPlacement(uint32 decorId, Position const& pos, uint32 houseLevel) const
 {
     HouseDecorData const* decorEntry = GetHouseDecorData(decorId);
     if (!decorEntry)
-        return HOUSING_RESULT_INVALID_DECOR;
+        return HOUSING_RESULT_DECOR_INVALID_GUID;
 
     // Validate position is within reasonable bounds
     if (!pos.IsPositionValid())
-        return HOUSING_RESULT_INVALID_POSITION;
+        return HOUSING_RESULT_BOUNDS_FAILURE_ROOM;
 
     // Validate house level meets decor requirements (if any level restriction exists)
     // For now, all decor is available at any level; future DB2 fields may add restrictions

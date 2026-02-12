@@ -221,7 +221,7 @@ HousingResult Neighborhood::AddManager(ObjectGuid playerGuid)
     {
         TC_LOG_DEBUG("housing", "Neighborhood::AddManager: Player {} is already owner of neighborhood '{}'",
             playerGuid.ToString(), _name);
-        return HOUSING_RESULT_NOT_MANAGER;
+        return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
     if (targetMember->Role == NEIGHBORHOOD_ROLE_MANAGER)
@@ -256,14 +256,14 @@ HousingResult Neighborhood::RemoveManager(ObjectGuid playerGuid)
             {
                 TC_LOG_DEBUG("housing", "Neighborhood::RemoveManager: Cannot demote owner {} in neighborhood '{}'",
                     playerGuid.ToString(), _name);
-                return HOUSING_RESULT_CANNOT_EVICT_OWNER;
+                return HOUSING_RESULT_PERMISSION_DENIED;
             }
 
             if (member.Role != NEIGHBORHOOD_ROLE_MANAGER)
             {
                 TC_LOG_DEBUG("housing", "Neighborhood::RemoveManager: Player {} is not a manager in neighborhood '{}'",
                     playerGuid.ToString(), _name);
-                return HOUSING_RESULT_NOT_MANAGER;
+                return HOUSING_RESULT_PERMISSION_DENIED;
             }
 
             member.Role = NEIGHBORHOOD_ROLE_RESIDENT;
@@ -298,7 +298,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
     {
         TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Inviter {} lacks permission in neighborhood '{}'",
             inviterGuid.ToString(), _name);
-        return HOUSING_RESULT_NOT_MANAGER;
+        return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
     // Check invitee is not already a member
@@ -308,7 +308,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
         {
             TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Player {} is already a member of neighborhood '{}'",
                 inviteeGuid.ToString(), _name);
-            return HOUSING_RESULT_ALREADY_IN_NEIGHBORHOOD;
+            return HOUSING_RESULT_NOT_ALLOWED;
         }
     }
 
@@ -319,7 +319,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
         {
             TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Player {} already has a pending invite to neighborhood '{}'",
                 inviteeGuid.ToString(), _name);
-            return HOUSING_RESULT_ALREADY_INVITED;
+            return HOUSING_RESULT_NOT_ALLOWED;
         }
     }
 
@@ -335,7 +335,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
             {
                 TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Player {} faction mismatch for neighborhood '{}'",
                     inviteeGuid.ToString(), _name);
-                return HOUSING_RESULT_FACTION_MISMATCH;
+                return HOUSING_RESULT_NOT_ALLOWED;
             }
         }
     }
@@ -473,7 +473,7 @@ HousingResult Neighborhood::DeclineInvitation(ObjectGuid playerGuid)
     TC_LOG_DEBUG("housing", "Neighborhood::DeclineInvitation: Player {} declined invite to neighborhood '{}'",
         playerGuid.ToString(), _name);
 
-    return HOUSING_RESULT_INVITE_DECLINED;
+    return HOUSING_RESULT_NOT_ALLOWED;
 }
 
 HousingResult Neighborhood::EvictPlayer(ObjectGuid playerGuid)
@@ -492,7 +492,7 @@ HousingResult Neighborhood::EvictPlayer(ObjectGuid playerGuid)
     {
         TC_LOG_DEBUG("housing", "Neighborhood::EvictPlayer: Cannot evict owner {} from neighborhood '{}'",
             playerGuid.ToString(), _name);
-        return HOUSING_RESULT_CANNOT_EVICT_OWNER;
+        return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
     // Remove any plot assignment
@@ -544,7 +544,7 @@ HousingResult Neighborhood::TransferOwnership(ObjectGuid newOwnerGuid)
     {
         TC_LOG_DEBUG("housing", "Neighborhood::TransferOwnership: Current owner {} not found in member list of neighborhood '{}'",
             _ownerGuid.ToString(), _name);
-        return HOUSING_RESULT_INTERNAL_ERROR;
+        return HOUSING_RESULT_RPC_ERROR;
     }
 
     // Promote new owner, demote old owner to manager
@@ -590,7 +590,7 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
     {
         TC_LOG_DEBUG("housing", "Neighborhood::PurchasePlot: Player {} already owns plot {} in neighborhood '{}'",
             playerGuid.ToString(), buyer->PlotIndex, _name);
-        return HOUSING_RESULT_PLOT_OCCUPIED;
+        return HOUSING_RESULT_PLOT_ALREADY_OWNED;
     }
 
     // Check if plot is already occupied
@@ -600,7 +600,7 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
         {
             TC_LOG_DEBUG("housing", "Neighborhood::PurchasePlot: Plot {} is already occupied in neighborhood '{}'",
                 plotIndex, _name);
-            return HOUSING_RESULT_PLOT_OCCUPIED;
+            return HOUSING_RESULT_PLOT_ALREADY_OWNED;
         }
     }
 
@@ -634,7 +634,7 @@ HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotI
         {
             TC_LOG_DEBUG("housing", "Neighborhood::MoveHouse: Target plot {} is occupied in neighborhood '{}'",
                 newPlotIndex, _name);
-            return HOUSING_RESULT_PLOT_OCCUPIED;
+            return HOUSING_RESULT_PLOT_ALREADY_OWNED;
         }
     }
 
@@ -653,7 +653,7 @@ HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotI
     {
         TC_LOG_DEBUG("housing", "Neighborhood::MoveHouse: Player {} has no plot in neighborhood '{}'",
             sourcePlotOwner.ToString(), _name);
-        return HOUSING_RESULT_NO_PLOT;
+        return HOUSING_RESULT_PLOT_NOT_AVAILABLE;
     }
 
     uint8 oldPlotIndex = sourcePlot->PlotIndex;

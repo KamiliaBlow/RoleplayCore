@@ -2183,6 +2183,9 @@ struct HouseDecorEntry
     int8 QualityTier;
     int32 PlayerConditionID;
     int32 ContentTuningID;
+    int32 WeightCost;
+    int32 StartingQuantity;
+    int32 UiModelSceneID;
 };
 
 struct HouseDecorMaterialEntry
@@ -2214,6 +2217,11 @@ struct HouseLevelDataEntry
     uint32 ID;
     int32 RequiredFavor;
     int32 MaxDecorCount;
+    int32 QuestID;
+    int32 InteriorDecorPlacementBudget;
+    int32 ExteriorDecorPlacementBudget;
+    int32 RoomPlacementBudget;
+    int32 ExteriorFixtureBudget;
 };
 
 struct HouseLevelRewardInfoEntry
@@ -2236,6 +2244,8 @@ struct HouseRoomEntry
     int32 BaseRoomFlags;
     int32 RequiredHouseLevel;
     int32 CurrencyCost;
+    int32 WeightCost;
+    int32 RoomWmoDataID;
 };
 
 struct HouseThemeEntry
@@ -2244,6 +2254,43 @@ struct HouseThemeEntry
     LocalizedString Name;
     int32 IconFileDataID;
     int32 CategoryID;
+};
+
+struct RoomComponentEntry
+{
+    uint32 ID;
+    DBCPosition3D OffsetPos;
+    DBCPosition3D OffsetRot;
+    int32 RoomWmoDataID;
+    int32 ModelFileDataID;
+    uint8 Type;
+    int32 MeshStyleFilterID;
+    uint8 ConnectionType;
+    int32 Flags;
+};
+
+struct RoomComponentOptionEntry
+{
+    uint32 ID;
+    int32 RoomComponentID;
+    uint8 Type;
+    int32 ModelFileDataID;
+    uint8 SubType;
+    int32 MeshStyleFilterID;
+    int32 HouseThemeID;
+    int32 Flags;
+};
+
+struct RoomWmoDataEntry
+{
+    uint32 ID;
+    float BoundingBoxMinX;
+    float BoundingBoxMinY;
+    float BoundingBoxMinZ;
+    float BoundingBoxMaxX;
+    float BoundingBoxMaxY;
+    float BoundingBoxMaxZ;
+    float Height;
 };
 
 struct ImportPriceArmorEntry

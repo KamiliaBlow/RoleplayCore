@@ -134,8 +134,23 @@ public:
     std::vector<CatalogEntry const*> GetCatalogEntries() const;
 
     // House level and favor
-    void AddFavor(uint32 amount);
+    void AddFavor(uint64 amount);
+    uint64 GetFavor64() const { return _favor64; }
     uint32 GetMaxDecorCount() const;
+
+    // Budget tracking (WeightCost-based)
+    uint32 GetInteriorDecorWeightUsed() const { return _interiorDecorWeightUsed; }
+    uint32 GetExteriorDecorWeightUsed() const { return _exteriorDecorWeightUsed; }
+    uint32 GetRoomWeightUsed() const { return _roomWeightUsed; }
+    uint32 GetFixtureWeightUsed() const { return _fixtureWeightUsed; }
+    uint32 GetMaxInteriorDecorBudget() const;
+    uint32 GetMaxExteriorDecorBudget() const;
+    uint32 GetMaxRoomBudget() const;
+    uint32 GetMaxFixtureBudget() const;
+    void RecalculateBudgets();
+
+    // Level progression (QuestID-based)
+    void OnQuestCompleted(uint32 questId);
 
     // Settings
     void SaveSettings(uint32 settingsFlags);
@@ -150,8 +165,15 @@ private:
     uint8 _plotIndex;
     uint32 _level;
     uint32 _favor;
+    uint64 _favor64 = 0;
     uint32 _settingsFlags;
     HousingEditorMode _editorMode;
+
+    // WeightCost-based budget tracking
+    uint32 _interiorDecorWeightUsed = 0;
+    uint32 _exteriorDecorWeightUsed = 0;
+    uint32 _roomWeightUsed = 0;
+    uint32 _fixtureWeightUsed = 0;
 
     std::unordered_map<ObjectGuid, PlacedDecor> _placedDecor;
     std::unordered_map<ObjectGuid, Room> _rooms;

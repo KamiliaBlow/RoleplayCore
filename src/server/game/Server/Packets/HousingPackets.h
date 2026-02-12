@@ -629,6 +629,554 @@ namespace WorldPackets::Housing
 
         uint32 TextureID = 0;
     };
+
+    // ============================================================
+    // House Exterior SMSG Responses (0x50xxxx)
+    // ============================================================
+
+    class HouseExteriorLockResponse final : public ServerPacket
+    {
+    public:
+        HouseExteriorLockResponse() : ServerPacket(SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HouseExteriorSetHousePositionResponse final : public ServerPacket
+    {
+    public:
+        HouseExteriorSetHousePositionResponse() : ServerPacket(SMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    // ============================================================
+    // Housing Decor SMSG Responses (0x51xxxx)
+    // ============================================================
+
+    class HousingDecorSetEditModeResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorSetEditModeResponse() : ServerPacket(SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorMoveResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorMoveResponse() : ServerPacket(SMSG_HOUSING_DECOR_MOVE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorPlaceResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorPlaceResponse() : ServerPacket(SMSG_HOUSING_DECOR_PLACE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        ObjectGuid DecorGuid;
+    };
+
+    class HousingDecorRemoveResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorRemoveResponse() : ServerPacket(SMSG_HOUSING_DECOR_REMOVE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorLockResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorLockResponse() : ServerPacket(SMSG_HOUSING_DECOR_LOCK_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorDeleteFromStorageResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorDeleteFromStorageResponse() : ServerPacket(SMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorRequestStorageResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorRequestStorageResponse() : ServerPacket(SMSG_HOUSING_DECOR_REQUEST_STORAGE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorAddToHouseChestResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorAddToHouseChestResponse() : ServerPacket(SMSG_HOUSING_DECOR_ADD_TO_HOUSE_CHEST_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingDecorSystemSetDyeSlotsResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorSystemSetDyeSlotsResponse() : ServerPacket(SMSG_HOUSING_DECOR_SYSTEM_SET_DYE_SLOTS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRedeemDeferredDecorResponse final : public ServerPacket
+    {
+    public:
+        HousingRedeemDeferredDecorResponse() : ServerPacket(SMSG_HOUSING_REDEEM_DEFERRED_DECOR_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFirstTimeDecorAcquisition final : public ServerPacket
+    {
+    public:
+        HousingFirstTimeDecorAcquisition() : ServerPacket(SMSG_HOUSING_FIRST_TIME_DECOR_ACQUISITION) { }
+        WorldPacket const* Write() override;
+        uint32 DecorEntryID = 0;
+    };
+
+    // ============================================================
+    // Housing Fixture SMSG Responses (0x52xxxx)
+    // ============================================================
+
+    class HousingFixtureSetEditModeResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureSetEditModeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureCreateBasicHouseResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureCreateBasicHouseResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_CREATE_BASIC_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingFixtureDeleteHouseResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureDeleteHouseResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_DELETE_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureSetHouseSizeResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureSetHouseSizeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureSetHouseTypeResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureSetHouseTypeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureSetCoreFixtureResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureSetCoreFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureCreateFixtureResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureCreateFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_CREATE_FIXTURE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingFixtureDeleteFixtureResponse final : public ServerPacket
+    {
+    public:
+        HousingFixtureDeleteFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_DELETE_FIXTURE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    // ============================================================
+    // Housing Room SMSG Responses (0x53xxxx)
+    // ============================================================
+
+    class HousingRoomSetLayoutEditModeResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomSetLayoutEditModeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_LAYOUT_EDIT_MODE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomAddResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomAddResponse() : ServerPacket(SMSG_HOUSING_ROOM_ADD_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        ObjectGuid RoomGuid;
+    };
+
+    class HousingRoomRemoveResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomRemoveResponse() : ServerPacket(SMSG_HOUSING_ROOM_REMOVE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomUpdateResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomUpdateResponse() : ServerPacket(SMSG_HOUSING_ROOM_UPDATE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomSetComponentThemeResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomSetComponentThemeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_COMPONENT_THEME_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomApplyComponentMaterialsResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomApplyComponentMaterialsResponse() : ServerPacket(SMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomSetDoorTypeResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomSetDoorTypeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_DOOR_TYPE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingRoomSetCeilingTypeResponse final : public ServerPacket
+    {
+    public:
+        HousingRoomSetCeilingTypeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_CEILING_TYPE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    // ============================================================
+    // Housing Services SMSG Responses (0x54xxxx)
+    // ============================================================
+
+    class HousingSvcsNotifyPermissionsFailure final : public ServerPacket
+    {
+    public:
+        HousingSvcsNotifyPermissionsFailure() : ServerPacket(SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsGuildCreateNeighborhoodNotification final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildCreateNeighborhoodNotification() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_CREATE_NEIGHBORHOOD_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsCreateCharterNeighborhoodResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsCreateCharterNeighborhoodResponse() : ServerPacket(SMSG_HOUSING_SVCS_CREATE_CHARTER_NEIGHBORHOOD_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsNeighborhoodReservePlotResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsNeighborhoodReservePlotResponse() : ServerPacket(SMSG_HOUSING_SVCS_NEIGHBORHOOD_RESERVE_PLOT_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsClearPlotReservationResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsClearPlotReservationResponse() : ServerPacket(SMSG_HOUSING_SVCS_CLEAR_PLOT_RESERVATION_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsRelinquishHouseResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsRelinquishHouseResponse() : ServerPacket(SMSG_HOUSING_SVCS_RELINQUISH_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsCancelRelinquishHouseResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsCancelRelinquishHouseResponse() : ServerPacket(SMSG_HOUSING_SVCS_CANCEL_RELINQUISH_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsGetPlayerHousesInfoResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGetPlayerHousesInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsPlayerViewHousesResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsPlayerViewHousesResponse() : ServerPacket(SMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsChangeHouseCosmeticOwner final : public ServerPacket
+    {
+    public:
+        HousingSvcsChangeHouseCosmeticOwner() : ServerPacket(SMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+        ObjectGuid NewOwnerGuid;
+    };
+
+    class HousingSvcsUpdateHousesLevelFavor final : public ServerPacket
+    {
+    public:
+        HousingSvcsUpdateHousesLevelFavor() : ServerPacket(SMSG_HOUSING_SVCS_UPDATE_HOUSES_LEVEL_FAVOR) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+        uint32 Level = 0;
+        uint64 Favor = 0;
+    };
+
+    class HousingSvcsGuildAddHouseNotification final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildAddHouseNotification() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_ADD_HOUSE_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSvcsGuildRemoveHouseNotification final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildRemoveHouseNotification() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_REMOVE_HOUSE_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSvcsGuildAppendNeighborhoodNotification final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildAppendNeighborhoodNotification() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsGuildRenameNeighborhoodNotification final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildRenameNeighborhoodNotification() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+        std::string NewName;
+    };
+
+    class HousingSvcsGuildGetHousingInfoResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGuildGetHousingInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_GET_HOUSING_INFO_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsAcceptNeighborhoodOwnershipResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsAcceptNeighborhoodOwnershipResponse() : ServerPacket(SMSG_HOUSING_SVCS_ACCEPT_NEIGHBORHOOD_OWNERSHIP_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsRejectNeighborhoodOwnershipResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsRejectNeighborhoodOwnershipResponse() : ServerPacket(SMSG_HOUSING_SVCS_REJECT_NEIGHBORHOOD_OWNERSHIP_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsNeighborhoodOwnershipTransferredResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsNeighborhoodOwnershipTransferredResponse() : ServerPacket(SMSG_HOUSING_SVCS_NEIGHBORHOOD_OWNERSHIP_TRANSFERRED_RESPONSE) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+        ObjectGuid NewOwnerGuid;
+    };
+
+    class HousingSvcsGetPotentialHouseOwnersResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGetPotentialHouseOwnersResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsUpdateHouseSettingsResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsUpdateHouseSettingsResponse() : ServerPacket(SMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsGetHouseFinderInfoResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGetHouseFinderInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsGetHouseFinderNeighborhoodResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGetHouseFinderNeighborhoodResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsGetBnetFriendNeighborhoodsResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsGetBnetFriendNeighborhoodsResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_BNET_FRIEND_NEIGHBORHOODS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingSvcsHouseFinderForceRefresh final : public ServerPacket
+    {
+    public:
+        HousingSvcsHouseFinderForceRefresh() : ServerPacket(SMSG_HOUSING_SVCS_HOUSE_FINDER_FORCE_REFRESH) { }
+        WorldPacket const* Write() override;
+    };
+
+    class HousingSvcRequestPlayerReloadData final : public ServerPacket
+    {
+    public:
+        HousingSvcRequestPlayerReloadData() : ServerPacket(SMSG_HOUSING_SVC_REQUEST_PLAYER_RELOAD_DATA) { }
+        WorldPacket const* Write() override;
+    };
+
+    class HousingSvcsDeleteAllNeighborhoodInvitesResponse final : public ServerPacket
+    {
+    public:
+        HousingSvcsDeleteAllNeighborhoodInvitesResponse() : ServerPacket(SMSG_HOUSING_SVCS_DELETE_ALL_NEIGHBORHOOD_INVITES_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    // ============================================================
+    // Housing General SMSG Responses (0x55xxxx)
+    // ============================================================
+
+    class HousingHouseStatusResponse final : public ServerPacket
+    {
+    public:
+        HousingHouseStatusResponse() : ServerPacket(SMSG_HOUSING_HOUSE_STATUS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingGetCurrentHouseInfoResponse final : public ServerPacket
+    {
+    public:
+        HousingGetCurrentHouseInfoResponse() : ServerPacket(SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingExportHouseResponse final : public ServerPacket
+    {
+    public:
+        HousingExportHouseResponse() : ServerPacket(SMSG_HOUSING_EXPORT_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class HousingGetPlayerPermissionsResponse final : public ServerPacket
+    {
+    public:
+        HousingGetPlayerPermissionsResponse() : ServerPacket(SMSG_HOUSING_GET_PLAYER_PERMISSIONS_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        uint32 Permissions = 0;
+    };
+
+    class HousingResetKioskModeResponse final : public ServerPacket
+    {
+    public:
+        HousingResetKioskModeResponse() : ServerPacket(SMSG_HOUSING_RESET_KIOSK_MODE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    // ============================================================
+    // Account/Licensing SMSG (0x42xxxx / 0x5Fxxxx)
+    // ============================================================
+
+    class AccountExteriorFixtureCollectionUpdate final : public ServerPacket
+    {
+    public:
+        AccountExteriorFixtureCollectionUpdate() : ServerPacket(SMSG_ACCOUNT_EXTERIOR_FIXTURE_COLLECTION_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 FixtureID = 0;
+    };
+
+    class AccountHouseTypeCollectionUpdate final : public ServerPacket
+    {
+    public:
+        AccountHouseTypeCollectionUpdate() : ServerPacket(SMSG_ACCOUNT_HOUSE_TYPE_COLLECTION_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 HouseTypeID = 0;
+    };
+
+    class InvalidateNeighborhood final : public ServerPacket
+    {
+    public:
+        InvalidateNeighborhood() : ServerPacket(SMSG_INVALIDATE_NEIGHBORHOOD) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+    };
 }
 
 namespace WorldPackets::Neighborhood
@@ -857,6 +1405,249 @@ namespace WorldPackets::Neighborhood
 
         void Read() override;
 
+        ObjectGuid NeighborhoodGuid;
+        ObjectGuid PlotGuid;
+    };
+
+    // ============================================================
+    // Neighborhood Charter SMSG Responses (0x5Bxxxx)
+    // ============================================================
+
+    class NeighborhoodCharterUpdateResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterUpdateResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_UPDATE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodCharterOpenUIResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterOpenUIResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodCharterSignRequest final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterSignRequest() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_SIGN_REQUEST) { }
+        WorldPacket const* Write() override;
+        ObjectGuid CharterGuid;
+        ObjectGuid RequesterGuid;
+    };
+
+    class NeighborhoodCharterAddSignatureResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterAddSignatureResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodCharterOpenConfirmationUIResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterOpenConfirmationUIResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_OPEN_CONFIRMATION_UI_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodCharterSignatureRemovedNotification final : public ServerPacket
+    {
+    public:
+        NeighborhoodCharterSignatureRemovedNotification() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_SIGNATURE_REMOVED_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid CharterGuid;
+        ObjectGuid SignerGuid;
+    };
+
+    // ============================================================
+    // Neighborhood Management SMSG Responses (0x5Cxxxx)
+    // ============================================================
+
+    class NeighborhoodPlayerEnterPlot final : public ServerPacket
+    {
+    public:
+        NeighborhoodPlayerEnterPlot() : ServerPacket(SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT) { }
+        WorldPacket const* Write() override;
+        ObjectGuid PlayerGuid;
+        ObjectGuid PlotGuid;
+    };
+
+    class NeighborhoodPlayerLeavePlot final : public ServerPacket
+    {
+    public:
+        NeighborhoodPlayerLeavePlot() : ServerPacket(SMSG_NEIGHBORHOOD_PLAYER_LEAVE_PLOT) { }
+        WorldPacket const* Write() override;
+        ObjectGuid PlayerGuid;
+        ObjectGuid PlotGuid;
+    };
+
+    class NeighborhoodEvictPlayerResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodEvictPlayerResponse() : ServerPacket(SMSG_NEIGHBORHOOD_EVICT_PLAYER) { }
+        WorldPacket const* Write() override;
+        ObjectGuid PlayerGuid;
+    };
+
+    class NeighborhoodUpdateNameResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodUpdateNameResponse() : ServerPacket(SMSG_NEIGHBORHOOD_UPDATE_NAME_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodUpdateNameNotification final : public ServerPacket
+    {
+    public:
+        NeighborhoodUpdateNameNotification() : ServerPacket(SMSG_NEIGHBORHOOD_UPDATE_NAME_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+        std::string NewName;
+    };
+
+    class NeighborhoodAddSecondaryOwnerResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodAddSecondaryOwnerResponse() : ServerPacket(SMSG_NEIGHBORHOOD_ADD_SECONDARY_OWNER_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodRemoveSecondaryOwnerResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodRemoveSecondaryOwnerResponse() : ServerPacket(SMSG_NEIGHBORHOOD_REMOVE_SECONDARY_OWNER_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodBuyHouseResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodBuyHouseResponse() : ServerPacket(SMSG_NEIGHBORHOOD_BUY_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodMoveHouseResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodMoveHouseResponse() : ServerPacket(SMSG_NEIGHBORHOOD_MOVE_HOUSE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodOpenCornerstoneUIResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodOpenCornerstoneUIResponse() : ServerPacket(SMSG_NEIGHBORHOOD_OPEN_CORNERSTONE_UI_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodInviteResidentResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodInviteResidentResponse() : ServerPacket(SMSG_NEIGHBORHOOD_INVITE_RESIDENT_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodCancelInvitationResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodCancelInvitationResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CANCEL_INVITATION_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodDeclineInvitationResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodDeclineInvitationResponse() : ServerPacket(SMSG_NEIGHBORHOOD_DECLINE_INVITATION_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodPlayerGetInviteResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodPlayerGetInviteResponse() : ServerPacket(SMSG_NEIGHBORHOOD_PLAYER_GET_INVITE_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodGetInvitesResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodGetInvitesResponse() : ServerPacket(SMSG_NEIGHBORHOOD_GET_INVITES_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodInviteNotification final : public ServerPacket
+    {
+    public:
+        NeighborhoodInviteNotification() : ServerPacket(SMSG_NEIGHBORHOOD_INVITE_NOTIFICATION) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGuid;
+        ObjectGuid InviterGuid;
+        std::string NeighborhoodName;
+    };
+
+    class NeighborhoodOfferOwnershipResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodOfferOwnershipResponse() : ServerPacket(SMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodGetRosterResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodGetRosterResponse() : ServerPacket(SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodRosterResidentUpdate final : public ServerPacket
+    {
+    public:
+        NeighborhoodRosterResidentUpdate() : ServerPacket(SMSG_NEIGHBORHOOD_ROSTER_RESIDENT_UPDATE) { }
+        WorldPacket const* Write() override;
+        ObjectGuid PlayerGuid;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class NeighborhoodInviteNameLookupResult final : public ServerPacket
+    {
+    public:
+        NeighborhoodInviteNameLookupResult() : ServerPacket(SMSG_NEIGHBORHOOD_INVITE_NAME_LOOKUP_RESULT) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+        std::string PlayerName;
+        ObjectGuid PlayerGuid;
+    };
+
+    class NeighborhoodEvictPlotResponse final : public ServerPacket
+    {
+    public:
+        NeighborhoodEvictPlotResponse() : ServerPacket(SMSG_NEIGHBORHOOD_EVICT_PLOT_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0;
+    };
+
+    class NeighborhoodEvictPlotNotice final : public ServerPacket
+    {
+    public:
+        NeighborhoodEvictPlotNotice() : ServerPacket(SMSG_NEIGHBORHOOD_EVICT_PLOT_NOTICE) { }
+        WorldPacket const* Write() override;
         ObjectGuid NeighborhoodGuid;
         ObjectGuid PlotGuid;
     };

@@ -44,6 +44,7 @@ struct HouseDecorData
     int8 SourceDifficultyID = 0;
     int32 UiModelSceneID = 0;
     int32 HouseDecorCategoryID = 0;
+    int32 WeightCost = 1;
 };
 
 struct HouseLevelData
@@ -51,6 +52,11 @@ struct HouseLevelData
     uint32 ID = 0;
     int32 MaxDecorCount = 0;
     int32 FavorRequired = 0;
+    int32 QuestID = 0;
+    int32 InteriorDecorPlacementBudget = 0;
+    int32 ExteriorDecorPlacementBudget = 0;
+    int32 RoomPlacementBudget = 0;
+    int32 ExteriorFixtureBudget = 0;
 };
 
 struct HouseRoomData
@@ -63,6 +69,8 @@ struct HouseRoomData
     int32 DoorSlots = 0;
     int32 CeilingSlots = 0;
     int32 WallSlots = 0;
+    int32 WeightCost = 1;
+    int32 RoomWmoDataID = 0;
 };
 
 struct HouseThemeData
@@ -227,6 +235,15 @@ public:
 
     // Level-based limits
     uint32 GetMaxDecorForLevel(uint32 level) const;
+
+    // Budget accessors (WeightCost-based)
+    uint32 GetQuestForLevel(uint32 level) const;
+    uint32 GetInteriorDecorBudgetForLevel(uint32 level) const;
+    uint32 GetExteriorDecorBudgetForLevel(uint32 level) const;
+    uint32 GetRoomBudgetForLevel(uint32 level) const;
+    uint32 GetFixtureBudgetForLevel(uint32 level) const;
+    uint32 GetDecorWeightCost(uint32 decorEntryId) const;
+    uint32 GetRoomWeightCost(uint32 roomEntryId) const;
 
     // Validation
     HousingResult ValidateDecorPlacement(uint32 decorId, Position const& pos, uint32 houseLevel) const;

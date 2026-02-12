@@ -42,6 +42,12 @@ void WorldSession::HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Nei
 
     // Client requests to open the charter creation confirmation UI
     // The client handles UI display; server acknowledges readiness
+    WorldPackets::Neighborhood::NeighborhoodCharterOpenConfirmationUIResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
+    TC_LOG_DEBUG("housing", "Sent NeighborhoodCharterOpenConfirmationUIResponse (SUCCESS) to player {}",
+        player->GetGUID().ToString());
 }
 
 void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::NeighborhoodCharterCreate const& neighborhoodCharterCreate)
@@ -57,6 +63,10 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
     // Validate name
     if (neighborhoodCharterCreate.Name.empty() || neighborhoodCharterCreate.Name.length() > HOUSING_MAX_NAME_LENGTH)
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_INVALID_CHARTER_NAME);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("network", "HandleNeighborhoodCharterCreate: Invalid name length for player {}",
             player->GetGUID().ToString());
         return;
@@ -78,6 +88,10 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
     charter.SaveToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
 
+    WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "Player {} created neighborhood charter '{}' (ID: {}, MapID: {})",
         player->GetGUID().ToString(), neighborhoodCharterCreate.Name, charterId,
         neighborhoodCharterCreate.NeighborhoodMapID);
@@ -96,6 +110,10 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     // Validate name
     if (neighborhoodCharterEdit.Name.empty() || neighborhoodCharterEdit.Name.length() > HOUSING_MAX_NAME_LENGTH)
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_INVALID_CHARTER_NAME);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("network", "HandleNeighborhoodCharterEdit: Invalid name length for player {}",
             player->GetGUID().ToString());
         return;
@@ -117,6 +135,10 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     NeighborhoodCharter::DeleteFromDB(charterId, trans);
     charter.SaveToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
+
+    WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "Player {} edited neighborhood charter '{}' (ID: {}, MapID: {})",
         player->GetGUID().ToString(), neighborhoodCharterEdit.Name, charterId,
@@ -141,6 +163,10 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
 
     if (!charterResult)
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_ALLOWED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: No charter found for player {}",
             player->GetGUID().ToString());
         return;
@@ -153,6 +179,10 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
     if (!charter.LoadFromDB(charterResult, sigResult))
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_DB_ERROR);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Failed to load charter {} from DB",
             charterId);
         return;
@@ -161,6 +191,10 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     // Verify enough signatures
     if (!charter.HasEnoughSignatures())
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_ENOUGH_SIGNATURES);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Charter {} has only {}/{} signatures",
             charterId, charter.GetSignatureCount(), MIN_CHARTER_SIGNATURES);
         return;
@@ -176,17 +210,25 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
 
     if (neighborhood)
     {
-        TC_LOG_DEBUG("housing", "Player {} finalized charter '{}', created neighborhood {}",
-            player->GetGUID().ToString(), charter.GetName(),
-            neighborhood->GetGuid().ToString());
-
         // Clean up charter from DB
         CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
         NeighborhoodCharter::DeleteFromDB(charterId, trans);
         CharacterDatabase.CommitTransaction(trans);
+
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+        SendPacket(response.Write());
+
+        TC_LOG_DEBUG("housing", "Player {} finalized charter '{}', created neighborhood {}",
+            player->GetGUID().ToString(), charter.GetName(),
+            neighborhood->GetGuid().ToString());
     }
     else
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_DB_ERROR);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "Player {} failed to finalize charter '{}' - neighborhood creation failed",
             player->GetGUID().ToString(), charter.GetName());
     }
@@ -211,6 +253,10 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
 
     if (!charterResult)
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_ALLOWED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Charter {} not found in DB",
             charterId);
         return;
@@ -223,6 +269,10 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
     if (!charter.LoadFromDB(charterResult, sigResult))
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_DB_ERROR);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Failed to load charter {} from DB",
             charterId);
         return;
@@ -231,10 +281,18 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     // Add player's signature (validates not already signed, not creator)
     if (!charter.AddSignature(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_ALLOWED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Player {} could not sign charter {}",
             player->GetGUID().ToString(), charterId);
         return;
     }
+
+    WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "Player {} signed charter {} ({}/{} signatures)",
         player->GetGUID().ToString(), charterId,
@@ -259,11 +317,15 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
         return;
     }
 
-    TC_LOG_DEBUG("housing", "Player {} requested signature from {} for charter",
-        player->GetGUID().ToString(), targetPlayer->GetGUID().ToString());
+    // Send signature request notification to the target player's client
+    uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
+    WorldPackets::Neighborhood::NeighborhoodCharterSignRequest signRequest;
+    signRequest.CharterGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, charterId);
+    signRequest.RequesterGuid = player->GetGUID();
+    targetPlayer->SendDirectMessage(signRequest.Write());
 
-    // In a complete implementation, this would send a signature request
-    // notification to the target player's client
+    TC_LOG_DEBUG("housing", "Player {} requested signature from {} for charter {}",
+        player->GetGUID().ToString(), targetPlayer->GetGUID().ToString(), charterId);
 }
 
 // ============================================================
@@ -282,6 +344,10 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodUpdateName.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodUpdateName: Neighborhood {} not found",
             neighborhoodUpdateName.NeighborhoodGuid.ToString());
         return;
@@ -290,6 +356,10 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     // Only owner or manager can rename
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodUpdateName: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodUpdateName.NeighborhoodGuid.ToString());
         return;
@@ -298,6 +368,10 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     // Validate name
     if (neighborhoodUpdateName.NewName.empty() || neighborhoodUpdateName.NewName.length() > HOUSING_MAX_NAME_LENGTH)
     {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_INVALID_NEIGHBORHOOD_NAME);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodUpdateName: Invalid name length");
         return;
     }
@@ -308,6 +382,10 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     WorldPackets::Housing::InvalidateNeighborhoodName invalidate;
     invalidate.NeighborhoodGuid = neighborhoodUpdateName.NeighborhoodGuid;
     player->SendDirectMessage(invalidate.Write());
+
+    WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "Neighborhood {} renamed to '{}' by player {}",
         neighborhoodUpdateName.NeighborhoodGuid.ToString(), neighborhoodUpdateName.NewName,
@@ -326,6 +404,10 @@ void WorldSession::HandleNeighborhoodSetPublicFlag(WorldPackets::Neighborhood::N
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodSetPublicFlag.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodSetPublicFlag: Neighborhood {} not found",
             neighborhoodSetPublicFlag.NeighborhoodGuid.ToString());
         return;
@@ -334,12 +416,20 @@ void WorldSession::HandleNeighborhoodSetPublicFlag(WorldPackets::Neighborhood::N
     // Only owner or manager can change visibility
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodSetPublicFlag: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodSetPublicFlag.NeighborhoodGuid.ToString());
         return;
     }
 
     neighborhood->SetPublic(neighborhoodSetPublicFlag.IsPublic);
+
+    WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "Neighborhood {} set to {} by player {}",
         neighborhoodSetPublicFlag.NeighborhoodGuid.ToString(),
@@ -359,6 +449,10 @@ void WorldSession::HandleNeighborhoodAddSecondaryOwner(WorldPackets::Neighborhoo
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodAddSecondaryOwner.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodAddSecondaryOwnerResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodAddSecondaryOwner: Neighborhood {} not found",
             neighborhoodAddSecondaryOwner.NeighborhoodGuid.ToString());
         return;
@@ -367,12 +461,21 @@ void WorldSession::HandleNeighborhoodAddSecondaryOwner(WorldPackets::Neighborhoo
     // Only owner can add managers
     if (!neighborhood->IsOwner(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodAddSecondaryOwnerResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodAddSecondaryOwner: Player {} is not owner of neighborhood {}",
             player->GetGUID().ToString(), neighborhoodAddSecondaryOwner.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->AddManager(neighborhoodAddSecondaryOwner.PlayerGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodAddSecondaryOwnerResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "AddManager result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodAddSecondaryOwner.PlayerGuid.ToString(),
         neighborhoodAddSecondaryOwner.NeighborhoodGuid.ToString());
@@ -390,6 +493,10 @@ void WorldSession::HandleNeighborhoodRemoveSecondaryOwner(WorldPackets::Neighbor
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodRemoveSecondaryOwner.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodRemoveSecondaryOwnerResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodRemoveSecondaryOwner: Neighborhood {} not found",
             neighborhoodRemoveSecondaryOwner.NeighborhoodGuid.ToString());
         return;
@@ -398,12 +505,21 @@ void WorldSession::HandleNeighborhoodRemoveSecondaryOwner(WorldPackets::Neighbor
     // Only owner can remove managers
     if (!neighborhood->IsOwner(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodRemoveSecondaryOwnerResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodRemoveSecondaryOwner: Player {} is not owner of neighborhood {}",
             player->GetGUID().ToString(), neighborhoodRemoveSecondaryOwner.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->RemoveManager(neighborhoodRemoveSecondaryOwner.PlayerGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodRemoveSecondaryOwnerResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "RemoveManager result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodRemoveSecondaryOwner.PlayerGuid.ToString(),
         neighborhoodRemoveSecondaryOwner.NeighborhoodGuid.ToString());
@@ -421,6 +537,10 @@ void WorldSession::HandleNeighborhoodInviteResident(WorldPackets::Neighborhood::
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodInviteResident.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodInviteResidentResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodInviteResident: Neighborhood {} not found",
             neighborhoodInviteResident.NeighborhoodGuid.ToString());
         return;
@@ -429,12 +549,21 @@ void WorldSession::HandleNeighborhoodInviteResident(WorldPackets::Neighborhood::
     // Only owner or manager can invite
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodInviteResidentResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodInviteResident: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodInviteResident.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->InviteResident(player->GetGUID(), neighborhoodInviteResident.PlayerGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodInviteResidentResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "InviteResident result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodInviteResident.PlayerGuid.ToString(),
         neighborhoodInviteResident.NeighborhoodGuid.ToString());
@@ -452,6 +581,10 @@ void WorldSession::HandleNeighborhoodCancelInvitation(WorldPackets::Neighborhood
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodCancelInvitation.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodCancelInvitationResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCancelInvitation: Neighborhood {} not found",
             neighborhoodCancelInvitation.NeighborhoodGuid.ToString());
         return;
@@ -460,12 +593,21 @@ void WorldSession::HandleNeighborhoodCancelInvitation(WorldPackets::Neighborhood
     // Only owner or manager can cancel invitations
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodCancelInvitationResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCancelInvitation: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodCancelInvitation.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->CancelInvitation(neighborhoodCancelInvitation.InviteeGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodCancelInvitationResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "CancelInvitation result: {} for invitee {} in neighborhood {}",
         uint32(result), neighborhoodCancelInvitation.InviteeGuid.ToString(),
         neighborhoodCancelInvitation.NeighborhoodGuid.ToString());
@@ -483,12 +625,21 @@ void WorldSession::HandleNeighborhoodPlayerDeclineInvite(WorldPackets::Neighborh
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodPlayerDeclineInvite.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodDeclineInvitationResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodPlayerDeclineInvite: Neighborhood {} not found",
             neighborhoodPlayerDeclineInvite.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->DeclineInvitation(player->GetGUID());
+
+    WorldPackets::Neighborhood::NeighborhoodDeclineInvitationResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "DeclineInvitation result: {} for player {} in neighborhood {}",
         uint32(result), player->GetGUID().ToString(),
         neighborhoodPlayerDeclineInvite.NeighborhoodGuid.ToString());
@@ -506,6 +657,10 @@ void WorldSession::HandleNeighborhoodPlayerGetInvite(WorldPackets::Neighborhood:
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodPlayerGetInvite.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodPlayerGetInviteResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodPlayerGetInvite: Neighborhood {} not found",
             neighborhoodPlayerGetInvite.NeighborhoodGuid.ToString());
         return;
@@ -513,6 +668,11 @@ void WorldSession::HandleNeighborhoodPlayerGetInvite(WorldPackets::Neighborhood:
 
     // Check if this player has a pending invite to this neighborhood
     bool hasInvite = neighborhood->HasPendingInvite(player->GetGUID());
+
+    WorldPackets::Neighborhood::NeighborhoodPlayerGetInviteResponse response;
+    response.Result = static_cast<uint32>(hasInvite ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_NOT_ALLOWED);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "Player {} {} a pending invite to neighborhood {}",
         player->GetGUID().ToString(), hasInvite ? "has" : "does not have",
         neighborhoodPlayerGetInvite.NeighborhoodGuid.ToString());
@@ -530,6 +690,10 @@ void WorldSession::HandleNeighborhoodGetInvites(WorldPackets::Neighborhood::Neig
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGetInvites.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodGetInvitesResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodGetInvites: Neighborhood {} not found",
             neighborhoodGetInvites.NeighborhoodGuid.ToString());
         return;
@@ -538,12 +702,21 @@ void WorldSession::HandleNeighborhoodGetInvites(WorldPackets::Neighborhood::Neig
     // Only owner or manager can view all pending invites
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodGetInvitesResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodGetInvites: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodGetInvites.NeighborhoodGuid.ToString());
         return;
     }
 
     std::vector<Neighborhood::PendingInvite> const& invites = neighborhood->GetPendingInvites();
+
+    WorldPackets::Neighborhood::NeighborhoodGetInvitesResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "Neighborhood {} has {} pending invites",
         neighborhoodGetInvites.NeighborhoodGuid.ToString(), uint32(invites.size()));
 }
@@ -560,6 +733,10 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodBuyHouse.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Neighborhood {} not found",
             neighborhoodBuyHouse.NeighborhoodGuid.ToString());
         return;
@@ -568,6 +745,10 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     // Must be a member of the neighborhood
     if (!neighborhood->IsMember(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_IN_NEIGHBORHOOD);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Player {} is not a member of neighborhood {}",
             player->GetGUID().ToString(), neighborhoodBuyHouse.NeighborhoodGuid.ToString());
         return;
@@ -576,6 +757,10 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     // Must not already own a house
     if (player->GetHousing())
     {
+        WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_ALREADY_EXISTS);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Player {} already has a house",
             player->GetGUID().ToString());
         return;
@@ -585,12 +770,21 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     if (result == HOUSING_RESULT_SUCCESS)
     {
         player->CreateHousing(neighborhoodBuyHouse.NeighborhoodGuid, neighborhoodBuyHouse.PlotIndex);
+
+        WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "Player {} purchased plot {} in neighborhood {}",
             player->GetGUID().ToString(), neighborhoodBuyHouse.PlotIndex,
             neighborhoodBuyHouse.NeighborhoodGuid.ToString());
     }
     else
     {
+        WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
+        response.Result = static_cast<uint32>(result);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: PurchasePlot result: {} for player {}",
             uint32(result), player->GetGUID().ToString());
     }
@@ -608,6 +802,10 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     Housing* housing = player->GetHousing();
     if (!housing)
     {
+        WorldPackets::Neighborhood::NeighborhoodMoveHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodMoveHouse: Player {} has no house",
             player->GetGUID().ToString());
         return;
@@ -616,12 +814,21 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid());
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodMoveHouseResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodMoveHouse: Neighborhood not found for player {}",
             player->GetGUID().ToString());
         return;
     }
 
     HousingResult result = neighborhood->MoveHouse(neighborhoodMoveHouse.SourcePlotGuid, neighborhoodMoveHouse.NewPlotIndex);
+
+    WorldPackets::Neighborhood::NeighborhoodMoveHouseResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "MoveHouse result: {} for plot {} to index {}",
         uint32(result), neighborhoodMoveHouse.SourcePlotGuid.ToString(),
         neighborhoodMoveHouse.NewPlotIndex);
@@ -638,6 +845,10 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
 
     // Cornerstone interaction opens the neighborhood UI
     // The client handles the UI display based on the cornerstone's neighborhood data
+    WorldPackets::Neighborhood::NeighborhoodOpenCornerstoneUIResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "Player {} interacted with cornerstone {}",
         player->GetGUID().ToString(), neighborhoodOpenCornerstoneUI.CornerstoneGuid.ToString());
 }
@@ -654,6 +865,10 @@ void WorldSession::HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodOfferOwnership.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodOfferOwnershipResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodOfferOwnership: Neighborhood {} not found",
             neighborhoodOfferOwnership.NeighborhoodGuid.ToString());
         return;
@@ -662,12 +877,21 @@ void WorldSession::HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::
     // Only owner can transfer ownership
     if (!neighborhood->IsOwner(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodOfferOwnershipResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodOfferOwnership: Player {} is not owner of neighborhood {}",
             player->GetGUID().ToString(), neighborhoodOfferOwnership.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->TransferOwnership(neighborhoodOfferOwnership.NewOwnerGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodOfferOwnershipResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "TransferOwnership result: {} to player {} for neighborhood {}",
         uint32(result), neighborhoodOfferOwnership.NewOwnerGuid.ToString(),
         neighborhoodOfferOwnership.NeighborhoodGuid.ToString());
@@ -685,6 +909,10 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGetRoster.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodGetRoster: Neighborhood {} not found",
             neighborhoodGetRoster.NeighborhoodGuid.ToString());
         return;
@@ -693,12 +921,21 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     // Must be a member to view roster
     if (!neighborhood->IsMember(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NOT_IN_NEIGHBORHOOD);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodGetRoster: Player {} is not a member of neighborhood {}",
             player->GetGUID().ToString(), neighborhoodGetRoster.NeighborhoodGuid.ToString());
         return;
     }
 
     std::vector<Neighborhood::Member> const& members = neighborhood->GetMembers();
+
+    WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "Neighborhood {} roster: {} members",
         neighborhoodGetRoster.NeighborhoodGuid.ToString(), uint32(members.size()));
 }
@@ -715,6 +952,10 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodEvictPlot.NeighborhoodGuid);
     if (!neighborhood)
     {
+        WorldPackets::Neighborhood::NeighborhoodEvictPlotResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodEvictPlot: Neighborhood {} not found",
             neighborhoodEvictPlot.NeighborhoodGuid.ToString());
         return;
@@ -723,12 +964,21 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     // Only owner or manager can evict
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
+        WorldPackets::Neighborhood::NeighborhoodEvictPlotResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_PERMISSION_DENIED);
+        SendPacket(response.Write());
+
         TC_LOG_DEBUG("housing", "HandleNeighborhoodEvictPlot: Player {} lacks permission for neighborhood {}",
             player->GetGUID().ToString(), neighborhoodEvictPlot.NeighborhoodGuid.ToString());
         return;
     }
 
     HousingResult result = neighborhood->EvictPlayer(neighborhoodEvictPlot.PlotGuid);
+
+    WorldPackets::Neighborhood::NeighborhoodEvictPlotResponse response;
+    response.Result = static_cast<uint32>(result);
+    SendPacket(response.Write());
+
     TC_LOG_DEBUG("housing", "EvictPlayer result: {} for plot {} in neighborhood {}",
         uint32(result), neighborhoodEvictPlot.PlotGuid.ToString(),
         neighborhoodEvictPlot.NeighborhoodGuid.ToString());
