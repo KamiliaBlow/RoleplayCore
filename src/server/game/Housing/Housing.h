@@ -57,6 +57,12 @@ public:
         uint32 Orientation = 0;
         bool Mirrored = false;
         uint32 ThemeId = 0;
+        uint32 WallpaperId = 0;
+        uint32 MaterialId = 0;
+        uint32 DoorTypeId = 0;
+        uint8 DoorSlot = 0;
+        uint32 CeilingTypeId = 0;
+        uint8 CeilingSlot = 0;
     };
 
     struct Fixture

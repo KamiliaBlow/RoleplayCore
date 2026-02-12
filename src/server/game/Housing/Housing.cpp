@@ -86,8 +86,8 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     }
 
     // Load rooms
-    //           0         1            2           3            4         5
-    // SELECT roomGuid, roomEntryId, slotIndex, orientation, mirrored, themeId
+    //           0         1            2           3            4         5        6             7           8           9         10              11
+    // SELECT roomGuid, roomEntryId, slotIndex, orientation, mirrored, themeId, wallpaperId, materialId, doorTypeId, doorSlot, ceilingTypeId, ceilingSlot
     // FROM character_housing_rooms WHERE ownerGuid = ?
     if (rooms)
     {
@@ -105,6 +105,12 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             room.Orientation = fields[3].GetUInt32();
             room.Mirrored = fields[4].GetBool();
             room.ThemeId = fields[5].GetUInt32();
+            room.WallpaperId = fields[6].GetUInt32();
+            room.MaterialId = fields[7].GetUInt32();
+            room.DoorTypeId = fields[8].GetUInt32();
+            room.DoorSlot = fields[9].GetUInt8();
+            room.CeilingTypeId = fields[10].GetUInt32();
+            room.CeilingSlot = fields[11].GetUInt8();
 
             if (roomDbId >= _roomDbIdGenerator)
                 _roomDbIdGenerator = roomDbId + 1;
@@ -208,6 +214,12 @@ void Housing::SaveToDB(CharacterDatabaseTransaction trans)
         stmt->setUInt32(index++, room.Orientation);
         stmt->setBool(index++, room.Mirrored);
         stmt->setUInt32(index++, room.ThemeId);
+        stmt->setUInt32(index++, room.WallpaperId);
+        stmt->setUInt32(index++, room.MaterialId);
+        stmt->setUInt32(index++, room.DoorTypeId);
+        stmt->setUInt8(index++, room.DoorSlot);
+        stmt->setUInt32(index++, room.CeilingTypeId);
+        stmt->setUInt8(index++, room.CeilingSlot);
         trans->Append(stmt);
     }
 
@@ -580,7 +592,7 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperId, uint32 /*materialId*/, std::vector<uint32> const& /*componentIds*/)
+HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperId, uint32 materialId, std::vector<uint32> const& /*componentIds*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
@@ -589,13 +601,16 @@ HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperI
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
-    TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Player {} applied wallpaper {} to room {} in house {}",
-        _owner->GetName(), wallpaperId, roomGuid.ToString(), _houseGuid.ToString());
+    itr->second.WallpaperId = wallpaperId;
+    itr->second.MaterialId = materialId;
+
+    TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Player {} applied wallpaper {} (material {}) to room {} in house {}",
+        _owner->GetName(), wallpaperId, materialId, roomGuid.ToString(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8 /*doorSlot*/)
+HousingResult Housing::SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8 doorSlot)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
@@ -604,13 +619,16 @@ HousingResult Housing::SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
-    TC_LOG_DEBUG("housing", "Housing::SetDoorType: Player {} set door type {} on room {} in house {}",
-        _owner->GetName(), doorTypeId, roomGuid.ToString(), _houseGuid.ToString());
+    itr->second.DoorTypeId = doorTypeId;
+    itr->second.DoorSlot = doorSlot;
+
+    TC_LOG_DEBUG("housing", "Housing::SetDoorType: Player {} set door type {} (slot {}) on room {} in house {}",
+        _owner->GetName(), doorTypeId, doorSlot, roomGuid.ToString(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::SetCeilingType(ObjectGuid roomGuid, uint32 ceilingTypeId, uint8 /*ceilingSlot*/)
+HousingResult Housing::SetCeilingType(ObjectGuid roomGuid, uint32 ceilingTypeId, uint8 ceilingSlot)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_NO_HOUSE;
@@ -619,8 +637,11 @@ HousingResult Housing::SetCeilingType(ObjectGuid roomGuid, uint32 ceilingTypeId,
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
-    TC_LOG_DEBUG("housing", "Housing::SetCeilingType: Player {} set ceiling type {} on room {} in house {}",
-        _owner->GetName(), ceilingTypeId, roomGuid.ToString(), _houseGuid.ToString());
+    itr->second.CeilingTypeId = ceilingTypeId;
+    itr->second.CeilingSlot = ceilingSlot;
+
+    TC_LOG_DEBUG("housing", "Housing::SetCeilingType: Player {} set ceiling type {} (slot {}) on room {} in house {}",
+        _owner->GetName(), ceilingTypeId, ceilingSlot, roomGuid.ToString(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }

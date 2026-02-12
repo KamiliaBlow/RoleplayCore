@@ -108,6 +108,12 @@ CREATE TABLE `character_housing_rooms` (
     `orientation` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Room rotation orientation value',
     `mirrored` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Boolean: 1 = room layout is mirrored',
     `themeId` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Visual theme applied to the room',
+    `wallpaperId` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Wallpaper style applied to room components',
+    `materialId` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Material/texture ID used with wallpaper',
+    `doorTypeId` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Door type for the room',
+    `doorSlot` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Door slot index within the room',
+    `ceilingTypeId` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Ceiling type for the room',
+    `ceilingSlot` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Ceiling slot index within the room',
     PRIMARY KEY (`id`),
     INDEX `idx_owner` (`ownerGuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
