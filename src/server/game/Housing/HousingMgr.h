@@ -120,6 +120,72 @@ struct NeighborhoodNameGenData
     int32 NeighborhoodMapID = 0;
 };
 
+struct HouseDecorMaterialData
+{
+    uint32 ID = 0;
+    uint64 MaterialGUID = 0;
+    int32 HouseDecorID = 0;
+    int32 MaterialIndex = 0;
+    int32 DefaultDyeID = 0;
+    int32 AllowedDyeMask = 0;
+};
+
+struct HouseExteriorWmoData
+{
+    uint32 ID = 0;
+    std::string WmoFilePath;
+};
+
+struct HouseLevelRewardInfoData
+{
+    uint32 ID = 0;
+    std::string Name;
+    std::string Description;
+    int32 HouseLevelID = 0;
+    int32 RewardType = 0;
+    int32 RewardValue = 0;
+};
+
+struct NeighborhoodInitiativeData
+{
+    uint32 ID = 0;
+    std::string Name;
+    std::string Description;
+    int32 InitiativeType = 0;
+    int32 Duration = 0;
+    int32 RequiredParticipants = 0;
+    int32 RewardCurrencyID = 0;
+    int32 RewardCurrencyAmount = 0;
+    int32 PlayerConditionID = 0;
+};
+
+struct NeighborhoodInitiativeRewardData
+{
+    uint32 ID = 0;
+    int32 InitiativeID = 0;
+    float ChanceWeight = 0.0f;
+    int32 RewardValue = 0;
+};
+
+struct NeighborhoodInitiativeTaskData
+{
+    uint32 ID = 0;
+    std::string Name;
+    std::string Description;
+    int32 TaskType = 0;
+    int32 RequiredCount = 0;
+    int32 TargetID = 0;
+    float ProgressWeight = 0.0f;
+    int32 PlayerConditionID = 0;
+};
+
+struct NeighborhoodInitiativeXTaskData
+{
+    uint32 ID = 0;
+    int32 TaskID = 0;
+    int32 InitiativeID = 0;
+};
+
 class TC_GAME_API HousingMgr
 {
 public:
@@ -141,6 +207,17 @@ public:
     HouseThemeData const* GetHouseThemeData(uint32 id) const;
     HouseDecorThemeSetData const* GetHouseDecorThemeSetData(uint32 id) const;
     NeighborhoodMapData const* GetNeighborhoodMapData(uint32 id) const;
+    HouseDecorMaterialData const* GetHouseDecorMaterialData(uint32 id) const;
+    HouseExteriorWmoData const* GetHouseExteriorWmoData(uint32 id) const;
+    HouseLevelRewardInfoData const* GetHouseLevelRewardInfoData(uint32 id) const;
+    NeighborhoodInitiativeData const* GetNeighborhoodInitiativeData(uint32 id) const;
+    NeighborhoodInitiativeRewardData const* GetNeighborhoodInitiativeRewardData(uint32 id) const;
+    NeighborhoodInitiativeTaskData const* GetNeighborhoodInitiativeTaskData(uint32 id) const;
+
+    // Indexed lookups
+    std::vector<HouseDecorMaterialData const*> GetMaterialsForDecor(uint32 houseDecorId) const;
+    std::vector<HouseLevelRewardInfoData const*> GetRewardsForLevel(uint32 houseLevelId) const;
+    std::vector<NeighborhoodInitiativeTaskData const*> GetTasksForInitiative(uint32 initiativeId) const;
 
     // Neighborhood plot lookups
     std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
@@ -163,6 +240,13 @@ private:
     void LoadNeighborhoodMapData();
     void LoadNeighborhoodPlotData();
     void LoadNeighborhoodNameGenData();
+    void LoadHouseDecorMaterialData();
+    void LoadHouseExteriorWmoData();
+    void LoadHouseLevelRewardInfoData();
+    void LoadNeighborhoodInitiativeData();
+    void LoadNeighborhoodInitiativeRewardData();
+    void LoadNeighborhoodInitiativeTaskData();
+    void LoadNeighborhoodInitiativeXTaskData();
 
     // DB2 data stores indexed by ID
     std::unordered_map<uint32, HouseDecorData> _houseDecorStore;
@@ -172,11 +256,20 @@ private:
     std::unordered_map<uint32, HouseDecorThemeSetData> _houseDecorThemeSetStore;
     std::unordered_map<uint32, NeighborhoodMapData> _neighborhoodMapStore;
     std::unordered_map<uint32, NeighborhoodPlotData> _neighborhoodPlotStore;
+    std::unordered_map<uint32, HouseDecorMaterialData> _houseDecorMaterialStore;
+    std::unordered_map<uint32, HouseExteriorWmoData> _houseExteriorWmoStore;
+    std::unordered_map<uint32, HouseLevelRewardInfoData> _houseLevelRewardInfoStore;
+    std::unordered_map<uint32, NeighborhoodInitiativeData> _neighborhoodInitiativeStore;
+    std::unordered_map<uint32, NeighborhoodInitiativeRewardData> _neighborhoodInitiativeRewardStore;
+    std::unordered_map<uint32, NeighborhoodInitiativeTaskData> _neighborhoodInitiativeTaskStore;
 
     // Lookup indexes
     std::unordered_map<uint32 /*neighborhoodMapId*/, std::vector<NeighborhoodPlotData const*>> _plotsByMap;
     std::unordered_map<uint32 /*neighborhoodMapId*/, std::vector<NeighborhoodNameGenData>> _nameGenByMap;
     std::unordered_map<uint32 /*level*/, HouseLevelData const*> _levelDataByLevel;
+    std::unordered_map<uint32 /*houseDecorId*/, std::vector<HouseDecorMaterialData const*>> _materialsByDecor;
+    std::unordered_map<uint32 /*houseLevelId*/, std::vector<HouseLevelRewardInfoData const*>> _rewardsByLevel;
+    std::unordered_map<uint32 /*initiativeId*/, std::vector<NeighborhoodInitiativeTaskData const*>> _tasksByInitiative;
 };
 
 #define sHousingMgr HousingMgr::Instance()

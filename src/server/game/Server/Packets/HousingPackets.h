@@ -579,6 +579,46 @@ namespace WorldPackets::Housing
 
         ObjectGuid NeighborhoodGuid;
     };
+
+    class AccountHousingRoomAdded final : public ServerPacket
+    {
+    public:
+        explicit AccountHousingRoomAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_ADDED) { }
+
+        WorldPacket const* Write() override;
+
+        uint32 RoomID = 0;
+    };
+
+    class AccountHousingFixtureAdded final : public ServerPacket
+    {
+    public:
+        explicit AccountHousingFixtureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_FIXTURE_ADDED) { }
+
+        WorldPacket const* Write() override;
+
+        uint32 FixtureID = 0;
+    };
+
+    class AccountHousingThemeAdded final : public ServerPacket
+    {
+    public:
+        explicit AccountHousingThemeAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_THEME_ADDED) { }
+
+        WorldPacket const* Write() override;
+
+        uint32 ThemeID = 0;
+    };
+
+    class AccountHousingRoomComponentTextureAdded final : public ServerPacket
+    {
+    public:
+        explicit AccountHousingRoomComponentTextureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_COMPONENT_TEXTURE_ADDED) { }
+
+        WorldPacket const* Write() override;
+
+        uint32 TextureID = 0;
+    };
 }
 
 namespace WorldPackets::Neighborhood
