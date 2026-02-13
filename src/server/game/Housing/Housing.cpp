@@ -56,8 +56,8 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     _settingsFlags = fields[5].GetUInt32();
 
     // Load placed decor
-    //           0        1             2     3     4     5          6          7          8          9       10       11       12
-    // SELECT decorGuid, decorEntryId, posX, posY, posZ, rotationX, rotationY, rotationZ, rotationW, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid
+    //           0        1             2     3     4     5          6          7          8          9       10       11       12        13
+    // SELECT decorGuid, decorEntryId, posX, posY, posZ, rotationX, rotationY, rotationZ, rotationW, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked
     // FROM character_housing_decor WHERE ownerGuid = ?
     if (decor)
     {
@@ -84,6 +84,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             uint64 roomDbId = fields[12].GetUInt64();
             if (roomDbId)
                 placed.RoomGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, roomDbId);
+            placed.Locked = fields[13].GetUInt8() != 0;
 
             if (decorDbId >= _decorDbIdGenerator)
                 _decorDbIdGenerator = decorDbId + 1;
@@ -211,6 +212,7 @@ void Housing::SaveToDB(CharacterDatabaseTransaction trans)
         stmt->setUInt32(index++, decor.DyeSlots[1]);
         stmt->setUInt32(index++, decor.DyeSlots[2]);
         stmt->setUInt64(index++, decor.RoomGuid.IsEmpty() ? 0 : decor.RoomGuid.GetCounter());
+        stmt->setUInt8(index++, decor.Locked ? 1 : 0);
         trans->Append(stmt);
     }
 

@@ -88,6 +88,7 @@ CREATE TABLE `character_housing_decor` (
     `dyeSlot1` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Dye color ID for slot 1',
     `dyeSlot2` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Dye color ID for slot 2',
     `roomGuid` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'FK to character_housing_rooms.id (0 = outdoor/unassigned)',
+    `locked` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Whether the decor item is locked in place (1=locked, 0=unlocked)',
     PRIMARY KEY (`id`),
     INDEX `idx_owner` (`ownerGuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
