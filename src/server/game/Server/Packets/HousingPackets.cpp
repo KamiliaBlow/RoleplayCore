@@ -323,34 +323,6 @@ WorldPacket const* InvalidateNeighborhoodName::Write()
     return &_worldPacket;
 }
 
-WorldPacket const* AccountHousingRoomAdded::Write()
-{
-    _worldPacket << uint32(RoomID);
-
-    return &_worldPacket;
-}
-
-WorldPacket const* AccountHousingFixtureAdded::Write()
-{
-    _worldPacket << uint32(FixtureID);
-
-    return &_worldPacket;
-}
-
-WorldPacket const* AccountHousingThemeAdded::Write()
-{
-    _worldPacket << uint32(ThemeID);
-
-    return &_worldPacket;
-}
-
-WorldPacket const* AccountHousingRoomComponentTextureAdded::Write()
-{
-    _worldPacket << uint32(TextureID);
-
-    return &_worldPacket;
-}
-
 // ============================================================
 // House Exterior SMSG Responses (0x50xxxx)
 // ============================================================

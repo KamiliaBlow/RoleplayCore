@@ -37,7 +37,7 @@ void WorldSession::HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Nei
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_OPEN_CHARTER_CONFIRMATION received for player {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_OPEN_CONFIRMATION_UI received for player {}",
         player->GetGUID().ToString());
 
     // Client requests to open the charter creation confirmation UI
@@ -56,7 +56,7 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_CREATE_NEIGHBORHOOD_CHARTER NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_CREATE NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
         neighborhoodCharterCreate.NeighborhoodMapID, neighborhoodCharterCreate.FactionFlags,
         neighborhoodCharterCreate.Name);
 
@@ -103,7 +103,7 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_EDIT_NEIGHBORHOOD_CHARTER NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_EDIT NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
         neighborhoodCharterEdit.NeighborhoodMapID, neighborhoodCharterEdit.FactionFlags,
         neighborhoodCharterEdit.Name);
 
@@ -151,7 +151,7 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_CONFIRMATION_RESPONSE received for player {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_FINALIZE received for player {}",
         player->GetGUID().ToString());
 
     // Load charter from DB using player's GUID counter as charter ID
@@ -240,7 +240,7 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_SIGN CharterGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURECharterGuid: {}",
         neighborhoodCharterAddSignature.CharterGuid.ToString());
 
     // CharterGuid counter maps to charter DB ID
@@ -305,7 +305,7 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_REQUEST_SIGNATURE TargetPlayerGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CHARTER_SEND_SIGNATURE_REQUEST TargetPlayerGuid: {}",
         neighborhoodCharterSendSignatureRequest.TargetPlayerGuid.ToString());
 
     // Validate target player is online and reachable
@@ -338,7 +338,7 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_SET_NAME NeighborhoodGuid: {}, NewName: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_UPDATE_NAMENeighborhoodGuid: {}, NewName: {}",
         neighborhoodUpdateName.NeighborhoodGuid.ToString(), neighborhoodUpdateName.NewName);
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodUpdateName.NeighborhoodGuid);
@@ -398,7 +398,7 @@ void WorldSession::HandleNeighborhoodSetPublicFlag(WorldPackets::Neighborhood::N
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_SET_PUBLIC NeighborhoodGuid: {}, IsPublic: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_SET_PUBLIC_FLAGNeighborhoodGuid: {}, IsPublic: {}",
         neighborhoodSetPublicFlag.NeighborhoodGuid.ToString(), neighborhoodSetPublicFlag.IsPublic);
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodSetPublicFlag.NeighborhoodGuid);
@@ -443,7 +443,7 @@ void WorldSession::HandleNeighborhoodAddSecondaryOwner(WorldPackets::Neighborhoo
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_ADD_MANAGER NeighborhoodGuid: {}, PlayerGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_ADD_SECONDARY_OWNERNeighborhoodGuid: {}, PlayerGuid: {}",
         neighborhoodAddSecondaryOwner.NeighborhoodGuid.ToString(), neighborhoodAddSecondaryOwner.PlayerGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodAddSecondaryOwner.NeighborhoodGuid);
@@ -487,7 +487,7 @@ void WorldSession::HandleNeighborhoodRemoveSecondaryOwner(WorldPackets::Neighbor
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_REMOVE_MANAGER NeighborhoodGuid: {}, PlayerGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_REMOVE_SECONDARY_OWNERNeighborhoodGuid: {}, PlayerGuid: {}",
         neighborhoodRemoveSecondaryOwner.NeighborhoodGuid.ToString(), neighborhoodRemoveSecondaryOwner.PlayerGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodRemoveSecondaryOwner.NeighborhoodGuid);
@@ -575,7 +575,7 @@ void WorldSession::HandleNeighborhoodCancelInvitation(WorldPackets::Neighborhood
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CANCEL_RESIDENT_INVITATION NeighborhoodGuid: {}, InviteeGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_CANCEL_INVITATION NeighborhoodGuid: {}, InviteeGuid: {}",
         neighborhoodCancelInvitation.NeighborhoodGuid.ToString(), neighborhoodCancelInvitation.InviteeGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodCancelInvitation.NeighborhoodGuid);
@@ -619,7 +619,7 @@ void WorldSession::HandleNeighborhoodPlayerDeclineInvite(WorldPackets::Neighborh
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_DECLINE_NEIGHBORHOOD_INVITATION NeighborhoodGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_PLAYER_DECLINE_INVITE NeighborhoodGuid: {}",
         neighborhoodPlayerDeclineInvite.NeighborhoodGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodPlayerDeclineInvite.NeighborhoodGuid);
@@ -651,7 +651,7 @@ void WorldSession::HandleNeighborhoodPlayerGetInvite(WorldPackets::Neighborhood:
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_GET_HOUSING_INVITATION NeighborhoodGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_PLAYER_GET_INVITE NeighborhoodGuid: {}",
         neighborhoodPlayerGetInvite.NeighborhoodGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodPlayerGetInvite.NeighborhoodGuid);
@@ -727,7 +727,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_PURCHASE_PLOT NeighborhoodGuid: {}, PlotIndex: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_BUY_HOUSE NeighborhoodGuid: {}, PlotIndex: {}",
         neighborhoodBuyHouse.NeighborhoodGuid.ToString(), neighborhoodBuyHouse.PlotIndex);
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodBuyHouse.NeighborhoodGuid);
@@ -840,7 +840,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_INTERACT_WITH_CORNERSTONE CornerstoneGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_OPEN_CORNERSTONE_UI CornerstoneGuid: {}",
         neighborhoodOpenCornerstoneUI.CornerstoneGuid.ToString());
 
     // Cornerstone interaction opens the neighborhood UI
@@ -859,7 +859,7 @@ void WorldSession::HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_OFFER_NEIGHBORHOOD_OWNERSHIP NeighborhoodGuid: {}, NewOwnerGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP NeighborhoodGuid: {}, NewOwnerGuid: {}",
         neighborhoodOfferOwnership.NeighborhoodGuid.ToString(), neighborhoodOfferOwnership.NewOwnerGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodOfferOwnership.NeighborhoodGuid);
@@ -903,7 +903,7 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_REQUEST_NEIGHBORHOOD_ROSTER NeighborhoodGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_GET_ROSTER NeighborhoodGuid: {}",
         neighborhoodGetRoster.NeighborhoodGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGetRoster.NeighborhoodGuid);
@@ -946,7 +946,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     if (!player)
         return;
 
-    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_EVICT_PLAYER NeighborhoodGuid: {}, PlotGuid: {}",
+    TC_LOG_DEBUG("network", "CMSG_NEIGHBORHOOD_EVICT_PLOTNeighborhoodGuid: {}, PlotGuid: {}",
         neighborhoodEvictPlot.NeighborhoodGuid.ToString(), neighborhoodEvictPlot.PlotGuid.ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodEvictPlot.NeighborhoodGuid);

@@ -15758,11 +15758,13 @@ struct NamesReservedLocaleMeta
 
 struct NeighborhoodInitiativeMeta
 {
-    static constexpr DB2MetaField Fields[7] =
+    static constexpr DB2MetaField Fields[9] =
     {
         { .Type = FT_STRING,               .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_STRING,               .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned = false },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
@@ -15774,9 +15776,77 @@ struct NeighborhoodInitiativeMeta
         .FileDataId         = 6699736,
         .IndexField         = 2,
         .ParentIndexField   = -1,
-        .FieldCount         = 7,
-        .FileFieldCount     = 7,
-        .LayoutHash         = 0xF67761EA,
+        .FieldCount         = 9,
+        .FileFieldCount     = 9,
+        .LayoutHash         = 0x1C8B2515,
+        .Fields             = Fields
+    };
+};
+
+struct NeighborhoodInitiativeRewardMeta
+{
+    static constexpr DB2MetaField Fields[4] =
+    {
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned = false },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_FLOAT,                .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+    };
+
+    static constexpr DB2Meta Instance =
+    {
+        .FileDataId         = 6702594,
+        .IndexField         = 0,
+        .ParentIndexField   = 3,
+        .FieldCount         = 4,
+        .FileFieldCount     = 3,
+        .LayoutHash         = 0x773AA9EA,
+        .Fields             = Fields
+    };
+};
+
+struct NeighborhoodInitiativeTaskMeta
+{
+    static constexpr DB2MetaField Fields[8] =
+    {
+        { .Type = FT_STRING,               .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_STRING,               .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned = false },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_FLOAT,                .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+    };
+
+    static constexpr DB2Meta Instance =
+    {
+        .FileDataId         = 6702595,
+        .IndexField         = 2,
+        .ParentIndexField   = -1,
+        .FieldCount         = 8,
+        .FileFieldCount     = 8,
+        .LayoutHash         = 0xF4A7B3C3,
+        .Fields             = Fields
+    };
+};
+
+struct NeighborhoodInitiativeXTaskMeta
+{
+    static constexpr DB2MetaField Fields[2] =
+    {
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
+    };
+
+    static constexpr DB2Meta Instance =
+    {
+        .FileDataId         = 6708736,
+        .IndexField         = -1,
+        .ParentIndexField   = 1,
+        .FieldCount         = 2,
+        .FileFieldCount     = 1,
+        .LayoutHash         = 0x985EB2D9,
         .Fields             = Fields
     };
 };

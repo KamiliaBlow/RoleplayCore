@@ -34,7 +34,7 @@ namespace WorldPackets::Housing
     class HouseExteriorCommitPosition final : public ClientPacket
     {
     public:
-        explicit HouseExteriorCommitPosition(WorldPacket&& packet) : ClientPacket(CMSG_HOUSE_EXTERIOR_COMMIT_POSITION, std::move(packet)) { }
+        explicit HouseExteriorCommitPosition(WorldPacket&& packet) : ClientPacket(CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -58,7 +58,7 @@ namespace WorldPackets::Housing
     class HousingDecorSetEditMode final : public ClientPacket
     {
     public:
-        explicit HousingDecorSetEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SET_EDITOR_MODE_ACTIVE, std::move(packet)) { }
+        explicit HousingDecorSetEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SET_EDIT_MODE, std::move(packet)) { }
 
         void Read() override;
 
@@ -68,7 +68,7 @@ namespace WorldPackets::Housing
     class HousingDecorPlace final : public ClientPacket
     {
     public:
-        explicit HousingDecorPlace(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_PLACE_NEW_DECOR, std::move(packet)) { }
+        explicit HousingDecorPlace(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_PLACE, std::move(packet)) { }
 
         void Read() override;
 
@@ -84,7 +84,7 @@ namespace WorldPackets::Housing
     class HousingDecorMove final : public ClientPacket
     {
     public:
-        explicit HousingDecorMove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_MOVE_DECOR, std::move(packet)) { }
+        explicit HousingDecorMove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_MOVE, std::move(packet)) { }
 
         void Read() override;
 
@@ -100,7 +100,7 @@ namespace WorldPackets::Housing
     class HousingDecorRemove final : public ClientPacket
     {
     public:
-        explicit HousingDecorRemove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_REMOVE_PLACED_DECOR_ENTRY, std::move(packet)) { }
+        explicit HousingDecorRemove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_REMOVE, std::move(packet)) { }
 
         void Read() override;
 
@@ -111,7 +111,7 @@ namespace WorldPackets::Housing
     class HousingDecorLock final : public ClientPacket
     {
     public:
-        explicit HousingDecorLock(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SELECT_DECOR, std::move(packet)) { }
+        explicit HousingDecorLock(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_LOCK, std::move(packet)) { }
 
         void Read() override;
 
@@ -122,7 +122,7 @@ namespace WorldPackets::Housing
     class HousingDecorSetDyeSlots final : public ClientPacket
     {
     public:
-        explicit HousingDecorSetDyeSlots(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_COMMIT_DYES_FOR_SELECTED_DECOR, std::move(packet)) { }
+        explicit HousingDecorSetDyeSlots(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SET_DYE_SLOTS, std::move(packet)) { }
 
         void Read() override;
 
@@ -134,7 +134,7 @@ namespace WorldPackets::Housing
     class HousingDecorDeleteFromStorage final : public ClientPacket
     {
     public:
-        explicit HousingDecorDeleteFromStorage(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_CATALOG_DESTROY_ENTRY, std::move(packet)) { }
+        explicit HousingDecorDeleteFromStorage(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE, std::move(packet)) { }
 
         void Read() override;
 
@@ -145,7 +145,7 @@ namespace WorldPackets::Housing
     class HousingDecorDeleteFromStorageById final : public ClientPacket
     {
     public:
-        explicit HousingDecorDeleteFromStorageById(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_CATALOG_DESTROY_ALL_ENTRY_COPIES, std::move(packet)) { }
+        explicit HousingDecorDeleteFromStorageById(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_BY_ID, std::move(packet)) { }
 
         void Read() override;
 
@@ -156,7 +156,7 @@ namespace WorldPackets::Housing
     class HousingDecorRequestStorage final : public ClientPacket
     {
     public:
-        explicit HousingDecorRequestStorage(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER, std::move(packet)) { }
+        explicit HousingDecorRequestStorage(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_REQUEST_STORAGE, std::move(packet)) { }
 
         void Read() override;
 
@@ -166,7 +166,7 @@ namespace WorldPackets::Housing
     class HousingDecorRedeemDeferredDecor final : public ClientPacket
     {
     public:
-        explicit HousingDecorRedeemDeferredDecor(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR, std::move(packet)) { }
+        explicit HousingDecorRedeemDeferredDecor(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_REDEEM_DEFERRED_DECOR, std::move(packet)) { }
 
         void Read() override;
 
@@ -181,7 +181,7 @@ namespace WorldPackets::Housing
     class HousingFixtureSetEditMode final : public ClientPacket
     {
     public:
-        explicit HousingFixtureSetEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SET_EDITOR_MODE_ACTIVE, std::move(packet)) { }
+        explicit HousingFixtureSetEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SET_EDIT_MODE, std::move(packet)) { }
 
         void Read() override;
 
@@ -191,7 +191,7 @@ namespace WorldPackets::Housing
     class HousingFixtureSetCoreFixture final : public ClientPacket
     {
     public:
-        explicit HousingFixtureSetCoreFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SELECT_CORE_FIXTURE_OPTION, std::move(packet)) { }
+        explicit HousingFixtureSetCoreFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE, std::move(packet)) { }
 
         void Read() override;
 
@@ -203,7 +203,7 @@ namespace WorldPackets::Housing
     class HousingFixtureCreateFixture final : public ClientPacket
     {
     public:
-        explicit HousingFixtureCreateFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SELECT_FIXTURE_OPTION, std::move(packet)) { }
+        explicit HousingFixtureCreateFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_CREATE_FIXTURE, std::move(packet)) { }
 
         void Read() override;
 
@@ -215,7 +215,7 @@ namespace WorldPackets::Housing
     class HousingFixtureDeleteFixture final : public ClientPacket
     {
     public:
-        explicit HousingFixtureDeleteFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_REMOVE_FIXTURE_FROM_SELECTED_POINT, std::move(packet)) { }
+        explicit HousingFixtureDeleteFixture(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_DELETE_FIXTURE, std::move(packet)) { }
 
         void Read() override;
 
@@ -230,7 +230,7 @@ namespace WorldPackets::Housing
     class HousingRoomSetLayoutEditMode final : public ClientPacket
     {
     public:
-        explicit HousingRoomSetLayoutEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_EDITOR_MODE_ACTIVE, std::move(packet)) { }
+        explicit HousingRoomSetLayoutEditMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_LAYOUT_EDIT_MODE, std::move(packet)) { }
 
         void Read() override;
 
@@ -240,7 +240,7 @@ namespace WorldPackets::Housing
     class HousingRoomAdd final : public ClientPacket
     {
     public:
-        explicit HousingRoomAdd(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_PLACE_ROOM, std::move(packet)) { }
+        explicit HousingRoomAdd(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_ADD, std::move(packet)) { }
 
         void Read() override;
 
@@ -254,7 +254,7 @@ namespace WorldPackets::Housing
     class HousingRoomRemove final : public ClientPacket
     {
     public:
-        explicit HousingRoomRemove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_REMOVE_ROOM, std::move(packet)) { }
+        explicit HousingRoomRemove(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_REMOVE, std::move(packet)) { }
 
         void Read() override;
 
@@ -264,7 +264,7 @@ namespace WorldPackets::Housing
     class HousingRoomRotate final : public ClientPacket
     {
     public:
-        explicit HousingRoomRotate(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_ROTATE_ROOM, std::move(packet)) { }
+        explicit HousingRoomRotate(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_ROTATE, std::move(packet)) { }
 
         void Read() override;
 
@@ -275,7 +275,7 @@ namespace WorldPackets::Housing
     class HousingRoomMoveRoom final : public ClientPacket
     {
     public:
-        explicit HousingRoomMoveRoom(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_MOVE_DRAGGED_ROOM, std::move(packet)) { }
+        explicit HousingRoomMoveRoom(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_MOVE, std::move(packet)) { }
 
         void Read() override;
 
@@ -288,7 +288,7 @@ namespace WorldPackets::Housing
     class HousingRoomSetComponentTheme final : public ClientPacket
     {
     public:
-        explicit HousingRoomSetComponentTheme(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_APPLY_THEME, std::move(packet)) { }
+        explicit HousingRoomSetComponentTheme(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_COMPONENT_THEME, std::move(packet)) { }
 
         void Read() override;
 
@@ -300,7 +300,7 @@ namespace WorldPackets::Housing
     class HousingRoomApplyComponentMaterials final : public ClientPacket
     {
     public:
-        explicit HousingRoomApplyComponentMaterials(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_APPLY_WALLPAPER, std::move(packet)) { }
+        explicit HousingRoomApplyComponentMaterials(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS, std::move(packet)) { }
 
         void Read() override;
 
@@ -313,7 +313,7 @@ namespace WorldPackets::Housing
     class HousingRoomSetDoorType final : public ClientPacket
     {
     public:
-        explicit HousingRoomSetDoorType(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_ROOM_COMPONENT_DOOR_TYPE, std::move(packet)) { }
+        explicit HousingRoomSetDoorType(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_DOOR_TYPE, std::move(packet)) { }
 
         void Read() override;
 
@@ -325,7 +325,7 @@ namespace WorldPackets::Housing
     class HousingRoomSetCeilingType final : public ClientPacket
     {
     public:
-        explicit HousingRoomSetCeilingType(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_ROOM_COMPONENT_CEILING_TYPE, std::move(packet)) { }
+        explicit HousingRoomSetCeilingType(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_ROOM_SET_CEILING_TYPE, std::move(packet)) { }
 
         void Read() override;
 
@@ -341,7 +341,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGuildCreateNeighborhood final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGuildCreateNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_CREATE_GUILD_NEIGHBORHOOD, std::move(packet)) { }
+        explicit HousingSvcsGuildCreateNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GUILD_CREATE_NEIGHBORHOOD, std::move(packet)) { }
 
         void Read() override;
 
@@ -353,7 +353,7 @@ namespace WorldPackets::Housing
     class HousingSvcsNeighborhoodReservePlot final : public ClientPacket
     {
     public:
-        explicit HousingSvcsNeighborhoodReservePlot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_HOUSE_FINDER_REQUEST_RESERVATION_AND_PORT, std::move(packet)) { }
+        explicit HousingSvcsNeighborhoodReservePlot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_NEIGHBORHOOD_RESERVE_PLOT, std::move(packet)) { }
 
         void Read() override;
 
@@ -365,7 +365,7 @@ namespace WorldPackets::Housing
     class HousingSvcsRelinquishHouse final : public ClientPacket
     {
     public:
-        explicit HousingSvcsRelinquishHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_RELINQUISH_HOUSE, std::move(packet)) { }
+        explicit HousingSvcsRelinquishHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_RELINQUISH_HOUSE, std::move(packet)) { }
 
         void Read() override;
 
@@ -375,7 +375,7 @@ namespace WorldPackets::Housing
     class HousingSvcsUpdateHouseSettings final : public ClientPacket
     {
     public:
-        explicit HousingSvcsUpdateHouseSettings(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_SAVE_HOUSE_SETTINGS, std::move(packet)) { }
+        explicit HousingSvcsUpdateHouseSettings(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS, std::move(packet)) { }
 
         void Read() override;
 
@@ -387,7 +387,7 @@ namespace WorldPackets::Housing
     class HousingSvcsPlayerViewHousesByPlayer final : public ClientPacket
     {
     public:
-        explicit HousingSvcsPlayerViewHousesByPlayer(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_GET_OTHERS_PLAYER_OWNED_HOUSES, std::move(packet)) { }
+        explicit HousingSvcsPlayerViewHousesByPlayer(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_BY_PLAYER, std::move(packet)) { }
 
         void Read() override;
 
@@ -397,7 +397,7 @@ namespace WorldPackets::Housing
     class HousingSvcsPlayerViewHousesByBnetAccount final : public ClientPacket
     {
     public:
-        explicit HousingSvcsPlayerViewHousesByBnetAccount(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_GET_OTHERS_BNET_ACCOUNT_OWNED_HOUSES, std::move(packet)) { }
+        explicit HousingSvcsPlayerViewHousesByBnetAccount(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_BY_BNET_ACCOUNT, std::move(packet)) { }
 
         void Read() override;
 
@@ -407,7 +407,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGetPlayerHousesInfo final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGetPlayerHousesInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_GET_PLAYER_OWNED_HOUSES, std::move(packet)) { }
+        explicit HousingSvcsGetPlayerHousesInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -415,7 +415,7 @@ namespace WorldPackets::Housing
     class HousingSvcsTeleportToPlot final : public ClientPacket
     {
     public:
-        explicit HousingSvcsTeleportToPlot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_ENTER_HOUSE, std::move(packet)) { }
+        explicit HousingSvcsTeleportToPlot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT, std::move(packet)) { }
 
         void Read() override;
 
@@ -428,7 +428,7 @@ namespace WorldPackets::Housing
     class HousingSvcsStartTutorial final : public ClientPacket
     {
     public:
-        explicit HousingSvcsStartTutorial(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_START_TUTORIAL, std::move(packet)) { }
+        explicit HousingSvcsStartTutorial(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_START_TUTORIAL, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -436,7 +436,7 @@ namespace WorldPackets::Housing
     class HousingSvcsAcceptNeighborhoodOwnership final : public ClientPacket
     {
     public:
-        explicit HousingSvcsAcceptNeighborhoodOwnership(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_ACCEPT_NEIGHBORHOOD_OWNERSHIP, std::move(packet)) { }
+        explicit HousingSvcsAcceptNeighborhoodOwnership(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_ACCEPT_NEIGHBORHOOD_OWNERSHIP, std::move(packet)) { }
 
         void Read() override;
 
@@ -446,7 +446,7 @@ namespace WorldPackets::Housing
     class HousingSvcsRejectNeighborhoodOwnership final : public ClientPacket
     {
     public:
-        explicit HousingSvcsRejectNeighborhoodOwnership(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_DECLINE_NEIGHBORHOOD_OWNERSHIP, std::move(packet)) { }
+        explicit HousingSvcsRejectNeighborhoodOwnership(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_REJECT_NEIGHBORHOOD_OWNERSHIP, std::move(packet)) { }
 
         void Read() override;
 
@@ -456,7 +456,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGetPotentialHouseOwners final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGetPotentialHouseOwners(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_REQUEST_PLAYER_CHARACTER_LIST, std::move(packet)) { }
+        explicit HousingSvcsGetPotentialHouseOwners(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -464,7 +464,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGetHouseFinderInfo final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGetHouseFinderInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_HOUSE_FINDER_REQUEST_NEIGHBORHOODS, std::move(packet)) { }
+        explicit HousingSvcsGetHouseFinderInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -472,7 +472,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGetHouseFinderNeighborhood final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGetHouseFinderNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_REQUEST_HOUSE_FINDER_NEIGHBORHOOD_DATA, std::move(packet)) { }
+        explicit HousingSvcsGetHouseFinderNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD, std::move(packet)) { }
 
         void Read() override;
 
@@ -482,7 +482,7 @@ namespace WorldPackets::Housing
     class HousingSvcsGetBnetFriendNeighborhoods final : public ClientPacket
     {
     public:
-        explicit HousingSvcsGetBnetFriendNeighborhoods(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_SEARCH_BNET_FRIEND_NEIGHBORHOODS, std::move(packet)) { }
+        explicit HousingSvcsGetBnetFriendNeighborhoods(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_BNET_FRIEND_NEIGHBORHOODS, std::move(packet)) { }
 
         void Read() override;
 
@@ -492,7 +492,7 @@ namespace WorldPackets::Housing
     class HousingSvcsDeleteAllNeighborhoodInvites final : public ClientPacket
     {
     public:
-        explicit HousingSvcsDeleteAllNeighborhoodInvites(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SERVICES_HOUSE_FINDER_DECLINE_NEIGHBORHOOD_INVITATION, std::move(packet)) { }
+        explicit HousingSvcsDeleteAllNeighborhoodInvites(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_DELETE_ALL_NEIGHBORHOOD_INVITES, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -504,7 +504,7 @@ namespace WorldPackets::Housing
     class HousingGetCurrentHouseInfo final : public ClientPacket
     {
     public:
-        explicit HousingGetCurrentHouseInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_REQUEST_CURRENT_HOUSE_INFO, std::move(packet)) { }
+        explicit HousingGetCurrentHouseInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_GET_CURRENT_HOUSE_INFO, std::move(packet)) { }
 
         void Read() override;
 
@@ -514,7 +514,7 @@ namespace WorldPackets::Housing
     class HousingResetKioskMode final : public ClientPacket
     {
     public:
-        explicit HousingResetKioskMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_KIOSK_REQUEST_HOUSING_RESET, std::move(packet)) { }
+        explicit HousingResetKioskMode(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_RESET_KIOSK_MODE, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -588,46 +588,6 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
 
         ObjectGuid NeighborhoodGuid;
-    };
-
-    class AccountHousingRoomAdded final : public ServerPacket
-    {
-    public:
-        explicit AccountHousingRoomAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_ADDED) { }
-
-        WorldPacket const* Write() override;
-
-        uint32 RoomID = 0;
-    };
-
-    class AccountHousingFixtureAdded final : public ServerPacket
-    {
-    public:
-        explicit AccountHousingFixtureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_FIXTURE_ADDED) { }
-
-        WorldPacket const* Write() override;
-
-        uint32 FixtureID = 0;
-    };
-
-    class AccountHousingThemeAdded final : public ServerPacket
-    {
-    public:
-        explicit AccountHousingThemeAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_THEME_ADDED) { }
-
-        WorldPacket const* Write() override;
-
-        uint32 ThemeID = 0;
-    };
-
-    class AccountHousingRoomComponentTextureAdded final : public ServerPacket
-    {
-    public:
-        explicit AccountHousingRoomComponentTextureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_COMPONENT_TEXTURE_ADDED) { }
-
-        WorldPacket const* Write() override;
-
-        uint32 TextureID = 0;
     };
 
     // ============================================================
@@ -1188,7 +1148,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterOpenConfirmationUI final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterOpenConfirmationUI(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_OPEN_CHARTER_CONFIRMATION, std::move(packet)) { }
+        explicit NeighborhoodCharterOpenConfirmationUI(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_OPEN_CONFIRMATION_UI, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -1196,7 +1156,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterCreate final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterCreate(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_CREATE_NEIGHBORHOOD_CHARTER, std::move(packet)) { }
+        explicit NeighborhoodCharterCreate(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_CREATE, std::move(packet)) { }
 
         void Read() override;
 
@@ -1208,7 +1168,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterEdit final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterEdit(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_EDIT_NEIGHBORHOOD_CHARTER, std::move(packet)) { }
+        explicit NeighborhoodCharterEdit(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_EDIT, std::move(packet)) { }
 
         void Read() override;
 
@@ -1220,7 +1180,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterFinalize final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterFinalize(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_CONFIRMATION_RESPONSE, std::move(packet)) { }
+        explicit NeighborhoodCharterFinalize(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_FINALIZE, std::move(packet)) { }
 
         void Read() override { }
     };
@@ -1228,7 +1188,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterAddSignature final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterAddSignature(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_SIGN, std::move(packet)) { }
+        explicit NeighborhoodCharterAddSignature(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURE, std::move(packet)) { }
 
         void Read() override;
 
@@ -1238,7 +1198,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCharterSendSignatureRequest final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCharterSendSignatureRequest(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_REQUEST_SIGNATURE, std::move(packet)) { }
+        explicit NeighborhoodCharterSendSignatureRequest(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_SEND_SIGNATURE_REQUEST, std::move(packet)) { }
 
         void Read() override;
 
@@ -1252,7 +1212,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodUpdateName final : public ClientPacket
     {
     public:
-        explicit NeighborhoodUpdateName(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_SET_NAME, std::move(packet)) { }
+        explicit NeighborhoodUpdateName(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_UPDATE_NAME, std::move(packet)) { }
 
         void Read() override;
 
@@ -1263,7 +1223,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodSetPublicFlag final : public ClientPacket
     {
     public:
-        explicit NeighborhoodSetPublicFlag(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_SET_PUBLIC, std::move(packet)) { }
+        explicit NeighborhoodSetPublicFlag(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_SET_PUBLIC_FLAG, std::move(packet)) { }
 
         void Read() override;
 
@@ -1274,7 +1234,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodAddSecondaryOwner final : public ClientPacket
     {
     public:
-        explicit NeighborhoodAddSecondaryOwner(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_ADD_MANAGER, std::move(packet)) { }
+        explicit NeighborhoodAddSecondaryOwner(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_ADD_SECONDARY_OWNER, std::move(packet)) { }
 
         void Read() override;
 
@@ -1285,7 +1245,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodRemoveSecondaryOwner final : public ClientPacket
     {
     public:
-        explicit NeighborhoodRemoveSecondaryOwner(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_REMOVE_MANAGER, std::move(packet)) { }
+        explicit NeighborhoodRemoveSecondaryOwner(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_REMOVE_SECONDARY_OWNER, std::move(packet)) { }
 
         void Read() override;
 
@@ -1307,7 +1267,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodCancelInvitation final : public ClientPacket
     {
     public:
-        explicit NeighborhoodCancelInvitation(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CANCEL_RESIDENT_INVITATION, std::move(packet)) { }
+        explicit NeighborhoodCancelInvitation(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CANCEL_INVITATION, std::move(packet)) { }
 
         void Read() override;
 
@@ -1318,7 +1278,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodPlayerDeclineInvite final : public ClientPacket
     {
     public:
-        explicit NeighborhoodPlayerDeclineInvite(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_DECLINE_NEIGHBORHOOD_INVITATION, std::move(packet)) { }
+        explicit NeighborhoodPlayerDeclineInvite(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_PLAYER_DECLINE_INVITE, std::move(packet)) { }
 
         void Read() override;
 
@@ -1328,7 +1288,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodPlayerGetInvite final : public ClientPacket
     {
     public:
-        explicit NeighborhoodPlayerGetInvite(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_GET_HOUSING_INVITATION, std::move(packet)) { }
+        explicit NeighborhoodPlayerGetInvite(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_PLAYER_GET_INVITE, std::move(packet)) { }
 
         void Read() override;
 
@@ -1348,7 +1308,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodBuyHouse final : public ClientPacket
     {
     public:
-        explicit NeighborhoodBuyHouse(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_PURCHASE_PLOT, std::move(packet)) { }
+        explicit NeighborhoodBuyHouse(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_BUY_HOUSE, std::move(packet)) { }
 
         void Read() override;
 
@@ -1370,7 +1330,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodOpenCornerstoneUI final : public ClientPacket
     {
     public:
-        explicit NeighborhoodOpenCornerstoneUI(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_INTERACT_WITH_CORNERSTONE, std::move(packet)) { }
+        explicit NeighborhoodOpenCornerstoneUI(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_OPEN_CORNERSTONE_UI, std::move(packet)) { }
 
         void Read() override;
 
@@ -1380,7 +1340,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodOfferOwnership final : public ClientPacket
     {
     public:
-        explicit NeighborhoodOfferOwnership(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_OFFER_NEIGHBORHOOD_OWNERSHIP, std::move(packet)) { }
+        explicit NeighborhoodOfferOwnership(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP, std::move(packet)) { }
 
         void Read() override;
 
@@ -1391,7 +1351,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodGetRoster final : public ClientPacket
     {
     public:
-        explicit NeighborhoodGetRoster(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_REQUEST_NEIGHBORHOOD_ROSTER, std::move(packet)) { }
+        explicit NeighborhoodGetRoster(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_GET_ROSTER, std::move(packet)) { }
 
         void Read() override;
 
@@ -1401,7 +1361,7 @@ namespace WorldPackets::Neighborhood
     class NeighborhoodEvictPlot final : public ClientPacket
     {
     public:
-        explicit NeighborhoodEvictPlot(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_EVICT_PLAYER, std::move(packet)) { }
+        explicit NeighborhoodEvictPlot(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_EVICT_PLOT, std::move(packet)) { }
 
         void Read() override;
 
