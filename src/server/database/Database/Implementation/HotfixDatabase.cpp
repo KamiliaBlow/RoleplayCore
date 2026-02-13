@@ -842,9 +842,9 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE, "SELECT MAX(ID) + 1 FROM house", CONNECTION_SYNCH);
 
     // HouseDecor.db2
-    PrepareStatement(HOTFIX_SEL_HOUSE_DECOR, "SELECT Name, ScaleX, ScaleY, ScaleZ, ID, ItemID, SpellVisualKitID, FileDataID, "
-        "CategoryID, SubCategoryID, PlacementFlags, CollisionType, SoundKitID, AnimKitID, InteractionRadius, "
-        "RequiredHouseLevel, CurrencyCost, QualityTier, PlayerConditionID, ContentTuningID FROM house_decor"
+    PrepareStatement(HOTFIX_SEL_HOUSE_DECOR, "SELECT Name, InitialRotationX, InitialRotationY, InitialRotationZ, ID, Field_003, GameObjectID, Flags, "
+        "Type, ModelType, ModelFileDataID, ThumbnailFileDataID, WeightCost, ItemID, InitialScale, "
+        "Field_013, OrderIndex, Field_015, StartingQuantity, UiModelSceneID FROM house_decor"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT MAX(ID) + 1 FROM house_decor", CONNECTION_SYNCH);
     PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT ID, Name_lang FROM house_decor_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
@@ -861,12 +861,12 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_DECOR_THEME_SET, "SELECT ID, Name_lang FROM house_decor_theme_set_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
 
     // HouseExteriorWmoData.db2
-    PrepareStatement(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT WmoFilePath, ID FROM house_exterior_wmo_data"
+    PrepareStatement(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT Name, ID, Flags FROM house_exterior_wmo_data"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT MAX(ID) + 1 FROM house_exterior_wmo_data", CONNECTION_SYNCH);
 
     // HouseLevelData.db2
-    PrepareStatement(HOTFIX_SEL_HOUSE_LEVEL_DATA, "SELECT ID, RequiredFavor, MaxDecorCount FROM house_level_data"
+    PrepareStatement(HOTFIX_SEL_HOUSE_LEVEL_DATA, "SELECT ID, Level, QuestID FROM house_level_data"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_LEVEL_DATA, "SELECT MAX(ID) + 1 FROM house_level_data", CONNECTION_SYNCH);
 
@@ -877,7 +877,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_LEVEL_REWARD_INFO, "SELECT ID, Name_lang, Description_lang FROM house_level_reward_info_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
 
     // HouseRoom.db2
-    PrepareStatement(HOTFIX_SEL_HOUSE_ROOM, "SELECT ID, Name, Size, WmoFileDataID, DoorCount, BaseRoomFlags, RequiredHouseLevel, CurrencyCost"
+    PrepareStatement(HOTFIX_SEL_HOUSE_ROOM, "SELECT ID, Name, Size, Flags, Field_002, RoomWmoDataID, UiTextureAtlasElementID, WeightCost"
         " FROM house_room WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_ROOM, "SELECT MAX(ID) + 1 FROM house_room", CONNECTION_SYNCH);
     PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_ROOM, "SELECT ID, Name_lang FROM house_room_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
@@ -1366,11 +1366,13 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_NAME_GEN, "SELECT ID, Prefix_lang, Suffix_lang, FullName_lang FROM neighborhood_name_gen_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
 
     // NeighborhoodPlot.db2
-    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT PlotGUID, InternalName, PositionX, PositionY, PositionZ, "
-        "OrientationX, OrientationY, OrientationZ, BoundsMinX, BoundsMinY, BoundsMinZ, "
-        "BoundsMaxX, BoundsMaxY, BoundsMaxZ, EntryPointX, EntryPointY, EntryPointZ, "
-        "CornerStonePosX, CornerStonePosY, CornerStonePosZ, ExteriorPosX, ExteriorPosY, ExteriorPosZ, "
-        "ID, NeighborhoodMapID, PlotSize, PlotFlags, AreaTriggerID, PhaseID"
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT Cost, Name, "
+        "Field_004X, Field_004Y, Field_004Z, Field_005X, Field_005Y, Field_005Z, "
+        "CornerstonePositionX, CornerstonePositionY, CornerstonePositionZ, "
+        "CornerstoneRotationX, CornerstoneRotationY, CornerstoneRotationZ, "
+        "TeleportPositionX, TeleportPositionY, TeleportPositionZ, "
+        "ID, NeighborhoodMapID, Field_010, CornerstoneGameObjectID, "
+        "PlotIndex, WorldState, PlotGameObjectID, Field_014, Field_016"
         " FROM neighborhood_plot WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT MAX(ID) + 1 FROM neighborhood_plot", CONNECTION_SYNCH);
 

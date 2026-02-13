@@ -2171,23 +2171,20 @@ struct HouseDecorEntry
 {
     uint32 ID;
     LocalizedString Name;
-    DBCPosition3D Scale;
-    int32 ItemID;
-    int32 SpellVisualKitID;
-    int32 FileDataID;
-    uint8 CategoryID;
-    uint8 SubCategoryID;
-    int32 PlacementFlags;
-    int32 CollisionType;
-    int32 SoundKitID;
-    int32 AnimKitID;
-    float InteractionRadius;
-    int32 RequiredHouseLevel;
-    int32 CurrencyCost;
-    int8 QualityTier;
-    int32 PlayerConditionID;
-    int32 ContentTuningID;
+    DBCPosition3D InitialRotation;
+    int32 Field_003;
+    int32 GameObjectID;
+    int32 Flags;
+    uint8 Type;
+    uint8 ModelType;
+    int32 ModelFileDataID;
+    int32 ThumbnailFileDataID;
     int32 WeightCost;
+    int32 ItemID;
+    float InitialScale;
+    int32 Field_013;
+    int32 OrderIndex;
+    int8 Field_015;
     int32 StartingQuantity;
     int32 UiModelSceneID;
 };
@@ -2213,19 +2210,15 @@ struct HouseDecorThemeSetEntry
 struct HouseExteriorWmoDataEntry
 {
     uint32 ID;
-    char const* WmoFilePath;
+    LocalizedString Name;
+    int32 Flags;
 };
 
 struct HouseLevelDataEntry
 {
     uint32 ID;
-    int32 RequiredFavor;
-    int32 MaxDecorCount;
+    int32 Level;
     int32 QuestID;
-    int32 InteriorDecorPlacementBudget;
-    int32 ExteriorDecorPlacementBudget;
-    int32 RoomPlacementBudget;
-    int32 ExteriorFixtureBudget;
 };
 
 struct HouseLevelRewardInfoEntry
@@ -2243,13 +2236,11 @@ struct HouseRoomEntry
     uint32 ID;
     LocalizedString Name;
     int8 Size;
-    int32 WmoFileDataID;
-    int32 DoorCount;
-    int32 BaseRoomFlags;
-    int32 RequiredHouseLevel;
-    int32 CurrencyCost;
-    int32 WeightCost;
+    int32 Flags;
+    int32 Field_002;
     int32 RoomWmoDataID;
+    int32 UiTextureAtlasElementID;
+    int32 WeightCost;
 };
 
 struct HouseThemeEntry
@@ -3342,20 +3333,21 @@ struct NeighborhoodNameGenEntry
 struct NeighborhoodPlotEntry
 {
     uint32 ID;
-    uint64 PlotGUID;
-    char const* InternalName;
-    DBCPosition3D Position;
-    DBCPosition3D Orientation;
-    DBCPosition3D BoundsMin;
-    DBCPosition3D BoundsMax;
-    DBCPosition3D EntryPoint;
-    DBCPosition3D CornerstonePos;
-    DBCPosition3D ExteriorPos;
+    uint64 Cost;
+    char const* Name;
+    DBCPosition3D Field_004;
+    DBCPosition3D Field_005;
+    DBCPosition3D CornerstonePosition;
+    DBCPosition3D CornerstoneRotation;
+    DBCPosition3D TeleportPosition;
     int32 NeighborhoodMapID;
-    int32 PlotSize;
-    int32 PlotFlags;
-    int32 AreaTriggerID;
-    int32 PhaseID;
+    int32 Field_010;
+    int32 CornerstoneGameObjectID;
+    int32 PlotIndex;
+    int32 WorldState;
+    int32 PlotGameObjectID;
+    float Field_014;
+    int32 Field_016;
 };
 
 struct NumTalentsAtLevelEntry

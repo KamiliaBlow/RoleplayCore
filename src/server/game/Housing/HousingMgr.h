@@ -29,30 +29,30 @@ struct HouseDecorData
 {
     uint32 ID = 0;
     std::string Name;
-    float BoundingBox[3] = {};
-    int32 PlacementFlags = 0;
-    int32 CategoryID = 0;
-    uint8 Quality = 0;
-    uint8 MaxDyeSlots = 0;
-    int32 SpellVisualID = 0;
-    int32 GameObjectDisplayInfoID = 0;
-    int32 CurrencyTypeID = 0;
-    int32 CurrencyCost = 0;
-    float Scale = 1.0f;
-    int32 SourceTypeEnum = 0;
-    int32 SourceID = 0;
-    int8 SourceDifficultyID = 0;
-    int32 UiModelSceneID = 0;
-    int32 HouseDecorCategoryID = 0;
+    float InitialRotation[3] = {};
+    int32 Field_003 = 0;
+    int32 GameObjectID = 0;
+    int32 Flags = 0;
+    uint8 Type = 0;
+    uint8 ModelType = 0;
+    int32 ModelFileDataID = 0;
+    int32 ThumbnailFileDataID = 0;
     int32 WeightCost = 1;
+    int32 ItemID = 0;
+    float InitialScale = 1.0f;
+    int32 Field_013 = 0;
+    int32 OrderIndex = 0;
+    int8 Field_015 = 0;
+    int32 StartingQuantity = 0;
+    int32 UiModelSceneID = 0;
 };
 
 struct HouseLevelData
 {
     uint32 ID = 0;
-    int32 MaxDecorCount = 0;
-    int32 FavorRequired = 0;
+    int32 Level = 0;
     int32 QuestID = 0;
+    // Budget fields populated from fallback defaults (not in HouseLevelData DB2)
     int32 InteriorDecorPlacementBudget = 0;
     int32 ExteriorDecorPlacementBudget = 0;
     int32 RoomPlacementBudget = 0;
@@ -64,13 +64,11 @@ struct HouseRoomData
     uint32 ID = 0;
     std::string Name;
     int8 Size = 0;
-    int32 WmoID = 0;
-    int32 DoorCount = 0;
     int32 Flags = 0;            // HousingRoomFlags bitmask
-    int32 RequiredHouseLevel = 0;
-    int32 CurrencyCost = 0;
-    int32 WeightCost = 1;
+    int32 Field_002 = 0;
     int32 RoomWmoDataID = 0;
+    int32 UiTextureAtlasElementID = 0;
+    int32 WeightCost = 1;
 
     bool IsBaseRoom() const { return (Flags & HOUSING_ROOM_FLAG_BASE_ROOM) != 0; }
     bool HasStairs() const { return (Flags & HOUSING_ROOM_FLAG_HAS_STAIRS) != 0; }
@@ -113,21 +111,21 @@ struct NeighborhoodMapData
 struct NeighborhoodPlotData
 {
     uint32 ID = 0;
-    uint64 ContentTuningID = 0;
-    std::string InternalName;
-    float Position[3] = {};
-    float Rotation[3] = {};
-    float Scale[3] = {};
-    float BoundingBoxMin[3] = {};
-    float BoundingBoxMax[3] = {};
+    uint64 Cost = 0;
+    std::string Name;
+    float Field_004[3] = {};
+    float Field_005[3] = {};
+    float CornerstonePosition[3] = {};
+    float CornerstoneRotation[3] = {};
+    float TeleportPosition[3] = {};
     int32 NeighborhoodMapID = 0;
-    int32 PlotSize = 0;
+    int32 Field_010 = 0;
+    int32 CornerstoneGameObjectID = 0;
     int32 PlotIndex = 0;
-    int32 HouseExteriorWmoDataID = 0;
-    int32 GameObjectID = 0;
-    int32 AreaTriggerID = 0;
-    float PlotRadius = 0.0f;
-    int32 Flags = 0;
+    int32 WorldState = 0;
+    int32 PlotGameObjectID = 0;
+    float Field_014 = 0.0f;
+    int32 Field_016 = 0;
 };
 
 struct NeighborhoodNameGenData
@@ -152,7 +150,8 @@ struct HouseDecorMaterialData
 struct HouseExteriorWmoData
 {
     uint32 ID = 0;
-    std::string WmoFilePath;
+    std::string Name;
+    int32 Flags = 0;
 };
 
 struct HouseLevelRewardInfoData

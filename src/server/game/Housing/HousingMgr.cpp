@@ -73,23 +73,24 @@ void HousingMgr::LoadHouseDecorData()
         HouseDecorData& data = _houseDecorStore[entry->ID];
         data.ID = entry->ID;
         data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
-        data.BoundingBox[0] = entry->Scale.X;
-        data.BoundingBox[1] = entry->Scale.Y;
-        data.BoundingBox[2] = entry->Scale.Z;
-        data.PlacementFlags = entry->PlacementFlags;
-        data.CategoryID = entry->CategoryID;
-        data.Quality = entry->QualityTier;
-        data.MaxDyeSlots = entry->SubCategoryID;
-        data.SpellVisualID = entry->SpellVisualKitID;
-        data.GameObjectDisplayInfoID = entry->FileDataID;
-        data.CurrencyCost = entry->CurrencyCost;
-        data.SourceTypeEnum = entry->CollisionType;
-        data.Scale = entry->InteractionRadius;
-        data.SourceID = entry->SoundKitID;
-        data.SourceDifficultyID = entry->AnimKitID;
-        data.UiModelSceneID = entry->RequiredHouseLevel;
-        data.HouseDecorCategoryID = entry->PlayerConditionID;
+        data.InitialRotation[0] = entry->InitialRotation.X;
+        data.InitialRotation[1] = entry->InitialRotation.Y;
+        data.InitialRotation[2] = entry->InitialRotation.Z;
+        data.Field_003 = entry->Field_003;
+        data.GameObjectID = entry->GameObjectID;
+        data.Flags = entry->Flags;
+        data.Type = entry->Type;
+        data.ModelType = entry->ModelType;
+        data.ModelFileDataID = entry->ModelFileDataID;
+        data.ThumbnailFileDataID = entry->ThumbnailFileDataID;
         data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
+        data.ItemID = entry->ItemID;
+        data.InitialScale = entry->InitialScale;
+        data.Field_013 = entry->Field_013;
+        data.OrderIndex = entry->OrderIndex;
+        data.Field_015 = entry->Field_015;
+        data.StartingQuantity = entry->StartingQuantity;
+        data.UiModelSceneID = entry->UiModelSceneID;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseDecorData: Loaded {} HouseDecor entries", uint32(_houseDecorStore.size()));
@@ -101,13 +102,13 @@ void HousingMgr::LoadHouseLevelData()
     {
         HouseLevelData& data = _houseLevelDataStore[entry->ID];
         data.ID = entry->ID;
-        data.MaxDecorCount = entry->MaxDecorCount;
-        data.FavorRequired = entry->RequiredFavor;
+        data.Level = entry->Level;
         data.QuestID = entry->QuestID;
-        data.InteriorDecorPlacementBudget = entry->InteriorDecorPlacementBudget;
-        data.ExteriorDecorPlacementBudget = entry->ExteriorDecorPlacementBudget;
-        data.RoomPlacementBudget = entry->RoomPlacementBudget;
-        data.ExteriorFixtureBudget = entry->ExteriorFixtureBudget;
+        // Budget fields not in HouseLevelData DB2; populated from fallback defaults below
+        data.InteriorDecorPlacementBudget = static_cast<int32>(50 + entry->Level * 25);
+        data.ExteriorDecorPlacementBudget = static_cast<int32>(25 + entry->Level * 15);
+        data.RoomPlacementBudget = static_cast<int32>(20 + entry->Level * 10);
+        data.ExteriorFixtureBudget = static_cast<int32>(10 + entry->Level * 5);
     }
 
     // Fallback defaults if no DB2 data available
@@ -117,8 +118,7 @@ void HousingMgr::LoadHouseLevelData()
         {
             HouseLevelData& data = _houseLevelDataStore[level];
             data.ID = level;
-            data.MaxDecorCount = static_cast<int32>(level * 25);
-            data.FavorRequired = static_cast<int32>((level - 1) * 100);
+            data.Level = static_cast<int32>(level);
             data.QuestID = 0;
             data.InteriorDecorPlacementBudget = static_cast<int32>(50 + level * 25);
             data.ExteriorDecorPlacementBudget = static_cast<int32>(25 + level * 15);
@@ -127,9 +127,9 @@ void HousingMgr::LoadHouseLevelData()
         }
     }
 
-    // Build level lookup index
+    // Build level lookup index (indexed by Level value, not by DB2 row ID)
     for (auto& [id, entry] : _houseLevelDataStore)
-        _levelDataByLevel[id] = &entry;
+        _levelDataByLevel[entry.Level] = &entry;
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseLevelData: Loaded {} HouseLevelData entries", uint32(_houseLevelDataStore.size()));
 }
@@ -142,13 +142,11 @@ void HousingMgr::LoadHouseRoomData()
         data.ID = entry->ID;
         data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
         data.Size = entry->Size;
-        data.WmoID = entry->WmoFileDataID;
-        data.DoorCount = entry->DoorCount;
-        data.Flags = entry->BaseRoomFlags;
-        data.RequiredHouseLevel = entry->RequiredHouseLevel;
-        data.CurrencyCost = entry->CurrencyCost;
-        data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
+        data.Flags = entry->Flags;
+        data.Field_002 = entry->Field_002;
         data.RoomWmoDataID = entry->RoomWmoDataID;
+        data.UiTextureAtlasElementID = entry->UiTextureAtlasElementID;
+        data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseRoomData: Loaded {} HouseRoom entries", uint32(_houseRoomStore.size()));
@@ -206,28 +204,31 @@ void HousingMgr::LoadNeighborhoodPlotData()
     {
         NeighborhoodPlotData& data = _neighborhoodPlotStore[entry->ID];
         data.ID = entry->ID;
-        data.ContentTuningID = entry->PlotGUID;
-        data.InternalName = entry->InternalName ? entry->InternalName : "";
-        data.Position[0] = entry->Position.X;
-        data.Position[1] = entry->Position.Y;
-        data.Position[2] = entry->Position.Z;
-        data.Rotation[0] = entry->Orientation.X;
-        data.Rotation[1] = entry->Orientation.Y;
-        data.Rotation[2] = entry->Orientation.Z;
-        data.Scale[0] = entry->BoundsMin.X;
-        data.Scale[1] = entry->BoundsMin.Y;
-        data.Scale[2] = entry->BoundsMin.Z;
-        data.BoundingBoxMin[0] = entry->BoundsMin.X;
-        data.BoundingBoxMin[1] = entry->BoundsMin.Y;
-        data.BoundingBoxMin[2] = entry->BoundsMin.Z;
-        data.BoundingBoxMax[0] = entry->BoundsMax.X;
-        data.BoundingBoxMax[1] = entry->BoundsMax.Y;
-        data.BoundingBoxMax[2] = entry->BoundsMax.Z;
+        data.Cost = entry->Cost;
+        data.Name = entry->Name ? entry->Name : "";
+        data.Field_004[0] = entry->Field_004.X;
+        data.Field_004[1] = entry->Field_004.Y;
+        data.Field_004[2] = entry->Field_004.Z;
+        data.Field_005[0] = entry->Field_005.X;
+        data.Field_005[1] = entry->Field_005.Y;
+        data.Field_005[2] = entry->Field_005.Z;
+        data.CornerstonePosition[0] = entry->CornerstonePosition.X;
+        data.CornerstonePosition[1] = entry->CornerstonePosition.Y;
+        data.CornerstonePosition[2] = entry->CornerstonePosition.Z;
+        data.CornerstoneRotation[0] = entry->CornerstoneRotation.X;
+        data.CornerstoneRotation[1] = entry->CornerstoneRotation.Y;
+        data.CornerstoneRotation[2] = entry->CornerstoneRotation.Z;
+        data.TeleportPosition[0] = entry->TeleportPosition.X;
+        data.TeleportPosition[1] = entry->TeleportPosition.Y;
+        data.TeleportPosition[2] = entry->TeleportPosition.Z;
         data.NeighborhoodMapID = entry->NeighborhoodMapID;
-        data.PlotSize = entry->PlotSize;
-        data.PlotIndex = entry->PlotFlags;
-        data.AreaTriggerID = entry->AreaTriggerID;
-        data.Flags = entry->PhaseID;
+        data.Field_010 = entry->Field_010;
+        data.CornerstoneGameObjectID = entry->CornerstoneGameObjectID;
+        data.PlotIndex = entry->PlotIndex;
+        data.WorldState = entry->WorldState;
+        data.PlotGameObjectID = entry->PlotGameObjectID;
+        data.Field_014 = entry->Field_014;
+        data.Field_016 = entry->Field_016;
     }
 
     // Build map index
@@ -347,11 +348,8 @@ std::string HousingMgr::GenerateNeighborhoodName(uint32 neighborhoodMapId) const
 
 uint32 HousingMgr::GetMaxDecorForLevel(uint32 level) const
 {
-    HouseLevelData const* levelData = GetLevelData(level);
-    if (levelData)
-        return static_cast<uint32>(levelData->MaxDecorCount);
-
-    return 0;
+    // MaxDecorCount not in HouseLevelData DB2; use fallback formula
+    return level * 25;
 }
 
 uint32 HousingMgr::GetQuestForLevel(uint32 level) const
@@ -466,7 +464,8 @@ void HousingMgr::LoadHouseExteriorWmoData()
     {
         HouseExteriorWmoData& data = _houseExteriorWmoStore[entry->ID];
         data.ID = entry->ID;
-        data.WmoFilePath = entry->WmoFilePath ? entry->WmoFilePath : "";
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.Flags = entry->Flags;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseExteriorWmoData: Loaded {} HouseExteriorWmoData entries", uint32(_houseExteriorWmoStore.size()));
@@ -599,8 +598,7 @@ uint32 HousingMgr::GetRoomDoorCount(uint32 roomEntryId) const
     if (itr != _roomDoorMap.end())
         return static_cast<uint32>(itr->second.size());
 
-    // Fall back to DB2 DoorCount if no RoomComponent data available
-    return roomData->DoorCount > 0 ? static_cast<uint32>(roomData->DoorCount) : 0;
+    return 0;
 }
 
 std::vector<RoomDoorInfo> const* HousingMgr::GetRoomDoors(uint32 roomWmoDataId) const

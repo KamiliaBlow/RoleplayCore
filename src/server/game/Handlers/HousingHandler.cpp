@@ -783,8 +783,8 @@ void WorldSession::HandleHousingSvcsTeleportToPlot(WorldPackets::Housing::Housin
     if (targetPlot)
     {
         // Teleport player to the plot position on the neighborhood map
-        player->TeleportTo(mapData->MapID, targetPlot->Position[0], targetPlot->Position[1],
-            targetPlot->Position[2], 0.0f);
+        player->TeleportTo(mapData->MapID, targetPlot->TeleportPosition[0], targetPlot->TeleportPosition[1],
+            targetPlot->TeleportPosition[2], 0.0f);
 
         TC_LOG_DEBUG("network", "CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT: Teleporting player {} to plot {} on map {}",
             player->GetGUID().ToString(), housingSvcsTeleportToPlot.PlotIndex, mapData->MapID);
