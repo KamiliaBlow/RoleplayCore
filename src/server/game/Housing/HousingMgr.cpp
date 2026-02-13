@@ -86,9 +86,9 @@ void HousingMgr::LoadHouseDecorData()
         data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
         data.ItemID = entry->ItemID;
         data.InitialScale = entry->InitialScale;
-        data.Field_013 = entry->Field_013;
+        data.FirstAcquisitionBonus = entry->FirstAcquisitionBonus;
         data.OrderIndex = entry->OrderIndex;
-        data.Field_015 = entry->Field_015;
+        data.Size = entry->Size;
         data.StartingQuantity = entry->StartingQuantity;
         data.UiModelSceneID = entry->UiModelSceneID;
     }
@@ -206,12 +206,12 @@ void HousingMgr::LoadNeighborhoodPlotData()
         data.ID = entry->ID;
         data.Cost = entry->Cost;
         data.Name = entry->Name ? entry->Name : "";
-        data.Field_004[0] = entry->Field_004.X;
-        data.Field_004[1] = entry->Field_004.Y;
-        data.Field_004[2] = entry->Field_004.Z;
-        data.Field_005[0] = entry->Field_005.X;
-        data.Field_005[1] = entry->Field_005.Y;
-        data.Field_005[2] = entry->Field_005.Z;
+        data.HousePosition[0] = entry->HousePosition.X;
+        data.HousePosition[1] = entry->HousePosition.Y;
+        data.HousePosition[2] = entry->HousePosition.Z;
+        data.HouseRotation[0] = entry->HouseRotation.X;
+        data.HouseRotation[1] = entry->HouseRotation.Y;
+        data.HouseRotation[2] = entry->HouseRotation.Z;
         data.CornerstonePosition[0] = entry->CornerstonePosition.X;
         data.CornerstonePosition[1] = entry->CornerstonePosition.Y;
         data.CornerstonePosition[2] = entry->CornerstonePosition.Z;
@@ -227,7 +227,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
         data.PlotIndex = entry->PlotIndex;
         data.WorldState = entry->WorldState;
         data.PlotGameObjectID = entry->PlotGameObjectID;
-        data.Field_014 = entry->Field_014;
+        data.TeleportFacing = entry->TeleportFacing;
         data.Field_016 = entry->Field_016;
     }
 

@@ -2182,9 +2182,9 @@ struct HouseDecorEntry
     int32 WeightCost;
     int32 ItemID;
     float InitialScale;
-    int32 Field_013;
+    int32 FirstAcquisitionBonus;             // House XP gained on first acquisition (from Lua API)
     int32 OrderIndex;
-    int8 Field_015;
+    int8 Size;                               // HousingCatalogEntrySize (inferred from Lua API)
     int32 StartingQuantity;
     int32 UiModelSceneID;
 };
@@ -3335,8 +3335,8 @@ struct NeighborhoodPlotEntry
     uint32 ID;
     uint64 Cost;
     char const* Name;
-    DBCPosition3D Field_004;
-    DBCPosition3D Field_005;
+    DBCPosition3D HousePosition;             // Was named HousePosition before 12.0.0.64975
+    DBCPosition3D HouseRotation;             // Was named HouseRotation before 12.0.0.64975
     DBCPosition3D CornerstonePosition;
     DBCPosition3D CornerstoneRotation;
     DBCPosition3D TeleportPosition;
@@ -3346,7 +3346,7 @@ struct NeighborhoodPlotEntry
     int32 PlotIndex;
     int32 WorldState;
     int32 PlotGameObjectID;
-    float Field_014;
+    float TeleportFacing;                    // Facing angle at TeleportPosition (mirrors NeighborhoodMap.EntryRotation pattern)
     int32 Field_016;
 };
 

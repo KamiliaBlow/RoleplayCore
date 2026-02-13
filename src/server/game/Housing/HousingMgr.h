@@ -40,9 +40,9 @@ struct HouseDecorData
     int32 WeightCost = 1;
     int32 ItemID = 0;
     float InitialScale = 1.0f;
-    int32 Field_013 = 0;
+    int32 FirstAcquisitionBonus = 0;     // House XP gained on first acquisition (from Lua API)
     int32 OrderIndex = 0;
-    int8 Field_015 = 0;
+    int8 Size = 0;                       // HousingCatalogEntrySize (inferred from Lua API)
     int32 StartingQuantity = 0;
     int32 UiModelSceneID = 0;
 };
@@ -113,8 +113,8 @@ struct NeighborhoodPlotData
     uint32 ID = 0;
     uint64 Cost = 0;
     std::string Name;
-    float Field_004[3] = {};
-    float Field_005[3] = {};
+    float HousePosition[3] = {};         // Was named HousePosition before 12.0.0.64975
+    float HouseRotation[3] = {};         // Was named HouseRotation before 12.0.0.64975
     float CornerstonePosition[3] = {};
     float CornerstoneRotation[3] = {};
     float TeleportPosition[3] = {};
@@ -124,7 +124,7 @@ struct NeighborhoodPlotData
     int32 PlotIndex = 0;
     int32 WorldState = 0;
     int32 PlotGameObjectID = 0;
-    float Field_014 = 0.0f;
+    float TeleportFacing = 0.0f;         // Facing angle at TeleportPosition
     int32 Field_016 = 0;
 };
 

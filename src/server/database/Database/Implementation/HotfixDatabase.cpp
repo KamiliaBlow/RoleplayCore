@@ -844,7 +844,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     // HouseDecor.db2
     PrepareStatement(HOTFIX_SEL_HOUSE_DECOR, "SELECT Name, InitialRotationX, InitialRotationY, InitialRotationZ, ID, Field_003, GameObjectID, Flags, "
         "Type, ModelType, ModelFileDataID, ThumbnailFileDataID, WeightCost, ItemID, InitialScale, "
-        "Field_013, OrderIndex, Field_015, StartingQuantity, UiModelSceneID FROM house_decor"
+        "FirstAcquisitionBonus, OrderIndex, Size, StartingQuantity, UiModelSceneID FROM house_decor"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT MAX(ID) + 1 FROM house_decor", CONNECTION_SYNCH);
     PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT ID, Name_lang FROM house_decor_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
@@ -1367,12 +1367,12 @@ void HotfixDatabaseConnection::DoPrepareStatements()
 
     // NeighborhoodPlot.db2
     PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT Cost, Name, "
-        "Field_004X, Field_004Y, Field_004Z, Field_005X, Field_005Y, Field_005Z, "
+        "HousePositionX, HousePositionY, HousePositionZ, HouseRotationX, HouseRotationY, HouseRotationZ, "
         "CornerstonePositionX, CornerstonePositionY, CornerstonePositionZ, "
         "CornerstoneRotationX, CornerstoneRotationY, CornerstoneRotationZ, "
         "TeleportPositionX, TeleportPositionY, TeleportPositionZ, "
         "ID, NeighborhoodMapID, Field_010, CornerstoneGameObjectID, "
-        "PlotIndex, WorldState, PlotGameObjectID, Field_014, Field_016"
+        "PlotIndex, WorldState, PlotGameObjectID, TeleportFacing, Field_016"
         " FROM neighborhood_plot WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT MAX(ID) + 1 FROM neighborhood_plot", CONNECTION_SYNCH);
 
