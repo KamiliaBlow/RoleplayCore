@@ -152,6 +152,9 @@ public:
     // Level progression (QuestID-based)
     void OnQuestCompleted(uint32 questId);
 
+    // UpdateField synchronization
+    void SyncUpdateFields();
+
     // Settings
     void SaveSettings(uint32 settingsFlags);
 

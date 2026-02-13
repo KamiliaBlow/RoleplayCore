@@ -16,11 +16,13 @@
  */
 
 #include "Housing.h"
+#include "Account.h"
 #include "DatabaseEnv.h"
 #include "HousingMgr.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "WorldSession.h"
 #include <cmath>
 
 Housing::Housing(Player* owner)
@@ -157,6 +159,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
 
     // Recalculate budget weights from loaded data
     RecalculateBudgets();
+    SyncUpdateFields();
 
     TC_LOG_DEBUG("housing", "Housing::LoadFromDB: Loaded house for player {} (GUID {}): "
         "{} decor, {} rooms, {} fixtures, {} catalog entries (interior budget {}/{}, room budget {}/{})",
@@ -296,6 +299,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     TC_LOG_DEBUG("housing", "Housing::Create: Player {} (GUID {}) created house on plot {} in neighborhood {}",
         _owner->GetName(), _owner->GetGUID().GetCounter(), plotIndex, _neighborhoodGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -399,6 +403,7 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
         _owner->GetName(), decorEntryId, x, y, z, _houseGuid.ToString(),
         _interiorDecorWeightUsed, GetMaxInteriorDecorBudget());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -458,6 +463,7 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     TC_LOG_DEBUG("housing", "Housing::RemoveDecor: Player {} removed decor {} from house {}, returned to catalog",
         _owner->GetName(), decorGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -540,6 +546,7 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
         _owner->GetName(), roomEntryId, slotIndex, _houseGuid.ToString(),
         _roomWeightUsed, GetMaxRoomBudget());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -571,6 +578,7 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
     TC_LOG_DEBUG("housing", "Housing::RemoveRoom: Player {} removed room {} from house {}",
         _owner->GetName(), roomGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -838,6 +846,8 @@ void Housing::AddFavor(uint64 amount)
 
     TC_LOG_DEBUG("housing", "Housing::AddFavor: Player {} favor now {} in house {}",
         _owner->GetName(), _favor64, _houseGuid.ToString());
+
+    SyncUpdateFields();
 }
 
 void Housing::OnQuestCompleted(uint32 questId)
@@ -850,6 +860,8 @@ void Housing::OnQuestCompleted(uint32 questId)
         _level++;
         TC_LOG_DEBUG("housing", "Housing::OnQuestCompleted: Player {} house leveled up to {} (quest {}) in house {}",
             _owner->GetName(), _level, questId, _houseGuid.ToString());
+
+        SyncUpdateFields();
     }
 }
 
@@ -903,6 +915,23 @@ void Housing::RecalculateBudgets()
     TC_LOG_DEBUG("housing", "Housing::RecalculateBudgets: Interior decor weight: {}/{}, Room weight: {}/{}",
         _interiorDecorWeightUsed, GetMaxInteriorDecorBudget(),
         _roomWeightUsed, GetMaxRoomBudget());
+}
+
+void Housing::SyncUpdateFields()
+{
+    if (!_owner || !_owner->GetSession())
+        return;
+
+    Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
+    account.SetHousingPlotIndex(static_cast<int32>(_plotIndex));
+    account.SetHousingLevel(_level);
+    account.SetHousingFavor(_favor64);
+    account.SetHousingBudgets(
+        GetMaxInteriorDecorBudget() - _interiorDecorWeightUsed,
+        GetMaxExteriorDecorBudget() - _exteriorDecorWeightUsed,
+        GetMaxRoomBudget() - _roomWeightUsed,
+        GetMaxFixtureBudget() - _fixtureWeightUsed
+    );
 }
 
 void Housing::SaveSettings(uint32 settingsFlags)
