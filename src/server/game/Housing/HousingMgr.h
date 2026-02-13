@@ -65,12 +65,23 @@ struct HouseRoomData
     std::string Name;
     int8 Size = 0;
     int32 WmoID = 0;
-    int32 MaxDecorCount = 0;
-    int32 DoorSlots = 0;
-    int32 CeilingSlots = 0;
-    int32 WallSlots = 0;
+    int32 DoorCount = 0;
+    int32 Flags = 0;            // HousingRoomFlags bitmask
+    int32 RequiredHouseLevel = 0;
+    int32 CurrencyCost = 0;
     int32 WeightCost = 1;
     int32 RoomWmoDataID = 0;
+
+    bool IsBaseRoom() const { return (Flags & HOUSING_ROOM_FLAG_BASE_ROOM) != 0; }
+    bool HasStairs() const { return (Flags & HOUSING_ROOM_FLAG_HAS_STAIRS) != 0; }
+};
+
+struct RoomDoorInfo
+{
+    uint32 RoomComponentID = 0;
+    float OffsetPos[3] = {};
+    float OffsetRot[3] = {};
+    uint8 ConnectionType = 0;   // RoomConnectionType
 };
 
 struct HouseThemeData
@@ -245,6 +256,11 @@ public:
     uint32 GetDecorWeightCost(uint32 decorEntryId) const;
     uint32 GetRoomWeightCost(uint32 roomEntryId) const;
 
+    // Room connectivity
+    bool IsBaseRoom(uint32 roomEntryId) const;
+    uint32 GetRoomDoorCount(uint32 roomEntryId) const;
+    std::vector<RoomDoorInfo> const* GetRoomDoors(uint32 roomWmoDataId) const;
+
     // Validation
     HousingResult ValidateDecorPlacement(uint32 decorId, Position const& pos, uint32 houseLevel) const;
 
@@ -264,6 +280,7 @@ private:
     void LoadNeighborhoodInitiativeRewardData();
     void LoadNeighborhoodInitiativeTaskData();
     void LoadNeighborhoodInitiativeXTaskData();
+    void LoadRoomComponentData();
 
     // DB2 data stores indexed by ID
     std::unordered_map<uint32, HouseDecorData> _houseDecorStore;
@@ -287,6 +304,9 @@ private:
     std::unordered_map<uint32 /*houseDecorId*/, std::vector<HouseDecorMaterialData const*>> _materialsByDecor;
     std::unordered_map<uint32 /*houseLevelId*/, std::vector<HouseLevelRewardInfoData const*>> _rewardsByLevel;
     std::unordered_map<uint32 /*initiativeId*/, std::vector<NeighborhoodInitiativeTaskData const*>> _tasksByInitiative;
+
+    // Room doorway map: RoomWmoDataID -> list of doorway components
+    std::unordered_map<uint32 /*roomWmoDataId*/, std::vector<RoomDoorInfo>> _roomDoorMap;
 };
 
 #define sHousingMgr HousingMgr::Instance()

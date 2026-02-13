@@ -162,6 +162,10 @@ private:
     uint64 GenerateDecorDbId();
     uint64 GenerateRoomDbId();
 
+    // Room connectivity helpers
+    ObjectGuid FindBaseRoomGuid() const;
+    bool IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const;
+
     Player* _owner;
     ObjectGuid _houseGuid;
     ObjectGuid _neighborhoodGuid;

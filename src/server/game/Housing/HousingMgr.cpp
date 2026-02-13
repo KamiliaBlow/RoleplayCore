@@ -52,6 +52,7 @@ void HousingMgr::Initialize()
     LoadNeighborhoodInitiativeRewardData();
     LoadNeighborhoodInitiativeTaskData();
     LoadNeighborhoodInitiativeXTaskData();
+    LoadRoomComponentData();
 
     TC_LOG_INFO("server.loading", ">> Loaded housing data: {} decor, {} levels, "
         "{} rooms, {} themes, {} decor materials, {} exterior wmos, {} level rewards, "
@@ -142,10 +143,10 @@ void HousingMgr::LoadHouseRoomData()
         data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
         data.Size = entry->Size;
         data.WmoID = entry->WmoFileDataID;
-        data.MaxDecorCount = entry->DoorCount;
-        data.DoorSlots = entry->BaseRoomFlags;
-        data.CeilingSlots = entry->RequiredHouseLevel;
-        data.WallSlots = entry->CurrencyCost;
+        data.DoorCount = entry->DoorCount;
+        data.Flags = entry->BaseRoomFlags;
+        data.RequiredHouseLevel = entry->RequiredHouseLevel;
+        data.CurrencyCost = entry->CurrencyCost;
         data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
         data.RoomWmoDataID = entry->RoomWmoDataID;
     }
@@ -552,6 +553,63 @@ void HousingMgr::LoadNeighborhoodInitiativeXTaskData()
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeXTaskData: Built task index for {} initiatives", uint32(_tasksByInitiative.size()));
+}
+
+void HousingMgr::LoadRoomComponentData()
+{
+    uint32 doorwayCount = 0;
+
+    for (RoomComponentEntry const* entry : sRoomComponentStore)
+    {
+        // Only index doorway components (Type == 7)
+        if (entry->Type != HOUSING_ROOM_COMPONENT_DOORWAY)
+            continue;
+
+        RoomDoorInfo door;
+        door.RoomComponentID = entry->ID;
+        door.OffsetPos[0] = entry->OffsetPos.X;
+        door.OffsetPos[1] = entry->OffsetPos.Y;
+        door.OffsetPos[2] = entry->OffsetPos.Z;
+        door.OffsetRot[0] = entry->OffsetRot.X;
+        door.OffsetRot[1] = entry->OffsetRot.Y;
+        door.OffsetRot[2] = entry->OffsetRot.Z;
+        door.ConnectionType = entry->ConnectionType;
+
+        _roomDoorMap[entry->RoomWmoDataID].push_back(door);
+        ++doorwayCount;
+    }
+
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadRoomComponentData: Indexed {} doorway components across {} room types from {} total RoomComponent entries",
+        doorwayCount, uint32(_roomDoorMap.size()), uint32(sRoomComponentStore.GetNumRows()));
+}
+
+bool HousingMgr::IsBaseRoom(uint32 roomEntryId) const
+{
+    HouseRoomData const* roomData = GetHouseRoomData(roomEntryId);
+    return roomData && roomData->IsBaseRoom();
+}
+
+uint32 HousingMgr::GetRoomDoorCount(uint32 roomEntryId) const
+{
+    HouseRoomData const* roomData = GetHouseRoomData(roomEntryId);
+    if (!roomData)
+        return 0;
+
+    auto itr = _roomDoorMap.find(roomData->RoomWmoDataID);
+    if (itr != _roomDoorMap.end())
+        return static_cast<uint32>(itr->second.size());
+
+    // Fall back to DB2 DoorCount if no RoomComponent data available
+    return roomData->DoorCount > 0 ? static_cast<uint32>(roomData->DoorCount) : 0;
+}
+
+std::vector<RoomDoorInfo> const* HousingMgr::GetRoomDoors(uint32 roomWmoDataId) const
+{
+    auto itr = _roomDoorMap.find(roomWmoDataId);
+    if (itr != _roomDoorMap.end())
+        return &itr->second;
+
+    return nullptr;
 }
 
 // --- 6 new ID-based accessors ---

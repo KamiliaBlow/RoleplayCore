@@ -24,6 +24,8 @@
 #include "Player.h"
 #include "WorldSession.h"
 #include <cmath>
+#include <queue>
+#include <unordered_set>
 
 Housing::Housing(Player* owner)
     : _owner(owner)
@@ -507,9 +509,33 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
+    // Validate room entry exists
+    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(roomEntryId);
+    if (!roomData)
+        return HOUSING_RESULT_INVALID_ROOM;
+
     // Validate orientation (0-3 for cardinal directions)
     if (orientation > 3)
         return HOUSING_RESULT_INVALID_PLOT;
+
+    // First room placed must be a base room
+    if (_rooms.empty() && !roomData->IsBaseRoom())
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
+
+    // Only one base room allowed
+    if (roomData->IsBaseRoom())
+    {
+        for (auto const& [guid, existingRoom] : _rooms)
+        {
+            HouseRoomData const* existingData = sHousingMgr.GetHouseRoomData(existingRoom.RoomEntryId);
+            if (existingData && existingData->IsBaseRoom())
+                return HOUSING_RESULT_ROOM_IS_BASE_ROOM;
+        }
+    }
+
+    // Non-base rooms require at least one existing room in the house
+    if (!roomData->IsBaseRoom() && _rooms.empty())
+        return HOUSING_RESULT_ROOM_UNREACHABLE;
 
     // Check room count limit
     if (_rooms.size() >= MAX_HOUSING_ROOMS_PER_HOUSE)
@@ -525,6 +551,18 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     {
         if (room.SlotIndex == slotIndex)
             return HOUSING_RESULT_INVALID_PLOT;
+    }
+
+    // Room must have at least one doorway to connect to the house layout
+    if (!roomData->IsBaseRoom())
+    {
+        uint32 doorCount = sHousingMgr.GetRoomDoorCount(roomEntryId);
+        if (doorCount == 0)
+        {
+            TC_LOG_ERROR("housing", "Housing::PlaceRoom: Room entry {} has no doorways, cannot connect to house layout",
+                roomEntryId);
+            return HOUSING_RESULT_ROOM_UNREACHABLE;
+        }
     }
 
     // Generate a new room guid
@@ -559,12 +597,25 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
+    // Can't remove the base room
+    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(itr->second.RoomEntryId);
+    if (roomData && roomData->IsBaseRoom())
+        return HOUSING_RESULT_ROOM_IS_BASE_ROOM;
+
+    // Can't remove the last room
+    if (_rooms.size() <= 1)
+        return HOUSING_RESULT_ROOM_LAST;
+
     // Check if any placed decor references this room
     for (auto const& [guid, decor] : _placedDecor)
     {
         if (decor.RoomGuid == roomGuid)
-            return HOUSING_RESULT_ROOM_IS_LEAF;
+            return HOUSING_RESULT_ROOM_NOT_LEAF;
     }
+
+    // Verify remaining rooms stay connected after removal (BFS from base room)
+    if (!IsRoomGraphConnectedWithout(roomGuid))
+        return HOUSING_RESULT_ROOM_UNREACHABLE;
 
     // Refund room WeightCost budget
     uint32 roomWeightCost = sHousingMgr.GetRoomWeightCost(itr->second.RoomEntryId);
@@ -643,6 +694,78 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
     }
 
     return HOUSING_RESULT_SUCCESS;
+}
+
+ObjectGuid Housing::FindBaseRoomGuid() const
+{
+    for (auto const& [guid, room] : _rooms)
+    {
+        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
+        if (roomData && roomData->IsBaseRoom())
+            return guid;
+    }
+
+    return ObjectGuid::Empty;
+}
+
+bool Housing::IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const
+{
+    // If only the excluded room would remain (or nothing), the graph is trivially connected
+    if (_rooms.size() <= 2)
+        return true;
+
+    // Find the base room as BFS start
+    ObjectGuid baseRoomGuid = FindBaseRoomGuid();
+    if (baseRoomGuid.IsEmpty() || baseRoomGuid == excludeRoomGuid)
+        return false; // No base room available after exclusion
+
+    // Build slot-to-guid map for remaining rooms (excluding the removed one)
+    std::unordered_map<uint32 /*slotIndex*/, ObjectGuid> slotToRoom;
+    for (auto const& [guid, room] : _rooms)
+    {
+        if (guid != excludeRoomGuid)
+            slotToRoom[room.SlotIndex] = guid;
+    }
+
+    // BFS from the base room through adjacent slots
+    // Adjacency: rooms with slot index difference of 1 are considered connected
+    // This is a simplified model; the client validates geometric doorway alignment
+    std::unordered_set<ObjectGuid> visited;
+    std::queue<ObjectGuid> queue;
+
+    visited.insert(baseRoomGuid);
+    queue.push(baseRoomGuid);
+
+    while (!queue.empty())
+    {
+        ObjectGuid currentGuid = queue.front();
+        queue.pop();
+
+        auto currentItr = _rooms.find(currentGuid);
+        if (currentItr == _rooms.end())
+            continue;
+
+        uint32 currentSlot = currentItr->second.SlotIndex;
+
+        // Check adjacent slots (slot ± 1)
+        for (int32 offset : { -1, 1 })
+        {
+            uint32 adjacentSlot = currentSlot + offset;
+            // Guard against underflow for slot 0 with offset -1
+            if (offset < 0 && currentSlot == 0)
+                continue;
+
+            auto adjItr = slotToRoom.find(adjacentSlot);
+            if (adjItr != slotToRoom.end() && visited.find(adjItr->second) == visited.end())
+            {
+                visited.insert(adjItr->second);
+                queue.push(adjItr->second);
+            }
+        }
+    }
+
+    // All remaining rooms must be reachable from the base room
+    return visited.size() == slotToRoom.size();
 }
 
 HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, std::vector<uint32> const& /*componentIds*/)

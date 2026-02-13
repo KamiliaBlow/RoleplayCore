@@ -5172,6 +5172,62 @@ struct RewardPackXItemLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 4, &RewardPackXItemMeta::Instance, HOTFIX_SEL_REWARD_PACK_X_ITEM };
 };
 
+struct RoomComponentLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[13] =
+    {
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetPosX" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetPosY" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetPosZ" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetRotX" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetRotY" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "OffsetRotZ" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "RoomWmoDataID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "ModelFileDataID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "Type" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "MeshStyleFilterID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "ConnectionType" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 13, &RoomComponentMeta::Instance, HOTFIX_SEL_ROOM_COMPONENT };
+};
+
+struct RoomComponentOptionLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "Type" },
+        { .IsSigned = false, .Type = FT_BYTE, .Name = "SubType" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "ModelFileDataID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "RoomComponentID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "MeshStyleFilterID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "HouseThemeID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &RoomComponentOptionMeta::Instance, HOTFIX_SEL_ROOM_COMPONENT_OPTION };
+};
+
+struct RoomWmoDataLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMinX" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMinY" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMinZ" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMaxX" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMaxY" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "BoundingBoxMaxZ" },
+        { .IsSigned = true, .Type = FT_FLOAT, .Name = "Height" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &RoomWmoDataMeta::Instance, HOTFIX_SEL_ROOM_WMO_DATA };
+};
+
 struct ScenarioLoadInfo
 {
     static constexpr DB2FieldMeta Fields[6] =

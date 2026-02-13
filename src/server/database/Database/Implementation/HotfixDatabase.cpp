@@ -1573,6 +1573,21 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_REWARD_PACK_X_ITEM, "SELECT MAX(ID) + 1 FROM reward_pack_x_item", CONNECTION_SYNCH);
 
+    // RoomComponent.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT, "SELECT OffsetPosX, OffsetPosY, OffsetPosZ, OffsetRotX, OffsetRotY, OffsetRotZ, ID, RoomWmoDataID, "
+        "ModelFileDataID, Type, MeshStyleFilterID, ConnectionType, Flags FROM room_component WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT, "SELECT MAX(ID) + 1 FROM room_component", CONNECTION_SYNCH);
+
+    // RoomComponentOption.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT_OPTION, "SELECT ID, Type, SubType, ModelFileDataID, RoomComponentID, MeshStyleFilterID, HouseThemeID, Flags"
+        " FROM room_component_option WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_OPTION, "SELECT MAX(ID) + 1 FROM room_component_option", CONNECTION_SYNCH);
+
+    // RoomWmoData.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT ID, BoundingBoxMinX, BoundingBoxMinY, BoundingBoxMinZ, BoundingBoxMaxX, BoundingBoxMaxY, "
+        "BoundingBoxMaxZ, Height FROM room_wmo_data WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT MAX(ID) + 1 FROM room_wmo_data", CONNECTION_SYNCH);
+
     // Scenario.db2
     PrepareStatement(HOTFIX_SEL_SCENARIO, "SELECT ID, Name, AreaTableID, Type, Flags, UiTextureKitID FROM scenario WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_SCENARIO, "SELECT MAX(ID) + 1 FROM scenario", CONNECTION_SYNCH);
