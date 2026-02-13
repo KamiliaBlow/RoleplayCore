@@ -53,16 +53,23 @@ void HousingMgr::Initialize()
     LoadNeighborhoodInitiativeTaskData();
     LoadNeighborhoodInitiativeXTaskData();
     LoadRoomComponentData();
+    LoadDecorCategoryData();
+    LoadDecorSubcategoryData();
+    LoadDecorDyeSlotData();
+    LoadDecorXDecorSubcategoryData();
 
     TC_LOG_INFO("server.loading", ">> Loaded housing data: {} decor, {} levels, "
         "{} rooms, {} themes, {} decor materials, {} exterior wmos, {} level rewards, "
-        "{} initiatives, {} initiative tasks, {} neighborhood maps, {} neighborhood plots in {}",
+        "{} initiatives, {} initiative tasks, {} neighborhood maps, {} neighborhood plots, "
+        "{} decor categories, {} decor subcategories, {} decor dye slots in {}",
         uint32(_houseDecorStore.size()), uint32(_houseLevelDataStore.size()),
         uint32(_houseRoomStore.size()), uint32(_houseThemeStore.size()),
         uint32(_houseDecorMaterialStore.size()), uint32(_houseExteriorWmoStore.size()),
         uint32(_houseLevelRewardInfoStore.size()), uint32(_neighborhoodInitiativeStore.size()),
         uint32(_neighborhoodInitiativeTaskStore.size()),
         uint32(_neighborhoodMapStore.size()), uint32(_neighborhoodPlotStore.size()),
+        uint32(_decorCategoryStore.size()), uint32(_decorSubcategoryStore.size()),
+        uint32(_decorDyeSlotStore.size()),
         GetMSTimeDiffToNow(oldMSTime));
 }
 
@@ -690,6 +697,105 @@ std::vector<NeighborhoodInitiativeTaskData const*> HousingMgr::GetTasksForInitia
 {
     auto itr = _tasksByInitiative.find(initiativeId);
     if (itr != _tasksByInitiative.end())
+        return itr->second;
+
+    return {};
+}
+
+void HousingMgr::LoadDecorCategoryData()
+{
+    for (DecorCategoryEntry const* entry : sDecorCategoryStore)
+    {
+        DecorCategoryData& data = _decorCategoryStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.IconFileDataID = entry->IconFileDataID;
+        data.DisplayIndex = entry->DisplayIndex;
+    }
+
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadDecorCategoryData: Loaded {} decor categories", uint32(_decorCategoryStore.size()));
+}
+
+void HousingMgr::LoadDecorSubcategoryData()
+{
+    for (DecorSubcategoryEntry const* entry : sDecorSubcategoryStore)
+    {
+        DecorSubcategoryData& data = _decorSubcategoryStore[entry->ID];
+        data.ID = entry->ID;
+        data.Name = entry->Name[sWorld->GetDefaultDbcLocale()];
+        data.IconFileDataID = entry->IconFileDataID;
+        data.DecorCategoryID = entry->DecorCategoryID;
+        data.DisplayIndex = entry->DisplayIndex;
+
+        _subcategoriesByCategory[entry->DecorCategoryID].push_back(&_decorSubcategoryStore[entry->ID]);
+    }
+
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadDecorSubcategoryData: Loaded {} decor subcategories", uint32(_decorSubcategoryStore.size()));
+}
+
+void HousingMgr::LoadDecorDyeSlotData()
+{
+    for (DecorDyeSlotEntry const* entry : sDecorDyeSlotStore)
+    {
+        DecorDyeSlotData& data = _decorDyeSlotStore[entry->ID];
+        data.ID = entry->ID;
+        data.SlotIndex = entry->SlotIndex;
+        data.HouseDecorID = entry->HouseDecorID;
+        data.DyeChannelType = entry->DyeChannelType;
+        data.DefaultDyeRecordID = entry->DefaultDyeRecordID;
+
+        _dyeSlotsByDecor[entry->HouseDecorID].push_back(&_decorDyeSlotStore[entry->ID]);
+    }
+
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadDecorDyeSlotData: Loaded {} decor dye slots", uint32(_decorDyeSlotStore.size()));
+}
+
+void HousingMgr::LoadDecorXDecorSubcategoryData()
+{
+    uint32 count = 0;
+    for (DecorXDecorSubcategoryEntry const* entry : sDecorXDecorSubcategoryStore)
+    {
+        _decorsBySubcategory[entry->DecorSubcategoryID].push_back(entry->HouseDecorID);
+        ++count;
+    }
+
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadDecorXDecorSubcategoryData: Loaded {} decor-to-subcategory links", count);
+}
+
+DecorCategoryData const* HousingMgr::GetDecorCategoryData(uint32 id) const
+{
+    auto itr = _decorCategoryStore.find(id);
+    return itr != _decorCategoryStore.end() ? &itr->second : nullptr;
+}
+
+DecorSubcategoryData const* HousingMgr::GetDecorSubcategoryData(uint32 id) const
+{
+    auto itr = _decorSubcategoryStore.find(id);
+    return itr != _decorSubcategoryStore.end() ? &itr->second : nullptr;
+}
+
+std::vector<DecorSubcategoryData const*> HousingMgr::GetSubcategoriesForCategory(uint32 categoryId) const
+{
+    auto itr = _subcategoriesByCategory.find(categoryId);
+    if (itr != _subcategoriesByCategory.end())
+        return itr->second;
+
+    return {};
+}
+
+std::vector<uint32> HousingMgr::GetDecorIdsForSubcategory(uint32 subcategoryId) const
+{
+    auto itr = _decorsBySubcategory.find(subcategoryId);
+    if (itr != _decorsBySubcategory.end())
+        return itr->second;
+
+    return {};
+}
+
+std::vector<DecorDyeSlotData const*> HousingMgr::GetDyeSlotsForDecor(uint32 houseDecorId) const
+{
+    auto itr = _dyeSlotsByDecor.find(houseDecorId);
+    if (itr != _dyeSlotsByDecor.end())
         return itr->second;
 
     return {};

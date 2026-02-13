@@ -371,6 +371,9 @@ WorldPacket const* HousingDecorRemoveResponse::Write()
 WorldPacket const* HousingDecorLockResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << DecorGuid;
+    _worldPacket.WriteBit(Locked);
+    _worldPacket.FlushBits();
     return &_worldPacket;
 }
 
@@ -383,6 +386,12 @@ WorldPacket const* HousingDecorDeleteFromStorageResponse::Write()
 WorldPacket const* HousingDecorRequestStorageResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Entries.size());
+    for (auto const& entry : Entries)
+    {
+        _worldPacket << uint32(entry.DecorEntryId);
+        _worldPacket << uint32(entry.Count);
+    }
     return &_worldPacket;
 }
 
@@ -566,12 +575,30 @@ WorldPacket const* HousingSvcsCancelRelinquishHouseResponse::Write()
 WorldPacket const* HousingSvcsGetPlayerHousesInfoResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Houses.size());
+    for (auto const& house : Houses)
+    {
+        _worldPacket << house.HouseGuid;
+        _worldPacket << house.NeighborhoodGuid;
+        _worldPacket << uint8(house.PlotIndex);
+        _worldPacket << uint32(house.Level);
+    }
     return &_worldPacket;
 }
 
 WorldPacket const* HousingSvcsPlayerViewHousesResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Neighborhoods.size());
+    for (auto const& neighborhood : Neighborhoods)
+    {
+        _worldPacket << neighborhood.NeighborhoodGuid;
+        _worldPacket << uint32(neighborhood.MapID);
+        _worldPacket << SizedString::BitsSize<8>(neighborhood.Name);
+    }
+    _worldPacket.FlushBits();
+    for (auto const& neighborhood : Neighborhoods)
+        _worldPacket << SizedString::Data(neighborhood.Name);
     return &_worldPacket;
 }
 
@@ -645,6 +672,15 @@ WorldPacket const* HousingSvcsNeighborhoodOwnershipTransferredResponse::Write()
 WorldPacket const* HousingSvcsGetPotentialHouseOwnersResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(PotentialOwners.size());
+    for (auto const& owner : PotentialOwners)
+    {
+        _worldPacket << owner.PlayerGuid;
+        _worldPacket << SizedString::BitsSize<7>(owner.PlayerName);
+    }
+    _worldPacket.FlushBits();
+    for (auto const& owner : PotentialOwners)
+        _worldPacket << SizedString::Data(owner.PlayerName);
     return &_worldPacket;
 }
 
@@ -657,12 +693,40 @@ WorldPacket const* HousingSvcsUpdateHouseSettingsResponse::Write()
 WorldPacket const* HousingSvcsGetHouseFinderInfoResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Entries.size());
+    for (auto const& entry : Entries)
+    {
+        _worldPacket << entry.NeighborhoodGuid;
+        _worldPacket << uint32(entry.MapID);
+        _worldPacket << uint32(entry.AvailablePlots);
+        _worldPacket << uint32(entry.TotalPlots);
+        _worldPacket << uint8(entry.SuggestionReason);
+        _worldPacket << SizedString::BitsSize<8>(entry.NeighborhoodName);
+    }
+    _worldPacket.FlushBits();
+    for (auto const& entry : Entries)
+        _worldPacket << SizedString::Data(entry.NeighborhoodName);
     return &_worldPacket;
 }
 
 WorldPacket const* HousingSvcsGetHouseFinderNeighborhoodResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << NeighborhoodGuid;
+    _worldPacket << uint32(Plots.size());
+    for (auto const& plot : Plots)
+    {
+        _worldPacket << uint8(plot.PlotIndex);
+        _worldPacket << uint64(plot.Cost);
+        _worldPacket.WriteBit(plot.IsAvailable);
+        _worldPacket << SizedString::BitsSize<7>(plot.OwnerName);
+    }
+    _worldPacket.FlushBits();
+    _worldPacket << SizedString::BitsSize<8>(NeighborhoodName);
+    _worldPacket.FlushBits();
+    _worldPacket << SizedString::Data(NeighborhoodName);
+    for (auto const& plot : Plots)
+        _worldPacket << SizedString::Data(plot.OwnerName);
     return &_worldPacket;
 }
 
@@ -695,12 +759,32 @@ WorldPacket const* HousingSvcsDeleteAllNeighborhoodInvitesResponse::Write()
 WorldPacket const* HousingHouseStatusResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << HouseGuid;
+    _worldPacket << uint32(Level);
+    _worldPacket << uint64(Favor);
+    _worldPacket << uint32(InteriorDecorBudgetUsed);
+    _worldPacket << uint32(InteriorDecorBudgetMax);
+    _worldPacket << uint32(ExteriorDecorBudgetUsed);
+    _worldPacket << uint32(ExteriorDecorBudgetMax);
+    _worldPacket << uint32(RoomBudgetUsed);
+    _worldPacket << uint32(RoomBudgetMax);
+    _worldPacket << uint32(FixtureBudgetUsed);
+    _worldPacket << uint32(FixtureBudgetMax);
     return &_worldPacket;
 }
 
 WorldPacket const* HousingGetCurrentHouseInfoResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << HouseGuid;
+    _worldPacket << NeighborhoodGuid;
+    _worldPacket << uint8(PlotIndex);
+    _worldPacket << uint32(Level);
+    _worldPacket << uint64(Favor);
+    _worldPacket << uint32(SettingsFlags);
+    _worldPacket << uint32(DecorCount);
+    _worldPacket << uint32(RoomCount);
+    _worldPacket << uint32(FixtureCount);
     return &_worldPacket;
 }
 
@@ -1010,6 +1094,13 @@ WorldPacket const* NeighborhoodPlayerGetInviteResponse::Write()
 WorldPacket const* NeighborhoodGetInvitesResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Invites.size());
+    for (auto const& invite : Invites)
+    {
+        _worldPacket << invite.InviteeGuid;
+        _worldPacket << invite.InviterGuid;
+        _worldPacket << uint32(invite.InviteTime);
+    }
     return &_worldPacket;
 }
 
@@ -1032,6 +1123,14 @@ WorldPacket const* NeighborhoodOfferOwnershipResponse::Write()
 WorldPacket const* NeighborhoodGetRosterResponse::Write()
 {
     _worldPacket << uint32(Result);
+    _worldPacket << uint32(Members.size());
+    for (auto const& member : Members)
+    {
+        _worldPacket << member.PlayerGuid;
+        _worldPacket << uint8(member.Role);
+        _worldPacket << uint8(member.PlotIndex);
+        _worldPacket << uint32(member.JoinTime);
+    }
     return &_worldPacket;
 }
 

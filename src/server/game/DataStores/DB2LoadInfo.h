@@ -1686,6 +1686,71 @@ struct CurvePointLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 7, &CurvePointMeta::Instance, HOTFIX_SEL_CURVE_POINT };
 };
 
+struct DataTagXHouseDecorRecordLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DataTagID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "HouseDecorID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &DataTagXHouseDecorRecordMeta::Instance, HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD };
+};
+
+struct DecorCategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        { .IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DisplayIndex" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &DecorCategoryMeta::Instance, HOTFIX_SEL_DECOR_CATEGORY };
+};
+
+struct DecorDyeSlotLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "SlotIndex" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "HouseDecorID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DyeChannelType" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DefaultDyeRecordID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &DecorDyeSlotMeta::Instance, HOTFIX_SEL_DECOR_DYE_SLOT };
+};
+
+struct DecorSubcategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        { .IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DecorCategoryID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DisplayIndex" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &DecorSubcategoryMeta::Instance, HOTFIX_SEL_DECOR_SUBCATEGORY };
+};
+
+struct DecorXDecorSubcategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "DecorSubcategoryID" },
+        { .IsSigned = true, .Type = FT_INT, .Name = "HouseDecorID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &DecorXDecorSubcategoryMeta::Instance, HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY };
+};
+
 struct DestructibleModelDataLoadInfo
 {
     static constexpr DB2FieldMeta Fields[23] =

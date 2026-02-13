@@ -1506,6 +1506,46 @@ struct CurvePointEntry
     uint32 OrderIndex;
 };
 
+struct DataTagXHouseDecorRecordEntry
+{
+    uint32 ID;
+    int32 DataTagID;
+    int32 HouseDecorID;
+};
+
+struct DecorCategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 IconFileDataID;
+    int32 DisplayIndex;
+};
+
+struct DecorDyeSlotEntry
+{
+    uint32 ID;
+    int32 SlotIndex;
+    int32 HouseDecorID;
+    int32 DyeChannelType;
+    int32 DefaultDyeRecordID;
+};
+
+struct DecorSubcategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 IconFileDataID;
+    int32 DecorCategoryID;
+    int32 DisplayIndex;
+};
+
+struct DecorXDecorSubcategoryEntry
+{
+    uint32 ID;
+    int32 DecorSubcategoryID;
+    int32 HouseDecorID;
+};
+
 struct DestructibleModelDataEntry
 {
     uint32 ID;

@@ -570,6 +570,33 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_CURVE_POINT, "SELECT MAX(ID) + 1 FROM curve_point", CONNECTION_SYNCH);
 
+    // DataTagXHouseDecorRecord.db2
+    PrepareStatement(HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD, "SELECT ID, DataTagID, HouseDecorID FROM data_tag_x_house_decor_record"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD, "SELECT MAX(ID) + 1 FROM data_tag_x_house_decor_record", CONNECTION_SYNCH);
+
+    // DecorCategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_CATEGORY, "SELECT Name, ID, IconFileDataID, DisplayIndex FROM decor_category"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_CATEGORY, "SELECT MAX(ID) + 1 FROM decor_category", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_DECOR_CATEGORY, "SELECT ID, Name_lang FROM decor_category_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // DecorDyeSlot.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_DYE_SLOT, "SELECT ID, SlotIndex, HouseDecorID, DyeChannelType, DefaultDyeRecordID FROM decor_dye_slot"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_DYE_SLOT, "SELECT MAX(ID) + 1 FROM decor_dye_slot", CONNECTION_SYNCH);
+
+    // DecorSubcategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT Name, ID, IconFileDataID, DecorCategoryID, DisplayIndex FROM decor_subcategory"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT MAX(ID) + 1 FROM decor_subcategory", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT ID, Name_lang FROM decor_subcategory_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // DecorXDecorSubcategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY, "SELECT ID, DecorSubcategoryID, HouseDecorID FROM decor_x_decor_subcategory"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY, "SELECT MAX(ID) + 1 FROM decor_x_decor_subcategory", CONNECTION_SYNCH);
+
     // DestructibleModelData.db2
     PrepareStatement(HOTFIX_SEL_DESTRUCTIBLE_MODEL_DATA, "SELECT ID, State0ImpactEffectDoodadSet, State0AmbientDoodadSet, State1Wmo, "
         "State1DestructionDoodadSet, State1ImpactEffectDoodadSet, State1AmbientDoodadSet, State2Wmo, State2DestructionDoodadSet, "

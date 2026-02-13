@@ -653,6 +653,8 @@ namespace WorldPackets::Housing
         HousingDecorLockResponse() : ServerPacket(SMSG_HOUSING_DECOR_LOCK_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+        ObjectGuid DecorGuid;
+        bool Locked = false;
     };
 
     class HousingDecorDeleteFromStorageResponse final : public ServerPacket
@@ -669,6 +671,13 @@ namespace WorldPackets::Housing
         HousingDecorRequestStorageResponse() : ServerPacket(SMSG_HOUSING_DECOR_REQUEST_STORAGE_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct CatalogEntryData
+        {
+            uint32 DecorEntryId = 0;
+            uint32 Count = 0;
+        };
+        std::vector<CatalogEntryData> Entries;
     };
 
     class HousingDecorAddToHouseChestResponse final : public ServerPacket
@@ -908,6 +917,15 @@ namespace WorldPackets::Housing
         HousingSvcsGetPlayerHousesInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct HouseInfoData
+        {
+            ObjectGuid HouseGuid;
+            ObjectGuid NeighborhoodGuid;
+            uint8 PlotIndex = 0;
+            uint32 Level = 0;
+        };
+        std::vector<HouseInfoData> Houses;
     };
 
     class HousingSvcsPlayerViewHousesResponse final : public ServerPacket
@@ -916,6 +934,14 @@ namespace WorldPackets::Housing
         HousingSvcsPlayerViewHousesResponse() : ServerPacket(SMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct NeighborhoodInfoData
+        {
+            ObjectGuid NeighborhoodGuid;
+            std::string Name;
+            uint32 MapID = 0;
+        };
+        std::vector<NeighborhoodInfoData> Neighborhoods;
     };
 
     class HousingSvcsChangeHouseCosmeticOwner final : public ServerPacket
@@ -1009,6 +1035,13 @@ namespace WorldPackets::Housing
         HousingSvcsGetPotentialHouseOwnersResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct PotentialOwnerData
+        {
+            ObjectGuid PlayerGuid;
+            std::string PlayerName;
+        };
+        std::vector<PotentialOwnerData> PotentialOwners;
     };
 
     class HousingSvcsUpdateHouseSettingsResponse final : public ServerPacket
@@ -1025,6 +1058,17 @@ namespace WorldPackets::Housing
         HousingSvcsGetHouseFinderInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct HouseFinderEntry
+        {
+            ObjectGuid NeighborhoodGuid;
+            std::string NeighborhoodName;
+            uint32 MapID = 0;
+            uint32 AvailablePlots = 0;
+            uint32 TotalPlots = 0;
+            uint8 SuggestionReason = 0;  // HouseFinderSuggestionReason
+        };
+        std::vector<HouseFinderEntry> Entries;
     };
 
     class HousingSvcsGetHouseFinderNeighborhoodResponse final : public ServerPacket
@@ -1033,6 +1077,17 @@ namespace WorldPackets::Housing
         HousingSvcsGetHouseFinderNeighborhoodResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct PlotEntry
+        {
+            uint8 PlotIndex = 0;
+            uint64 Cost = 0;
+            bool IsAvailable = false;
+            std::string OwnerName;
+        };
+        ObjectGuid NeighborhoodGuid;
+        std::string NeighborhoodName;
+        std::vector<PlotEntry> Plots;
     };
 
     class HousingSvcsGetBnetFriendNeighborhoodsResponse final : public ServerPacket
@@ -1075,6 +1130,17 @@ namespace WorldPackets::Housing
         HousingHouseStatusResponse() : ServerPacket(SMSG_HOUSING_HOUSE_STATUS_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+        ObjectGuid HouseGuid;
+        uint32 Level = 0;
+        uint64 Favor = 0;
+        uint32 InteriorDecorBudgetUsed = 0;
+        uint32 InteriorDecorBudgetMax = 0;
+        uint32 ExteriorDecorBudgetUsed = 0;
+        uint32 ExteriorDecorBudgetMax = 0;
+        uint32 RoomBudgetUsed = 0;
+        uint32 RoomBudgetMax = 0;
+        uint32 FixtureBudgetUsed = 0;
+        uint32 FixtureBudgetMax = 0;
     };
 
     class HousingGetCurrentHouseInfoResponse final : public ServerPacket
@@ -1083,6 +1149,15 @@ namespace WorldPackets::Housing
         HousingGetCurrentHouseInfoResponse() : ServerPacket(SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+        ObjectGuid HouseGuid;
+        ObjectGuid NeighborhoodGuid;
+        uint8 PlotIndex = 0;
+        uint32 Level = 0;
+        uint64 Favor = 0;
+        uint32 SettingsFlags = 0;
+        uint32 DecorCount = 0;
+        uint32 RoomCount = 0;
+        uint32 FixtureCount = 0;
     };
 
     class HousingExportHouseResponse final : public ServerPacket
@@ -1548,6 +1623,14 @@ namespace WorldPackets::Neighborhood
         NeighborhoodGetInvitesResponse() : ServerPacket(SMSG_NEIGHBORHOOD_GET_INVITES_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct InviteData
+        {
+            ObjectGuid InviteeGuid;
+            ObjectGuid InviterGuid;
+            uint32 InviteTime = 0;
+        };
+        std::vector<InviteData> Invites;
     };
 
     class NeighborhoodInviteNotification final : public ServerPacket
@@ -1574,6 +1657,15 @@ namespace WorldPackets::Neighborhood
         NeighborhoodGetRosterResponse() : ServerPacket(SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE) { }
         WorldPacket const* Write() override;
         uint32 Result = 0;
+
+        struct RosterMemberData
+        {
+            ObjectGuid PlayerGuid;
+            uint8 Role = 0;           // NeighborhoodMemberRole
+            uint8 PlotIndex = 0xFF;   // INVALID_PLOT_INDEX
+            uint32 JoinTime = 0;
+        };
+        std::vector<RosterMemberData> Members;
     };
 
     class NeighborhoodRosterResidentUpdate final : public ServerPacket

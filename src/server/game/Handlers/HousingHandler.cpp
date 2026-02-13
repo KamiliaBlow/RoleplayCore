@@ -186,21 +186,29 @@ void WorldSession::HandleHousingDecorLock(WorldPackets::Housing::HousingDecorLoc
     if (!housing)
         return;
 
-    // Verify the decor exists in this house
+    // Toggle lock state on the decor item
     Housing::PlacedDecor const* decor = housing->GetPlacedDecor(housingDecorLock.DecorGuid);
     if (!decor)
     {
-        TC_LOG_DEBUG("network", "CMSG_HOUSING_DECOR_SELECT_DECOR: Decor {} not found in house",
-            housingDecorLock.DecorGuid.ToString());
+        WorldPackets::Housing::HousingDecorLockResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_DECOR_INVALID_GUID);
+        response.DecorGuid = housingDecorLock.DecorGuid;
+        SendPacket(response.Write());
         return;
     }
 
-    TC_LOG_DEBUG("network", "CMSG_HOUSING_DECOR_SELECT_DECOR HouseGuid: {}, DecorGuid: {} (entry: {})",
-        housingDecorLock.HouseGuid.ToString(), housingDecorLock.DecorGuid.ToString(), decor->DecorEntryId);
+    bool newLockedState = !decor->Locked;
+    HousingResult result = housing->SetDecorLocked(housingDecorLock.DecorGuid, newLockedState);
 
     WorldPackets::Housing::HousingDecorLockResponse response;
-    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.Result = static_cast<uint32>(result);
+    response.DecorGuid = housingDecorLock.DecorGuid;
+    response.Locked = newLockedState;
     SendPacket(response.Write());
+
+    TC_LOG_DEBUG("network", "CMSG_HOUSING_DECOR_SELECT_DECOR HouseGuid: {}, DecorGuid: {} (entry: {}), Locked: {}",
+        housingDecorLock.HouseGuid.ToString(), housingDecorLock.DecorGuid.ToString(),
+        decor->DecorEntryId, newLockedState);
 }
 
 void WorldSession::HandleHousingDecorSetDyeSlots(WorldPackets::Housing::HousingDecorSetDyeSlots const& housingDecorSetDyeSlots)
@@ -284,12 +292,19 @@ void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::Housi
         return;
     }
 
-    // Client requests the catalog/storage listing. Retrieve catalog entries for logging.
-    // The client already has DB2 data for display; this confirms the server acknowledges.
+    // Retrieve catalog/storage listing and send to client
     std::vector<Housing::CatalogEntry const*> entries = housing->GetCatalogEntries();
 
     WorldPackets::Housing::HousingDecorRequestStorageResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.Entries.reserve(entries.size());
+    for (Housing::CatalogEntry const* entry : entries)
+    {
+        WorldPackets::Housing::HousingDecorRequestStorageResponse::CatalogEntryData data;
+        data.DecorEntryId = entry->DecorEntryId;
+        data.Count = entry->Count;
+        response.Entries.push_back(data);
+    }
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("network", "CMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER HouseGuid: {}, CatalogEntries: {}",
@@ -697,6 +712,15 @@ void WorldSession::HandleHousingSvcsPlayerViewHousesByPlayer(WorldPackets::Housi
 
     WorldPackets::Housing::HousingSvcsPlayerViewHousesResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.Neighborhoods.reserve(neighborhoods.size());
+    for (Neighborhood const* neighborhood : neighborhoods)
+    {
+        WorldPackets::Housing::HousingSvcsPlayerViewHousesResponse::NeighborhoodInfoData info;
+        info.NeighborhoodGuid = neighborhood->GetGuid();
+        info.Name = neighborhood->GetName();
+        info.MapID = neighborhood->GetNeighborhoodMapID();
+        response.Neighborhoods.push_back(std::move(info));
+    }
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("network", "CMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_BY_PLAYER PlayerGuid: {}, FoundNeighborhoods: {}",
@@ -742,6 +766,15 @@ void WorldSession::HandleHousingSvcsGetPlayerHousesInfo(WorldPackets::Housing::H
 
     WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoResponse response;
     response.Result = static_cast<uint32>(housing ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_HOUSE_NOT_FOUND);
+    if (housing)
+    {
+        WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoResponse::HouseInfoData info;
+        info.HouseGuid = housing->GetHouseGuid();
+        info.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+        info.PlotIndex = housing->GetPlotIndex();
+        info.Level = housing->GetLevel();
+        response.Houses.push_back(info);
+    }
     SendPacket(response.Write());
 }
 
@@ -886,6 +919,15 @@ void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housin
 
     WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.PotentialOwners.reserve(members.size());
+    for (auto const& member : members)
+    {
+        WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse::PotentialOwnerData ownerData;
+        ownerData.PlayerGuid = member.PlayerGuid;
+        if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            ownerData.PlayerName = memberPlayer->GetName();
+        response.PotentialOwners.push_back(std::move(ownerData));
+    }
     SendPacket(response.Write());
 }
 
@@ -900,6 +942,23 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
 
     WorldPackets::Housing::HousingSvcsGetHouseFinderInfoResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.Entries.reserve(publicNeighborhoods.size());
+    for (Neighborhood const* neighborhood : publicNeighborhoods)
+    {
+        WorldPackets::Housing::HousingSvcsGetHouseFinderInfoResponse::HouseFinderEntry entry;
+        entry.NeighborhoodGuid = neighborhood->GetGuid();
+        entry.NeighborhoodName = neighborhood->GetName();
+        entry.MapID = neighborhood->GetNeighborhoodMapID();
+        entry.TotalPlots = static_cast<uint32>(neighborhood->GetPlots().size());
+        entry.AvailablePlots = 0;
+        for (auto const& plot : neighborhood->GetPlots())
+        {
+            if (plot.OwnerGuid.IsEmpty())
+                ++entry.AvailablePlots;
+        }
+        entry.SuggestionReason = 32; // Random
+        response.Entries.push_back(std::move(entry));
+    }
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("network", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO: {} public neighborhoods available",
@@ -926,6 +985,26 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
 
     WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.NeighborhoodGuid = neighborhood->GetGuid();
+    response.NeighborhoodName = neighborhood->GetName();
+    response.Plots.reserve(neighborhood->GetPlots().size());
+    for (auto const& plot : neighborhood->GetPlots())
+    {
+        WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse::PlotEntry plotEntry;
+        plotEntry.PlotIndex = plot.PlotIndex;
+        plotEntry.IsAvailable = plot.OwnerGuid.IsEmpty();
+        // Look up plot cost from DB2 data
+        std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID());
+        for (NeighborhoodPlotData const* plotData : plotDataList)
+        {
+            if (plotData->PlotIndex == plot.PlotIndex)
+            {
+                plotEntry.Cost = plotData->Cost;
+                break;
+            }
+        }
+        response.Plots.push_back(std::move(plotEntry));
+    }
     SendPacket(response.Write());
 }
 
@@ -993,6 +1072,18 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
 
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse response;
     response.Result = static_cast<uint32>(housing ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_HOUSE_NOT_FOUND);
+    if (housing)
+    {
+        response.HouseGuid = housing->GetHouseGuid();
+        response.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+        response.PlotIndex = housing->GetPlotIndex();
+        response.Level = housing->GetLevel();
+        response.Favor = housing->GetFavor64();
+        response.SettingsFlags = housing->GetSettingsFlags();
+        response.DecorCount = housing->GetDecorCount();
+        response.RoomCount = static_cast<uint32>(housing->GetRooms().size());
+        response.FixtureCount = static_cast<uint32>(housing->GetFixtures().size());
+    }
     SendPacket(response.Write());
 }
 

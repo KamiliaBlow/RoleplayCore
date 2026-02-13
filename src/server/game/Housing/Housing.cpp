@@ -18,6 +18,7 @@
 #include "Housing.h"
 #include "Account.h"
 #include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "HousingMgr.h"
 #include "Log.h"
 #include "ObjectMgr.h"
@@ -424,6 +425,9 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_INVALID_GUID;
 
+    if (itr->second.Locked)
+        return HOUSING_RESULT_LOCK_DENIED;
+
     PlacedDecor& decor = itr->second;
     decor.PosX = x;
     decor.PosY = y;
@@ -447,6 +451,9 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_INVALID_GUID;
+
+    if (itr->second.Locked)
+        return HOUSING_RESULT_LOCK_DENIED;
 
     // Refund WeightCost budget
     uint32 decorEntryId = itr->second.DecorEntryId;
@@ -482,6 +489,23 @@ HousingResult Housing::CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
 
     TC_LOG_DEBUG("housing", "Housing::CommitDecorDyes: Player {} updated dyes on decor {} in house {}",
         _owner->GetName(), decorGuid.ToString(), _houseGuid.ToString());
+
+    return HOUSING_RESULT_SUCCESS;
+}
+
+HousingResult Housing::SetDecorLocked(ObjectGuid decorGuid, bool locked)
+{
+    if (_houseGuid.IsEmpty())
+        return HOUSING_RESULT_HOUSE_NOT_FOUND;
+
+    auto itr = _placedDecor.find(decorGuid);
+    if (itr == _placedDecor.end())
+        return HOUSING_RESULT_DECOR_INVALID_GUID;
+
+    itr->second.Locked = locked;
+
+    TC_LOG_DEBUG("housing", "Housing::SetDecorLocked: Player {} {} decor {} in house {}",
+        _owner->GetName(), locked ? "locked" : "unlocked", decorGuid.ToString(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -768,7 +792,7 @@ bool Housing::IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const
     return visited.size() == slotToRoom.size();
 }
 
-HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, std::vector<uint32> const& /*componentIds*/)
+HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, std::vector<uint32> const& componentIds)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -777,15 +801,26 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
+    // Validate componentIds if provided
+    for (uint32 componentId : componentIds)
+    {
+        if (!sRoomComponentStore.LookupEntry(componentId))
+        {
+            TC_LOG_DEBUG("housing", "Housing::ApplyRoomTheme: Invalid RoomComponent ID {} for room {}",
+                componentId, roomGuid.ToString());
+            return HOUSING_RESULT_INVALID_ROOM;
+        }
+    }
+
     itr->second.ThemeId = themeSetId;
 
-    TC_LOG_DEBUG("housing", "Housing::ApplyRoomTheme: Player {} applied theme {} to room {} in house {}",
-        _owner->GetName(), themeSetId, roomGuid.ToString(), _houseGuid.ToString());
+    TC_LOG_DEBUG("housing", "Housing::ApplyRoomTheme: Player {} applied theme {} to room {} ({} components) in house {}",
+        _owner->GetName(), themeSetId, roomGuid.ToString(), componentIds.size(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperId, uint32 materialId, std::vector<uint32> const& /*componentIds*/)
+HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperId, uint32 materialId, std::vector<uint32> const& componentIds)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -794,11 +829,22 @@ HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperI
     if (itr == _rooms.end())
         return HOUSING_RESULT_INVALID_ROOM;
 
+    // Validate componentIds if provided
+    for (uint32 componentId : componentIds)
+    {
+        if (!sRoomComponentStore.LookupEntry(componentId))
+        {
+            TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Invalid RoomComponent ID {} for room {}",
+                componentId, roomGuid.ToString());
+            return HOUSING_RESULT_INVALID_ROOM;
+        }
+    }
+
     itr->second.WallpaperId = wallpaperId;
     itr->second.MaterialId = materialId;
 
-    TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Player {} applied wallpaper {} (material {}) to room {} in house {}",
-        _owner->GetName(), wallpaperId, materialId, roomGuid.ToString(), _houseGuid.ToString());
+    TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Player {} applied wallpaper {} (material {}) to room {} ({} components) in house {}",
+        _owner->GetName(), wallpaperId, materialId, roomGuid.ToString(), componentIds.size(), _houseGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -853,15 +899,26 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
-    if (_fixtures.size() >= MAX_HOUSING_FIXTURES_PER_HOUSE && _fixtures.find(fixturePointId) == _fixtures.end())
+    bool isNew = _fixtures.find(fixturePointId) == _fixtures.end();
+    if (isNew && _fixtures.size() >= MAX_HOUSING_FIXTURES_PER_HOUSE)
         return HOUSING_RESULT_FIXTURE_INVALID_DATA;
+
+    // Enforce fixture budget for new fixtures (WeightCost = 1 per fixture by default)
+    uint32 const fixtureWeightCost = 1;
+    if (isNew)
+    {
+        if (_fixtureWeightUsed + fixtureWeightCost > GetMaxFixtureBudget())
+            return HOUSING_RESULT_FIXTURE_BUDGET_EXCEEDED;
+        _fixtureWeightUsed += fixtureWeightCost;
+    }
 
     Fixture& fixture = _fixtures[fixturePointId];
     fixture.FixturePointId = fixturePointId;
     fixture.OptionId = optionId;
 
-    TC_LOG_DEBUG("housing", "Housing::SelectFixtureOption: Player {} set fixture point {} to option {} in house {}",
-        _owner->GetName(), fixturePointId, optionId, _houseGuid.ToString());
+    TC_LOG_DEBUG("housing", "Housing::SelectFixtureOption: Player {} set fixture point {} to option {} in house {} (budget: {}/{})",
+        _owner->GetName(), fixturePointId, optionId, _houseGuid.ToString(),
+        _fixtureWeightUsed, GetMaxFixtureBudget());
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -877,8 +934,14 @@ HousingResult Housing::RemoveFixture(uint32 fixturePointId)
 
     _fixtures.erase(itr);
 
-    TC_LOG_DEBUG("housing", "Housing::RemoveFixture: Player {} removed fixture at point {} in house {}",
-        _owner->GetName(), fixturePointId, _houseGuid.ToString());
+    // Refund fixture budget
+    uint32 const fixtureWeightCost = 1;
+    if (_fixtureWeightUsed >= fixtureWeightCost)
+        _fixtureWeightUsed -= fixtureWeightCost;
+
+    TC_LOG_DEBUG("housing", "Housing::RemoveFixture: Player {} removed fixture at point {} in house {} (budget: {}/{})",
+        _owner->GetName(), fixturePointId, _houseGuid.ToString(),
+        _fixtureWeightUsed, GetMaxFixtureBudget());
 
     return HOUSING_RESULT_SUCCESS;
 }

@@ -47,6 +47,7 @@ public:
         float RotationW = 1.0f;
         std::array<uint32, MAX_HOUSING_DYE_SLOTS> DyeSlots = {};
         ObjectGuid RoomGuid;
+        bool Locked = false;
     };
 
     struct Room
@@ -107,6 +108,7 @@ public:
         float rotX, float rotY, float rotZ, float rotW);
     HousingResult RemoveDecor(ObjectGuid decorGuid);
     HousingResult CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
+    HousingResult SetDecorLocked(ObjectGuid decorGuid, bool locked);
     PlacedDecor const* GetPlacedDecor(ObjectGuid decorGuid) const;
     std::vector<PlacedDecor const*> GetAllPlacedDecor() const;
     uint32 GetDecorCount() const { return static_cast<uint32>(_placedDecor.size()); }

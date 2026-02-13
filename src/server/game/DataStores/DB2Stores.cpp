@@ -128,6 +128,11 @@ DB2Storage<CurrencyContainerEntry>              sCurrencyContainerStore("Currenc
 DB2Storage<CurrencyTypesEntry>                  sCurrencyTypesStore("CurrencyTypes.db2", &CurrencyTypesLoadInfo::Instance);
 DB2Storage<CurveEntry>                          sCurveStore("Curve.db2", &CurveLoadInfo::Instance);
 DB2Storage<CurvePointEntry>                     sCurvePointStore("CurvePoint.db2", &CurvePointLoadInfo::Instance);
+DB2Storage<DataTagXHouseDecorRecordEntry>       sDataTagXHouseDecorRecordStore("DataTagXHouseDecorRecord.db2", &DataTagXHouseDecorRecordLoadInfo::Instance);
+DB2Storage<DecorCategoryEntry>                  sDecorCategoryStore("DecorCategory.db2", &DecorCategoryLoadInfo::Instance);
+DB2Storage<DecorDyeSlotEntry>                   sDecorDyeSlotStore("DecorDyeSlot.db2", &DecorDyeSlotLoadInfo::Instance);
+DB2Storage<DecorSubcategoryEntry>               sDecorSubcategoryStore("DecorSubcategory.db2", &DecorSubcategoryLoadInfo::Instance);
+DB2Storage<DecorXDecorSubcategoryEntry>         sDecorXDecorSubcategoryStore("DecorXDecorSubcategory.db2", &DecorXDecorSubcategoryLoadInfo::Instance);
 DB2Storage<DestructibleModelDataEntry>          sDestructibleModelDataStore("DestructibleModelData.db2", &DestructibleModelDataLoadInfo::Instance);
 DB2Storage<DifficultyEntry>                     sDifficultyStore("Difficulty.db2", &DifficultyLoadInfo::Instance);
 DB2Storage<DungeonEncounterEntry>               sDungeonEncounterStore("DungeonEncounter.db2", &DungeonEncounterLoadInfo::Instance);
@@ -777,6 +782,11 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     LOAD_DB2(sCurrencyTypesStore);
     LOAD_DB2(sCurveStore);
     LOAD_DB2(sCurvePointStore);
+    LOAD_DB2(sDataTagXHouseDecorRecordStore);
+    LOAD_DB2(sDecorCategoryStore);
+    LOAD_DB2(sDecorDyeSlotStore);
+    LOAD_DB2(sDecorSubcategoryStore);
+    LOAD_DB2(sDecorXDecorSubcategoryStore);
     LOAD_DB2(sDestructibleModelDataStore);
     LOAD_DB2(sDifficultyStore);
     LOAD_DB2(sDungeonEncounterStore);

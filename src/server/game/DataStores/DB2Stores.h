@@ -95,6 +95,11 @@ TC_GAME_API extern DB2Storage<CriteriaEntry>                        sCriteriaSto
 TC_GAME_API extern DB2Storage<CriteriaTreeEntry>                    sCriteriaTreeStore;
 TC_GAME_API extern DB2Storage<CurrencyTypesEntry>                   sCurrencyTypesStore;
 TC_GAME_API extern DB2Storage<CurveEntry>                           sCurveStore;
+TC_GAME_API extern DB2Storage<DataTagXHouseDecorRecordEntry>        sDataTagXHouseDecorRecordStore;
+TC_GAME_API extern DB2Storage<DecorCategoryEntry>                   sDecorCategoryStore;
+TC_GAME_API extern DB2Storage<DecorDyeSlotEntry>                    sDecorDyeSlotStore;
+TC_GAME_API extern DB2Storage<DecorSubcategoryEntry>                sDecorSubcategoryStore;
+TC_GAME_API extern DB2Storage<DecorXDecorSubcategoryEntry>          sDecorXDecorSubcategoryStore;
 TC_GAME_API extern DB2Storage<DestructibleModelDataEntry>           sDestructibleModelDataStore;
 TC_GAME_API extern DB2Storage<DifficultyEntry>                      sDifficultyStore;
 TC_GAME_API extern DB2Storage<DungeonEncounterEntry>                sDungeonEncounterStore;
