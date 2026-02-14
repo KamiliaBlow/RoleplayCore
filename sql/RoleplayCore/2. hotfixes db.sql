@@ -90,6 +90,8 @@ CREATE TABLE `light_params`  (
   `Field_12_0_1_65617_027` int NOT NULL DEFAULT 0,
   `Field_12_0_1_65617_028` float NOT NULL DEFAULT 0,
   `Field_12_0_1_65617_029` float NOT NULL DEFAULT 0,
+  `Field_12_0_1_65617_030` float NOT NULL DEFAULT 0,
+  `Field_12_0_1_65617_031` float NOT NULL DEFAULT 0,
   `VerifiedBuild` int NOT NULL DEFAULT 0,
   PRIMARY KEY (`ID`, `VerifiedBuild`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;

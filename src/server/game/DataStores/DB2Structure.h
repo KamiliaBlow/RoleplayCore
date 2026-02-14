@@ -5477,6 +5477,8 @@ struct LightParamsEntry
     int32 Field_12_0_1_65617_027;
     float Field_12_0_1_65617_028;
     float Field_12_0_1_65617_029;
+    float Field_12_0_1_65617_030;
+    float Field_12_0_1_65617_031;
 };
 
 struct SoundAmbienceEntry

@@ -3917,25 +3917,25 @@ struct LightLoadInfo
 
 struct LightParamsLoadInfo
 {
-	static constexpr DB2FieldMeta Fields[35] =
+	static constexpr DB2FieldMeta Fields[37] =
 	{
-		{ .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+		{ .IsSigned = false, .Type = FT_INT,   .Name = "ID" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideCelestialSphere1" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideCelestialSphere2" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideCelestialSphere3" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideSunPosition1" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideSunPosition2" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OverrideSunPosition3" },
-		{ .IsSigned = false, .Type = FT_BYTE, .Name = "HighlightSky" },
+		{ .IsSigned = false, .Type = FT_BYTE,  .Name = "HighlightSky" },
 		{ .IsSigned = false, .Type = FT_SHORT, .Name = "LightSkyboxID" },
-		{ .IsSigned = false, .Type = FT_BYTE, .Name = "CloudTypeID" },
+		{ .IsSigned = false, .Type = FT_BYTE,  .Name = "CloudTypeID" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "Glow" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "WaterShallowAlpha" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "WaterDeepAlpha" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OceanShallowAlpha" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "OceanDeepAlpha" },
-		{ .IsSigned = true, .Type = FT_INT, .Name = "Flags" },
-		{ .IsSigned = true, .Type = FT_INT, .Name = "SsaoSettingsID" },
+		{ .IsSigned = true,  .Type = FT_INT,   .Name = "Flags" },
+		{ .IsSigned = true,  .Type = FT_INT,   .Name = "SsaoSettingsID" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "SunPolar" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "SunAzimuth" },
 		{ .IsSigned = false, .Type = FT_FLOAT, .Name = "SunAttenuationStart" },
@@ -3951,12 +3951,14 @@ struct LightParamsLoadInfo
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_024" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_025" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_026" },
-        { .IsSigned = true, .Type = FT_INT, .Name = "Field_12_0_1_65617_027" },
+        { .IsSigned = true,  .Type = FT_INT,   .Name = "Field_12_0_1_65617_027" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_028" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_029" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_030" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "Field_12_0_1_65617_031" },
 	};
 
-	static constexpr DB2LoadInfo Instance{ Fields, 35, &LightParamsMeta::Instance, HOTFIX_SEL_LIGHT_PARAMS };
+	static constexpr DB2LoadInfo Instance{ Fields, 37, &LightParamsMeta::Instance, HOTFIX_SEL_LIGHT_PARAMS };
 };
  
 struct LightSkyboxLoadInfo

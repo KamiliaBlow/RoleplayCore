@@ -1226,7 +1226,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PrepareStatement(HOTFIX_SEL_LIGHT_PARAMS, "SELECT ID, OverrideCelestialSphere1, OverrideCelestialSphere2, OverrideCelestialSphere3, "
         "OverrideSunPosition1, OverrideSunPosition2, OverrideSunPosition3, HighlightSky, LightSkyboxID, CloudTypeID, Glow, "
         "WaterShallowAlpha, WaterDeepAlpha, OceanShallowAlpha, OceanDeepAlpha, Flags, SsaoSettingsID, SunPolar, SunAzimuth, "
-        "SunAttenuationStart, SunAttenuationEnd, Field_12_0_1_65617_016, Field_12_0_1_65617_017, Field_12_0_1_65617_018, Field_12_0_1_65617_019, Field_12_0_1_65617_020, Field_12_0_1_65617_021, Field_12_0_1_65617_022, Field_12_0_1_65617_023, Field_12_0_1_65617_024, Field_12_0_1_65617_025, Field_12_0_1_65617_026, Field_12_0_1_65617_027, Field_12_0_1_65617_028, Field_12_0_1_65617_029 FROM light_params WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+        "SunAttenuationStart, SunAttenuationEnd, Field_12_0_1_65617_016, Field_12_0_1_65617_017, Field_12_0_1_65617_018, Field_12_0_1_65617_019, Field_12_0_1_65617_020, Field_12_0_1_65617_021, Field_12_0_1_65617_022, Field_12_0_1_65617_023, Field_12_0_1_65617_024, Field_12_0_1_65617_025, Field_12_0_1_65617_026, Field_12_0_1_65617_027, Field_12_0_1_65617_028, Field_12_0_1_65617_029, Field_12_0_1_65617_030, Field_12_0_1_65617_031 FROM light_params WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_LIGHT_PARAMS, "SELECT MAX(ID) + 1 FROM light_params", CONNECTION_SYNCH);
 
     // LiquidType.db2
