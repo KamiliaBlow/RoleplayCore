@@ -1964,20 +1964,6 @@ class spell_warr_intervene_charge : public SpellScript
     }
 };
 
-// 382551 - Pain and Gain (heal)
-class spell_warr_pain_and_gain_heal : public SpellScript
-{
-    void CalculateHeal(SpellEffectInfo const& /*effInfo*/, Unit const* /*victim*/, int32& /*healing*/, int32& /*flatMod*/, float& pctMod) const
-    {
-        pctMod *= 0.1f;
-    }
-
-    void Register() override
-    {
-        CalcHealing += SpellCalcDamageFn(spell_warr_pain_and_gain_heal::CalculateHeal);
-    }
-};
-
 // 23920 Spell Reflect
 class spell_warr_spell_reflect : public SpellScriptLoader
 {
@@ -2544,46 +2530,6 @@ class spell_warr_unshackled_fury : public AuraScript
     }
 };
 
-// Enrage - 184361
-class spell_warr_enrage : public AuraScript
-{
-    bool CheckProc(ProcEventInfo& eventInfo)
-    {
-        if (eventInfo.GetSpellInfo()->Id == SPELL_WARRIOR_BLOODTHIRST_DAMAGE &&
-            eventInfo.GetHitMask() & PROC_HIT_CRITICAL)
-            return true;
-        return false;
-    }
-
-    void Register() override
-    {
-        DoCheckProc += AuraCheckProcFn(spell_warr_enrage::CheckProc);
-    }
-};
-
-// Enrage Aura - 184362
-class spell_warr_enrage_aura : public AuraScript
-{
-    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        if (Unit* caster = GetCaster())
-            if (caster->HasAura(SPELL_WARRIOR_ENDLESS_RAGE))
-                caster->CastSpell(nullptr, SPELL_WARRIOR_ENDLESS_RAGE_GIVE_POWER, true);
-    }
-
-    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
-    {
-        Unit* caster = GetCaster();
-        caster->RemoveAurasDueToSpell(SPELL_WARRIOR_UNCHACKLED_FURY);
-    }
-
-    void Register() override
-    {
-        OnEffectApply += AuraEffectApplyFn(spell_warr_enrage_aura::OnApply, EFFECT_0, SPELL_AURA_MELEE_SLOW, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_warr_enrage_aura::HandleRemove, EFFECT_0, SPELL_AURA_MELEE_SLOW, AURA_EFFECT_HANDLE_REAL);
-    }
-};
-
 //214871 - Odyn's fury
 class spell_warr_odyns_fury : public AuraScript
 {
@@ -2757,7 +2703,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_bladesmasters_torment);
     RegisterSpellScript(spell_warr_intervene);
     RegisterSpellScript(spell_warr_intervene_charge);
-    RegisterSpellScript(spell_warr_pain_and_gain_heal);
 
     //new
     new spell_warr_spell_reflect();
@@ -2772,8 +2717,6 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_shiel_charge);
     RegisterSpellScript(spell_warr_whirlwind);
     new spell_warr_unshackled_fury();
-    new spell_warr_enrage();
-    RegisterSpellScript(spell_warr_enrage_aura);
     new spell_warr_odyns_fury();
     new anger_management();
     RegisterSpellScript(spell_warr_overpower);

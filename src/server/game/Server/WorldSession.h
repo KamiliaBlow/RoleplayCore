@@ -513,7 +513,6 @@ namespace WorldPackets
 
     namespace Misc
     {
-        class SetCurrencyFlags;
         class SetSelection;
         class ViolenceLevel;
         class TimeSyncResponse;
@@ -548,11 +547,11 @@ namespace WorldPackets
         class ConversationLineStarted;
         class RequestLatestSplashScreen;
         class QueryCountdownTimer;
+        class SetCurrencyFlags;
         class AccountNotificationAcknowledge;
         class OverrideScreenFlash;
         class ShowTradeSkill;
         class ActivateSoulbind;
-        class SetCurrencyFlags;
     }
 
     namespace Movement
@@ -1343,7 +1342,6 @@ class TC_GAME_API WorldSession
         void HandleSetPvP(WorldPackets::Misc::SetPvP& packet);
         void HandleSetWarMode(WorldPackets::Misc::SetWarMode& packet);
 
-        void HandleSetCurrencyFlags(WorldPackets::Misc::SetCurrencyFlags& packet);
         void HandleSetSelectionOpcode(WorldPackets::Misc::SetSelection& packet);
         void HandleStandStateChangeOpcode(WorldPackets::Misc::StandStateChange& packet);
         void HandleEmoteOpcode(WorldPackets::Chat::EmoteClient& packet);
@@ -1833,7 +1831,7 @@ class TC_GAME_API WorldSession
         void HandleConversationLineStarted(WorldPackets::Misc::ConversationLineStarted& conversationLineStarted);
         void HandleKeyboundOverride(WorldPackets::Spells::KeyboundOverride& keyboundOverride);
         void HandleQueryCountdownTimer(WorldPackets::Misc::QueryCountdownTimer& queryCountdownTimer);
-		void HandleSetCurrencyFlags(WorldPackets::Misc::SetCurrencyFlags const& setCurrenctFlags);
+        void HandleSetCurrencyFlags(WorldPackets::Misc::SetCurrencyFlags const& setCurrenctFlags);
         void HandleOverrideScreenFlash(WorldPackets::Misc::OverrideScreenFlash& overrideScreenFlash);
 
         // Commentator
