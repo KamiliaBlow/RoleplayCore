@@ -206,6 +206,9 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
 
         UF::UpdateField<UF::AreaTriggerData, int32(WowCS::EntityFragment::CGObject), TYPEID_AREATRIGGER> m_areaTriggerData;
 
+        // Housing entity fragment (optional - only set on housing plot AreaTriggers)
+        UF::OptionalUpdateField<UF::HousingPlotAreaTriggerData, int32(WowCS::EntityFragment::FHousingPlotAreaTrigger_C), 0> m_housingPlotAreaTriggerData;
+
     protected:
         void _UpdateDuration(int32 newDuration);
 

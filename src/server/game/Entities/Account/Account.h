@@ -29,13 +29,23 @@ class Account final : public BaseEntity
 public:
     explicit Account(WorldSession* session, ObjectGuid guid, std::string&& name);
 
+    void ClearUpdateMask(bool remove) override;
+
     std::string GetNameForLocaleIdx(LocaleConstant locale) const override;
 
     void BuildUpdate(UpdateDataMapType& data_map) override;
 
     std::string GetDebugInfo() const override;
 
+    // Housing UpdateField setters
+    void SetHousingPlotIndex(int32 plotIndex);
+    void SetHousingLevel(uint32 level);
+    void SetHousingFavor(uint64 favor);
+    void SetHousingBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint32 room, uint32 fixture);
+
     UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
+    UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;
+    UF::UpdateField<UF::NeighborhoodMirrorData, int32(WowCS::EntityFragment::FNeighborhoodMirrorData_C), 0> m_neighborhoodMirrorData;
 
 protected:
     UF::UpdateFieldFlag GetUpdateFieldFlagsFor(Player const* target) const override;

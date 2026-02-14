@@ -1813,6 +1813,71 @@ struct CurvePointLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 7, &CurvePointMeta::Instance, HOTFIX_SEL_CURVE_POINT };
 };
 
+struct DataTagXHouseDecorRecordLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DataTagID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "HouseDecorID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &DataTagXHouseDecorRecordMeta::Instance, HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD };
+};
+
+struct DecorCategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DisplayIndex" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &DecorCategoryMeta::Instance, HOTFIX_SEL_DECOR_CATEGORY };
+};
+
+struct DecorDyeSlotLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "SlotIndex" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "HouseDecorID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DyeChannelType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DefaultDyeRecordID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &DecorDyeSlotMeta::Instance, HOTFIX_SEL_DECOR_DYE_SLOT };
+};
+
+struct DecorSubcategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "DecorCategoryID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DisplayIndex" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &DecorSubcategoryMeta::Instance, HOTFIX_SEL_DECOR_SUBCATEGORY };
+};
+
+struct DecorXDecorSubcategoryLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "DecorSubcategoryID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "HouseDecorID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &DecorXDecorSubcategoryMeta::Instance, HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY };
+};
+
 struct DestructibleModelDataLoadInfo
 {
     static constexpr DB2FieldMeta Fields[23] =
@@ -2791,6 +2856,146 @@ struct HolidaysLoadInfo
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 57, &HolidaysMeta::Instance, HOTFIX_SEL_HOLIDAYS };
+};
+
+struct HouseLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_STRING_NOT_LOCALIZED, .Name = "InternalName" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "HouseTypeID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "MapID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &HouseMeta::Instance, HOTFIX_SEL_HOUSE };
+};
+
+struct HouseDecorLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[20] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "InitialRotationX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "InitialRotationY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "InitialRotationZ" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Field_003" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "GameObjectID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "Type" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "ModelType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ModelFileDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ThumbnailFileDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "WeightCost" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ItemID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "InitialScale" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "FirstAcquisitionBonus" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "OrderIndex" },
+        {.IsSigned = true, .Type = FT_BYTE, .Name = "Size" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "StartingQuantity" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "UiModelSceneID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 20, &HouseDecorMeta::Instance, HOTFIX_SEL_HOUSE_DECOR };
+};
+
+struct HouseDecorMaterialLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[6] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_LONG, .Name = "MaterialGUID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "HouseDecorID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "MaterialIndex" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "DefaultDyeID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "AllowedDyeMask" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 6, &HouseDecorMaterialMeta::Instance, HOTFIX_SEL_HOUSE_DECOR_MATERIAL };
+};
+
+struct HouseDecorThemeSetLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ThemeID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &HouseDecorThemeSetMeta::Instance, HOTFIX_SEL_HOUSE_DECOR_THEME_SET };
+};
+
+struct HouseExteriorWmoDataLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &HouseExteriorWmoDataMeta::Instance, HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA };
+};
+
+struct HouseLevelDataLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Level" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "QuestID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &HouseLevelDataMeta::Instance, HOTFIX_SEL_HOUSE_LEVEL_DATA };
+};
+
+struct HouseLevelRewardInfoLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[6] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Description" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "HouseLevelID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RewardType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RewardValue" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 6, &HouseLevelRewardInfoMeta::Instance, HOTFIX_SEL_HOUSE_LEVEL_REWARD_INFO };
+};
+
+struct HouseRoomLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = true, .Type = FT_BYTE, .Name = "Size" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Field_002" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RoomWmoDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "UiTextureAtlasElementID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "WeightCost" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &HouseRoomMeta::Instance, HOTFIX_SEL_HOUSE_ROOM };
+};
+
+struct HouseThemeLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "IconFileDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "CategoryID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &HouseThemeMeta::Instance, HOTFIX_SEL_HOUSE_THEME };
 };
 
 struct ImportPriceArmorLoadInfo
@@ -4534,6 +4739,130 @@ struct NamesReservedLocaleLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 3, &NamesReservedLocaleMeta::Instance, HOTFIX_SEL_NAMES_RESERVED };
 };
 
+struct NeighborhoodInitiativeLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[7] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Description" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Duration" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RequiredParticipants" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RewardCurrencyID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 7, &NeighborhoodInitiativeMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE };
+};
+
+struct NeighborhoodInitiativeRewardLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[4] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "ChanceWeight" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RewardValue" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 4, &NeighborhoodInitiativeRewardMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_REWARD };
+};
+
+struct NeighborhoodInitiativeTaskLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Description" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "TaskType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RequiredCount" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "TargetID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "ProgressWeight" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "PlayerConditionID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &NeighborhoodInitiativeTaskMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_TASK };
+};
+
+struct NeighborhoodInitiativeXTaskLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "TaskID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &NeighborhoodInitiativeXTaskMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_X_TASK };
+};
+
+struct NeighborhoodMapLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "PositionX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "PositionY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "PositionZ" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "MapID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "Radius" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "PlotCount" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "FactionRestriction" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &NeighborhoodMapMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_MAP };
+};
+
+struct NeighborhoodNameGenLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Prefix" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "Suffix" },
+        {.IsSigned = false, .Type = FT_STRING, .Name = "FullName" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "NeighborhoodMapID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &NeighborhoodNameGenMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_NAME_GEN };
+};
+
+struct NeighborhoodPlotLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[26] =
+    {
+        {.IsSigned = false, .Type = FT_LONG, .Name = "Cost" },
+        {.IsSigned = false, .Type = FT_STRING_NOT_LOCALIZED, .Name = "Name" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HousePositionX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HousePositionY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HousePositionZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HouseRotationX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HouseRotationY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "HouseRotationZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstonePositionX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstonePositionY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstonePositionZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstoneRotationX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstoneRotationY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "CornerstoneRotationZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "TeleportPositionX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "TeleportPositionY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "TeleportPositionZ" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "NeighborhoodMapID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Field_010" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "CornerstoneGameObjectID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "PlotIndex" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "WorldState" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "PlotGameObjectID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "TeleportFacing" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Field_016" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 26, &NeighborhoodPlotMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_PLOT };
+};
+
 struct NPCModelItemSlotDisplayInfoLoadInfo
 {
 	static constexpr DB2FieldMeta Fields[4] =
@@ -5355,6 +5684,62 @@ struct RewardPackXItemLoadInfo
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 4, &RewardPackXItemMeta::Instance, HOTFIX_SEL_REWARD_PACK_X_ITEM };
+};
+
+struct RoomComponentLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[13] =
+    {
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetPosX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetPosY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetPosZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetRotX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetRotY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetRotZ" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "RoomWmoDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ModelFileDataID" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "Type" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "MeshStyleFilterID" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "ConnectionType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 13, &RoomComponentMeta::Instance, HOTFIX_SEL_ROOM_COMPONENT };
+};
+
+struct RoomComponentOptionLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "Type" },
+        {.IsSigned = false, .Type = FT_BYTE, .Name = "SubType" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "ModelFileDataID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RoomComponentID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "MeshStyleFilterID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "HouseThemeID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &RoomComponentOptionMeta::Instance, HOTFIX_SEL_ROOM_COMPONENT_OPTION };
+};
+
+struct RoomWmoDataLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[8] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMinX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMinY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMinZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMaxX" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMaxY" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "BoundingBoxMaxZ" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "Height" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 8, &RoomWmoDataMeta::Instance, HOTFIX_SEL_ROOM_WMO_DATA };
 };
 
 struct ScenarioLoadInfo

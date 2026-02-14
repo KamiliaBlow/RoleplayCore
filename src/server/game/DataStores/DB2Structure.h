@@ -1609,6 +1609,46 @@ struct CurvePointEntry
     uint32 OrderIndex;
 };
 
+struct DataTagXHouseDecorRecordEntry
+{
+    uint32 ID;
+    int32 DataTagID;
+    int32 HouseDecorID;
+};
+
+struct DecorCategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 IconFileDataID;
+    int32 DisplayIndex;
+};
+
+struct DecorDyeSlotEntry
+{
+    uint32 ID;
+    int32 SlotIndex;
+    int32 HouseDecorID;
+    int32 DyeChannelType;
+    int32 DefaultDyeRecordID;
+};
+
+struct DecorSubcategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 IconFileDataID;
+    int32 DecorCategoryID;
+    int32 DisplayIndex;
+};
+
+struct DecorXDecorSubcategoryEntry
+{
+    uint32 ID;
+    int32 DecorSubcategoryID;
+    int32 HouseDecorID;
+};
+
 struct DestructibleModelDataEntry
 {
     uint32 ID;
@@ -2277,6 +2317,136 @@ struct HolidaysEntry
     std::array<uint32, MAX_HOLIDAY_DATES> Date;                     // dates in unix time starting at January, 1, 2000
     std::array<uint8, MAX_HOLIDAY_DURATIONS> CalendarFlags;
     std::array<int32, 3> TextureFileDataID;
+};
+
+struct HouseEntry
+{
+    uint32 ID;
+    char const* InternalName;
+    int32 HouseTypeID;
+    int32 MapID;
+    int32 Flags;
+};
+
+struct HouseDecorEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    DBCPosition3D InitialRotation;           // Meta field 1: FT_FLOAT[3]
+    uint32 ID;                               // Meta field 2: IndexField
+    int32 Field_003;
+    int32 GameObjectID;
+    int32 Flags;
+    uint8 Type;
+    uint8 ModelType;
+    int32 ModelFileDataID;
+    int32 ThumbnailFileDataID;
+    int32 WeightCost;
+    int32 ItemID;
+    float InitialScale;
+    int32 FirstAcquisitionBonus;             // House XP gained on first acquisition (from Lua API)
+    int32 OrderIndex;
+    int8 Size;                               // HousingCatalogEntrySize (inferred from Lua API)
+    int32 StartingQuantity;
+    int32 UiModelSceneID;
+};
+
+struct HouseDecorMaterialEntry
+{
+    uint32 ID;
+    uint64 MaterialGUID;
+    int32 HouseDecorID;
+    int32 MaterialIndex;
+    int32 DefaultDyeID;
+    int32 AllowedDyeMask;
+};
+
+struct HouseDecorThemeSetEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int32 ThemeID;
+    int32 IconFileDataID;
+};
+
+struct HouseExteriorWmoDataEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    uint32 ID;                               // Meta field 1: IndexField
+    int32 Flags;
+};
+
+struct HouseLevelDataEntry
+{
+    uint32 ID;
+    int32 Level;
+    int32 QuestID;
+};
+
+struct HouseLevelRewardInfoEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    LocalizedString Description;             // Meta field 1: FT_STRING
+    uint32 ID;                               // Meta field 2: IndexField
+    int32 HouseLevelID;
+    int32 RewardType;
+    int32 RewardValue;
+};
+
+struct HouseRoomEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int8 Size;
+    int32 Flags;
+    int32 Field_002;
+    int32 RoomWmoDataID;
+    int32 UiTextureAtlasElementID;
+    int32 WeightCost;
+};
+
+struct HouseThemeEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    uint32 ID;                               // Meta field 1: IndexField
+    int32 IconFileDataID;
+    int32 CategoryID;
+};
+
+struct RoomComponentEntry
+{
+    DBCPosition3D OffsetPos;                 // Meta field 0: FT_FLOAT[3]
+    DBCPosition3D OffsetRot;                 // Meta field 1: FT_FLOAT[3]
+    uint32 ID;                               // Meta field 2: IndexField
+    int32 RoomWmoDataID;
+    int32 ModelFileDataID;
+    uint8 Type;
+    int32 MeshStyleFilterID;
+    uint8 ConnectionType;
+    int32 Flags;
+};
+
+struct RoomComponentOptionEntry
+{
+    uint32 ID;
+    int32 RoomComponentID;
+    uint8 Type;
+    int32 ModelFileDataID;
+    uint8 SubType;
+    int32 MeshStyleFilterID;
+    int32 HouseThemeID;
+    int32 Flags;
+};
+
+struct RoomWmoDataEntry
+{
+    uint32 ID;
+    float BoundingBoxMinX;
+    float BoundingBoxMinY;
+    float BoundingBoxMinZ;
+    float BoundingBoxMaxX;
+    float BoundingBoxMaxY;
+    float BoundingBoxMaxZ;
+    float Height;
 };
 
 struct ImportPriceArmorEntry
@@ -3369,6 +3539,83 @@ struct CreatureDisplayInfoStore
     bool HasRecord(uint32 id) const;
     const CreatureDisplayInfoEntry* LookupEntry(uint32 id) const;
     const CreatureDisplayInfoEntry* AssertEntry(uint32 id) const;
+};
+
+struct NeighborhoodInitiativeEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    LocalizedString Description;             // Meta field 1: FT_STRING
+    uint32 ID;                               // Meta field 2: IndexField
+    int32 InitiativeType;
+    int32 Duration;
+    int32 RequiredParticipants;
+    int32 RewardCurrencyID;
+};
+
+struct NeighborhoodInitiativeRewardEntry
+{
+    uint32 ID;
+    int32 InitiativeID;
+    float ChanceWeight;
+    int32 RewardValue;
+};
+
+struct NeighborhoodInitiativeTaskEntry
+{
+    LocalizedString Name;                    // Meta field 0: FT_STRING
+    LocalizedString Description;             // Meta field 1: FT_STRING
+    uint32 ID;                               // Meta field 2: IndexField
+    int32 TaskType;
+    int32 RequiredCount;
+    int32 TargetID;
+    float ProgressWeight;
+    int32 PlayerConditionID;
+};
+
+struct NeighborhoodInitiativeXTaskEntry
+{
+    uint32 ID;
+    int32 TaskID;
+    int32 InitiativeID;
+};
+
+struct NeighborhoodMapEntry
+{
+    DBCPosition3D Position;                  // Meta field 0: FT_FLOAT[3]
+    uint32 ID;                               // Meta field 1: IndexField
+    int32 MapID;
+    float Radius;
+    uint32 PlotCount;
+    int32 FactionRestriction;
+};
+
+struct NeighborhoodNameGenEntry
+{
+    uint32 ID;
+    LocalizedString Prefix;
+    LocalizedString Suffix;
+    LocalizedString FullName;
+    int32 NeighborhoodMapID;
+};
+
+struct NeighborhoodPlotEntry
+{
+    uint64 Cost;                             // Meta field 0: FT_LONG
+    char const* Name;                        // Meta field 1: FT_STRING_NOT_LOCALIZED
+    DBCPosition3D HousePosition;             // Meta field 2: FT_FLOAT[3]
+    DBCPosition3D HouseRotation;             // Meta field 3: FT_FLOAT[3]
+    DBCPosition3D CornerstonePosition;       // Meta field 4: FT_FLOAT[3]
+    DBCPosition3D CornerstoneRotation;       // Meta field 5: FT_FLOAT[3]
+    DBCPosition3D TeleportPosition;          // Meta field 6: FT_FLOAT[3]
+    uint32 ID;                               // Meta field 7: IndexField
+    int32 NeighborhoodMapID;
+    int32 Field_010;
+    int32 CornerstoneGameObjectID;
+    int32 PlotIndex;
+    int32 WorldState;
+    int32 PlotGameObjectID;
+    float TeleportFacing;                    // Facing angle at TeleportPosition (mirrors NeighborhoodMap.EntryRotation pattern)
+    int32 Field_016;
 };
 
 struct NumTalentsAtLevelEntry

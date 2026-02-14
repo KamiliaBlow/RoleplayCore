@@ -4235,6 +4235,7 @@ void GameObject::ValuesUpdateForPlayerWithMaskSender::operator()(Player const* p
 void GameObject::ClearValuesChangesMask()
 {
     m_values.ClearChangesMask(&GameObject::m_gameObjectData);
+    m_values.ClearChangesMask(&GameObject::m_housingCornerstoneData);
     WorldObject::ClearValuesChangesMask();
 }
 

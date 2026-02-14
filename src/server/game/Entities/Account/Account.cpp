@@ -28,9 +28,19 @@ Account::Account(WorldSession* session, ObjectGuid guid, std::string&& name) : m
     _Create(guid);
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingStorage_C, false, WowCS::GetRawFragmentData(m_housingStorageData));
+    m_entityFragments.Add(WowCS::EntityFragment::FHousingPlayerHouse_C, false, WowCS::GetRawFragmentData(m_housingPlayerHouseData));
+    m_entityFragments.Add(WowCS::EntityFragment::FNeighborhoodMirrorData_C, false, WowCS::GetRawFragmentData(m_neighborhoodMirrorData));
 
     // Default value
     SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::DecorMaxOwnedCount), 5000);
+}
+
+void Account::ClearUpdateMask(bool remove)
+{
+    m_values.ClearChangesMask(&Account::m_housingStorageData);
+    m_values.ClearChangesMask(&Account::m_housingPlayerHouseData);
+    m_values.ClearChangesMask(&Account::m_neighborhoodMirrorData);
+    BaseEntity::ClearUpdateMask(remove);
 }
 
 std::string Account::GetNameForLocaleIdx(LocaleConstant /*locale*/) const
@@ -76,5 +86,28 @@ void Account::RemoveFromObjectUpdate()
 {
     if (Player* owner = m_session->GetPlayer(); owner && owner->IsInWorld())
         owner->GetMap()->RemoveUpdateObject(this);
+}
+
+void Account::SetHousingPlotIndex(int32 plotIndex)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::PlotIndex), plotIndex);
+}
+
+void Account::SetHousingLevel(uint32 level)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::Level), level);
+}
+
+void Account::SetHousingFavor(uint64 favor)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::Favor), favor);
+}
+
+void Account::SetHousingBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint32 room, uint32 fixture)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::InteriorDecorPlacementBudget), interiorDecor);
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::ExteriorDecorPlacementBudget), exteriorDecor);
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::RoomPlacementBudget), room);
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::ExteriorFixtureBudget), fixture);
 }
 }

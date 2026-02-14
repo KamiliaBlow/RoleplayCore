@@ -456,6 +456,9 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         UF::UpdateField<UF::GameObjectData, int32(WowCS::EntityFragment::CGObject), TYPEID_GAMEOBJECT> m_gameObjectData;
 
+        // Housing entity fragment (optional - only set on cornerstone GameObjects)
+        UF::OptionalUpdateField<UF::HousingCornerstoneData, int32(WowCS::EntityFragment::FJamHousingCornerstone_C), 0> m_housingCornerstoneData;
+
         TeamId GetControllingTeam() const;
 
     protected:

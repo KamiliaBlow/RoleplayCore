@@ -56,6 +56,8 @@
 #include "GameTime.h"
 #include "GarrisonMgr.h"
 #include "GitRevision.h"
+#include "HousingMgr.h"
+#include "NeighborhoodMgr.h"
 #include "GridNotifiersImpl.h"
 #include "GroupMgr.h"
 #include "GuildMgr.h"
@@ -1921,6 +1923,12 @@ bool World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading garrison info...");
     sGarrisonMgr.Initialize();
+
+    TC_LOG_INFO("server.loading", "Loading housing info...");
+    sHousingMgr.Initialize();
+
+    TC_LOG_INFO("server.loading", "Loading neighborhood info...");
+    sNeighborhoodMgr.Initialize();
 
     ///- Handle outdated emails (delete/return)
     TC_LOG_INFO("server.loading", "Returning old mails...");
