@@ -146,12 +146,12 @@ namespace WorldPackets
         class SetCurrencyFlags final : public ClientPacket
         {
         public:
-            explicit SetCurrencyFlags(WorldPacket&& packet) : ClientPacket(CMSG_SET_CURRENCY_FLAGS, std::move(packet)) {}
+            explicit SetCurrencyFlags(WorldPacket&& packet) : ClientPacket(CMSG_SET_CURRENCY_FLAGS, std::move(packet)) { }
 
             void Read() override;
 
             uint32 CurrencyID = 0;
-            uint8 Flags = 0;
+            CurrencyDbFlags Flags = { };
         };
 
         class SetSelection final : public ClientPacket

@@ -552,6 +552,7 @@ namespace WorldPackets
         class OverrideScreenFlash;
         class ShowTradeSkill;
         class ActivateSoulbind;
+        class SetCurrencyFlags;
     }
 
     namespace Movement
@@ -1832,6 +1833,7 @@ class TC_GAME_API WorldSession
         void HandleConversationLineStarted(WorldPackets::Misc::ConversationLineStarted& conversationLineStarted);
         void HandleKeyboundOverride(WorldPackets::Spells::KeyboundOverride& keyboundOverride);
         void HandleQueryCountdownTimer(WorldPackets::Misc::QueryCountdownTimer& queryCountdownTimer);
+		void HandleSetCurrencyFlags(WorldPackets::Misc::SetCurrencyFlags const& setCurrenctFlags);
         void HandleOverrideScreenFlash(WorldPackets::Misc::OverrideScreenFlash& overrideScreenFlash);
 
         // Commentator
