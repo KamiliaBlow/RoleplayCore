@@ -1209,7 +1209,7 @@ void World::LoadConfigSettings(bool reload)
     _gameRules =
     {
         { .Rule = ::GameRule::TransmogEnabled, .Value = true },
-        { .Rule = ::GameRule::HousingEnabled, .Value = true }
+        { .Rule = ::GameRule::HousingEnabled, .Value = int32(EXPANSION_MIDNIGHT) }
     };
 
     if (reload)

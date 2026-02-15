@@ -41,7 +41,7 @@ public:
     void LoadFromDB();
 
     // Neighborhood lifecycle
-    Neighborhood* CreateNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, int32 factionRestriction);
+    Neighborhood* CreateNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, int32 factionRestriction, bool isPublic = false);
     Neighborhood* CreateGuildNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, uint32 factionID);
     void DeleteNeighborhood(ObjectGuid neighborhoodGuid);
     Neighborhood* GetNeighborhood(ObjectGuid neighborhoodGuid);
@@ -53,8 +53,14 @@ public:
     std::vector<Neighborhood*> GetNeighborhoodsForPlayer(ObjectGuid playerGuid) const;
     std::string GetNeighborhoodName(ObjectGuid neighborhoodGuid) const;
 
+    // Tutorial support
+    Neighborhood* FindOrCreateTutorialNeighborhood(ObjectGuid playerGuid, uint32 teamId);
+
     // Charter support
     ObjectGuid GenerateNeighborhoodGuid();
+
+    // Startup guarantee
+    void EnsurePublicNeighborhoods();
 
 private:
     NeighborhoodMgr() = default;

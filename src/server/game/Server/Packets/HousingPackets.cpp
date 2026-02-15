@@ -768,18 +768,12 @@ WorldPacket const* HousingSvcsDeleteAllNeighborhoodInvitesResponse::Write()
 
 WorldPacket const* HousingHouseStatusResponse::Write()
 {
-    _worldPacket << uint32(Result);
     _worldPacket << HouseGuid;
-    _worldPacket << uint32(Level);
-    _worldPacket << uint64(Favor);
-    _worldPacket << uint32(InteriorDecorBudgetUsed);
-    _worldPacket << uint32(InteriorDecorBudgetMax);
-    _worldPacket << uint32(ExteriorDecorBudgetUsed);
-    _worldPacket << uint32(ExteriorDecorBudgetMax);
-    _worldPacket << uint32(RoomBudgetUsed);
-    _worldPacket << uint32(RoomBudgetMax);
-    _worldPacket << uint32(FixtureBudgetUsed);
-    _worldPacket << uint32(FixtureBudgetMax);
+    _worldPacket << NeighborhoodGuid;
+    _worldPacket << OwnerGuid;
+    _worldPacket << PlotGuid;
+    _worldPacket << uint8(Status);
+    _worldPacket << uint8(Flags);
     return &_worldPacket;
 }
 

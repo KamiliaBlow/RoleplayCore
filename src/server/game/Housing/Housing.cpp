@@ -442,6 +442,7 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     TC_LOG_DEBUG("housing", "Housing::MoveDecor: Player {} moved decor {} to ({}, {}, {}) in house {}",
         _owner->GetName(), decorGuid.ToString(), x, y, z, _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -492,6 +493,7 @@ HousingResult Housing::CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
     TC_LOG_DEBUG("housing", "Housing::CommitDecorDyes: Player {} updated dyes on decor {} in house {}",
         _owner->GetName(), decorGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -509,6 +511,7 @@ HousingResult Housing::SetDecorLocked(ObjectGuid decorGuid, bool locked)
     TC_LOG_DEBUG("housing", "Housing::SetDecorLocked: Player {} {} decor {} in house {}",
         _owner->GetName(), locked ? "locked" : "unlocked", decorGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -677,6 +680,7 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     TC_LOG_DEBUG("housing", "Housing::RotateRoom: Player {} rotated room {} to orientation {} in house {}",
         _owner->GetName(), roomGuid.ToString(), room.Orientation, _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -719,6 +723,7 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
             _owner->GetName(), roomGuid.ToString(), newSlotIndex, _houseGuid.ToString());
     }
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -819,6 +824,7 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
     TC_LOG_DEBUG("housing", "Housing::ApplyRoomTheme: Player {} applied theme {} to room {} ({} components) in house {}",
         _owner->GetName(), themeSetId, roomGuid.ToString(), componentIds.size(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -848,6 +854,7 @@ HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperI
     TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Player {} applied wallpaper {} (material {}) to room {} ({} components) in house {}",
         _owner->GetName(), wallpaperId, materialId, roomGuid.ToString(), componentIds.size(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -866,6 +873,7 @@ HousingResult Housing::SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8
     TC_LOG_DEBUG("housing", "Housing::SetDoorType: Player {} set door type {} (slot {}) on room {} in house {}",
         _owner->GetName(), doorTypeId, doorSlot, roomGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -884,6 +892,7 @@ HousingResult Housing::SetCeilingType(ObjectGuid roomGuid, uint32 ceilingTypeId,
     TC_LOG_DEBUG("housing", "Housing::SetCeilingType: Player {} set ceiling type {} (slot {}) on room {} in house {}",
         _owner->GetName(), ceilingTypeId, ceilingSlot, roomGuid.ToString(), _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -922,6 +931,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
         _owner->GetName(), fixturePointId, optionId, _houseGuid.ToString(),
         _fixtureWeightUsed, GetMaxFixtureBudget());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -945,6 +955,7 @@ HousingResult Housing::RemoveFixture(uint32 fixturePointId)
         _owner->GetName(), fixturePointId, _houseGuid.ToString(),
         _fixtureWeightUsed, GetMaxFixtureBudget());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -969,6 +980,7 @@ HousingResult Housing::AddToCatalog(uint32 decorEntryId)
     TC_LOG_DEBUG("housing", "Housing::AddToCatalog: Player {} added decor entry {} to catalog (count: {}) in house {}",
         _owner->GetName(), decorEntryId, entry.Count, _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -988,6 +1000,7 @@ HousingResult Housing::RemoveFromCatalog(uint32 decorEntryId)
     TC_LOG_DEBUG("housing", "Housing::RemoveFromCatalog: Player {} removed one copy of decor entry {} from catalog in house {}",
         _owner->GetName(), decorEntryId, _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -1015,6 +1028,7 @@ HousingResult Housing::DestroyAllCopies(uint32 decorEntryId)
     TC_LOG_DEBUG("housing", "Housing::DestroyAllCopies: Player {} destroyed all copies ({}) of decor entry {} in house {}",
         _owner->GetName(), destroyedCount, decorEntryId, _houseGuid.ToString());
 
+    SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -1111,6 +1125,8 @@ void Housing::SyncUpdateFields()
         return;
 
     Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
+    account.SetHousingBnetAccount(_owner->GetSession()->GetBattlenetAccountGUID());
+    account.SetHousingEntityGUID(_houseGuid);
     account.SetHousingPlotIndex(static_cast<int32>(_plotIndex));
     account.SetHousingLevel(_level);
     account.SetHousingFavor(_favor64);
@@ -1125,6 +1141,14 @@ void Housing::SyncUpdateFields()
 void Housing::SaveSettings(uint32 settingsFlags)
 {
     _settingsFlags = settingsFlags;
+
+    // Immediate persist for crash safety
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_SETTINGS);
+    stmt->setUInt32(0, _settingsFlags);
+    stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    SyncUpdateFields();
 
     TC_LOG_DEBUG("housing", "Housing::SaveSettings: Player {} updated house settings to {} in house {}",
         _owner->GetName(), settingsFlags, _houseGuid.ToString());

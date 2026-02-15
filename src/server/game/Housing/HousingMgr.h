@@ -249,6 +249,7 @@ public:
     HouseThemeData const* GetHouseThemeData(uint32 id) const;
     HouseDecorThemeSetData const* GetHouseDecorThemeSetData(uint32 id) const;
     NeighborhoodMapData const* GetNeighborhoodMapData(uint32 id) const;
+    std::unordered_map<uint32, NeighborhoodMapData> const& GetAllNeighborhoodMapData() const { return _neighborhoodMapStore; }
     HouseDecorMaterialData const* GetHouseDecorMaterialData(uint32 id) const;
     HouseExteriorWmoData const* GetHouseExteriorWmoData(uint32 id) const;
     HouseLevelRewardInfoData const* GetHouseLevelRewardInfoData(uint32 id) const;
@@ -268,6 +269,11 @@ public:
 
     // Neighborhood plot lookups
     std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
+
+    // Check if a world MapID corresponds to a neighborhood map
+    bool IsNeighborhoodWorldMap(uint32 mapId) const;
+    // Get the NeighborhoodMapID for a world MapID (returns 0 if not a neighborhood)
+    uint32 GetNeighborhoodMapIdByWorldMap(uint32 mapId) const;
 
     // Name generation
     std::string GenerateNeighborhoodName(uint32 neighborhoodMapId) const;
@@ -342,6 +348,9 @@ private:
     std::unordered_map<uint32 /*categoryId*/, std::vector<DecorSubcategoryData const*>> _subcategoriesByCategory;
     std::unordered_map<uint32 /*subcategoryId*/, std::vector<uint32 /*houseDecorId*/>> _decorsBySubcategory;
     std::unordered_map<uint32 /*houseDecorId*/, std::vector<DecorDyeSlotData const*>> _dyeSlotsByDecor;
+
+    // Reverse lookup: world MapID -> NeighborhoodMap ID
+    std::unordered_map<int32 /*worldMapId*/, uint32 /*neighborhoodMapId*/> _worldMapToNeighborhoodMap;
 
     // Room doorway map: RoomWmoDataID -> list of doorway components
     std::unordered_map<uint32 /*roomWmoDataId*/, std::vector<RoomDoorInfo>> _roomDoorMap;

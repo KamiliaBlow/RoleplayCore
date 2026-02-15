@@ -1149,18 +1149,14 @@ namespace WorldPackets::Housing
     public:
         HousingHouseStatusResponse() : ServerPacket(SMSG_HOUSING_HOUSE_STATUS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
-        ObjectGuid HouseGuid;
-        uint32 Level = 0;
-        uint64 Favor = 0;
-        uint32 InteriorDecorBudgetUsed = 0;
-        uint32 InteriorDecorBudgetMax = 0;
-        uint32 ExteriorDecorBudgetUsed = 0;
-        uint32 ExteriorDecorBudgetMax = 0;
-        uint32 RoomBudgetUsed = 0;
-        uint32 RoomBudgetMax = 0;
-        uint32 FixtureBudgetUsed = 0;
-        uint32 FixtureBudgetMax = 0;
+
+        // Wire format: 4 sparse-encoded ObjectGuids + 2 uint8 bytes
+        ObjectGuid HouseGuid;           // GUID 1: house entity
+        ObjectGuid NeighborhoodGuid;    // GUID 2: neighborhood
+        ObjectGuid OwnerGuid;           // GUID 3: owner
+        ObjectGuid PlotGuid;            // GUID 4: plot
+        uint8 Status = 0;               // House status (0=none, 1=active)
+        uint8 Flags = 0;                // Bit flags (bits 5,6,7 significant)
     };
 
     class HousingGetCurrentHouseInfoResponse final : public ServerPacket

@@ -207,7 +207,15 @@ void HousingMgr::LoadNeighborhoodMapData()
         data.UiMapID = entry->FactionRestriction;
     }
 
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodMapData: Loaded {} NeighborhoodMap entries", uint32(_neighborhoodMapStore.size()));
+    // Build reverse lookup: world MapID -> NeighborhoodMap ID
+    for (auto const& [id, data] : _neighborhoodMapStore)
+    {
+        _worldMapToNeighborhoodMap[data.MapID] = id;
+        TC_LOG_DEBUG("housing", "  NeighborhoodMap ID={} MapID={} Origin=({}, {}, {}) Spacing={} MaxPlots={} Flags={}",
+            data.ID, data.MapID, data.Origin[0], data.Origin[1], data.Origin[2], data.PlotSpacing, data.MaxPlots, data.UiMapID);
+    }
+
+    TC_LOG_INFO("housing", "HousingMgr::LoadNeighborhoodMapData: Loaded {} NeighborhoodMap entries", uint32(_neighborhoodMapStore.size()));
 }
 
 void HousingMgr::LoadNeighborhoodPlotData()
@@ -320,6 +328,19 @@ NeighborhoodMapData const* HousingMgr::GetNeighborhoodMapData(uint32 id) const
         return &itr->second;
 
     return nullptr;
+}
+
+bool HousingMgr::IsNeighborhoodWorldMap(uint32 mapId) const
+{
+    return _worldMapToNeighborhoodMap.contains(static_cast<int32>(mapId));
+}
+
+uint32 HousingMgr::GetNeighborhoodMapIdByWorldMap(uint32 mapId) const
+{
+    auto itr = _worldMapToNeighborhoodMap.find(static_cast<int32>(mapId));
+    if (itr != _worldMapToNeighborhoodMap.end())
+        return itr->second;
+    return 0;
 }
 
 std::vector<NeighborhoodPlotData const*> HousingMgr::GetPlotsForMap(uint32 neighborhoodMapId) const

@@ -42,6 +42,18 @@ public:
     void SetHousingLevel(uint32 level);
     void SetHousingFavor(uint64 favor);
     void SetHousingBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint32 room, uint32 fixture);
+    void SetHousingBnetAccount(ObjectGuid bnetAccountGuid);
+    void SetHousingEntityGUID(ObjectGuid entityGuid);
+
+    // Housing storage data (decor catalog on Account entity)
+    void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType);
+    void RemoveHousingDecorStorageEntry(ObjectGuid decorGuid);
+
+    // Neighborhood mirror data
+    void SetNeighborhoodMirrorName(std::string const& name);
+    void SetNeighborhoodMirrorOwner(ObjectGuid ownerGuid);
+    void AddNeighborhoodMirrorHouse(ObjectGuid houseGuid, ObjectGuid ownerGuid);
+    void ClearNeighborhoodMirrorHouses();
 
     UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
     UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;

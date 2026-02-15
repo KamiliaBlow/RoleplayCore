@@ -81,11 +81,13 @@ public:
 
     // Plot management
     HousingResult PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex);
+    void UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
     HousingResult MoveHouse(ObjectGuid sourcePlotGuid, uint8 newPlotIndex);
     PlotInfo const* GetPlotInfo(uint8 plotIndex) const;
     std::vector<PlotInfo> const& GetPlots() const { return _plots; }
 
     // Members
+    HousingResult AddResident(ObjectGuid playerGuid);
     Member const* GetMember(ObjectGuid playerGuid) const;
     std::vector<Member> const& GetMembers() const { return _members; }
     bool IsMember(ObjectGuid playerGuid) const;

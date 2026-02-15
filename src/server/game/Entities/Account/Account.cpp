@@ -110,4 +110,49 @@ void Account::SetHousingBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint
     SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::RoomPlacementBudget), room);
     SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::ExteriorFixtureBudget), fixture);
 }
+
+void Account::SetHousingBnetAccount(ObjectGuid bnetAccountGuid)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::BnetAccount), bnetAccountGuid);
+}
+
+void Account::SetHousingEntityGUID(ObjectGuid entityGuid)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::EntityGUID), entityGuid);
+}
+
+void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType)
+{
+    auto ref = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor, decorGuid);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
+}
+
+void Account::RemoveHousingDecorStorageEntry(ObjectGuid decorGuid)
+{
+    auto setter = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor);
+    RemoveMapUpdateFieldValue(setter, decorGuid);
+}
+
+void Account::SetNeighborhoodMirrorName(std::string const& name)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Name), name);
+}
+
+void Account::SetNeighborhoodMirrorOwner(ObjectGuid ownerGuid)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::OwnerGUID), ownerGuid);
+}
+
+void Account::AddNeighborhoodMirrorHouse(ObjectGuid houseGuid, ObjectGuid ownerGuid)
+{
+    UF::PlayerHouseInfo& houseInfo = AddDynamicUpdateFieldValue(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Houses));
+    houseInfo.HouseGUID = houseGuid;
+    houseInfo.OwnerGUID = ownerGuid;
+}
+
+void Account::ClearNeighborhoodMirrorHouses()
+{
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Houses));
+}
 }
