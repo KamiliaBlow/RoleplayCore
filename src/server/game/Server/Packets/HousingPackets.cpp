@@ -24,6 +24,18 @@
 namespace WorldPackets::Housing
 {
 
+// --- House Exterior System ---
+
+void HouseExteriorCommitPosition::Read()
+{
+    _worldPacket >> HouseGuid;
+    _worldPacket >> PlotGuid;
+    _worldPacket >> PositionX;
+    _worldPacket >> PositionY;
+    _worldPacket >> PositionZ;
+    _worldPacket >> Facing;
+}
+
 // --- Decor System ---
 
 void HousingDecorSetEditMode::Read()
@@ -33,57 +45,70 @@ void HousingDecorSetEditMode::Read()
 
 void HousingDecorPlace::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> DecorEntryID;
-    _worldPacket >> Pos;
+    _worldPacket >> DecorGuid;
+    _worldPacket >> PositionX;
+    _worldPacket >> PositionY;
+    _worldPacket >> PositionZ;
     _worldPacket >> RotationX;
     _worldPacket >> RotationY;
     _worldPacket >> RotationZ;
     _worldPacket >> RotationW;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> FixtureGuid;
+    _worldPacket >> AttachParentGuid;
+    _worldPacket >> DecorRecID;
 }
 
 void HousingDecorMove::Read()
 {
-    _worldPacket >> HouseGuid;
     _worldPacket >> DecorGuid;
-    _worldPacket >> Pos;
+    _worldPacket >> PositionX;
+    _worldPacket >> PositionY;
+    _worldPacket >> PositionZ;
     _worldPacket >> RotationX;
     _worldPacket >> RotationY;
     _worldPacket >> RotationZ;
     _worldPacket >> RotationW;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> FixtureGuid;
+    _worldPacket >> AttachParentGuid;
+    _worldPacket >> DecorRecID;
+    _worldPacket >> Flags;
+    _worldPacket >> Field_86;
+    _worldPacket >> Bits<1>(AttachToParent);
 }
 
 void HousingDecorRemove::Read()
 {
-    _worldPacket >> HouseGuid;
     _worldPacket >> DecorGuid;
 }
 
 void HousingDecorLock::Read()
 {
-    _worldPacket >> HouseGuid;
     _worldPacket >> DecorGuid;
+    _worldPacket >> Bits<1>(Locked);
+    _worldPacket >> Bits<1>(AnchorLocked);
 }
 
 void HousingDecorSetDyeSlots::Read()
 {
-    _worldPacket >> HouseGuid;
     _worldPacket >> DecorGuid;
-    _worldPacket >> Size<uint32>(DyeSlots);
-    for (uint32& dyeSlot : DyeSlots)
-        _worldPacket >> dyeSlot;
+    for (int32& dyeColor : DyeColorID)
+        _worldPacket >> dyeColor;
 }
 
 void HousingDecorDeleteFromStorage::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> CatalogEntryID;
+    uint32 count = 0;
+    _worldPacket >> Bits<32>(count);
+    DecorGuids.resize(count);
+    for (ObjectGuid& guid : DecorGuids)
+        _worldPacket >> guid;
 }
 
 void HousingDecorDeleteFromStorageById::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> CatalogEntryID;
+    _worldPacket >> DecorRecID;
 }
 
 void HousingDecorRequestStorage::Read()
@@ -93,8 +118,8 @@ void HousingDecorRequestStorage::Read()
 
 void HousingDecorRedeemDeferredDecor::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> CatalogEntryID;
+    _worldPacket >> DeferredDecorID;
+    _worldPacket >> RedemptionToken;
 }
 
 // --- Fixture System ---
@@ -106,22 +131,43 @@ void HousingFixtureSetEditMode::Read()
 
 void HousingFixtureSetCoreFixture::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> FixturePointID;
-    _worldPacket >> OptionID;
+    _worldPacket >> FixtureGuid;
+    _worldPacket >> ExteriorComponentID;
 }
 
 void HousingFixtureCreateFixture::Read()
 {
-    _worldPacket >> HouseGuid;
-    _worldPacket >> FixturePointID;
-    _worldPacket >> OptionID;
+    _worldPacket >> AttachParentGuid;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> ExteriorComponentType;
+    _worldPacket >> ExteriorComponentHookID;
 }
 
 void HousingFixtureDeleteFixture::Read()
 {
+    _worldPacket >> FixtureGuid;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> ExteriorComponentID;
+}
+
+void HousingFixtureSetHouseSize::Read()
+{
     _worldPacket >> HouseGuid;
-    _worldPacket >> FixturePointID;
+    _worldPacket >> Size;
+}
+
+void HousingFixtureSetHouseType::Read()
+{
+    _worldPacket >> HouseGuid;
+    _worldPacket >> HouseExteriorWmoDataID;
+}
+
+void HouseExteriorLock::Read()
+{
+    _worldPacket >> HouseGuid;
+    _worldPacket >> PlotGuid;
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> Bits<1>(Locked);
 }
 
 // --- Room System ---
@@ -134,10 +180,10 @@ void HousingRoomSetLayoutEditMode::Read()
 void HousingRoomAdd::Read()
 {
     _worldPacket >> HouseGuid;
-    _worldPacket >> RoomID;
-    _worldPacket >> SlotIndex;
-    _worldPacket >> Orientation;
-    _worldPacket >> Bits<1>(Mirrored);
+    _worldPacket >> HouseRoomID;
+    _worldPacket >> Flags;
+    _worldPacket >> FloorIndex;
+    _worldPacket >> Bits<1>(AutoFurnish);
 }
 
 void HousingRoomRemove::Read()
@@ -154,60 +200,60 @@ void HousingRoomRotate::Read()
 void HousingRoomMoveRoom::Read()
 {
     _worldPacket >> RoomGuid;
-    _worldPacket >> NewSlotIndex;
-    _worldPacket >> SwapRoomGuid;
-    _worldPacket >> SwapSlotIndex;
+    _worldPacket >> TargetSlotIndex;
+    _worldPacket >> TargetGuid;
+    _worldPacket >> FloorIndex;
 }
 
 void HousingRoomSetComponentTheme::Read()
 {
     _worldPacket >> RoomGuid;
-    _worldPacket >> ThemeSetID;
-    _worldPacket >> Size<uint32>(ComponentIDs);
-    for (uint32& componentID : ComponentIDs)
+    _worldPacket >> Size<uint32>(RoomComponentIDs);
+    _worldPacket >> HouseThemeID;
+    for (uint32& componentID : RoomComponentIDs)
         _worldPacket >> componentID;
 }
 
 void HousingRoomApplyComponentMaterials::Read()
 {
     _worldPacket >> RoomGuid;
-    _worldPacket >> WallpaperID;
-    _worldPacket >> MaterialID;
-    _worldPacket >> Size<uint32>(ComponentIDs);
-    for (uint32& componentID : ComponentIDs)
+    _worldPacket >> Size<uint32>(RoomComponentIDs);
+    _worldPacket >> RoomComponentTextureID;
+    _worldPacket >> RoomComponentTypeParam;
+    for (uint32& componentID : RoomComponentIDs)
         _worldPacket >> componentID;
 }
 
 void HousingRoomSetDoorType::Read()
 {
     _worldPacket >> RoomGuid;
-    _worldPacket >> DoorTypeID;
-    _worldPacket >> DoorSlot;
+    _worldPacket >> RoomComponentID;
+    _worldPacket >> RoomComponentType;
 }
 
 void HousingRoomSetCeilingType::Read()
 {
     _worldPacket >> RoomGuid;
-    _worldPacket >> CeilingTypeID;
-    _worldPacket >> CeilingSlot;
+    _worldPacket >> RoomComponentID;
+    _worldPacket >> RoomComponentType;
 }
 
 // --- Housing Services System ---
 
 void HousingSvcsGuildCreateNeighborhood::Read()
 {
-    _worldPacket >> NeighborhoodMapID;
-    _worldPacket >> FactionID;
-    _worldPacket >> SizedString::BitsSize<7>(Name);
+    _worldPacket >> NeighborhoodTypeID;
+    _worldPacket >> Flags;
+    _worldPacket >> SizedString::BitsSize<7>(NeighborhoodName);
 
-    _worldPacket >> SizedString::Data(Name);
+    _worldPacket >> SizedString::Data(NeighborhoodName);
 }
 
 void HousingSvcsNeighborhoodReservePlot::Read()
 {
     _worldPacket >> NeighborhoodGuid;
     _worldPacket >> PlotIndex;
-    _worldPacket >> Bits<1>(HasPreference);
+    _worldPacket >> Bits<1>(Reserve);
 }
 
 void HousingSvcsRelinquishHouse::Read()
@@ -218,14 +264,14 @@ void HousingSvcsRelinquishHouse::Read()
 void HousingSvcsUpdateHouseSettings::Read()
 {
     _worldPacket >> HouseGuid;
-    _worldPacket >> OptionalInit(SettingID);
-    _worldPacket >> OptionalInit(TargetGuid);
+    _worldPacket >> OptionalInit(PlotSettingsID);
+    _worldPacket >> OptionalInit(VisitorPermissionGuid);
 
-    if (SettingID)
-        _worldPacket >> *SettingID;
+    if (PlotSettingsID)
+        _worldPacket >> *PlotSettingsID;
 
-    if (TargetGuid)
-        _worldPacket >> *TargetGuid;
+    if (VisitorPermissionGuid)
+        _worldPacket >> *VisitorPermissionGuid;
 }
 
 void HousingSvcsPlayerViewHousesByPlayer::Read()
@@ -241,9 +287,9 @@ void HousingSvcsPlayerViewHousesByBnetAccount::Read()
 void HousingSvcsTeleportToPlot::Read()
 {
     _worldPacket >> NeighborhoodGuid;
-    _worldPacket >> PlotGuid;
+    _worldPacket >> OwnerGuid;
     _worldPacket >> PlotIndex;
-    _worldPacket >> Flags;
+    _worldPacket >> TeleportType;
 }
 
 void HousingSvcsAcceptNeighborhoodOwnership::Read()
@@ -267,20 +313,19 @@ void HousingSvcsGetBnetFriendNeighborhoods::Read()
 }
 
 // --- Housing Misc ---
-
-void HousingGetCurrentHouseInfo::Read()
-{
-    _worldPacket >> HouseGuid;
-}
-
-void HousingHouseStatus::Read()
-{
-    _worldPacket >> HouseGuid;
-}
+// HousingGetCurrentHouseInfo::Read() and HousingHouseStatus::Read() are empty (inline in header)
 
 void HousingGetPlayerPermissions::Read()
 {
-    _worldPacket >> HouseGuid;
+    _worldPacket >> OptionalInit(PlayerGuid);
+
+    if (PlayerGuid)
+        _worldPacket >> *PlayerGuid;
+}
+
+void HousingSvcsGetPotentialHouseOwners::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
 }
 
 // --- Other Housing CMSG ---

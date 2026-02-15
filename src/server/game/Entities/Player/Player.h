@@ -2890,6 +2890,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex);
         void DeleteHousing();
         Housing* GetHousing() const { return _housing.get(); }
+        void SetHousingEditorModeUpdateField(uint8 mode);
 
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
         void SetAdvancedCombatLogging(bool enabled) { _advancedCombatLoggingEnabled = enabled; }

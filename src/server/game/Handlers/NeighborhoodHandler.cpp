@@ -16,7 +16,10 @@
  */
 
 #include "WorldSession.h"
+#include "Account.h"
 #include "DatabaseEnv.h"
+#include "Guild.h"
+#include "GuildMgr.h"
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingPackets.h"
@@ -384,14 +387,34 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
 
     neighborhood->SetName(neighborhoodUpdateName.NewName);
 
-    // Notify clients to invalidate cached name
-    WorldPackets::Housing::InvalidateNeighborhoodName invalidate;
-    invalidate.NeighborhoodGuid = neighborhoodUpdateName.NeighborhoodGuid;
-    player->SendDirectMessage(invalidate.Write());
+    // Broadcast name invalidation and update notification to ALL neighborhood members
+    for (auto const& member : neighborhood->GetMembers())
+    {
+        if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+        {
+            WorldPackets::Housing::InvalidateNeighborhoodName invalidate;
+            invalidate.NeighborhoodGuid = neighborhoodUpdateName.NeighborhoodGuid;
+            memberPlayer->SendDirectMessage(invalidate.Write());
+
+            WorldPackets::Neighborhood::NeighborhoodUpdateNameNotification nameNotification;
+            nameNotification.NeighborhoodGuid = neighborhoodUpdateName.NeighborhoodGuid;
+            nameNotification.NewName = neighborhoodUpdateName.NewName;
+            memberPlayer->SendDirectMessage(nameNotification.Write());
+        }
+    }
 
     WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
+
+    // Send guild rename notification if player is in a guild
+    if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+    {
+        WorldPackets::Housing::HousingSvcsGuildRenameNeighborhoodNotification guildNotification;
+        guildNotification.NeighborhoodGuid = neighborhoodUpdateName.NeighborhoodGuid;
+        guildNotification.NewName = neighborhoodUpdateName.NewName;
+        guild->BroadcastPacket(guildNotification.Write());
+    }
 
     TC_LOG_DEBUG("housing", "Neighborhood {} renamed to '{}' by player {}",
         neighborhoodUpdateName.NeighborhoodGuid.ToString(), neighborhoodUpdateName.NewName,
@@ -482,6 +505,38 @@ void WorldSession::HandleNeighborhoodAddSecondaryOwner(WorldPackets::Neighborhoo
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
+    // Broadcast roster update and refresh manager mirror data for all online members
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            {
+                if (member.PlayerGuid != player->GetGUID())
+                {
+                    WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+                    rosterUpdate.PlayerGuid = neighborhoodAddSecondaryOwner.PlayerGuid;
+                    rosterUpdate.NeighborhoodGuid = neighborhoodAddSecondaryOwner.NeighborhoodGuid;
+                    memberPlayer->SendDirectMessage(rosterUpdate.Write());
+                }
+
+                // Refresh manager mirror data on each online member's Account entity
+                Battlenet::Account& memberAccount = memberPlayer->GetSession()->GetBattlenetAccount();
+                memberAccount.ClearNeighborhoodMirrorManagers();
+                for (auto const& m : neighborhood->GetMembers())
+                {
+                    if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
+                    {
+                        ObjectGuid bnetGuid;
+                        if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
+                            bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+                        memberAccount.AddNeighborhoodMirrorManager(bnetGuid, m.PlayerGuid);
+                    }
+                }
+            }
+        }
+    }
+
     TC_LOG_DEBUG("housing", "AddManager result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodAddSecondaryOwner.PlayerGuid.ToString(),
         neighborhoodAddSecondaryOwner.NeighborhoodGuid.ToString());
@@ -526,6 +581,38 @@ void WorldSession::HandleNeighborhoodRemoveSecondaryOwner(WorldPackets::Neighbor
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
+    // Broadcast roster update and refresh manager mirror data for all online members
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            {
+                if (member.PlayerGuid != player->GetGUID())
+                {
+                    WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+                    rosterUpdate.PlayerGuid = neighborhoodRemoveSecondaryOwner.PlayerGuid;
+                    rosterUpdate.NeighborhoodGuid = neighborhoodRemoveSecondaryOwner.NeighborhoodGuid;
+                    memberPlayer->SendDirectMessage(rosterUpdate.Write());
+                }
+
+                // Refresh manager mirror data on each online member's Account entity
+                Battlenet::Account& memberAccount = memberPlayer->GetSession()->GetBattlenetAccount();
+                memberAccount.ClearNeighborhoodMirrorManagers();
+                for (auto const& m : neighborhood->GetMembers())
+                {
+                    if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
+                    {
+                        ObjectGuid bnetGuid;
+                        if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
+                            bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+                        memberAccount.AddNeighborhoodMirrorManager(bnetGuid, m.PlayerGuid);
+                    }
+                }
+            }
+        }
+    }
+
     TC_LOG_DEBUG("housing", "RemoveManager result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodRemoveSecondaryOwner.PlayerGuid.ToString(),
         neighborhoodRemoveSecondaryOwner.NeighborhoodGuid.ToString());
@@ -569,6 +656,19 @@ void WorldSession::HandleNeighborhoodInviteResident(WorldPackets::Neighborhood::
     WorldPackets::Neighborhood::NeighborhoodInviteResidentResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
+
+    // Notify the invitee that they received a neighborhood invite
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (Player* invitee = ObjectAccessor::FindPlayer(neighborhoodInviteResident.PlayerGuid))
+        {
+            WorldPackets::Neighborhood::NeighborhoodInviteNotification notification;
+            notification.NeighborhoodGuid = neighborhoodInviteResident.NeighborhoodGuid;
+            notification.InviterGuid = player->GetGUID();
+            notification.NeighborhoodName = neighborhood->GetName();
+            invitee->SendDirectMessage(notification.Write());
+        }
+    }
 
     TC_LOG_DEBUG("housing", "InviteResident result: {} for player {} in neighborhood {}",
         uint32(result), neighborhoodInviteResident.PlayerGuid.ToString(),
@@ -801,6 +901,31 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
         SendPacket(response.Write());
 
+        // Broadcast roster update to other neighborhood members
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (member.PlayerGuid == player->GetGUID())
+                continue;
+            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            {
+                WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+                rosterUpdate.PlayerGuid = player->GetGUID();
+                rosterUpdate.NeighborhoodGuid = neighborhoodBuyHouse.NeighborhoodGuid;
+                memberPlayer->SendDirectMessage(rosterUpdate.Write());
+            }
+        }
+
+        // Send guild notification for house addition
+        if (Housing const* housing = player->GetHousing())
+        {
+            if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+            {
+                WorldPackets::Housing::HousingSvcsGuildAddHouseNotification notification;
+                notification.HouseGuid = housing->GetHouseGuid();
+                guild->BroadcastPacket(notification.Write());
+            }
+        }
+
         TC_LOG_DEBUG("housing", "Player {} purchased plot {} in neighborhood {}",
             player->GetGUID().ToString(), neighborhoodBuyHouse.PlotIndex,
             neighborhoodBuyHouse.NeighborhoodGuid.ToString());
@@ -918,6 +1043,32 @@ void WorldSession::HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
+    // Notify the new owner and broadcast to all members
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (Player* newOwner = ObjectAccessor::FindPlayer(neighborhoodOfferOwnership.NewOwnerGuid))
+        {
+            WorldPackets::Housing::HousingSvcsNeighborhoodOwnershipTransferredResponse transferNotification;
+            transferNotification.NeighborhoodGuid = neighborhoodOfferOwnership.NeighborhoodGuid;
+            transferNotification.NewOwnerGuid = neighborhoodOfferOwnership.NewOwnerGuid;
+            newOwner->SendDirectMessage(transferNotification.Write());
+        }
+
+        // Broadcast roster update to all members (role changes)
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (member.PlayerGuid == player->GetGUID())
+                continue;
+            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            {
+                WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+                rosterUpdate.PlayerGuid = neighborhoodOfferOwnership.NewOwnerGuid;
+                rosterUpdate.NeighborhoodGuid = neighborhoodOfferOwnership.NeighborhoodGuid;
+                memberPlayer->SendDirectMessage(rosterUpdate.Write());
+            }
+        }
+    }
+
     TC_LOG_DEBUG("housing", "TransferOwnership result: {} to player {} for neighborhood {}",
         uint32(result), neighborhoodOfferOwnership.NewOwnerGuid.ToString(),
         neighborhoodOfferOwnership.NeighborhoodGuid.ToString());
@@ -1009,11 +1160,51 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
         return;
     }
 
+    // Capture the evicted player's GUID before eviction clears the plot
+    ObjectGuid evictedPlayerGuid;
+    for (auto const& plot : neighborhood->GetPlots())
+    {
+        if (plot.OwnerGuid == neighborhoodEvictPlot.PlotGuid)
+        {
+            evictedPlayerGuid = plot.OwnerGuid;
+            break;
+        }
+    }
+
     HousingResult result = neighborhood->EvictPlayer(neighborhoodEvictPlot.PlotGuid);
 
     WorldPackets::Neighborhood::NeighborhoodEvictPlotResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
+
+    // Send eviction notice to the evicted player and broadcast roster update
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (!evictedPlayerGuid.IsEmpty())
+        {
+            if (Player* evictedPlayer = ObjectAccessor::FindPlayer(evictedPlayerGuid))
+            {
+                WorldPackets::Neighborhood::NeighborhoodEvictPlotNotice notice;
+                notice.NeighborhoodGuid = neighborhoodEvictPlot.NeighborhoodGuid;
+                notice.PlotGuid = neighborhoodEvictPlot.PlotGuid;
+                evictedPlayer->SendDirectMessage(notice.Write());
+            }
+        }
+
+        // Broadcast roster update to remaining members
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (member.PlayerGuid == player->GetGUID())
+                continue;
+            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            {
+                WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+                rosterUpdate.PlayerGuid = evictedPlayerGuid;
+                rosterUpdate.NeighborhoodGuid = neighborhoodEvictPlot.NeighborhoodGuid;
+                memberPlayer->SendDirectMessage(rosterUpdate.Write());
+            }
+        }
+    }
 
     TC_LOG_DEBUG("housing", "EvictPlayer result: {} for plot {} in neighborhood {}",
         uint32(result), neighborhoodEvictPlot.PlotGuid.ToString(),

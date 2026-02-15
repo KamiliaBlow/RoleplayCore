@@ -54,6 +54,8 @@ public:
     void SetNeighborhoodMirrorOwner(ObjectGuid ownerGuid);
     void AddNeighborhoodMirrorHouse(ObjectGuid houseGuid, ObjectGuid ownerGuid);
     void ClearNeighborhoodMirrorHouses();
+    void AddNeighborhoodMirrorManager(ObjectGuid bnetAccountGuid, ObjectGuid playerGuid);
+    void ClearNeighborhoodMirrorManagers();
 
     UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
     UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;

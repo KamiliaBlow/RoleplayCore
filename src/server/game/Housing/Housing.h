@@ -98,7 +98,7 @@ public:
     uint32 GetSettingsFlags() const { return _settingsFlags; }
 
     // Editor mode
-    void SetEditorMode(HousingEditorMode mode) { _editorMode = mode; }
+    void SetEditorMode(HousingEditorMode mode);
     HousingEditorMode GetEditorMode() const { return _editorMode; }
 
     // Decor operations
@@ -167,6 +167,10 @@ private:
     // Room connectivity helpers
     ObjectGuid FindBaseRoomGuid() const;
     bool IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const;
+
+    // Immediate DB persistence helpers
+    void PersistRoomToDB(ObjectGuid roomGuid, Room const& room);
+    void PersistFixtureToDB(uint32 fixturePointId, uint32 optionId);
 
     Player* _owner;
     ObjectGuid _houseGuid;

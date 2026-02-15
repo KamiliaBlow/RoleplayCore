@@ -562,7 +562,7 @@ void OpcodeTable::InitializeClientOpcodes()
     DEFINE_HANDLER(CMSG_HEARTH_AND_RESURRECT,                               STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHearthAndResurrect);
     DEFINE_HANDLER(CMSG_HIDE_QUEST_CHOICE,                                  STATUS_UNHANDLED, PROCESS_INPLACE,      &WorldSession::Handle_NULL);
     DEFINE_HANDLER(CMSG_HOTFIX_REQUEST,                                     STATUS_AUTHED,    PROCESS_THREADUNSAFE, &WorldSession::HandleHotfixRequest);
-    DEFINE_HANDLER(CMSG_HOUSE_EXTERIOR_LOCK,                                STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
+    DEFINE_HANDLER(CMSG_HOUSE_EXTERIOR_LOCK,                                STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHouseExteriorLock);
     DEFINE_HANDLER(CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION,                  STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHouseExteriorSetHousePosition);
     DEFINE_HANDLER(CMSG_HOUSE_INTERIOR_LEAVE_HOUSE,                         STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHouseInteriorLeaveHouse);
     DEFINE_HANDLER(CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE,                  STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingDecorDeleteFromStorage);
@@ -579,8 +579,8 @@ void OpcodeTable::InitializeClientOpcodes()
     DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_DELETE_FIXTURE,                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingFixtureDeleteFixture);
     DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE,                   STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingFixtureSetCoreFixture);
     DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_EDIT_MODE,                      STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingFixtureSetEditMode);
-    DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE,                     STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
-    DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE,                     STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
+    DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE,                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingFixtureSetHouseSize);
+    DEFINE_HANDLER(CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE,                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingFixtureSetHouseType);
     DEFINE_HANDLER(CMSG_HOUSING_GET_CURRENT_HOUSE_INFO,                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingGetCurrentHouseInfo);
     DEFINE_HANDLER(CMSG_HOUSING_GET_PLAYER_PERMISSIONS,                     STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingGetPlayerPermissions);
     DEFINE_HANDLER(CMSG_HOUSING_HOUSE_STATUS,                               STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleHousingHouseStatus);

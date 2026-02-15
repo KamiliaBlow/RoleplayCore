@@ -824,6 +824,12 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_CATALOG, "INSERT INTO character_housing_catalog (ownerGuid, houseDecorId, quantity) VALUES (?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_CATALOG, "DELETE FROM character_housing_catalog WHERE ownerGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_SETTINGS, "UPDATE character_housing SET settingsFlags = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_POSITION, "UPDATE character_housing_decor SET posX = ?, posY = ?, posZ = ?, rotX = ?, rotY = ?, rotZ = ?, rotW = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_DYES, "UPDATE character_housing_decor SET dyeSlot0 = ?, dyeSlot1 = ?, dyeSlot2 = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_LOCKED, "UPDATE character_housing_decor SET locked = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_ROOM, "UPDATE character_housing_rooms SET slotIndex = ?, orientation = ?, mirrored = ?, themeId = ?, wallpaperId = ?, materialId = ?, doorTypeId = ?, doorSlot = ?, ceilingTypeId = ?, ceilingSlot = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_FIXTURE, "UPDATE character_housing_fixtures SET fixtureOptionId = ? WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE, "DELETE FROM character_housing_fixtures WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);
 
     // Neighborhoods
     PrepareStatement(CHAR_SEL_NEIGHBORHOOD, "SELECT guid, name, neighborhoodMapId, ownerGuid, factionRestriction, isPublic, createTime FROM neighborhoods WHERE guid = ?", CONNECTION_SYNCH);

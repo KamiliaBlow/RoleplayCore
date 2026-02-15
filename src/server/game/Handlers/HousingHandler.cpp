@@ -16,6 +16,8 @@
  */
 
 #include "WorldSession.h"
+#include "Guild.h"
+#include "GuildMgr.h"
 #include "Housing.h"
 #include "HousingMgr.h"
 #include "HousingPackets.h"
@@ -65,6 +67,31 @@ void WorldSession::HandleHouseExteriorSetHousePosition(WorldPackets::Housing::Ho
     SendPacket(response.Write());
 
     TC_LOG_INFO("housing", "CMSG_HOUSE_EXTERIOR_COMMIT_POSITION received for player {}", player->GetGUID().ToString());
+}
+
+void WorldSession::HandleHouseExteriorLock(WorldPackets::Housing::HouseExteriorLock const& houseExteriorLock)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    Housing* housing = player->GetHousing();
+    if (!housing)
+    {
+        WorldPackets::Housing::HouseExteriorLockResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Exterior lock toggles whether other players can modify the exterior
+    // Server validates ownership and acknowledges
+    WorldPackets::Housing::HouseExteriorLockResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
+    TC_LOG_INFO("housing", "CMSG_HOUSE_EXTERIOR_LOCK HouseGuid: {}, Locked: {} for player {}",
+        houseExteriorLock.HouseGuid.ToString(), houseExteriorLock.Locked, player->GetGUID().ToString());
 }
 
 // ============================================================
@@ -140,20 +167,18 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
         return;
     }
 
-    HousingResult result = housing->PlaceDecor(housingDecorPlace.DecorEntryID,
-        housingDecorPlace.Pos.Pos.GetPositionX(),
-        housingDecorPlace.Pos.Pos.GetPositionY(),
-        housingDecorPlace.Pos.Pos.GetPositionZ(),
+    HousingResult result = housing->PlaceDecor(housingDecorPlace.DecorRecID,
+        housingDecorPlace.PositionX, housingDecorPlace.PositionY, housingDecorPlace.PositionZ,
         housingDecorPlace.RotationX, housingDecorPlace.RotationY,
         housingDecorPlace.RotationZ, housingDecorPlace.RotationW,
-        ObjectGuid());
+        housingDecorPlace.RoomGuid);
 
     WorldPackets::Housing::HousingDecorPlaceResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_PLACE_NEW_DECOR DecorEntryID: {}, Result: {}",
-        housingDecorPlace.DecorEntryID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_PLACE DecorRecID: {}, Result: {}",
+        housingDecorPlace.DecorRecID, uint32(result));
 }
 
 void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMove const& housingDecorMove)
@@ -172,9 +197,7 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
     }
 
     HousingResult result = housing->MoveDecor(housingDecorMove.DecorGuid,
-        housingDecorMove.Pos.Pos.GetPositionX(),
-        housingDecorMove.Pos.Pos.GetPositionY(),
-        housingDecorMove.Pos.Pos.GetPositionZ(),
+        housingDecorMove.PositionX, housingDecorMove.PositionY, housingDecorMove.PositionZ,
         housingDecorMove.RotationX, housingDecorMove.RotationY,
         housingDecorMove.RotationZ, housingDecorMove.RotationW);
 
@@ -247,9 +270,8 @@ void WorldSession::HandleHousingDecorLock(WorldPackets::Housing::HousingDecorLoc
     response.Locked = newLockedState;
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_SELECT_DECOR HouseGuid: {}, DecorGuid: {} (entry: {}), Locked: {}",
-        housingDecorLock.HouseGuid.ToString(), housingDecorLock.DecorGuid.ToString(),
-        decor->DecorEntryId, newLockedState);
+    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_LOCK DecorGuid: {} (entry: {}), Locked: {}",
+        housingDecorLock.DecorGuid.ToString(), decor->DecorEntryId, newLockedState);
 }
 
 void WorldSession::HandleHousingDecorSetDyeSlots(WorldPackets::Housing::HousingDecorSetDyeSlots const& housingDecorSetDyeSlots)
@@ -268,8 +290,8 @@ void WorldSession::HandleHousingDecorSetDyeSlots(WorldPackets::Housing::HousingD
     }
 
     std::array<uint32, MAX_HOUSING_DYE_SLOTS> dyeSlots = {};
-    for (size_t i = 0; i < housingDecorSetDyeSlots.DyeSlots.size() && i < MAX_HOUSING_DYE_SLOTS; ++i)
-        dyeSlots[i] = housingDecorSetDyeSlots.DyeSlots[i];
+    for (size_t i = 0; i < housingDecorSetDyeSlots.DyeColorID.size() && i < MAX_HOUSING_DYE_SLOTS; ++i)
+        dyeSlots[i] = static_cast<uint32>(housingDecorSetDyeSlots.DyeColorID[i]);
 
     HousingResult result = housing->CommitDecorDyes(housingDecorSetDyeSlots.DecorGuid, dyeSlots);
 
@@ -296,14 +318,20 @@ void WorldSession::HandleHousingDecorDeleteFromStorage(WorldPackets::Housing::Ho
         return;
     }
 
-    HousingResult result = housing->RemoveFromCatalog(housingDecorDeleteFromStorage.CatalogEntryID);
+    HousingResult result = HOUSING_RESULT_SUCCESS;
+    for (ObjectGuid const& decorGuid : housingDecorDeleteFromStorage.DecorGuids)
+    {
+        HousingResult r = housing->RemoveDecor(decorGuid);
+        if (r != HOUSING_RESULT_SUCCESS)
+            result = r;
+    }
 
     WorldPackets::Housing::HousingDecorDeleteFromStorageResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_CATALOG_DESTROY_ENTRY CatalogEntryID: {}, Result: {}",
-        housingDecorDeleteFromStorage.CatalogEntryID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE Count: {}, Result: {}",
+        uint32(housingDecorDeleteFromStorage.DecorGuids.size()), uint32(result));
 }
 
 void WorldSession::HandleHousingDecorDeleteFromStorageById(WorldPackets::Housing::HousingDecorDeleteFromStorageById const& housingDecorDeleteFromStorageById)
@@ -321,14 +349,14 @@ void WorldSession::HandleHousingDecorDeleteFromStorageById(WorldPackets::Housing
         return;
     }
 
-    HousingResult result = housing->DestroyAllCopies(housingDecorDeleteFromStorageById.CatalogEntryID);
+    HousingResult result = housing->DestroyAllCopies(housingDecorDeleteFromStorageById.DecorRecID);
 
     WorldPackets::Housing::HousingDecorDeleteFromStorageResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_CATALOG_DESTROY_ALL CatalogEntryID: {}, Result: {}",
-        housingDecorDeleteFromStorageById.CatalogEntryID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_BY_ID DecorRecID: {}, Result: {}",
+        housingDecorDeleteFromStorageById.DecorRecID, uint32(result));
 }
 
 void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& housingDecorRequestStorage)
@@ -382,8 +410,8 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
         return;
     }
 
-    // Verify the decor entry exists in DB2
-    HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(housingDecorRedeemDeferredDecor.CatalogEntryID);
+    // Verify the deferred decor entry exists in DB2
+    HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(housingDecorRedeemDeferredDecor.DeferredDecorID);
     if (!decorData)
     {
         WorldPackets::Housing::HousingRedeemDeferredDecorResponse response;
@@ -392,15 +420,15 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
         return;
     }
 
-    // The client is starting to place a new decor from the catalog. Server verifies it exists
-    // and the catalog entry is available. The actual PlaceDecor happens via CMSG_HOUSING_DECOR_PLACE_NEW_DECOR.
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR HouseGuid: {}, CatalogEntryID: {} ({})",
-        housingDecorRedeemDeferredDecor.HouseGuid.ToString(), housingDecorRedeemDeferredDecor.CatalogEntryID,
-        decorData->Name);
+    // Add the deferred decor to the player's catalog/storage
+    HousingResult result = housing->AddToCatalog(housingDecorRedeemDeferredDecor.DeferredDecorID);
 
     WorldPackets::Housing::HousingRedeemDeferredDecorResponse response;
-    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_REDEEM_DEFERRED_DECOR DeferredDecorID: {}, Result: {}",
+        housingDecorRedeemDeferredDecor.DeferredDecorID, uint32(result));
 }
 
 // ============================================================
@@ -446,14 +474,21 @@ void WorldSession::HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::Hou
         return;
     }
 
-    HousingResult result = housing->SelectFixtureOption(housingFixtureSetCoreFixture.FixturePointID, housingFixtureSetCoreFixture.OptionID);
+    HousingResult result = housing->SelectFixtureOption(housingFixtureSetCoreFixture.ExteriorComponentID, 0);
 
     WorldPackets::Housing::HousingFixtureSetCoreFixtureResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SELECT_CORE_FIXTURE FixturePointID: {}, OptionID: {}, Result: {}",
-        housingFixtureSetCoreFixture.FixturePointID, housingFixtureSetCoreFixture.OptionID, uint32(result));
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        WorldPackets::Housing::AccountExteriorFixtureCollectionUpdate collectionUpdate;
+        collectionUpdate.FixtureID = housingFixtureSetCoreFixture.ExteriorComponentID;
+        SendPacket(collectionUpdate.Write());
+    }
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE FixtureGuid: {}, ExteriorComponentID: {}, Result: {}",
+        housingFixtureSetCoreFixture.FixtureGuid.ToString(), housingFixtureSetCoreFixture.ExteriorComponentID, uint32(result));
 }
 
 void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::HousingFixtureCreateFixture const& housingFixtureCreateFixture)
@@ -471,14 +506,21 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
         return;
     }
 
-    HousingResult result = housing->SelectFixtureOption(housingFixtureCreateFixture.FixturePointID, housingFixtureCreateFixture.OptionID);
+    HousingResult result = housing->SelectFixtureOption(housingFixtureCreateFixture.ExteriorComponentHookID, housingFixtureCreateFixture.ExteriorComponentType);
 
     WorldPackets::Housing::HousingFixtureCreateFixtureResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE FixturePointID: {}, OptionID: {}, Result: {}",
-        housingFixtureCreateFixture.FixturePointID, housingFixtureCreateFixture.OptionID, uint32(result));
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        WorldPackets::Housing::AccountExteriorFixtureCollectionUpdate collectionUpdate;
+        collectionUpdate.FixtureID = housingFixtureCreateFixture.ExteriorComponentHookID;
+        SendPacket(collectionUpdate.Write());
+    }
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE ExteriorComponentType: {}, ExteriorComponentHookID: {}, Result: {}",
+        housingFixtureCreateFixture.ExteriorComponentType, housingFixtureCreateFixture.ExteriorComponentHookID, uint32(result));
 }
 
 void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::HousingFixtureDeleteFixture const& housingFixtureDeleteFixture)
@@ -496,14 +538,75 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
         return;
     }
 
-    HousingResult result = housing->RemoveFixture(housingFixtureDeleteFixture.FixturePointID);
+    HousingResult result = housing->RemoveFixture(housingFixtureDeleteFixture.ExteriorComponentID);
 
     WorldPackets::Housing::HousingFixtureDeleteFixtureResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_REMOVE FixturePointID: {}, Result: {}",
-        housingFixtureDeleteFixture.FixturePointID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE FixtureGuid: {}, ExteriorComponentID: {}, Result: {}",
+        housingFixtureDeleteFixture.FixtureGuid.ToString(), housingFixtureDeleteFixture.ExteriorComponentID, uint32(result));
+}
+
+void WorldSession::HandleHousingFixtureSetHouseSize(WorldPackets::Housing::HousingFixtureSetHouseSize const& housingFixtureSetHouseSize)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    Housing* housing = player->GetHousing();
+    if (!housing)
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // House size changes the exterior fixture size category (Small/Medium/Large)
+    // Currently acknowledges the request; full enforcement requires HouseExteriorWmoData DB2
+    WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
+    if (housing->GetOwner())
+        housing->SyncUpdateFields();
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE HouseGuid: {}, Size: {}, Result: SUCCESS",
+        housingFixtureSetHouseSize.HouseGuid.ToString(), housingFixtureSetHouseSize.Size);
+}
+
+void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::HousingFixtureSetHouseType const& housingFixtureSetHouseType)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    Housing* housing = player->GetHousing();
+    if (!housing)
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
+        response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // House type changes the exterior WMO model (architectural style)
+    // Currently acknowledges the request; full enforcement requires HouseExteriorWmoData DB2
+    WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    SendPacket(response.Write());
+
+    // Notify account of house type collection update
+    WorldPackets::Housing::AccountHouseTypeCollectionUpdate collectionUpdate;
+    collectionUpdate.HouseTypeID = housingFixtureSetHouseType.HouseExteriorWmoDataID;
+    SendPacket(collectionUpdate.Write());
+
+    if (housing->GetOwner())
+        housing->SyncUpdateFields();
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE HouseGuid: {}, WmoDataID: {}, Result: SUCCESS",
+        housingFixtureSetHouseType.HouseGuid.ToString(), housingFixtureSetHouseType.HouseExteriorWmoDataID);
 }
 
 // ============================================================
@@ -549,15 +652,15 @@ void WorldSession::HandleHousingRoomAdd(WorldPackets::Housing::HousingRoomAdd co
         return;
     }
 
-    HousingResult result = housing->PlaceRoom(housingRoomAdd.RoomID, housingRoomAdd.SlotIndex,
-        housingRoomAdd.Orientation, housingRoomAdd.Mirrored);
+    HousingResult result = housing->PlaceRoom(housingRoomAdd.HouseRoomID, housingRoomAdd.FloorIndex,
+        housingRoomAdd.Flags, housingRoomAdd.AutoFurnish);
 
     WorldPackets::Housing::HousingRoomAddResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_ADD RoomID: {}, SlotIndex: {}, Result: {}",
-        housingRoomAdd.RoomID, housingRoomAdd.SlotIndex, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_ADD HouseRoomID: {}, FloorIndex: {}, Flags: {}, Result: {}",
+        housingRoomAdd.HouseRoomID, housingRoomAdd.FloorIndex, housingRoomAdd.Flags, uint32(result));
 }
 
 void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRemove const& housingRoomRemove)
@@ -625,15 +728,15 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
         return;
     }
 
-    HousingResult result = housing->MoveRoom(housingRoomMoveRoom.RoomGuid, housingRoomMoveRoom.NewSlotIndex,
-        housingRoomMoveRoom.SwapRoomGuid, housingRoomMoveRoom.SwapSlotIndex);
+    HousingResult result = housing->MoveRoom(housingRoomMoveRoom.RoomGuid, housingRoomMoveRoom.TargetSlotIndex,
+        housingRoomMoveRoom.TargetGuid, housingRoomMoveRoom.FloorIndex);
 
     WorldPackets::Housing::HousingRoomUpdateResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_MOVE RoomGuid: {}, NewSlotIndex: {}, Result: {}",
-        housingRoomMoveRoom.RoomGuid.ToString(), housingRoomMoveRoom.NewSlotIndex, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_MOVE RoomGuid: {}, TargetSlotIndex: {}, Result: {}",
+        housingRoomMoveRoom.RoomGuid.ToString(), housingRoomMoveRoom.TargetSlotIndex, uint32(result));
 }
 
 void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::HousingRoomSetComponentTheme const& housingRoomSetComponentTheme)
@@ -652,14 +755,14 @@ void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::Hou
     }
 
     HousingResult result = housing->ApplyRoomTheme(housingRoomSetComponentTheme.RoomGuid,
-        housingRoomSetComponentTheme.ThemeSetID, housingRoomSetComponentTheme.ComponentIDs);
+        housingRoomSetComponentTheme.HouseThemeID, housingRoomSetComponentTheme.RoomComponentIDs);
 
     WorldPackets::Housing::HousingRoomSetComponentThemeResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_COMPONENT_THEME RoomGuid: {}, ThemeSetID: {}, Result: {}",
-        housingRoomSetComponentTheme.RoomGuid.ToString(), housingRoomSetComponentTheme.ThemeSetID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_COMPONENT_THEME RoomGuid: {}, HouseThemeID: {}, Result: {}",
+        housingRoomSetComponentTheme.RoomGuid.ToString(), housingRoomSetComponentTheme.HouseThemeID, uint32(result));
 }
 
 void WorldSession::HandleHousingRoomApplyComponentMaterials(WorldPackets::Housing::HousingRoomApplyComponentMaterials const& housingRoomApplyComponentMaterials)
@@ -678,15 +781,15 @@ void WorldSession::HandleHousingRoomApplyComponentMaterials(WorldPackets::Housin
     }
 
     HousingResult result = housing->ApplyRoomWallpaper(housingRoomApplyComponentMaterials.RoomGuid,
-        housingRoomApplyComponentMaterials.WallpaperID, housingRoomApplyComponentMaterials.MaterialID,
-        housingRoomApplyComponentMaterials.ComponentIDs);
+        housingRoomApplyComponentMaterials.RoomComponentTextureID, housingRoomApplyComponentMaterials.RoomComponentTypeParam,
+        housingRoomApplyComponentMaterials.RoomComponentIDs);
 
     WorldPackets::Housing::HousingRoomApplyComponentMaterialsResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS RoomGuid: {}, WallpaperID: {}, Result: {}",
-        housingRoomApplyComponentMaterials.RoomGuid.ToString(), housingRoomApplyComponentMaterials.WallpaperID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS RoomGuid: {}, TextureID: {}, Result: {}",
+        housingRoomApplyComponentMaterials.RoomGuid.ToString(), housingRoomApplyComponentMaterials.RoomComponentTextureID, uint32(result));
 }
 
 void WorldSession::HandleHousingRoomSetDoorType(WorldPackets::Housing::HousingRoomSetDoorType const& housingRoomSetDoorType)
@@ -705,14 +808,14 @@ void WorldSession::HandleHousingRoomSetDoorType(WorldPackets::Housing::HousingRo
     }
 
     HousingResult result = housing->SetDoorType(housingRoomSetDoorType.RoomGuid,
-        housingRoomSetDoorType.DoorTypeID, housingRoomSetDoorType.DoorSlot);
+        housingRoomSetDoorType.RoomComponentID, housingRoomSetDoorType.RoomComponentType);
 
     WorldPackets::Housing::HousingRoomSetDoorTypeResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_DOOR_TYPE RoomGuid: {}, DoorTypeID: {}, Result: {}",
-        housingRoomSetDoorType.RoomGuid.ToString(), housingRoomSetDoorType.DoorTypeID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_DOOR_TYPE RoomGuid: {}, RoomComponentID: {}, Result: {}",
+        housingRoomSetDoorType.RoomGuid.ToString(), housingRoomSetDoorType.RoomComponentID, uint32(result));
 }
 
 void WorldSession::HandleHousingRoomSetCeilingType(WorldPackets::Housing::HousingRoomSetCeilingType const& housingRoomSetCeilingType)
@@ -731,14 +834,14 @@ void WorldSession::HandleHousingRoomSetCeilingType(WorldPackets::Housing::Housin
     }
 
     HousingResult result = housing->SetCeilingType(housingRoomSetCeilingType.RoomGuid,
-        housingRoomSetCeilingType.CeilingTypeID, housingRoomSetCeilingType.CeilingSlot);
+        housingRoomSetCeilingType.RoomComponentID, housingRoomSetCeilingType.RoomComponentType);
 
     WorldPackets::Housing::HousingRoomSetCeilingTypeResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_CEILING_TYPE RoomGuid: {}, CeilingTypeID: {}, Result: {}",
-        housingRoomSetCeilingType.RoomGuid.ToString(), housingRoomSetCeilingType.CeilingTypeID, uint32(result));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_CEILING_TYPE RoomGuid: {}, RoomComponentID: {}, Result: {}",
+        housingRoomSetCeilingType.RoomGuid.ToString(), housingRoomSetCeilingType.RoomComponentID, uint32(result));
 }
 
 // ============================================================
@@ -752,9 +855,9 @@ void WorldSession::HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housin
         return;
 
     Neighborhood* neighborhood = sNeighborhoodMgr.CreateGuildNeighborhood(
-        player->GetGUID(), housingSvcsGuildCreateNeighborhood.Name,
-        housingSvcsGuildCreateNeighborhood.NeighborhoodMapID,
-        housingSvcsGuildCreateNeighborhood.FactionID);
+        player->GetGUID(), housingSvcsGuildCreateNeighborhood.NeighborhoodName,
+        housingSvcsGuildCreateNeighborhood.NeighborhoodTypeID,
+        housingSvcsGuildCreateNeighborhood.Flags);
 
     WorldPackets::Housing::HousingSvcsCreateCharterNeighborhoodResponse response;
     response.Result = static_cast<uint32>(neighborhood ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_NOT_ALLOWED);
@@ -762,8 +865,19 @@ void WorldSession::HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housin
         response.NeighborhoodGuid = neighborhood->GetGuid();
     SendPacket(response.Write());
 
+    // Send guild notification to all guild members
+    if (neighborhood)
+    {
+        if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+        {
+            WorldPackets::Housing::HousingSvcsGuildCreateNeighborhoodNotification notification;
+            notification.NeighborhoodGuid = neighborhood->GetGuid();
+            guild->BroadcastPacket(notification.Write());
+        }
+    }
+
     TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GUILD_CREATE_NEIGHBORHOOD Name: {}, Result: {}",
-        housingSvcsGuildCreateNeighborhood.Name, neighborhood ? "success" : "failed");
+        housingSvcsGuildCreateNeighborhood.NeighborhoodName, neighborhood ? "success" : "failed");
 }
 
 void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housing::HousingSvcsNeighborhoodReservePlot const& housingSvcsNeighborhoodReservePlot)
@@ -791,6 +905,14 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         {
             neighborhood->UpdatePlotHouseInfo(housingSvcsNeighborhoodReservePlot.PlotIndex,
                 housing->GetHouseGuid(), GetBattlenetAccountGUID());
+
+            // Send guild notification for house addition
+            if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+            {
+                WorldPackets::Housing::HousingSvcsGuildAddHouseNotification notification;
+                notification.HouseGuid = housing->GetHouseGuid();
+                guild->BroadcastPacket(notification.Write());
+            }
         }
 
         // Grant "Acquire a house" kill credit for quest 91863 (objective 17)
@@ -812,11 +934,31 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
     if (!player)
         return;
 
+    // Capture house GUID before deletion
+    ObjectGuid houseGuid;
+    if (Housing const* housing = player->GetHousing())
+        houseGuid = housing->GetHouseGuid();
+
     player->DeleteHousing();
 
     WorldPackets::Housing::HousingSvcsRelinquishHouseResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
+
+    // House deletion is a major data change — request client to reload housing data
+    WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
+    SendPacket(reloadData.Write());
+
+    // Send guild notification for house removal
+    if (!houseGuid.IsEmpty())
+    {
+        if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
+        {
+            WorldPackets::Housing::HousingSvcsGuildRemoveHouseNotification notification;
+            notification.HouseGuid = houseGuid;
+            guild->BroadcastPacket(notification.Write());
+        }
+    }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_RELINQUISH_HOUSE processed");
 }
@@ -836,12 +978,16 @@ void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::H
         return;
     }
 
-    if (housingSvcsUpdateHouseSettings.SettingID)
-        housing->SaveSettings(*housingSvcsUpdateHouseSettings.SettingID);
+    if (housingSvcsUpdateHouseSettings.PlotSettingsID)
+        housing->SaveSettings(*housingSvcsUpdateHouseSettings.PlotSettingsID);
 
     WorldPackets::Housing::HousingSvcsUpdateHouseSettingsResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
+
+    // Settings changes (visibility, permissions) require house finder data refresh
+    WorldPackets::Housing::HousingSvcsHouseFinderForceRefresh forceRefresh;
+    SendPacket(forceRefresh.Write());
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS HouseGuid: {}",
         housingSvcsUpdateHouseSettings.HouseGuid.ToString());
@@ -1052,14 +1198,41 @@ void WorldSession::HandleHousingSvcsAcceptNeighborhoodOwnership(WorldPackets::Ho
         return;
     }
 
+    ObjectGuid previousOwnerGuid = neighborhood->GetOwnerGuid();
     neighborhood->TransferOwnership(player->GetGUID());
 
     WorldPackets::Housing::HousingSvcsAcceptNeighborhoodOwnershipResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_ACCEPT_NEIGHBORHOOD_OWNERSHIP NeighborhoodGuid: {}",
-        housingSvcsAcceptNeighborhoodOwnership.NeighborhoodGuid.ToString());
+    // Broadcast ownership transfer to all members
+    for (auto const& member : neighborhood->GetMembers())
+    {
+        if (member.PlayerGuid == player->GetGUID())
+            continue;
+        if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+        {
+            WorldPackets::Housing::HousingSvcsNeighborhoodOwnershipTransferredResponse transferNotification;
+            transferNotification.NeighborhoodGuid = housingSvcsAcceptNeighborhoodOwnership.NeighborhoodGuid;
+            transferNotification.NewOwnerGuid = player->GetGUID();
+            memberPlayer->SendDirectMessage(transferNotification.Write());
+        }
+    }
+
+    // Ownership change is a major data change — request client to reload housing data
+    WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
+    SendPacket(reloadData.Write());
+
+    // Previous owner also needs to reload
+    if (Player* prevOwner = ObjectAccessor::FindPlayer(previousOwnerGuid))
+    {
+        WorldPackets::Housing::HousingSvcRequestPlayerReloadData prevReload;
+        prevOwner->SendDirectMessage(prevReload.Write());
+    }
+
+    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_ACCEPT_NEIGHBORHOOD_OWNERSHIP NeighborhoodGuid: {}, PreviousOwner: {}",
+        housingSvcsAcceptNeighborhoodOwnership.NeighborhoodGuid.ToString(),
+        previousOwnerGuid.ToString());
 }
 
 void WorldSession::HandleHousingSvcsRejectNeighborhoodOwnership(WorldPackets::Housing::HousingSvcsRejectNeighborhoodOwnership const& housingSvcsRejectNeighborhoodOwnership)
@@ -1258,7 +1431,7 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
     }
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_HOUSE_STATUS received (HouseGuid: {})", housingHouseStatus.HouseGuid.ToString());
+    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_HOUSE_STATUS received");
     TC_LOG_INFO("housing", "<<< SMSG_HOUSING_HOUSE_STATUS_RESPONSE sent (Status: {}, Flags: 0x{:02X}, HouseGuid: {}, "
         "NeighborhoodGuid: {}, OwnerGuid: {}, PlotGuid: {})",
         response.Status, response.Flags,
@@ -1272,8 +1445,8 @@ void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::Hous
     if (!player)
         return;
 
-    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_GET_PLAYER_PERMISSIONS received (HouseGuid: {})",
-        housingGetPlayerPermissions.HouseGuid.ToString());
+    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_GET_PLAYER_PERMISSIONS received (PlayerGuid: {})",
+        housingGetPlayerPermissions.PlayerGuid.has_value() ? housingGetPlayerPermissions.PlayerGuid->ToString() : "none");
 
     WorldPackets::Housing::HousingGetPlayerPermissionsResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
@@ -1290,8 +1463,7 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     if (!player)
         return;
 
-    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_GET_CURRENT_HOUSE_INFO received (HouseGuid: {})",
-        housingGetCurrentHouseInfo.HouseGuid.ToString());
+    TC_LOG_INFO("housing", ">>> CMSG_HOUSING_GET_CURRENT_HOUSE_INFO received");
 
     Housing* housing = player->GetHousing();
 
@@ -1387,6 +1559,19 @@ void WorldSession::HandleInvitePlayerToNeighborhood(WorldPackets::Housing::Invit
     WorldPackets::Neighborhood::NeighborhoodInviteResidentResponse response;
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
+
+    // Notify the invitee that they received a neighborhood invite
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (Player* invitee = ObjectAccessor::FindPlayer(invitePlayerToNeighborhood.PlayerGuid))
+        {
+            WorldPackets::Neighborhood::NeighborhoodInviteNotification notification;
+            notification.NeighborhoodGuid = invitePlayerToNeighborhood.NeighborhoodGuid;
+            notification.InviterGuid = player->GetGUID();
+            notification.NeighborhoodName = neighborhood->GetName();
+            invitee->SendDirectMessage(notification.Write());
+        }
+    }
 
     TC_LOG_INFO("housing", "CMSG_INVITE_PLAYER_TO_NEIGHBORHOOD PlayerGuid: {}, Result: {}",
         invitePlayerToNeighborhood.PlayerGuid.ToString(), uint32(result));

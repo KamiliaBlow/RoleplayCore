@@ -476,6 +476,9 @@ namespace WorldPackets
         class QueryNeighborhoodInfo;
         class InvitePlayerToNeighborhood;
         class GuildGetOthersOwnedHouses;
+        class HouseExteriorLock;
+        class HousingFixtureSetHouseSize;
+        class HousingFixtureSetHouseType;
     }
 
     namespace Neighborhood
@@ -1543,6 +1546,7 @@ class TC_GAME_API WorldSession
 
         // Housing - Exterior/Interior
         void HandleHouseExteriorSetHousePosition(WorldPackets::Housing::HouseExteriorCommitPosition const& houseExteriorCommitPosition);
+        void HandleHouseExteriorLock(WorldPackets::Housing::HouseExteriorLock const& houseExteriorLock);
         void HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInteriorLeaveHouse const& houseInteriorLeaveHouse);
 
         // Housing - Decor System
@@ -1562,6 +1566,8 @@ class TC_GAME_API WorldSession
         void HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::HousingFixtureSetCoreFixture const& housingFixtureSetCoreFixture);
         void HandleHousingFixtureCreateFixture(WorldPackets::Housing::HousingFixtureCreateFixture const& housingFixtureCreateFixture);
         void HandleHousingFixtureDeleteFixture(WorldPackets::Housing::HousingFixtureDeleteFixture const& housingFixtureDeleteFixture);
+        void HandleHousingFixtureSetHouseSize(WorldPackets::Housing::HousingFixtureSetHouseSize const& housingFixtureSetHouseSize);
+        void HandleHousingFixtureSetHouseType(WorldPackets::Housing::HousingFixtureSetHouseType const& housingFixtureSetHouseType);
 
         // Housing - Room System
         void HandleHousingRoomSetLayoutEditMode(WorldPackets::Housing::HousingRoomSetLayoutEditMode const& housingRoomSetLayoutEditMode);

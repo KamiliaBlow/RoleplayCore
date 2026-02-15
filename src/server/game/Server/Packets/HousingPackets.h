@@ -36,7 +36,27 @@ namespace WorldPackets::Housing
     public:
         explicit HouseExteriorCommitPosition(WorldPacket&& packet) : ClientPacket(CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION, std::move(packet)) { }
 
-        void Read() override { }
+        void Read() override;
+
+        ObjectGuid HouseGuid;
+        ObjectGuid PlotGuid;
+        float PositionX = 0.0f;
+        float PositionY = 0.0f;
+        float PositionZ = 0.0f;
+        float Facing = 0.0f;
+    };
+
+    class HouseExteriorLock final : public ClientPacket
+    {
+    public:
+        explicit HouseExteriorLock(WorldPacket&& packet) : ClientPacket(CMSG_HOUSE_EXTERIOR_LOCK, std::move(packet)) { }
+
+        void Read() override;
+
+        ObjectGuid HouseGuid;
+        ObjectGuid PlotGuid;
+        ObjectGuid NeighborhoodGuid;
+        bool Locked = false;
     };
 
     // ============================================================
@@ -72,13 +92,18 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 DecorEntryID = 0;
-        TaggedPosition<Position::XYZ> Pos;
+        ObjectGuid DecorGuid;
+        float PositionX = 0.0f;
+        float PositionY = 0.0f;
+        float PositionZ = 0.0f;
         float RotationX = 0.0f;
         float RotationY = 0.0f;
         float RotationZ = 0.0f;
         float RotationW = 1.0f;
+        ObjectGuid RoomGuid;
+        ObjectGuid FixtureGuid;
+        ObjectGuid AttachParentGuid;
+        uint32 DecorRecID = 0;
     };
 
     class HousingDecorMove final : public ClientPacket
@@ -88,13 +113,21 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
         ObjectGuid DecorGuid;
-        TaggedPosition<Position::XYZ> Pos;
+        float PositionX = 0.0f;
+        float PositionY = 0.0f;
+        float PositionZ = 0.0f;
         float RotationX = 0.0f;
         float RotationY = 0.0f;
         float RotationZ = 0.0f;
         float RotationW = 1.0f;
+        ObjectGuid RoomGuid;
+        ObjectGuid FixtureGuid;
+        ObjectGuid AttachParentGuid;
+        uint32 DecorRecID = 0;
+        bool AttachToParent = false;
+        uint8 Flags = 0;
+        uint8 Field_86 = 0;
     };
 
     class HousingDecorRemove final : public ClientPacket
@@ -104,7 +137,6 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
         ObjectGuid DecorGuid;
     };
 
@@ -115,8 +147,9 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
         ObjectGuid DecorGuid;
+        bool Locked = false;
+        bool AnchorLocked = false;
     };
 
     class HousingDecorSetDyeSlots final : public ClientPacket
@@ -126,9 +159,8 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
         ObjectGuid DecorGuid;
-        std::vector<uint32> DyeSlots;
+        std::array<int32, 3> DyeColorID = {};
     };
 
     class HousingDecorDeleteFromStorage final : public ClientPacket
@@ -138,8 +170,7 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 CatalogEntryID = 0;
+        std::vector<ObjectGuid> DecorGuids;
     };
 
     class HousingDecorDeleteFromStorageById final : public ClientPacket
@@ -149,8 +180,7 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 CatalogEntryID = 0;
+        uint32 DecorRecID = 0;
     };
 
     class HousingDecorRequestStorage final : public ClientPacket
@@ -170,8 +200,8 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 CatalogEntryID = 0;
+        uint32 DeferredDecorID = 0;
+        uint32 RedemptionToken = 0;
     };
 
     // ============================================================
@@ -195,9 +225,8 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 FixturePointID = 0;
-        uint32 OptionID = 0;
+        ObjectGuid FixtureGuid;
+        uint32 ExteriorComponentID = 0;
     };
 
     class HousingFixtureCreateFixture final : public ClientPacket
@@ -207,9 +236,10 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
-        uint32 FixturePointID = 0;
-        uint32 OptionID = 0;
+        ObjectGuid AttachParentGuid;
+        ObjectGuid RoomGuid;
+        uint32 ExteriorComponentType = 0;
+        uint32 ExteriorComponentHookID = 0;
     };
 
     class HousingFixtureDeleteFixture final : public ClientPacket
@@ -219,8 +249,31 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
+        ObjectGuid FixtureGuid;
+        ObjectGuid RoomGuid;
+        uint32 ExteriorComponentID = 0;
+    };
+
+    class HousingFixtureSetHouseSize final : public ClientPacket
+    {
+    public:
+        explicit HousingFixtureSetHouseSize(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE, std::move(packet)) { }
+
+        void Read() override;
+
         ObjectGuid HouseGuid;
-        uint32 FixturePointID = 0;
+        uint8 Size = 0;
+    };
+
+    class HousingFixtureSetHouseType final : public ClientPacket
+    {
+    public:
+        explicit HousingFixtureSetHouseType(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE, std::move(packet)) { }
+
+        void Read() override;
+
+        ObjectGuid HouseGuid;
+        uint32 HouseExteriorWmoDataID = 0;
     };
 
     // ============================================================
@@ -245,10 +298,10 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid HouseGuid;
-        uint32 RoomID = 0;
-        uint32 SlotIndex = 0;
-        uint32 Orientation = 0;
-        bool Mirrored = false;
+        uint32 HouseRoomID = 0;
+        uint32 Flags = 0;
+        uint32 FloorIndex = 0;
+        bool AutoFurnish = false;
     };
 
     class HousingRoomRemove final : public ClientPacket
@@ -280,9 +333,9 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid RoomGuid;
-        uint32 NewSlotIndex = 0;
-        ObjectGuid SwapRoomGuid;
-        uint32 SwapSlotIndex = 0;
+        uint32 TargetSlotIndex = 0;
+        ObjectGuid TargetGuid;
+        uint32 FloorIndex = 0;
     };
 
     class HousingRoomSetComponentTheme final : public ClientPacket
@@ -293,8 +346,8 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid RoomGuid;
-        uint32 ThemeSetID = 0;
-        std::vector<uint32> ComponentIDs;
+        uint32 HouseThemeID = 0;
+        std::vector<uint32> RoomComponentIDs;
     };
 
     class HousingRoomApplyComponentMaterials final : public ClientPacket
@@ -305,9 +358,9 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid RoomGuid;
-        uint32 WallpaperID = 0;
-        uint32 MaterialID = 0;
-        std::vector<uint32> ComponentIDs;
+        uint32 RoomComponentTextureID = 0;
+        uint32 RoomComponentTypeParam = 0;
+        std::vector<uint32> RoomComponentIDs;
     };
 
     class HousingRoomSetDoorType final : public ClientPacket
@@ -318,8 +371,8 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid RoomGuid;
-        uint32 DoorTypeID = 0;
-        uint8 DoorSlot = 0;
+        uint32 RoomComponentID = 0;
+        uint8 RoomComponentType = 0;
     };
 
     class HousingRoomSetCeilingType final : public ClientPacket
@@ -330,8 +383,8 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid RoomGuid;
-        uint32 CeilingTypeID = 0;
-        uint8 CeilingSlot = 0;
+        uint32 RoomComponentID = 0;
+        uint8 RoomComponentType = 0;
     };
 
     // ============================================================
@@ -345,9 +398,9 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        uint32 NeighborhoodMapID = 0;
-        uint32 FactionID = 0;
-        std::string Name;
+        uint32 NeighborhoodTypeID = 0;
+        std::string NeighborhoodName;
+        uint32 Flags = 0;
     };
 
     class HousingSvcsNeighborhoodReservePlot final : public ClientPacket
@@ -359,7 +412,7 @@ namespace WorldPackets::Housing
 
         ObjectGuid NeighborhoodGuid;
         uint8 PlotIndex = 0;
-        bool HasPreference = false;
+        bool Reserve = false;
     };
 
     class HousingSvcsRelinquishHouse final : public ClientPacket
@@ -380,8 +433,8 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid HouseGuid;
-        Optional<uint32> SettingID;
-        Optional<ObjectGuid> TargetGuid;
+        Optional<uint32> PlotSettingsID;
+        Optional<ObjectGuid> VisitorPermissionGuid;
     };
 
     class HousingSvcsPlayerViewHousesByPlayer final : public ClientPacket
@@ -420,9 +473,9 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid NeighborhoodGuid;
-        ObjectGuid PlotGuid;
+        ObjectGuid OwnerGuid;
         uint32 PlotIndex = 0;
-        uint8 Flags = 0;
+        uint8 TeleportType = 0;
     };
 
     class HousingSvcsStartTutorial final : public ClientPacket
@@ -458,7 +511,9 @@ namespace WorldPackets::Housing
     public:
         explicit HousingSvcsGetPotentialHouseOwners(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS, std::move(packet)) { }
 
-        void Read() override { }
+        void Read() override;
+
+        ObjectGuid NeighborhoodGuid;
     };
 
     class HousingSvcsGetHouseFinderInfo final : public ClientPacket
@@ -506,9 +561,7 @@ namespace WorldPackets::Housing
     public:
         explicit HousingGetCurrentHouseInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_GET_CURRENT_HOUSE_INFO, std::move(packet)) { }
 
-        void Read() override;
-
-        ObjectGuid HouseGuid;
+        void Read() override { }
     };
 
     class HousingResetKioskMode final : public ClientPacket
@@ -524,9 +577,7 @@ namespace WorldPackets::Housing
     public:
         explicit HousingHouseStatus(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_HOUSE_STATUS, std::move(packet)) { }
 
-        void Read() override;
-
-        ObjectGuid HouseGuid;
+        void Read() override { }
     };
 
     class HousingGetPlayerPermissions final : public ClientPacket
@@ -536,7 +587,7 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid HouseGuid;
+        Optional<ObjectGuid> PlayerGuid;
     };
 
     // ============================================================

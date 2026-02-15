@@ -155,4 +155,16 @@ void Account::ClearNeighborhoodMirrorHouses()
 {
     ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Houses));
 }
+
+void Account::AddNeighborhoodMirrorManager(ObjectGuid bnetAccountGuid, ObjectGuid playerGuid)
+{
+    UF::HousingOwner& manager = AddDynamicUpdateFieldValue(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Managers));
+    manager.BnetAccountGUID = bnetAccountGuid;
+    manager.PlayerGUID = playerGuid;
+}
+
+void Account::ClearNeighborhoodMirrorManagers()
+{
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Account::m_neighborhoodMirrorData).ModifyValue(&UF::NeighborhoodMirrorData::Managers));
+}
 }
