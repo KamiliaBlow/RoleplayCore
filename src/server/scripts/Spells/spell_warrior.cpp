@@ -52,6 +52,7 @@ enum WarriorSpells
     SPELL_WARRIOR_AVATAR                            = 107574,
     SPELL_WARRIOR_BLADESTORM                        = 227847,
     SPELL_WARRIOR_BLADESTORM_PERIODIC_WHIRLWIND     = 50622,
+    SPELL_WARRIOR_BLOODSURGE_ENERGIZE               = 384362,
     SPELL_WARRIOR_BLOODTHIRST_HEAL                  = 117313,
     SPELL_WARRIOR_BOUNDING_STRIDE_AURA              = 202163,
     SPELL_WARRIOR_BOUNDING_STRIDE                   = 202164,
@@ -366,6 +367,42 @@ class spell_warr_bladesmasters_torment : public AuraScript
     void Register() override
     {
         OnProc += AuraProcFn(spell_warr_bladesmasters_torment::HandleProc);
+    }
+};
+
+// 384361 - Bloodsurge
+class spell_warr_bloodsurge : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_BLOODSURGE_ENERGIZE });
+    }
+
+    void HandlePeriodic(AuraEffect const* aurEff) const
+    {
+        Unit* caster = GetTarget();
+        float rends = 0.0f;
+        auto work = [&rends, warrior = caster->GetGUID()](Unit const* target)
+        {
+            if (target->HasAuraEffect(SPELL_WARRIOR_REND_AURA, EFFECT_0, warrior))
+                rends += 1.0f;
+        };
+        Trinity::UnitWorker worker(caster, work);
+        Cell::VisitAllObjects(caster, worker, 50.0f);
+
+        float chance = std::sqrt(rends) * aurEff->GetAmount();
+        if (!roll_chance_f(chance))
+            return;
+
+        caster->CastSpell(caster, SPELL_WARRIOR_BLOODSURGE_ENERGIZE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = aurEff
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warr_bloodsurge::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -1125,7 +1162,7 @@ class spell_warr_impending_victory : public SpellScript
 };
 
 // 12950 - Improved Whirlwind (attached to 190411 - Whirlwind)
-class spell_improved_whirlwind : public SpellScript
+class spell_warr_improved_whirlwind : public SpellScript
 {
     bool Validate(SpellInfo const* spellInfo) override
     {
@@ -1164,7 +1201,57 @@ class spell_improved_whirlwind : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_improved_whirlwind::HandleHit, EFFECT_1, SPELL_EFFECT_DUMMY);
+        OnEffectHitTarget += SpellEffectFn(spell_warr_improved_whirlwind::HandleHit, EFFECT_1, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 3411 - Intervene
+class spell_warr_intervene : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_INTERVENE_CHARGE });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        uint32 spellId = SPELL_WARRIOR_INTERVENE_CHARGE;
+        if (caster->IsWithinCombatRange(target, 3.0f))
+            spellId = SPELL_WARRIOR_INTERVENE_AURA;
+
+        caster->CastSpell(target, spellId, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_intervene::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+// 316531 - Intervene (charge)
+class spell_warr_intervene_charge : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_INTERVENE_AURA });
+    }
+
+    void HandleAura(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_INTERVENE_AURA, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK & ~TRIGGERED_CAST_DIRECTLY,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_warr_intervene_charge::HandleAura, EFFECT_0, SPELL_EFFECT_CHARGE);
     }
 };
 
@@ -1913,57 +2000,6 @@ class spell_warr_victory_rush : public SpellScript
     }
 };
 
-// 3411 - Intervene
-class spell_warr_intervene : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_INTERVENE_CHARGE });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/) const
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_INTERVENE_CHARGE, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-            });
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_intervene::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
-// 316531 - Intervene (charge)
-class spell_warr_intervene_charge : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_WARRIOR_INTERVENE_AURA });
-    }
-
-    void HandleAura(SpellEffIndex /*effIndex*/) const
-    {
-        GetCaster()->CastSpell(GetHitUnit(), SPELL_WARRIOR_INTERVENE_AURA, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_FULL_MASK & ~TRIGGERED_CAST_DIRECTLY,
-            .TriggeringSpell = GetSpell()
-            });
-    }
-
-    void HandleStopAttack()
-    {
-        // Prevent caster from attacking the friendly target
-        GetCaster()->AttackStop();
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_intervene_charge::HandleAura, EFFECT_0, SPELL_EFFECT_CHARGE);
-        AfterHit += SpellHitFn(spell_warr_intervene_charge::HandleStopAttack);
-    }
-};
-
 // 23920 Spell Reflect
 class spell_warr_spell_reflect : public SpellScriptLoader
 {
@@ -2668,7 +2704,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_heroic_leap);
     RegisterSpellScript(spell_warr_heroic_leap_damage);
     RegisterSpellScript(spell_warr_impending_victory);
-    RegisterSpellScript(spell_improved_whirlwind);
+    RegisterSpellScript(spell_warr_improved_whirlwind);
     RegisterSpellScript(spell_warr_intimidating_shout);
     RegisterSpellScript(spell_warr_intimidating_shout_menace_knock_back);
     RegisterSpellScript(spell_warr_invigorating_fury);
