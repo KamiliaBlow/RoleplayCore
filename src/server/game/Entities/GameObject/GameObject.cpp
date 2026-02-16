@@ -31,6 +31,7 @@
 #include "GameObjectAI.h"
 #include "GameObjectModel.h"
 #include "GameObjectPackets.h"
+#include "NPCPackets.h"
 #include "GameTime.h"
 #include "GossipDef.h"
 #include "GridNotifiersImpl.h"
@@ -3460,24 +3461,38 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
             if (!player)
                 return;
 
-            WorldPackets::GameObject::GameObjectInteraction gameObjectUILink;
-            gameObjectUILink.ObjectGUID = GetGUID();
-            switch (GetGOInfo()->UILink.UILinkType)
+            if (GetGOInfo()->UILink.PlayerInteractionType)
             {
-                case 0:
-                    gameObjectUILink.InteractionType = PlayerInteractionType::AdventureJournal;
-                    break;
-                case 1:
-                    gameObjectUILink.InteractionType = PlayerInteractionType::ObliterumForge;
-                    break;
-                case 2:
-                    gameObjectUILink.InteractionType = PlayerInteractionType::ScrappingMachine;
-                    break;
-                case 3:
-                    gameObjectUILink.InteractionType = PlayerInteractionType::ItemInteraction;
-                    break;
-                default:
-                    break;
+                WorldPackets::NPC::NPCInteractionOpenResult npcInteraction;
+                npcInteraction.Npc = GetGUID();
+                npcInteraction.InteractionType = static_cast<PlayerInteractionType>(GetGOInfo()->UILink.PlayerInteractionType);
+                npcInteraction.Success = true;
+                player->SendDirectMessage(npcInteraction.Write());
+
+                if (uint32 spellId = GetGOInfo()->UILink.spell)
+                    player->CastSpell(player, spellId, true);
+            }
+            else
+            {
+                WorldPackets::GameObject::GameObjectInteraction gameObjectUILink;
+                gameObjectUILink.ObjectGUID = GetGUID();
+                switch (GetGOInfo()->UILink.UILinkType)
+                {
+                    case 0:
+                        gameObjectUILink.InteractionType = PlayerInteractionType::AdventureJournal;
+                        break;
+                    case 1:
+                        gameObjectUILink.InteractionType = PlayerInteractionType::ObliterumForge;
+                        break;
+                    case 2:
+                        gameObjectUILink.InteractionType = PlayerInteractionType::ScrappingMachine;
+                        break;
+                    case 3:
+                        gameObjectUILink.InteractionType = PlayerInteractionType::ItemInteraction;
+                        break;
+                    default:
+                        break;
+                }
             }
             player->SendDirectMessage(gameObjectUILink.Write());
             return;
