@@ -19,6 +19,7 @@
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "Housing.h"
+#include "HousingMap.h"
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
@@ -951,6 +952,22 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         // Grant "Acquire a house" kill credit for quest 91863 (objective 17)
         static constexpr uint32 NPC_KILL_CREDIT_BUY_HOME = 248858;
         player->KilledMonsterCredit(NPC_KILL_CREDIT_BUY_HOME);
+
+        // Swap the for-sale-sign GO to a cornerstone GO on the housing map
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
+            std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
+            for (NeighborhoodPlotData const* plotData : plotDataList)
+            {
+                if (plotData->PlotIndex == static_cast<int32>(housingSvcsNeighborhoodReservePlot.PlotIndex))
+                {
+                    if (uint32 cornerstoneEntry = static_cast<uint32>(plotData->CornerstoneGameObjectID))
+                        housingMap->SwapPlotGameObject(housingSvcsNeighborhoodReservePlot.PlotIndex, cornerstoneEntry);
+                    break;
+                }
+            }
+        }
     }
 
     WorldPackets::Housing::HousingSvcsNeighborhoodReservePlotResponse response;
@@ -1387,29 +1404,23 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
         neighborhood->GetName(), neighborhood->GetNeighborhoodMapID(),
         neighborhood->GetMemberCount(), neighborhood->IsPublic());
 
+    // Iterate ALL DB2 plots for this neighborhood map so the client sees the full 55-plot grid
+    std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID());
+
     WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     response.NeighborhoodGuid = neighborhood->GetGuid();
     response.NeighborhoodName = neighborhood->GetName();
-    response.Plots.reserve(neighborhood->GetOccupiedPlotCount());
-    for (auto const& plot : neighborhood->GetPlots())
+    response.Plots.reserve(plotDataList.size());
+    for (NeighborhoodPlotData const* plotData : plotDataList)
     {
-        if (!plot.IsOccupied())
-            continue;
+        uint8 plotIndex = static_cast<uint8>(plotData->PlotIndex);
+        Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(plotIndex);
 
         WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse::PlotEntry plotEntry;
-        plotEntry.PlotIndex = plot.PlotIndex;
-        plotEntry.IsAvailable = plot.OwnerGuid.IsEmpty();
-        // Look up plot cost from DB2 data
-        std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID());
-        for (NeighborhoodPlotData const* plotData : plotDataList)
-        {
-            if (plotData->PlotIndex == plot.PlotIndex)
-            {
-                plotEntry.Cost = plotData->Cost;
-                break;
-            }
-        }
+        plotEntry.PlotIndex = plotIndex;
+        plotEntry.IsAvailable = !plotInfo || plotInfo->OwnerGuid.IsEmpty();
+        plotEntry.Cost = plotData->Cost;
         response.Plots.push_back(std::move(plotEntry));
     }
     SendPacket(response.Write());

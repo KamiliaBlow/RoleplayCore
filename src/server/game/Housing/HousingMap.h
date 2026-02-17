@@ -39,6 +39,8 @@ public:
 
     Housing* GetHousingForPlayer(ObjectGuid playerGuid) const;
     AreaTrigger* GetPlotAreaTrigger(uint8 plotIndex);
+    GameObject* GetPlotGameObject(uint8 plotIndex);
+    void SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry);
     Neighborhood* GetNeighborhood() const { return _neighborhood; }
     uint32 GetNeighborhoodId() const { return _neighborhoodId; }
 
@@ -53,6 +55,7 @@ private:
     Neighborhood* _neighborhood;
     std::unordered_map<ObjectGuid, Housing*> _playerHousings;
     std::unordered_map<uint8, ObjectGuid> _plotAreaTriggers;
+    std::unordered_map<uint8, ObjectGuid> _plotGameObjects;
 };
 
 #endif // HousingMap_h__

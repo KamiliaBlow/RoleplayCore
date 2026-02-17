@@ -106,6 +106,9 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
             continue;
         }
 
+        // Track the plot GO for later swap (purchase/eviction)
+        _plotGameObjects[static_cast<uint8>(plot->PlotIndex)] = go->GetGUID();
+
         ++goCount;
 
         // Spawn a plot AreaTrigger at the HousePosition for plot enter/exit detection
@@ -157,6 +160,81 @@ AreaTrigger* HousingMap::GetPlotAreaTrigger(uint8 plotIndex)
         return nullptr;
 
     return GetAreaTrigger(itr->second);
+}
+
+GameObject* HousingMap::GetPlotGameObject(uint8 plotIndex)
+{
+    auto itr = _plotGameObjects.find(plotIndex);
+    if (itr == _plotGameObjects.end())
+        return nullptr;
+
+    return GetGameObject(itr->second);
+}
+
+void HousingMap::SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry)
+{
+    if (!_neighborhood || !newGoEntry)
+        return;
+
+    // Find the DB2 plot data for position/rotation
+    uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
+    std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
+
+    NeighborhoodPlotData const* plotData = nullptr;
+    for (NeighborhoodPlotData const* p : plots)
+    {
+        if (p->PlotIndex == static_cast<int32>(plotIndex))
+        {
+            plotData = p;
+            break;
+        }
+    }
+
+    if (!plotData)
+    {
+        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Plot {} not found in DB2 data for neighborhood '{}'",
+            plotIndex, _neighborhood->GetName());
+        return;
+    }
+
+    // Remove the old GO if it exists
+    auto itr = _plotGameObjects.find(plotIndex);
+    if (itr != _plotGameObjects.end())
+    {
+        if (GameObject* oldGo = GetGameObject(itr->second))
+            oldGo->AddObjectToRemoveList();
+
+        _plotGameObjects.erase(itr);
+    }
+
+    // Create the new GO at the same cornerstone position/rotation
+    float x = plotData->CornerstonePosition[0];
+    float y = plotData->CornerstonePosition[1];
+    float z = plotData->CornerstonePosition[2];
+    float rotZ = plotData->CornerstoneRotation[2];
+    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(rotZ, plotData->CornerstoneRotation[1], plotData->CornerstoneRotation[0]);
+    Position pos(x, y, z, rotZ);
+
+    GameObject* newGo = GameObject::CreateGameObject(newGoEntry, this, pos, rot, 255, GO_STATE_READY);
+    if (!newGo)
+    {
+        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Failed to create GO entry {} for plot {} in neighborhood '{}'",
+            newGoEntry, plotIndex, _neighborhood->GetName());
+        return;
+    }
+
+    if (!AddToMap(newGo))
+    {
+        delete newGo;
+        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Failed to add GO entry {} to map for plot {} in neighborhood '{}'",
+            newGoEntry, plotIndex, _neighborhood->GetName());
+        return;
+    }
+
+    _plotGameObjects[plotIndex] = newGo->GetGUID();
+
+    TC_LOG_DEBUG("maps", "HousingMap::SwapPlotGameObject: Swapped plot {} GO to entry {} in neighborhood '{}'",
+        plotIndex, newGoEntry, _neighborhood->GetName());
 }
 
 Housing* HousingMap::GetHousingForPlayer(ObjectGuid playerGuid) const

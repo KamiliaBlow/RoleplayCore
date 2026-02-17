@@ -1019,6 +1019,22 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             }
         }
 
+        // Swap the for-sale-sign GO to a cornerstone GO on the housing map
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
+            std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
+            for (NeighborhoodPlotData const* plotData : plotDataList)
+            {
+                if (plotData->PlotIndex == static_cast<int32>(neighborhoodBuyHouse.PlotIndex))
+                {
+                    if (uint32 cornerstoneEntry = static_cast<uint32>(plotData->CornerstoneGameObjectID))
+                        housingMap->SwapPlotGameObject(neighborhoodBuyHouse.PlotIndex, cornerstoneEntry);
+                    break;
+                }
+            }
+        }
+
         TC_LOG_DEBUG("housing", "Player {} purchased plot {} in neighborhood {}",
             player->GetGUID().ToString(), neighborhoodBuyHouse.PlotIndex,
             neighborhoodBuyHouse.NeighborhoodGuid.ToString());
@@ -1347,6 +1363,22 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     // Send eviction notice to the evicted player and broadcast roster update
     if (result == HOUSING_RESULT_SUCCESS)
     {
+        // Swap the cornerstone GO back to a for-sale-sign
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
+            std::vector<NeighborhoodPlotData const*> plotDataList = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
+            for (NeighborhoodPlotData const* plotData : plotDataList)
+            {
+                if (plotData->PlotIndex == static_cast<int32>(neighborhoodEvictPlot.PlotIndex))
+                {
+                    if (uint32 forSaleEntry = static_cast<uint32>(plotData->PlotGameObjectID))
+                        housingMap->SwapPlotGameObject(neighborhoodEvictPlot.PlotIndex, forSaleEntry);
+                    break;
+                }
+            }
+        }
+
         if (!evictedPlayerGuid.IsEmpty())
         {
             if (Player* evictedPlayer = ObjectAccessor::FindPlayer(evictedPlayerGuid))
