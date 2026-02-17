@@ -237,9 +237,6 @@ TC_GAME_API extern DB2Storage<NPCSoundsEntry>                       sNPCSoundsSt
 TC_GAME_API extern DB2Storage<NPCModelItemSlotDisplayInfoEntry>     sNPCModelItemSlotDisplayInfoStore;
 TC_GAME_API extern DB2Storage<MythicPlusSeasonEntry>                sMythicPlusSeasonStore;
 TC_GAME_API extern DB2Storage<NeighborhoodInitiativeEntry>          sNeighborhoodInitiativeStore;
-TC_GAME_API extern DB2Storage<NeighborhoodInitiativeRewardEntry>    sNeighborhoodInitiativeRewardStore;
-TC_GAME_API extern DB2Storage<NeighborhoodInitiativeTaskEntry>      sNeighborhoodInitiativeTaskStore;
-TC_GAME_API extern DB2Storage<NeighborhoodInitiativeXTaskEntry>     sNeighborhoodInitiativeXTaskStore;
 TC_GAME_API extern DB2Storage<NeighborhoodMapEntry>                 sNeighborhoodMapStore;
 TC_GAME_API extern DB2Storage<NeighborhoodNameGenEntry>             sNeighborhoodNameGenStore;
 TC_GAME_API extern DB2Storage<NeighborhoodPlotEntry>                sNeighborhoodPlotStore;

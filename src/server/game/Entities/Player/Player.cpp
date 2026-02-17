@@ -25215,6 +25215,13 @@ void Player::SendInitialPacketsBeforeAddToMap()
     // worldServerInfo.RestrictedAccountMaxMoney; /// @todo
     worldServerInfo.DifficultyID = GetMap()->GetDifficultyID();
     // worldServerInfo.XRealmPvpAlert;  /// @todo
+    if (Housing* housing = GetHousing())
+    {
+        worldServerInfo.HouseGUID = housing->GetHouseGuid();
+        worldServerInfo.HouseOwnerAccountGUID = GetSession()->GetBattlenetAccountGUID();
+        worldServerInfo.HouseCosmeticOwnerGUID = GetSession()->GetBattlenetAccountGUID();
+        worldServerInfo.NeighborhoodGUID = housing->GetNeighborhoodGuid();
+    }
     SendDirectMessage(worldServerInfo.Write());
 
     // Spell modifiers
@@ -25366,14 +25373,12 @@ void Player::SendInitialPacketsAfterAddToMap()
 
             // Send proactive HouseStatus so client knows about the neighborhood
             WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
-            statusResponse.Flags = 0x20;  // bit 5 = housing service active
-            statusResponse.NeighborhoodGuid = neighborhood->GetGuid();
+            statusResponse.OwnerBNetGuid = GetSession()->GetBattlenetAccountGUID();
+            statusResponse.OwnerPlayerGuid = GetGUID();
             if (housing)
             {
                 statusResponse.HouseGuid = housing->GetHouseGuid();
-                statusResponse.OwnerGuid = GetGUID();
-                statusResponse.Status = 1;
-                statusResponse.Flags |= 0x80;  // bit 7 = has house
+                statusResponse.Status = 1;  // Has house
             }
             SendDirectMessage(statusResponse.Write());
 

@@ -23,6 +23,8 @@
 class Housing;
 class Neighborhood;
 
+class Player;
+
 class TC_GAME_API HousingMap : public Map
 {
 public:
@@ -30,6 +32,9 @@ public:
     ~HousingMap();
 
     void InitVisibilityDistance() override;
+    void LoadGridObjects(NGridType* grid, Cell const& cell) override;
+    bool AddPlayerToMap(Player* player, bool initPlayer = true) override;
+    void RemovePlayerFromMap(Player* player, bool remove) override;
 
     Housing* GetHousingForPlayer(ObjectGuid playerGuid) const;
     Neighborhood* GetNeighborhood() const { return _neighborhood; }

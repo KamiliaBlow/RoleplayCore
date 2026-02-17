@@ -274,6 +274,16 @@ std::string NeighborhoodMgr::GetNeighborhoodName(ObjectGuid neighborhoodGuid) co
     return "";
 }
 
+Neighborhood* NeighborhoodMgr::FindNeighborhoodWithPendingInvite(ObjectGuid playerGuid)
+{
+    for (auto const& [guid, neighborhood] : _neighborhoods)
+    {
+        if (neighborhood->HasPendingInvite(playerGuid))
+            return neighborhood.get();
+    }
+    return nullptr;
+}
+
 Neighborhood* NeighborhoodMgr::FindOrCreateTutorialNeighborhood(ObjectGuid playerGuid, uint32 teamId)
 {
     // Check if player already belongs to a neighborhood
@@ -336,7 +346,7 @@ Neighborhood* NeighborhoodMgr::FindOrCreateTutorialNeighborhood(ObjectGuid playe
     }
 
     // Create a new public, system-generated neighborhood with the player as owner
-    std::string name = (teamId == ALLIANCE) ? "Founder's Point" : "Razorwind Shores";
+    std::string name = sHousingMgr.GenerateNeighborhoodName(targetMapId);
     Neighborhood* neighborhood = CreateNeighborhood(playerGuid, name, targetMapId, factionRestriction, /*isPublic*/ true);
     if (neighborhood)
     {
@@ -383,22 +393,24 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
             // Create a system-owned Alliance neighborhood (owner guid = empty)
             // Use a sentinel owner guid so the neighborhood has a valid owner
             ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, uint64(0));
-            Neighborhood* neighborhood = CreateNeighborhood(systemOwner, "Founder's Point", id, NEIGHBORHOOD_FACTION_ALLIANCE, /*isPublic*/ true);
+            std::string allianceName = sHousingMgr.GenerateNeighborhoodName(id);
+            Neighborhood* neighborhood = CreateNeighborhood(systemOwner, allianceName, id, NEIGHBORHOOD_FACTION_ALLIANCE, /*isPublic*/ true);
             if (neighborhood)
             {
                 hasAlliancePublic = true;
-                TC_LOG_INFO("server.loading", ">> Created default public Alliance neighborhood 'Founder's Point' (map {})", id);
+                TC_LOG_INFO("server.loading", ">> Created default public Alliance neighborhood '{}' (map {})", allianceName, id);
             }
         }
 
         if (!hasHordePublic && isHorde)
         {
             ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 1, uint64(0));
-            Neighborhood* neighborhood = CreateNeighborhood(systemOwner, "Razorwind Shores", id, NEIGHBORHOOD_FACTION_HORDE, /*isPublic*/ true);
+            std::string hordeName = sHousingMgr.GenerateNeighborhoodName(id);
+            Neighborhood* neighborhood = CreateNeighborhood(systemOwner, hordeName, id, NEIGHBORHOOD_FACTION_HORDE, /*isPublic*/ true);
             if (neighborhood)
             {
                 hasHordePublic = true;
-                TC_LOG_INFO("server.loading", ">> Created default public Horde neighborhood 'Razorwind Shores' (map {})", id);
+                TC_LOG_INFO("server.loading", ">> Created default public Horde neighborhood '{}' (map {})", hordeName, id);
             }
         }
     }
@@ -408,6 +420,86 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
     else if (!hasAlliancePublic || !hasHordePublic)
         TC_LOG_WARN("server.loading", ">> Missing public neighborhood for {} — no system-generatable NeighborhoodMap found",
             !hasAlliancePublic ? "Alliance" : "Horde");
+}
+
+void NeighborhoodMgr::CheckAndExpandNeighborhoods()
+{
+    // For each faction, check if all public neighborhoods are at or above 50% occupation
+    // If so, create a new one to accommodate future players
+
+    // Group public neighborhoods by faction
+    std::unordered_map<int32, std::vector<Neighborhood*>> factionNeighborhoods;
+    for (auto const& [guid, neighborhood] : _neighborhoods)
+    {
+        if (neighborhood->IsPublic())
+            factionNeighborhoods[neighborhood->GetFactionRestriction()].push_back(neighborhood.get());
+    }
+
+    // Check each faction
+    for (auto const& [faction, neighborhoods] : factionNeighborhoods)
+    {
+        if (faction == NEIGHBORHOOD_FACTION_NONE)
+            continue;
+
+        bool hasCapacity = false;
+        for (Neighborhood* neighborhood : neighborhoods)
+        {
+            // Count occupied plots
+            uint32 occupiedPlots = 0;
+            for (Neighborhood::PlotInfo const& plot : neighborhood->GetPlots())
+            {
+                if (!plot.OwnerGuid.IsEmpty())
+                    ++occupiedPlots;
+            }
+
+            // If any neighborhood is below 50% occupation, there's still capacity
+            if (occupiedPlots < MAX_NEIGHBORHOOD_PLOTS / 2)
+            {
+                hasCapacity = true;
+                break;
+            }
+        }
+
+        if (hasCapacity)
+            continue;
+
+        // All public neighborhoods for this faction are at or above 50% — create a new one
+        // Find the correct NeighborhoodMapID for this faction
+        uint32 targetMapId = 0;
+        for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
+        {
+            int32 flags = data.UiMapID;
+            bool isAlliance = (flags & 0x1) != 0;
+            bool isHorde = (flags & 0x2) != 0;
+            bool canSystemGenerate = (flags & 0x4) != 0;
+
+            if (!canSystemGenerate)
+                continue;
+
+            if (faction == NEIGHBORHOOD_FACTION_ALLIANCE && isAlliance)
+                { targetMapId = id; break; }
+            else if (faction == NEIGHBORHOOD_FACTION_HORDE && isHorde)
+                { targetMapId = id; break; }
+        }
+
+        if (targetMapId == 0)
+            continue;
+
+        std::string name = sHousingMgr.GenerateNeighborhoodName(targetMapId);
+        ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, uint64(0));
+
+        // Use a unique system owner per neighborhood to avoid the "owner already has a neighborhood" check
+        // Offset by the number of existing neighborhoods for this faction
+        systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0,
+            /*arg2*/ static_cast<uint32>(neighborhoods.size()), uint64(0));
+
+        Neighborhood* newNeighborhood = CreateNeighborhood(systemOwner, name, targetMapId, faction, /*isPublic*/ true);
+        if (newNeighborhood)
+        {
+            TC_LOG_INFO("housing", "CheckAndExpandNeighborhoods: Created new {} neighborhood '{}' (all existing at 50%+ capacity)",
+                faction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde", name);
+        }
+    }
 }
 
 ObjectGuid NeighborhoodMgr::GenerateNeighborhoodGuid()

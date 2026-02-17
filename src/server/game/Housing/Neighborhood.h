@@ -39,6 +39,7 @@ public:
     struct PlotInfo
     {
         uint8 PlotIndex = 0;
+        ObjectGuid PlotGuid;
         ObjectGuid OwnerGuid;
         ObjectGuid HouseGuid;
         ObjectGuid OwnerBnetGuid;
@@ -82,7 +83,7 @@ public:
     // Plot management
     HousingResult PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex);
     void UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
-    HousingResult MoveHouse(ObjectGuid sourcePlotGuid, uint8 newPlotIndex);
+    HousingResult MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex);
     PlotInfo const* GetPlotInfo(uint8 plotIndex) const;
     std::vector<PlotInfo> const& GetPlots() const { return _plots; }
 

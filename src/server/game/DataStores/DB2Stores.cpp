@@ -291,9 +291,6 @@ DB2Storage<NamesProfanityEntry>                 sNamesProfanityStore("NamesProfa
 DB2Storage<NamesReservedEntry>                  sNamesReservedStore("NamesReserved.db2", &NamesReservedLoadInfo::Instance);
 DB2Storage<NamesReservedLocaleEntry>            sNamesReservedLocaleStore("NamesReservedLocale.db2", &NamesReservedLocaleLoadInfo::Instance);
 DB2Storage<NeighborhoodInitiativeEntry>         sNeighborhoodInitiativeStore("NeighborhoodInitiative.db2", &NeighborhoodInitiativeLoadInfo::Instance);
-DB2Storage<NeighborhoodInitiativeRewardEntry>   sNeighborhoodInitiativeRewardStore("NeighborhoodInitiativeReward.db2", &NeighborhoodInitiativeRewardLoadInfo::Instance);
-DB2Storage<NeighborhoodInitiativeTaskEntry>     sNeighborhoodInitiativeTaskStore("NeighborhoodInitiativeTask.db2", &NeighborhoodInitiativeTaskLoadInfo::Instance);
-DB2Storage<NeighborhoodInitiativeXTaskEntry>    sNeighborhoodInitiativeXTaskStore("NeighborhoodInitiativeXTask.db2", &NeighborhoodInitiativeXTaskLoadInfo::Instance);
 DB2Storage<NeighborhoodMapEntry>                sNeighborhoodMapStore("NeighborhoodMap.db2", &NeighborhoodMapLoadInfo::Instance);
 DB2Storage<NeighborhoodNameGenEntry>            sNeighborhoodNameGenStore("NeighborhoodNameGen.db2", &NeighborhoodNameGenLoadInfo::Instance);
 DB2Storage<NeighborhoodPlotEntry>               sNeighborhoodPlotStore("NeighborhoodPlot.db2", &NeighborhoodPlotLoadInfo::Instance);
@@ -991,10 +988,6 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     LOAD_DB2(sNamesReservedStore);
     LOAD_DB2(sNamesReservedLocaleStore);
     LOAD_DB2(sNeighborhoodInitiativeStore);
-    // These DB2 files don't exist in client data yet (V12 housing content, not shipped)
-    //LOAD_DB2(sNeighborhoodInitiativeRewardStore);
-    //LOAD_DB2(sNeighborhoodInitiativeTaskStore);
-    //LOAD_DB2(sNeighborhoodInitiativeXTaskStore);
     LOAD_DB2(sNeighborhoodMapStore);
     LOAD_DB2(sNeighborhoodNameGenStore);
     LOAD_DB2(sNeighborhoodPlotStore);

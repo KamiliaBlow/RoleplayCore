@@ -3255,6 +3255,7 @@ struct MapEntry
     bool IsDynamicDifficultyMap() const { return GetFlags().HasFlag(MapFlags::DynamicDifficulty); }
     bool IsFlexLocking() const { return GetFlags().HasFlag(MapFlags::FlexibleRaidLocking); }
     bool IsGarrison() const { return GetFlags().HasFlag(MapFlags::Garrison); }
+    bool IsNeighborhood() const { return InstanceType == MAP_HOUSE_NEIGHBORHOOD; }
     bool IsSplitByFaction() const
     {
         return ID == 609 || // Acherus (DeathKnight Start)
@@ -3550,33 +3551,6 @@ struct NeighborhoodInitiativeEntry
     int32 Duration;
     int32 RequiredParticipants;
     int32 RewardCurrencyID;
-};
-
-struct NeighborhoodInitiativeRewardEntry
-{
-    uint32 ID;
-    int32 InitiativeID;
-    float ChanceWeight;
-    int32 RewardValue;
-};
-
-struct NeighborhoodInitiativeTaskEntry
-{
-    LocalizedString Name;                    // Meta field 0: FT_STRING
-    LocalizedString Description;             // Meta field 1: FT_STRING
-    uint32 ID;                               // Meta field 2: IndexField
-    int32 TaskType;
-    int32 RequiredCount;
-    int32 TargetID;
-    float ProgressWeight;
-    int32 PlayerConditionID;
-};
-
-struct NeighborhoodInitiativeXTaskEntry
-{
-    uint32 ID;
-    int32 TaskID;
-    int32 InitiativeID;
 };
 
 struct NeighborhoodMapEntry

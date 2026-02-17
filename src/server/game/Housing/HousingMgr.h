@@ -175,33 +175,6 @@ struct NeighborhoodInitiativeData
     int32 RewardCurrencyID = 0;
 };
 
-struct NeighborhoodInitiativeRewardData
-{
-    uint32 ID = 0;
-    int32 InitiativeID = 0;
-    float ChanceWeight = 0.0f;
-    int32 RewardValue = 0;
-};
-
-struct NeighborhoodInitiativeTaskData
-{
-    uint32 ID = 0;
-    std::string Name;
-    std::string Description;
-    int32 TaskType = 0;
-    int32 RequiredCount = 0;
-    int32 TargetID = 0;
-    float ProgressWeight = 0.0f;
-    int32 PlayerConditionID = 0;
-};
-
-struct NeighborhoodInitiativeXTaskData
-{
-    uint32 ID = 0;
-    int32 TaskID = 0;
-    int32 InitiativeID = 0;
-};
-
 struct DecorCategoryData
 {
     uint32 ID = 0;
@@ -254,8 +227,6 @@ public:
     HouseExteriorWmoData const* GetHouseExteriorWmoData(uint32 id) const;
     HouseLevelRewardInfoData const* GetHouseLevelRewardInfoData(uint32 id) const;
     NeighborhoodInitiativeData const* GetNeighborhoodInitiativeData(uint32 id) const;
-    NeighborhoodInitiativeRewardData const* GetNeighborhoodInitiativeRewardData(uint32 id) const;
-    NeighborhoodInitiativeTaskData const* GetNeighborhoodInitiativeTaskData(uint32 id) const;
     DecorCategoryData const* GetDecorCategoryData(uint32 id) const;
     DecorSubcategoryData const* GetDecorSubcategoryData(uint32 id) const;
 
@@ -265,7 +236,6 @@ public:
     std::vector<DecorDyeSlotData const*> GetDyeSlotsForDecor(uint32 houseDecorId) const;
     std::vector<HouseDecorMaterialData const*> GetMaterialsForDecor(uint32 houseDecorId) const;
     std::vector<HouseLevelRewardInfoData const*> GetRewardsForLevel(uint32 houseLevelId) const;
-    std::vector<NeighborhoodInitiativeTaskData const*> GetTasksForInitiative(uint32 initiativeId) const;
 
     // Neighborhood plot lookups
     std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
@@ -311,9 +281,6 @@ private:
     void LoadHouseExteriorWmoData();
     void LoadHouseLevelRewardInfoData();
     void LoadNeighborhoodInitiativeData();
-    void LoadNeighborhoodInitiativeRewardData();
-    void LoadNeighborhoodInitiativeTaskData();
-    void LoadNeighborhoodInitiativeXTaskData();
     void LoadRoomComponentData();
     void LoadDecorCategoryData();
     void LoadDecorSubcategoryData();
@@ -332,8 +299,6 @@ private:
     std::unordered_map<uint32, HouseExteriorWmoData> _houseExteriorWmoStore;
     std::unordered_map<uint32, HouseLevelRewardInfoData> _houseLevelRewardInfoStore;
     std::unordered_map<uint32, NeighborhoodInitiativeData> _neighborhoodInitiativeStore;
-    std::unordered_map<uint32, NeighborhoodInitiativeRewardData> _neighborhoodInitiativeRewardStore;
-    std::unordered_map<uint32, NeighborhoodInitiativeTaskData> _neighborhoodInitiativeTaskStore;
     std::unordered_map<uint32, DecorCategoryData> _decorCategoryStore;
     std::unordered_map<uint32, DecorSubcategoryData> _decorSubcategoryStore;
     std::unordered_map<uint32, DecorDyeSlotData> _decorDyeSlotStore;
@@ -344,7 +309,6 @@ private:
     std::unordered_map<uint32 /*level*/, HouseLevelData const*> _levelDataByLevel;
     std::unordered_map<uint32 /*houseDecorId*/, std::vector<HouseDecorMaterialData const*>> _materialsByDecor;
     std::unordered_map<uint32 /*houseLevelId*/, std::vector<HouseLevelRewardInfoData const*>> _rewardsByLevel;
-    std::unordered_map<uint32 /*initiativeId*/, std::vector<NeighborhoodInitiativeTaskData const*>> _tasksByInitiative;
     std::unordered_map<uint32 /*categoryId*/, std::vector<DecorSubcategoryData const*>> _subcategoriesByCategory;
     std::unordered_map<uint32 /*subcategoryId*/, std::vector<uint32 /*houseDecorId*/>> _decorsBySubcategory;
     std::unordered_map<uint32 /*houseDecorId*/, std::vector<DecorDyeSlotData const*>> _dyeSlotsByDecor;

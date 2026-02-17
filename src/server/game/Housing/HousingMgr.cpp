@@ -54,9 +54,6 @@ void HousingMgr::Initialize()
     LoadHouseExteriorWmoData();
     LoadHouseLevelRewardInfoData();
     LoadNeighborhoodInitiativeData();
-    LoadNeighborhoodInitiativeRewardData();
-    LoadNeighborhoodInitiativeTaskData();
-    LoadNeighborhoodInitiativeXTaskData();
     LoadRoomComponentData();
     LoadDecorCategoryData();
     LoadDecorSubcategoryData();
@@ -65,13 +62,12 @@ void HousingMgr::Initialize()
 
     TC_LOG_INFO("server.loading", ">> Loaded housing data: {} decor, {} levels, "
         "{} rooms, {} themes, {} decor materials, {} exterior wmos, {} level rewards, "
-        "{} initiatives, {} initiative tasks, {} neighborhood maps, {} neighborhood plots, "
+        "{} initiatives, {} neighborhood maps, {} neighborhood plots, "
         "{} decor categories, {} decor subcategories, {} decor dye slots in {}",
         uint32(_houseDecorStore.size()), uint32(_houseLevelDataStore.size()),
         uint32(_houseRoomStore.size()), uint32(_houseThemeStore.size()),
         uint32(_houseDecorMaterialStore.size()), uint32(_houseExteriorWmoStore.size()),
         uint32(_houseLevelRewardInfoStore.size()), uint32(_neighborhoodInitiativeStore.size()),
-        uint32(_neighborhoodInitiativeTaskStore.size()),
         uint32(_neighborhoodMapStore.size()), uint32(_neighborhoodPlotStore.size()),
         uint32(_decorCategoryStore.size()), uint32(_decorSubcategoryStore.size()),
         uint32(_decorDyeSlotStore.size()),
@@ -116,11 +112,16 @@ void HousingMgr::LoadHouseLevelData()
         data.ID = entry->ID;
         data.Level = entry->Level;
         data.QuestID = entry->QuestID;
-        // Budget fields not in HouseLevelData DB2; populated from fallback defaults below
-        data.InteriorDecorPlacementBudget = static_cast<int32>(50 + entry->Level * 25);
-        data.ExteriorDecorPlacementBudget = static_cast<int32>(25 + entry->Level * 15);
-        data.RoomPlacementBudget = static_cast<int32>(20 + entry->Level * 10);
-        data.ExteriorFixtureBudget = static_cast<int32>(10 + entry->Level * 5);
+        // Budget values from captured game data; interior scales per level, others are constant
+        static constexpr int32 InteriorBudgetByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
+        uint32 lvl = static_cast<uint32>(std::max<int32>(entry->Level, 1));
+        if (lvl <= 5)
+            data.InteriorDecorPlacementBudget = InteriorBudgetByLevel[lvl];
+        else
+            data.InteriorDecorPlacementBudget = 2050 + static_cast<int32>((lvl - 5) * 300); // +300/level extrapolation
+        data.ExteriorDecorPlacementBudget = 200;
+        data.RoomPlacementBudget = 19;
+        data.ExteriorFixtureBudget = 1000;
     }
 
     // Fallback defaults if no DB2 data available
@@ -132,10 +133,14 @@ void HousingMgr::LoadHouseLevelData()
             data.ID = level;
             data.Level = static_cast<int32>(level);
             data.QuestID = 0;
-            data.InteriorDecorPlacementBudget = static_cast<int32>(50 + level * 25);
-            data.ExteriorDecorPlacementBudget = static_cast<int32>(25 + level * 15);
-            data.RoomPlacementBudget = static_cast<int32>(20 + level * 10);
-            data.ExteriorFixtureBudget = static_cast<int32>(10 + level * 5);
+            static constexpr int32 InteriorBudgetByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
+            if (level <= 5)
+                data.InteriorDecorPlacementBudget = InteriorBudgetByLevel[level];
+            else
+                data.InteriorDecorPlacementBudget = 2050 + static_cast<int32>((level - 5) * 300);
+            data.ExteriorDecorPlacementBudget = 200;
+            data.RoomPlacementBudget = 19;
+            data.ExteriorFixtureBudget = 1000;
         }
     }
 
@@ -400,8 +405,13 @@ uint32 HousingMgr::GetInteriorDecorBudgetForLevel(uint32 level) const
     if (levelData && levelData->InteriorDecorPlacementBudget > 0)
         return static_cast<uint32>(levelData->InteriorDecorPlacementBudget);
 
-    // Fallback: 50 base + 25 per level
-    return 50 + level * 25;
+    // Fallback: sniff-confirmed interior budgets
+    static constexpr uint32 InteriorBudgetByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
+    if (level >= 1 && level <= 5)
+        return InteriorBudgetByLevel[level];
+    if (level > 5)
+        return 2050 + (level - 5) * 300;
+    return 910;
 }
 
 uint32 HousingMgr::GetExteriorDecorBudgetForLevel(uint32 level) const
@@ -410,8 +420,8 @@ uint32 HousingMgr::GetExteriorDecorBudgetForLevel(uint32 level) const
     if (levelData && levelData->ExteriorDecorPlacementBudget > 0)
         return static_cast<uint32>(levelData->ExteriorDecorPlacementBudget);
 
-    // Fallback: 25 base + 15 per level
-    return 25 + level * 15;
+    // Fallback: sniff-confirmed exterior budget (constant across levels)
+    return 200;
 }
 
 uint32 HousingMgr::GetRoomBudgetForLevel(uint32 level) const
@@ -420,8 +430,8 @@ uint32 HousingMgr::GetRoomBudgetForLevel(uint32 level) const
     if (levelData && levelData->RoomPlacementBudget > 0)
         return static_cast<uint32>(levelData->RoomPlacementBudget);
 
-    // Fallback: 20 base + 10 per level
-    return 20 + level * 10;
+    // Fallback: sniff-confirmed room budget (constant across levels)
+    return 19;
 }
 
 uint32 HousingMgr::GetFixtureBudgetForLevel(uint32 level) const
@@ -430,8 +440,8 @@ uint32 HousingMgr::GetFixtureBudgetForLevel(uint32 level) const
     if (levelData && levelData->ExteriorFixtureBudget > 0)
         return static_cast<uint32>(levelData->ExteriorFixtureBudget);
 
-    // Fallback: 10 base + 5 per level
-    return 10 + level * 5;
+    // Fallback: sniff-confirmed fixture budget (constant across levels)
+    return 1000;
 }
 
 uint32 HousingMgr::GetDecorWeightCost(uint32 decorEntryId) const
@@ -541,50 +551,6 @@ void HousingMgr::LoadNeighborhoodInitiativeData()
     TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeData: Loaded {} NeighborhoodInitiative entries", uint32(_neighborhoodInitiativeStore.size()));
 }
 
-void HousingMgr::LoadNeighborhoodInitiativeRewardData()
-{
-    for (NeighborhoodInitiativeRewardEntry const* entry : sNeighborhoodInitiativeRewardStore)
-    {
-        NeighborhoodInitiativeRewardData& data = _neighborhoodInitiativeRewardStore[entry->ID];
-        data.ID = entry->ID;
-        data.InitiativeID = entry->InitiativeID;
-        data.ChanceWeight = entry->ChanceWeight;
-        data.RewardValue = entry->RewardValue;
-    }
-
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeRewardData: Loaded {} NeighborhoodInitiativeReward entries", uint32(_neighborhoodInitiativeRewardStore.size()));
-}
-
-void HousingMgr::LoadNeighborhoodInitiativeTaskData()
-{
-    for (NeighborhoodInitiativeTaskEntry const* entry : sNeighborhoodInitiativeTaskStore)
-    {
-        NeighborhoodInitiativeTaskData& data = _neighborhoodInitiativeTaskStore[entry->ID];
-        data.ID = entry->ID;
-        data.Name = SafeStr(entry->Name[sWorld->GetDefaultDbcLocale()]);
-        data.Description = SafeStr(entry->Description[sWorld->GetDefaultDbcLocale()]);
-        data.TaskType = entry->TaskType;
-        data.RequiredCount = entry->RequiredCount;
-        data.TargetID = entry->TargetID;
-        data.ProgressWeight = entry->ProgressWeight;
-        data.PlayerConditionID = entry->PlayerConditionID;
-    }
-
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeTaskData: Loaded {} NeighborhoodInitiativeTask entries", uint32(_neighborhoodInitiativeTaskStore.size()));
-}
-
-void HousingMgr::LoadNeighborhoodInitiativeXTaskData()
-{
-    for (NeighborhoodInitiativeXTaskEntry const* entry : sNeighborhoodInitiativeXTaskStore)
-    {
-        // This is a mapping table: link tasks to initiatives
-        if (auto itr = _neighborhoodInitiativeTaskStore.find(entry->TaskID); itr != _neighborhoodInitiativeTaskStore.end())
-            _tasksByInitiative[entry->InitiativeID].push_back(&itr->second);
-    }
-
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeXTaskData: Built task index for {} initiatives", uint32(_tasksByInitiative.size()));
-}
-
 void HousingMgr::LoadRoomComponentData()
 {
     uint32 doorwayCount = 0;
@@ -679,25 +645,7 @@ NeighborhoodInitiativeData const* HousingMgr::GetNeighborhoodInitiativeData(uint
     return nullptr;
 }
 
-NeighborhoodInitiativeRewardData const* HousingMgr::GetNeighborhoodInitiativeRewardData(uint32 id) const
-{
-    auto itr = _neighborhoodInitiativeRewardStore.find(id);
-    if (itr != _neighborhoodInitiativeRewardStore.end())
-        return &itr->second;
-
-    return nullptr;
-}
-
-NeighborhoodInitiativeTaskData const* HousingMgr::GetNeighborhoodInitiativeTaskData(uint32 id) const
-{
-    auto itr = _neighborhoodInitiativeTaskStore.find(id);
-    if (itr != _neighborhoodInitiativeTaskStore.end())
-        return &itr->second;
-
-    return nullptr;
-}
-
-// --- 3 indexed lookup accessors ---
+// --- 2 indexed lookup accessors ---
 
 std::vector<HouseDecorMaterialData const*> HousingMgr::GetMaterialsForDecor(uint32 houseDecorId) const
 {
@@ -712,15 +660,6 @@ std::vector<HouseLevelRewardInfoData const*> HousingMgr::GetRewardsForLevel(uint
 {
     auto itr = _rewardsByLevel.find(houseLevelId);
     if (itr != _rewardsByLevel.end())
-        return itr->second;
-
-    return {};
-}
-
-std::vector<NeighborhoodInitiativeTaskData const*> HousingMgr::GetTasksForInitiative(uint32 initiativeId) const
-{
-    auto itr = _tasksByInitiative.find(initiativeId);
-    if (itr != _tasksByInitiative.end())
         return itr->second;
 
     return {};

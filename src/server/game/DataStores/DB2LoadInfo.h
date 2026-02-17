@@ -4755,48 +4755,6 @@ struct NeighborhoodInitiativeLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 7, &NeighborhoodInitiativeMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE };
 };
 
-struct NeighborhoodInitiativeRewardLoadInfo
-{
-    static constexpr DB2FieldMeta Fields[4] =
-    {
-        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
-        {.IsSigned = false, .Type = FT_FLOAT, .Name = "ChanceWeight" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "RewardValue" },
-    };
-
-    static constexpr DB2LoadInfo Instance{ Fields, 4, &NeighborhoodInitiativeRewardMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_REWARD };
-};
-
-struct NeighborhoodInitiativeTaskLoadInfo
-{
-    static constexpr DB2FieldMeta Fields[8] =
-    {
-        {.IsSigned = false, .Type = FT_STRING, .Name = "Name" },
-        {.IsSigned = false, .Type = FT_STRING, .Name = "Description" },
-        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "TaskType" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "RequiredCount" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "TargetID" },
-        {.IsSigned = false, .Type = FT_FLOAT, .Name = "ProgressWeight" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "PlayerConditionID" },
-    };
-
-    static constexpr DB2LoadInfo Instance{ Fields, 8, &NeighborhoodInitiativeTaskMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_TASK };
-};
-
-struct NeighborhoodInitiativeXTaskLoadInfo
-{
-    static constexpr DB2FieldMeta Fields[3] =
-    {
-        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "TaskID" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
-    };
-
-    static constexpr DB2LoadInfo Instance{ Fields, 3, &NeighborhoodInitiativeXTaskMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_X_TASK };
-};
-
 struct NeighborhoodMapLoadInfo
 {
     static constexpr DB2FieldMeta Fields[8] =

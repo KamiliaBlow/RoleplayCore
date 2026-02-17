@@ -1476,22 +1476,6 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT MAX(ID) + 1 FROM neighborhood_initiative", CONNECTION_SYNCH);
     PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT ID, Name_lang, Description_lang FROM neighborhood_initiative_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
 
-    // NeighborhoodInitiativeReward.db2
-    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_REWARD, "SELECT ID, InitiativeID, ChanceWeight, RewardValue"
-        " FROM neighborhood_initiative_reward WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
-    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_REWARD, "SELECT MAX(ID) + 1 FROM neighborhood_initiative_reward", CONNECTION_SYNCH);
-
-    // NeighborhoodInitiativeTask.db2
-    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_TASK, "SELECT Name, Description, ID, TaskType, RequiredCount, TargetID, ProgressWeight, PlayerConditionID"
-        " FROM neighborhood_initiative_task WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
-    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_TASK, "SELECT MAX(ID) + 1 FROM neighborhood_initiative_task", CONNECTION_SYNCH);
-    PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_TASK, "SELECT ID, Name_lang, Description_lang FROM neighborhood_initiative_task_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
-
-    // NeighborhoodInitiativeXTask.db2
-    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_X_TASK, "SELECT ID, TaskID, InitiativeID"
-        " FROM neighborhood_initiative_x_task WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
-    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE_X_TASK, "SELECT MAX(ID) + 1 FROM neighborhood_initiative_x_task", CONNECTION_SYNCH);
-
     // NeighborhoodMap.db2
     PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT PositionX, PositionY, PositionZ, ID, MapID, Radius, PlotCount, FactionRestriction"
         " FROM neighborhood_map WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
