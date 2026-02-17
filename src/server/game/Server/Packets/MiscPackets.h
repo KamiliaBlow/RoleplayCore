@@ -1182,6 +1182,24 @@ namespace WorldPackets
             uint8 unk;
             uint32 CovenantID;
         };
+		
+		class ChromieTimeSelectExpansion final : public ClientPacket
+        {
+        public:
+            explicit ChromieTimeSelectExpansion(WorldPacket&& packet) : ClientPacket(CMSG_CHROMIE_TIME_SELECT_EXPANSION, std::move(packet)) { }
+
+            void Read() override;
+
+            int32 ExpansionID = 0;
+        };
+
+        class ChromieTimeSelectExpansionSuccess final : public ServerPacket
+        {
+        public:
+            ChromieTimeSelectExpansionSuccess() : ServerPacket(SMSG_CHROMIE_TIME_SELECT_EXPANSION_SUCCESS, 0) { }
+
+            WorldPacket const* Write() override { return &_worldPacket; }
+        };
     }
 }
 

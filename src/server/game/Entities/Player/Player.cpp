@@ -14394,7 +14394,7 @@ void Player::OnGossipSelect(WorldObject* source, int32 gossipOptionId, uint32 me
             break;
         case GossipOptionNpc::GarrisonRecruitment: // NYI
             break;
-        case GossipOptionNpc::ChromieTimeNpc: // NYI
+        case GossipOptionNpc::ChromieTimeNpc:
             break;
         case GossipOptionNpc::RuneforgeLegendaryCrafting:
             PlayerTalkClass->SendCloseGossip();
