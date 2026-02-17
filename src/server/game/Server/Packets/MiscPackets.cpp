@@ -942,4 +942,9 @@ WorldPacket const* WorldPackets::Misc::ActivateSoulbindFailed::Write()
 
     return &_worldPacket;
 }
+
+void ChromieTimeSelectExpansion::Read()
+{
+    _worldPacket >> ExpansionID;
+}
 }
