@@ -319,6 +319,36 @@ AreaTrigger* AreaTrigger::CreateAreaTrigger(AreaTriggerCreatePropertiesId areaTr
     return at;
 }
 
+AreaTrigger* AreaTrigger::CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration /*= -1*/)
+{
+    AreaTrigger* at = new AreaTrigger();
+    if (!at->Create(areaTriggerCreatePropertiesId, map, pos, duration))
+    {
+        delete at;
+        return nullptr;
+    }
+
+    return at;
+}
+
+void AreaTrigger::InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid)
+{
+    if (m_housingPlotAreaTriggerData.has_value())
+        return;
+
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::PlotID), plotId);
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseOwnerGUID), ownerGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseOwnerBnetAccountGUID), ownerBnetGuid);
+
+    m_entityFragments.Add(WowCS::EntityFragment::FHousingPlotAreaTrigger_C, IsInWorld(),
+        WowCS::GetRawFragmentData(m_housingPlotAreaTriggerData));
+}
+
 ObjectGuid AreaTrigger::CreateNewMovementForceId(Map* map, uint32 areaTriggerId)
 {
     return ObjectGuid::Create<HighGuid::AreaTrigger>(map->GetId(), areaTriggerId, map->GenerateLowGuid<HighGuid::AreaTrigger>());

@@ -875,7 +875,9 @@ WorldPacket const* HousingHouseStatusResponse::Write()
     _worldPacket << HouseGuid;
     _worldPacket << OwnerBNetGuid;
     _worldPacket << OwnerPlayerGuid;
-    _worldPacket << uint32(Status);
+    _worldPacket << uint16(HouseStatus);
+    _worldPacket << uint8(PlotIndex);
+    _worldPacket << uint8(StatusFlags);
     return &_worldPacket;
 }
 
@@ -1134,7 +1136,7 @@ WorldPacket const* NeighborhoodCharterSignatureRemovedNotification::Write()
 
 WorldPacket const* NeighborhoodPlayerEnterPlot::Write()
 {
-    _worldPacket << PlayerGuid;
+    _worldPacket << PlotAreaTriggerGuid;
     return &_worldPacket;
 }
 
@@ -1279,6 +1281,7 @@ WorldPacket const* NeighborhoodGetRosterResponse::Write()
     _worldPacket << uint32(Members.size());
     for (auto const& member : Members)
     {
+        _worldPacket << member.HouseGuid;
         _worldPacket << member.PlayerGuid;
         _worldPacket << uint8(member.Role);
         _worldPacket << uint8(member.PlotIndex);
@@ -1293,7 +1296,7 @@ WorldPacket const* NeighborhoodRosterResidentUpdate::Write()
     for (auto const& resident : Residents)
     {
         _worldPacket << resident.PlayerGuid;
-        _worldPacket << uint16(resident.PlotIndex);
+        _worldPacket << uint16(resident.StatusFlags);
     }
     return &_worldPacket;
 }

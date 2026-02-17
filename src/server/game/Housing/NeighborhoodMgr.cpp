@@ -444,13 +444,7 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
         bool hasCapacity = false;
         for (Neighborhood* neighborhood : neighborhoods)
         {
-            // Count occupied plots
-            uint32 occupiedPlots = 0;
-            for (Neighborhood::PlotInfo const& plot : neighborhood->GetPlots())
-            {
-                if (!plot.OwnerGuid.IsEmpty())
-                    ++occupiedPlots;
-            }
+            uint32 occupiedPlots = neighborhood->GetOccupiedPlotCount();
 
             // If any neighborhood is below 50% occupation, there's still capacity
             if (occupiedPlots < MAX_NEIGHBORHOOD_PLOTS / 2)

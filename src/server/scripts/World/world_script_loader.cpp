@@ -27,6 +27,7 @@ void AddSC_npc_guard();
 void AddSC_item_scripts();
 void AddSC_npc_professions();
 void AddSC_npcs_special();
+void AddSC_at_housing_plot();
 void AddSC_npc_housing_steward();
 void AddSC_achievement_scripts();
 void AddSC_action_ip_logger();
@@ -48,6 +49,7 @@ void AddWorldScripts()
     AddSC_item_scripts();
     AddSC_npc_professions();
     AddSC_npcs_special();
+	AddSC_at_housing_plot();
 	AddSC_npc_housing_steward();
     AddSC_achievement_scripts();
     AddSC_chat_log(); // location: scripts\World\chat_log.cpp

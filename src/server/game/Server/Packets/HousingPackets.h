@@ -1260,11 +1260,14 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
 
         // Wire format (sniff-confirmed, 30 bytes):
-        // PackedGUID HouseGUID + PackedGUID OwnerBNetGUID + PackedGUID OwnerPlayerGUID + uint32 Status
+        // PackedGUID HouseGUID + PackedGUID OwnerBNetGUID + PackedGUID OwnerPlayerGUID
+        // + uint16 HouseStatus + uint8 PlotIndex + uint8 StatusFlags
         ObjectGuid HouseGuid;
         ObjectGuid OwnerBNetGuid;
         ObjectGuid OwnerPlayerGuid;
-        uint32 Status = 0;
+        uint16 HouseStatus = 0;       // 0 = no house, 1 = active
+        uint8 PlotIndex = 0xFF;        // INVALID_PLOT_INDEX
+        uint8 StatusFlags = 0;
     };
 
     class HousingGetCurrentHouseInfoResponse final : public ServerPacket
@@ -1667,7 +1670,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodPlayerEnterPlot() : ServerPacket(SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT) { }
         WorldPacket const* Write() override;
-        ObjectGuid PlayerGuid;
+        ObjectGuid PlotAreaTriggerGuid;
     };
 
     class NeighborhoodPlayerLeavePlot final : public ServerPacket
@@ -1841,6 +1844,7 @@ namespace WorldPackets::Neighborhood
 
         struct RosterMemberData
         {
+            ObjectGuid HouseGuid;
             ObjectGuid PlayerGuid;
             uint8 Role = 0;           // NeighborhoodMemberRole
             uint8 PlotIndex = 0xFF;   // INVALID_PLOT_INDEX
@@ -1855,7 +1859,7 @@ namespace WorldPackets::Neighborhood
         struct ResidentEntry
         {
             ObjectGuid PlayerGuid;
-            uint16 PlotIndex = 0;
+            uint16 StatusFlags = 0;
         };
 
         NeighborhoodRosterResidentUpdate() : ServerPacket(SMSG_NEIGHBORHOOD_ROSTER_RESIDENT_UPDATE) { }

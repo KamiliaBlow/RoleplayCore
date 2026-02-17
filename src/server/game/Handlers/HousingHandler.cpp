@@ -119,7 +119,9 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
     response.HouseGuid = housing->GetHouseGuid();
     response.OwnerBNetGuid = GetBattlenetAccountGUID();
     response.OwnerPlayerGuid = player->GetGUID();
-    response.Status = 1;  // House active, not in interior
+    response.HouseStatus = 1;  // House active, not in interior
+    response.PlotIndex = housing->GetPlotIndex();
+    response.StatusFlags = 0;
     SendPacket(response.Write());
 
     TC_LOG_INFO("housing", "CMSG_HOUSE_INTERIOR_LEAVE_HOUSE: Player {} leaving house interior",
@@ -967,12 +969,17 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
     if (!player)
         return;
 
-    // Capture house GUID before deletion
+    // Capture house GUID and neighborhood GUID before deletion
     ObjectGuid houseGuid;
+    ObjectGuid neighborhoodGuid;
     if (Housing const* housing = player->GetHousing())
+    {
         houseGuid = housing->GetHouseGuid();
+        neighborhoodGuid = housing->GetNeighborhoodGuid();
+    }
 
-    player->DeleteHousing();
+    if (!neighborhoodGuid.IsEmpty())
+        player->DeleteHousing(neighborhoodGuid);
 
     WorldPackets::Housing::HousingSvcsRelinquishHouseResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
@@ -1079,10 +1086,8 @@ void WorldSession::HandleHousingSvcsGetPlayerHousesInfo(WorldPackets::Housing::H
 
     TC_LOG_INFO("housing", ">>> CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO received (Player: {})", player->GetGUID().ToString());
 
-    Housing* housing = player->GetHousing();
-
     WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoResponse response;
-    if (housing)
+    for (Housing const* housing : player->GetAllHousings())
     {
         WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoResponse::HouseInfoData info;
         info.HouseGuid = housing->GetHouseGuid();
@@ -1175,7 +1180,9 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
         WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
         statusResponse.OwnerBNetGuid = GetBattlenetAccountGUID();
         statusResponse.OwnerPlayerGuid = player->GetGUID();
-        statusResponse.Status = 1;  // Tutorial started
+        statusResponse.HouseStatus = 1;  // Tutorial started
+        statusResponse.PlotIndex = 0xFF;
+        statusResponse.StatusFlags = 0;
         SendPacket(statusResponse.Write());
     }
     else
@@ -1350,13 +1357,8 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
         entry.NeighborhoodGuid = neighborhood->GetGuid();
         entry.NeighborhoodName = neighborhood->GetName();
         entry.MapID = neighborhood->GetNeighborhoodMapID();
-        entry.TotalPlots = static_cast<uint32>(neighborhood->GetPlots().size());
-        entry.AvailablePlots = 0;
-        for (auto const& plot : neighborhood->GetPlots())
-        {
-            if (plot.OwnerGuid.IsEmpty())
-                ++entry.AvailablePlots;
-        }
+        entry.TotalPlots = MAX_NEIGHBORHOOD_PLOTS;
+        entry.AvailablePlots = MAX_NEIGHBORHOOD_PLOTS - neighborhood->GetOccupiedPlotCount();
         entry.SuggestionReason = 32; // Random
         response.Entries.push_back(std::move(entry));
     }
@@ -1389,9 +1391,12 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     response.NeighborhoodGuid = neighborhood->GetGuid();
     response.NeighborhoodName = neighborhood->GetName();
-    response.Plots.reserve(neighborhood->GetPlots().size());
+    response.Plots.reserve(neighborhood->GetOccupiedPlotCount());
     for (auto const& plot : neighborhood->GetPlots())
     {
+        if (!plot.IsOccupied())
+            continue;
+
         WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse::PlotEntry plotEntry;
         plotEntry.PlotIndex = plot.PlotIndex;
         plotEntry.IsAvailable = plot.OwnerGuid.IsEmpty();
@@ -1462,14 +1467,16 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
         response.HouseGuid = housing->GetHouseGuid();
         response.OwnerBNetGuid = GetBattlenetAccountGUID();
         response.OwnerPlayerGuid = player->GetGUID();
-        response.Status = 1;  // Has house
+        response.HouseStatus = 1;  // Active
+        response.PlotIndex = housing->GetPlotIndex();
+        response.StatusFlags = 0;
     }
     SendPacket(response.Write());
 
     TC_LOG_INFO("housing", ">>> CMSG_HOUSING_HOUSE_STATUS received");
-    TC_LOG_INFO("housing", "<<< SMSG_HOUSING_HOUSE_STATUS_RESPONSE sent (Status: {}, HouseGuid: {}, "
+    TC_LOG_INFO("housing", "<<< SMSG_HOUSING_HOUSE_STATUS_RESPONSE sent (HouseStatus: {}, PlotIndex: {}, StatusFlags: {}, HouseGuid: {}, "
         "OwnerBNetGuid: {}, OwnerPlayerGuid: {})",
-        response.Status,
+        response.HouseStatus, response.PlotIndex, response.StatusFlags,
         response.HouseGuid.ToString(), response.OwnerBNetGuid.ToString(),
         response.OwnerPlayerGuid.ToString());
 }
@@ -1527,7 +1534,9 @@ void WorldSession::HandleHousingResetKioskMode(WorldPackets::Housing::HousingRes
     if (!player)
         return;
 
-    player->DeleteHousing();
+    // Delete the context-aware housing (current neighborhood)
+    if (Housing const* housing = player->GetHousing())
+        player->DeleteHousing(housing->GetNeighborhoodGuid());
 
     WorldPackets::Housing::HousingResetKioskModeResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
@@ -1630,6 +1639,8 @@ void WorldSession::HandleGuildGetOthersOwnedHouses(WorldPackets::Housing::GuildG
         // Find the target player's house guid in the first neighborhood
         for (auto const& plot : neighborhoods[0]->GetPlots())
         {
+            if (!plot.IsOccupied())
+                continue;
             if (plot.OwnerGuid == guildGetOthersOwnedHouses.PlayerGuid)
             {
                 response.HouseGuid = plot.HouseGuid;

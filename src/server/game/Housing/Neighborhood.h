@@ -22,6 +22,7 @@
 #include "DatabaseEnvFwd.h"
 #include "HousingDefines.h"
 #include "ObjectGuid.h"
+#include <array>
 #include <string>
 #include <vector>
 
@@ -38,11 +39,13 @@ public:
 
     struct PlotInfo
     {
-        uint8 PlotIndex = 0;
+        uint8 PlotIndex = INVALID_PLOT_INDEX;
         ObjectGuid PlotGuid;
         ObjectGuid OwnerGuid;
         ObjectGuid HouseGuid;
         ObjectGuid OwnerBnetGuid;
+
+        bool IsOccupied() const { return PlotIndex != INVALID_PLOT_INDEX; }
     };
 
     struct PendingInvite
@@ -84,8 +87,16 @@ public:
     HousingResult PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex);
     void UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
     HousingResult MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex);
-    PlotInfo const* GetPlotInfo(uint8 plotIndex) const;
-    std::vector<PlotInfo> const& GetPlots() const { return _plots; }
+    void SetPlotAreaTriggerGuid(uint8 plotIndex, ObjectGuid atGuid);
+
+    PlotInfo const* GetPlotInfo(uint8 plotIndex) const
+    {
+        return (plotIndex < MAX_NEIGHBORHOOD_PLOTS && _plots[plotIndex].IsOccupied())
+            ? &_plots[plotIndex] : nullptr;
+    }
+
+    std::array<PlotInfo, MAX_NEIGHBORHOOD_PLOTS> const& GetPlots() const { return _plots; }
+    uint32 GetOccupiedPlotCount() const;
 
     // Members
     HousingResult AddResident(ObjectGuid playerGuid);
@@ -110,7 +121,7 @@ private:
     uint32 _createTime = 0;
 
     std::vector<Member> _members;
-    std::vector<PlotInfo> _plots;
+    std::array<PlotInfo, MAX_NEIGHBORHOOD_PLOTS> _plots{};
     std::vector<PendingInvite> _pendingInvites;
 };
 

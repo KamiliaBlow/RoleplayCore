@@ -16,6 +16,7 @@
  */
 
 #include "HousingMap.h"
+#include "AreaTrigger.h"
 #include "GameObject.h"
 #include "GridDefines.h"
 #include "Housing.h"
@@ -106,6 +107,40 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         }
 
         ++goCount;
+
+        // Spawn a plot AreaTrigger at the HousePosition for plot enter/exit detection
+        uint8 plotIndex = static_cast<uint8>(plot->PlotIndex);
+        if (_plotAreaTriggers.find(plotIndex) == _plotAreaTriggers.end())
+        {
+            AreaTriggerCreatePropertiesId atId = { .Id = 37358, .IsCustom = false };
+            Position atPos(plot->HousePosition[0], plot->HousePosition[1], plot->HousePosition[2]);
+
+            AreaTrigger* at = AreaTrigger::CreateStaticAreaTrigger(atId, this, atPos);
+            if (at)
+            {
+                ObjectGuid ownerGuid;
+                ObjectGuid houseGuid;
+                ObjectGuid ownerBnetGuid;
+                if (plotInfo)
+                {
+                    ownerGuid = plotInfo->OwnerGuid;
+                    houseGuid = plotInfo->HouseGuid;
+                    ownerBnetGuid = plotInfo->OwnerBnetGuid;
+                }
+
+                at->InitHousingPlotData(plotIndex, ownerGuid, houseGuid, ownerBnetGuid);
+                _plotAreaTriggers[plotIndex] = at->GetGUID();
+                _neighborhood->SetPlotAreaTriggerGuid(plotIndex, at->GetGUID());
+
+                TC_LOG_DEBUG("maps", "HousingMap::LoadGridObjects: Spawned plot AT for plot {} at ({}, {}, {}) in neighborhood '{}'",
+                    plotIndex, atPos.GetPositionX(), atPos.GetPositionY(), atPos.GetPositionZ(), _neighborhood->GetName());
+            }
+            else
+            {
+                TC_LOG_ERROR("maps", "HousingMap::LoadGridObjects: Failed to create plot AT (entry 37358) for plot {} in neighborhood '{}'",
+                    plotIndex, _neighborhood->GetName());
+            }
+        }
     }
 
     if (goCount > 0)
@@ -113,6 +148,15 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         TC_LOG_DEBUG("maps", "HousingMap::LoadGridObjects: Spawned {} plot GOs for neighborhood '{}' in grid {} on map {}",
             goCount, _neighborhood->GetName(), grid->GetGridId(), GetId());
     }
+}
+
+AreaTrigger* HousingMap::GetPlotAreaTrigger(uint8 plotIndex)
+{
+    auto itr = _plotAreaTriggers.find(plotIndex);
+    if (itr == _plotAreaTriggers.end())
+        return nullptr;
+
+    return GetAreaTrigger(itr->second);
 }
 
 Housing* HousingMap::GetHousingForPlayer(ObjectGuid playerGuid) const
@@ -155,11 +199,8 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     }
 
     // Track player housing if they own a house in this neighborhood
-    if (Housing* housing = player->GetHousing())
-    {
-        if (housing->GetNeighborhoodGuid() == _neighborhood->GetGuid())
-            AddPlayerHousing(player->GetGUID(), housing);
-    }
+    if (Housing* housing = player->GetHousingForNeighborhood(_neighborhood->GetGuid()))
+        AddPlayerHousing(player->GetGUID(), housing);
 
     return Map::AddPlayerToMap(player, initPlayer);
 }

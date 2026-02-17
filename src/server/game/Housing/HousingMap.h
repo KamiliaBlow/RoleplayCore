@@ -20,6 +20,7 @@
 
 #include "Map.h"
 
+class AreaTrigger;
 class Housing;
 class Neighborhood;
 
@@ -37,6 +38,7 @@ public:
     void RemovePlayerFromMap(Player* player, bool remove) override;
 
     Housing* GetHousingForPlayer(ObjectGuid playerGuid) const;
+    AreaTrigger* GetPlotAreaTrigger(uint8 plotIndex);
     Neighborhood* GetNeighborhood() const { return _neighborhood; }
     uint32 GetNeighborhoodId() const { return _neighborhoodId; }
 
@@ -50,6 +52,7 @@ private:
     uint32 _neighborhoodId;
     Neighborhood* _neighborhood;
     std::unordered_map<ObjectGuid, Housing*> _playerHousings;
+    std::unordered_map<uint8, ObjectGuid> _plotAreaTriggers;
 };
 
 #endif // HousingMap_h__

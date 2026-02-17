@@ -959,15 +959,15 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         return;
     }
 
-    // Must not already own a house
-    if (player->GetHousing())
+    // Must not already own a house in this neighborhood
+    if (player->GetHousingForNeighborhood(neighborhoodBuyHouse.NeighborhoodGuid))
     {
         WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
         response.Result = static_cast<uint32>(HOUSING_RESULT_HOUSE_ALREADY_EXISTS);
         SendPacket(response.Write());
 
-        TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Player {} already has a house",
-            player->GetGUID().ToString());
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Player {} already has a house in neighborhood {}",
+            player->GetGUID().ToString(), neighborhoodBuyHouse.NeighborhoodGuid.ToString());
         return;
     }
 
@@ -1062,6 +1062,8 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     uint8 targetPlotIndex = INVALID_PLOT_INDEX;
     for (auto const& plot : neighborhood->GetPlots())
     {
+        if (!plot.IsOccupied())
+            continue;
         if (plot.PlotGuid == neighborhoodMoveHouse.PlotGuid)
         {
             targetPlotIndex = plot.PlotIndex;
@@ -1233,7 +1235,19 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_GET_ROSTER NeighborhoodGuid: {}",
         neighborhoodGetRoster.NeighborhoodGuid.ToString());
 
-    Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGetRoster.NeighborhoodGuid);
+    // Try the GUID from the packet first; fall back to the player's current housing map neighborhood
+    ObjectGuid neighborhoodGuid = neighborhoodGetRoster.NeighborhoodGuid;
+    if (neighborhoodGuid.IsEmpty())
+    {
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+            if (Neighborhood* mapNeighborhood = housingMap->GetNeighborhood())
+                neighborhoodGuid = mapNeighborhood->GetGuid();
+
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodGetRoster: Client sent empty NeighborhoodGuid, resolved to {} from housing map",
+            neighborhoodGuid.ToString());
+    }
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGuid);
     if (!neighborhood)
     {
         WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
@@ -1269,6 +1283,9 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
         data.Role = member.Role;
         data.PlotIndex = member.PlotIndex;
         data.JoinTime = member.JoinTime;
+        if (member.PlotIndex != INVALID_PLOT_INDEX)
+            if (Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(member.PlotIndex))
+                data.HouseGuid = plotInfo->HouseGuid;
         response.Members.push_back(data);
     }
     SendPacket(response.Write());
@@ -1310,17 +1327,13 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Find the plot by index and capture evicted player's GUID
+    // Find the plot by index — O(1) direct array access
     ObjectGuid evictedPlayerGuid;
     ObjectGuid plotGuid;
-    for (auto const& plot : neighborhood->GetPlots())
+    if (Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(neighborhoodEvictPlot.PlotIndex))
     {
-        if (plot.PlotIndex == neighborhoodEvictPlot.PlotIndex)
-        {
-            evictedPlayerGuid = plot.OwnerGuid;
-            plotGuid = plot.PlotGuid;
-            break;
-        }
+        evictedPlayerGuid = plotInfo->OwnerGuid;
+        plotGuid = plotInfo->PlotGuid;
     }
 
     HousingResult result = neighborhood->EvictPlayer(evictedPlayerGuid);

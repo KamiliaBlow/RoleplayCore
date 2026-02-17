@@ -2888,8 +2888,10 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         Garrison* GetGarrison() const { return _garrison.get(); }
 
         void CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex);
-        void DeleteHousing();
-        Housing* GetHousing() const { return _housing.get(); }
+        void DeleteHousing(ObjectGuid neighborhoodGuid);
+        Housing* GetHousing() const;
+        Housing* GetHousingForNeighborhood(ObjectGuid neighborhoodGuid) const;
+        std::vector<Housing const*> GetAllHousings() const;
         void SetHousingEditorModeUpdateField(uint8 mode);
 
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
@@ -3406,7 +3408,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         uint32 _lastTargetedGO;
 
         std::unique_ptr<Garrison> _garrison;
-        std::unique_ptr<Housing> _housing;
+        std::vector<std::unique_ptr<Housing>> _housings;
 
         bool _advancedCombatLoggingEnabled;
 

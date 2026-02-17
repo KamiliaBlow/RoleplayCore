@@ -71,13 +71,11 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             _members.push_back(member);
 
             // Build plot info from members that have plots assigned
-            if (member.PlotIndex != INVALID_PLOT_INDEX)
+            if (member.PlotIndex != INVALID_PLOT_INDEX && member.PlotIndex < MAX_NEIGHBORHOOD_PLOTS)
             {
-                PlotInfo plot;
-                plot.PlotIndex  = member.PlotIndex;
-                plot.OwnerGuid  = member.PlayerGuid;
+                _plots[member.PlotIndex].PlotIndex  = member.PlotIndex;
+                _plots[member.PlotIndex].OwnerGuid  = member.PlayerGuid;
                 // HouseGuid and OwnerBnetGuid are resolved later when needed
-                _plots.push_back(plot);
             }
         } while (members->NextRow());
     }
@@ -542,14 +540,9 @@ HousingResult Neighborhood::EvictPlayer(ObjectGuid playerGuid)
         return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
-    // Remove any plot assignment
-    if (it->PlotIndex != INVALID_PLOT_INDEX)
-    {
-        auto plotIt = std::find_if(_plots.begin(), _plots.end(),
-            [plotIndex = it->PlotIndex](PlotInfo const& plot) { return plot.PlotIndex == plotIndex; });
-        if (plotIt != _plots.end())
-            _plots.erase(plotIt);
-    }
+    // Clear any plot assignment
+    if (it->PlotIndex != INVALID_PLOT_INDEX && it->PlotIndex < MAX_NEIGHBORHOOD_PLOTS)
+        _plots[it->PlotIndex] = PlotInfo{};
 
     _members.erase(it);
 
@@ -667,23 +660,18 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
     }
 
     // Check if plot is already occupied
-    for (PlotInfo const& plot : _plots)
+    if (_plots[plotIndex].IsOccupied())
     {
-        if (plot.PlotIndex == plotIndex)
-        {
-            TC_LOG_DEBUG("housing", "Neighborhood::PurchasePlot: Plot {} is already occupied in neighborhood '{}'",
-                plotIndex, _name);
-            return HOUSING_RESULT_PLOT_ALREADY_OWNED;
-        }
+        TC_LOG_DEBUG("housing", "Neighborhood::PurchasePlot: Plot {} is already occupied in neighborhood '{}'",
+            plotIndex, _name);
+        return HOUSING_RESULT_PLOT_ALREADY_OWNED;
     }
 
     // Assign the plot
     buyer->PlotIndex = plotIndex;
 
-    PlotInfo newPlot;
-    newPlot.PlotIndex   = plotIndex;
-    newPlot.OwnerGuid   = playerGuid;
-    _plots.push_back(newPlot);
+    _plots[plotIndex].PlotIndex   = plotIndex;
+    _plots[plotIndex].OwnerGuid   = playerGuid;
 
     // Persist the plot assignment to DB
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLOT);
@@ -700,21 +688,18 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
 
 void Neighborhood::UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid)
 {
-    for (PlotInfo& plot : _plots)
+    if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS || !_plots[plotIndex].IsOccupied())
     {
-        if (plot.PlotIndex == plotIndex)
-        {
-            plot.HouseGuid = houseGuid;
-            plot.OwnerBnetGuid = ownerBnetGuid;
-
-            TC_LOG_DEBUG("housing", "Neighborhood::UpdatePlotHouseInfo: Plot {} updated with HouseGuid {} and BnetGuid {} in neighborhood '{}'",
-                plotIndex, houseGuid.ToString(), ownerBnetGuid.ToString(), _name);
-            return;
-        }
+        TC_LOG_DEBUG("housing", "Neighborhood::UpdatePlotHouseInfo: Plot {} not found in neighborhood '{}'",
+            plotIndex, _name);
+        return;
     }
 
-    TC_LOG_DEBUG("housing", "Neighborhood::UpdatePlotHouseInfo: Plot {} not found in neighborhood '{}'",
-        plotIndex, _name);
+    _plots[plotIndex].HouseGuid = houseGuid;
+    _plots[plotIndex].OwnerBnetGuid = ownerBnetGuid;
+
+    TC_LOG_DEBUG("housing", "Neighborhood::UpdatePlotHouseInfo: Plot {} updated with HouseGuid {} and BnetGuid {} in neighborhood '{}'",
+        plotIndex, houseGuid.ToString(), ownerBnetGuid.ToString(), _name);
 }
 
 HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex)
@@ -727,36 +712,35 @@ HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotI
     }
 
     // Check destination is not occupied
-    for (PlotInfo const& plot : _plots)
+    if (_plots[newPlotIndex].IsOccupied())
     {
-        if (plot.PlotIndex == newPlotIndex)
-        {
-            TC_LOG_DEBUG("housing", "Neighborhood::MoveHouse: Target plot {} is occupied in neighborhood '{}'",
-                newPlotIndex, _name);
-            return HOUSING_RESULT_PLOT_ALREADY_OWNED;
-        }
+        TC_LOG_DEBUG("housing", "Neighborhood::MoveHouse: Target plot {} is occupied in neighborhood '{}'",
+            newPlotIndex, _name);
+        return HOUSING_RESULT_PLOT_ALREADY_OWNED;
     }
 
-    // Find the source plot
-    PlotInfo* sourcePlot = nullptr;
-    for (PlotInfo& plot : _plots)
+    // Find the source plot by owner (still needs linear scan by OwnerGuid)
+    uint8 oldPlotIndex = INVALID_PLOT_INDEX;
+    for (uint8 i = 0; i < MAX_NEIGHBORHOOD_PLOTS; ++i)
     {
-        if (plot.OwnerGuid == sourcePlotOwner)
+        if (_plots[i].IsOccupied() && _plots[i].OwnerGuid == sourcePlotOwner)
         {
-            sourcePlot = &plot;
+            oldPlotIndex = i;
             break;
         }
     }
 
-    if (!sourcePlot)
+    if (oldPlotIndex == INVALID_PLOT_INDEX)
     {
         TC_LOG_DEBUG("housing", "Neighborhood::MoveHouse: Player {} has no plot in neighborhood '{}'",
             sourcePlotOwner.ToString(), _name);
         return HOUSING_RESULT_PLOT_NOT_AVAILABLE;
     }
 
-    uint8 oldPlotIndex = sourcePlot->PlotIndex;
-    sourcePlot->PlotIndex = newPlotIndex;
+    // Move plot data: copy to new slot, clear old slot
+    _plots[newPlotIndex] = _plots[oldPlotIndex];
+    _plots[newPlotIndex].PlotIndex = newPlotIndex;
+    _plots[oldPlotIndex] = PlotInfo{};
 
     // Update the member's plot index as well
     for (Member& member : _members)
@@ -781,13 +765,21 @@ HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotI
     return HOUSING_RESULT_SUCCESS;
 }
 
-Neighborhood::PlotInfo const* Neighborhood::GetPlotInfo(uint8 plotIndex) const
+uint32 Neighborhood::GetOccupiedPlotCount() const
 {
-    for (PlotInfo const& plot : _plots)
-        if (plot.PlotIndex == plotIndex)
-            return &plot;
+    uint32 count = 0;
+    for (auto const& plot : _plots)
+        if (plot.IsOccupied())
+            ++count;
+    return count;
+}
 
-    return nullptr;
+void Neighborhood::SetPlotAreaTriggerGuid(uint8 plotIndex, ObjectGuid atGuid)
+{
+    if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
+        return;
+
+    _plots[plotIndex].PlotGuid = atGuid;
 }
 
 Neighborhood::Member const* Neighborhood::GetMember(ObjectGuid playerGuid) const
