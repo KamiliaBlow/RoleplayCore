@@ -3478,23 +3478,23 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
                 gameObjectUILink.ObjectGUID = GetGUID();
                 switch (GetGOInfo()->UILink.UILinkType)
                 {
-                    case 0:
-                        gameObjectUILink.InteractionType = PlayerInteractionType::AdventureJournal;
-                        break;
-                    case 1:
-                        gameObjectUILink.InteractionType = PlayerInteractionType::ObliterumForge;
-                        break;
-                    case 2:
-                        gameObjectUILink.InteractionType = PlayerInteractionType::ScrappingMachine;
-                        break;
-                    case 3:
-                        gameObjectUILink.InteractionType = PlayerInteractionType::ItemInteraction;
-                        break;
-                    default:
-                        break;
+                case 0:
+                    gameObjectUILink.InteractionType = PlayerInteractionType::AdventureJournal;
+                    break;
+                case 1:
+                    gameObjectUILink.InteractionType = PlayerInteractionType::ObliterumForge;
+                    break;
+                case 2:
+                    gameObjectUILink.InteractionType = PlayerInteractionType::ScrappingMachine;
+                    break;
+                case 3:
+                    gameObjectUILink.InteractionType = PlayerInteractionType::ItemInteraction;
+                    break;
+                default:
+                    break;
                 }
+                player->SendDirectMessage(gameObjectUILink.Write());
             }
-            player->SendDirectMessage(gameObjectUILink.Write());
             return;
         }
         case GAMEOBJECT_TYPE_GATHERING_NODE:                //50
