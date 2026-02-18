@@ -646,6 +646,18 @@ namespace WorldPackets
         class PetSetAction;
     }
 
+    namespace PerksProgram
+    {
+        class PerksProgramStatusRequest;
+        class PerksProgramItemsRefreshed;
+        class PerksProgramRequestPurchase;
+        class PerksProgramRequestCartCheckout;
+        class PerksProgramRequestRefund;
+        class PerksProgramSetFrozenVendorItem;
+        class PerksProgramRequestPendingRewards;
+        class PerksProgramGetRecentPurchases;
+    }
+
     namespace Petition
     {
         class DeclinePetition;
@@ -1888,6 +1900,16 @@ class TC_GAME_API WorldSession
         void HandleBattlePetSummon(WorldPackets::BattlePet::BattlePetSummon& battlePetSummon);
         void HandleBattlePetUpdateNotify(WorldPackets::BattlePet::BattlePetUpdateNotify& battlePetUpdateNotify);
         void HandleCageBattlePet(WorldPackets::BattlePet::CageBattlePet& cageBattlePet);
+
+        // Perks Program
+        void HandlePerksProgramStatusRequest(WorldPackets::PerksProgram::PerksProgramStatusRequest& perksProgramStatusRequest);
+        void HandlePerksProgramItemsRefreshed(WorldPackets::PerksProgram::PerksProgramItemsRefreshed& perksProgramItemsRefreshed);
+        void HandlePerksProgramRequestPurchase(WorldPackets::PerksProgram::PerksProgramRequestPurchase& perksProgramRequestPurchase);
+        void HandlePerksProgramRequestCartCheckout(WorldPackets::PerksProgram::PerksProgramRequestCartCheckout& perksProgramRequestCartCheckout);
+        void HandlePerksProgramRequestRefund(WorldPackets::PerksProgram::PerksProgramRequestRefund& perksProgramRequestRefund);
+        void HandlePerksProgramSetFrozenVendorItem(WorldPackets::PerksProgram::PerksProgramSetFrozenVendorItem& perksProgramSetFrozenVendorItem);
+        void HandlePerksProgramRequestPendingRewards(WorldPackets::PerksProgram::PerksProgramRequestPendingRewards& perksProgramRequestPendingRewards);
+        void HandlePerksProgramGetRecentPurchases(WorldPackets::PerksProgram::PerksProgramGetRecentPurchases& perksProgramGetRecentPurchases);
 
         // Battlenet
         void HandleBattlenetChangeRealmTicket(WorldPackets::Battlenet::ChangeRealmTicket& changeRealmTicket);
