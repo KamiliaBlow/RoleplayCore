@@ -53,14 +53,32 @@ void HousingMap::InitVisibilityDistance()
 void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
 {
     Map::LoadGridObjects(grid, cell);
+}
 
+void HousingMap::SpawnPlotGameObjects()
+{
     if (!_neighborhood)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: _neighborhood is NULL for map {} instanceId {} neighborhoodId {}",
+            GetId(), GetInstanceId(), _neighborhoodId);
         return;
+    }
 
     uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
 
+    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: map={} instanceId={} neighborhoodMapId={} plotCount={}",
+        GetId(), GetInstanceId(), neighborhoodMapId, uint32(plots.size()));
+
+    if (plots.empty())
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: NO plots found for neighborhoodMapId={} (neighborhood='{}') - check DB2 NeighborhoodPlot data",
+            neighborhoodMapId, _neighborhood->GetName());
+        return;
+    }
+
     uint32 goCount = 0;
+    uint32 noEntryCount = 0;
 
     for (NeighborhoodPlotData const* plot : plots)
     {
@@ -68,12 +86,10 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         float y = plot->CornerstonePosition[1];
         float z = plot->CornerstonePosition[2];
 
-        // Check if this plot's cornerstone position falls in the current cell
-        CellCoord cellCoord = Trinity::ComputeCellCoord(x, y);
-        if (cellCoord != cell.GetCellCoord())
-            continue;
+        // Ensure the grid at this position is loaded so we can add GOs
+        LoadGrid(x, y);
 
-        // Determine which GO to spawn: owned plot → CornerstoneGameObjectID, empty → PlotGameObjectID ("For Sale Sign")
+        // Determine which GO to spawn: owned plot -> CornerstoneGameObjectID, empty -> PlotGameObjectID ("For Sale Sign")
         Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(static_cast<uint8>(plot->PlotIndex));
         uint32 goEntry = 0;
 
@@ -82,8 +98,17 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         else
             goEntry = static_cast<uint32>(plot->PlotGameObjectID);
 
+        TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} at ({:.1f}, {:.1f}, {:.1f}) -> goEntry={} (Cornerstone={}, ForSale={}, owned={})",
+            plot->PlotIndex, x, y, z, goEntry, plot->CornerstoneGameObjectID, plot->PlotGameObjectID,
+            (plotInfo && !plotInfo->OwnerGuid.IsEmpty()) ? "yes" : "no");
+
         if (!goEntry)
+        {
+            TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Plot {} has goEntry=0 (CornerstoneGO={}, PlotGO={}) - skipping",
+                plot->PlotIndex, plot->CornerstoneGameObjectID, plot->PlotGameObjectID);
+            ++noEntryCount;
             continue;
+        }
 
         // Build rotation from the stored euler angles
         float rotZ = plot->CornerstoneRotation[2];
@@ -93,7 +118,7 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, GO_STATE_READY);
         if (!go)
         {
-            TC_LOG_ERROR("maps", "HousingMap::LoadGridObjects: Failed to create GO entry {} at ({}, {}, {}) for plot {} in neighborhood '{}'",
+            TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to create GO entry {} at ({}, {}, {}) for plot {} in neighborhood '{}'",
                 goEntry, x, y, z, plot->PlotIndex, _neighborhood->GetName());
             continue;
         }
@@ -101,7 +126,7 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         if (!AddToMap(go))
         {
             delete go;
-            TC_LOG_ERROR("maps", "HousingMap::LoadGridObjects: Failed to add GO entry {} to map for plot {} in neighborhood '{}'",
+            TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to add GO entry {} to map for plot {} in neighborhood '{}'",
                 goEntry, plot->PlotIndex, _neighborhood->GetName());
             continue;
         }
@@ -117,6 +142,9 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
         {
             AreaTriggerCreatePropertiesId atId = { .Id = 37358, .IsCustom = false };
             Position atPos(plot->HousePosition[0], plot->HousePosition[1], plot->HousePosition[2]);
+
+            // Ensure the grid at the AT position is loaded too
+            LoadGrid(atPos.GetPositionX(), atPos.GetPositionY());
 
             AreaTrigger* at = AreaTrigger::CreateStaticAreaTrigger(atId, this, atPos);
             if (at)
@@ -135,22 +163,19 @@ void HousingMap::LoadGridObjects(NGridType* grid, Cell const& cell)
                 _plotAreaTriggers[plotIndex] = at->GetGUID();
                 _neighborhood->SetPlotAreaTriggerGuid(plotIndex, at->GetGUID());
 
-                TC_LOG_DEBUG("maps", "HousingMap::LoadGridObjects: Spawned plot AT for plot {} at ({}, {}, {}) in neighborhood '{}'",
+                TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Spawned plot AT for plot {} at ({}, {}, {}) in neighborhood '{}'",
                     plotIndex, atPos.GetPositionX(), atPos.GetPositionY(), atPos.GetPositionZ(), _neighborhood->GetName());
             }
             else
             {
-                TC_LOG_ERROR("maps", "HousingMap::LoadGridObjects: Failed to create plot AT (entry 37358) for plot {} in neighborhood '{}'",
+                TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to create plot AT (entry 37358) for plot {} in neighborhood '{}'",
                     plotIndex, _neighborhood->GetName());
             }
         }
     }
 
-    if (goCount > 0)
-    {
-        TC_LOG_DEBUG("maps", "HousingMap::LoadGridObjects: Spawned {} plot GOs for neighborhood '{}' in grid {} on map {}",
-            goCount, _neighborhood->GetName(), grid->GetGridId(), GetId());
-    }
+    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs and {} ATs for {} plots in neighborhood '{}' (noEntry={})",
+        goCount, uint32(_plotAreaTriggers.size()), uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
 }
 
 AreaTrigger* HousingMap::GetPlotAreaTrigger(uint8 plotIndex)
@@ -192,7 +217,7 @@ void HousingMap::SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry)
 
     if (!plotData)
     {
-        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Plot {} not found in DB2 data for neighborhood '{}'",
+        TC_LOG_ERROR("housing", "HousingMap::SwapPlotGameObject: Plot {} not found in DB2 data for neighborhood '{}'",
             plotIndex, _neighborhood->GetName());
         return;
     }
@@ -218,7 +243,7 @@ void HousingMap::SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry)
     GameObject* newGo = GameObject::CreateGameObject(newGoEntry, this, pos, rot, 255, GO_STATE_READY);
     if (!newGo)
     {
-        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Failed to create GO entry {} for plot {} in neighborhood '{}'",
+        TC_LOG_ERROR("housing", "HousingMap::SwapPlotGameObject: Failed to create GO entry {} for plot {} in neighborhood '{}'",
             newGoEntry, plotIndex, _neighborhood->GetName());
         return;
     }
@@ -226,14 +251,14 @@ void HousingMap::SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry)
     if (!AddToMap(newGo))
     {
         delete newGo;
-        TC_LOG_ERROR("maps", "HousingMap::SwapPlotGameObject: Failed to add GO entry {} to map for plot {} in neighborhood '{}'",
+        TC_LOG_ERROR("housing", "HousingMap::SwapPlotGameObject: Failed to add GO entry {} to map for plot {} in neighborhood '{}'",
             newGoEntry, plotIndex, _neighborhood->GetName());
         return;
     }
 
     _plotGameObjects[plotIndex] = newGo->GetGUID();
 
-    TC_LOG_DEBUG("maps", "HousingMap::SwapPlotGameObject: Swapped plot {} GO to entry {} in neighborhood '{}'",
+    TC_LOG_DEBUG("housing", "HousingMap::SwapPlotGameObject: Swapped plot {} GO to entry {} in neighborhood '{}'",
         plotIndex, newGoEntry, _neighborhood->GetName());
 }
 
@@ -252,10 +277,10 @@ void HousingMap::LoadNeighborhoodData()
     _neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGuid);
 
     if (!_neighborhood)
-        TC_LOG_ERROR("maps", "HousingMap::LoadNeighborhoodData: Failed to load neighborhood {} for map {} instanceId {}",
+        TC_LOG_ERROR("housing", "HousingMap::LoadNeighborhoodData: Failed to load neighborhood {} for map {} instanceId {}",
             _neighborhoodId, GetId(), GetInstanceId());
     else
-        TC_LOG_DEBUG("maps", "HousingMap::LoadNeighborhoodData: Loaded neighborhood '{}' (id: {}) for map {} instanceId {}",
+        TC_LOG_DEBUG("housing", "HousingMap::LoadNeighborhoodData: Loaded neighborhood '{}' (id: {}) for map {} instanceId {}",
             _neighborhood->GetName(), _neighborhoodId, GetId(), GetInstanceId());
 }
 
@@ -263,7 +288,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 {
     if (!_neighborhood)
     {
-        TC_LOG_ERROR("maps", "HousingMap::AddPlayerToMap: No neighborhood loaded for map {} instanceId {}",
+        TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: No neighborhood loaded for map {} instanceId {}",
             GetId(), GetInstanceId());
         return false;
     }
@@ -272,7 +297,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (!_neighborhood->IsMember(player->GetGUID()))
     {
         _neighborhood->AddResident(player->GetGUID());
-        TC_LOG_DEBUG("maps", "HousingMap::AddPlayerToMap: Auto-added player {} as resident of neighborhood '{}'",
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Auto-added player {} as resident of neighborhood '{}'",
             player->GetGUID().ToString(), _neighborhood->GetName());
     }
 
@@ -287,7 +312,7 @@ void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
 {
     RemovePlayerHousing(player->GetGUID());
 
-    TC_LOG_DEBUG("maps", "HousingMap::RemovePlayerFromMap: Player {} leaving housing map {} instanceId {}",
+    TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerFromMap: Player {} leaving housing map {} instanceId {}",
         player->GetGUID().ToString(), GetId(), GetInstanceId());
 
     Map::RemovePlayerFromMap(player, remove);
@@ -297,14 +322,14 @@ void HousingMap::AddPlayerHousing(ObjectGuid playerGuid, Housing* housing)
 {
     if (!housing)
     {
-        TC_LOG_ERROR("maps", "HousingMap::AddPlayerHousing: Attempted to add null housing for player {} on map {} instanceId {}",
+        TC_LOG_ERROR("housing", "HousingMap::AddPlayerHousing: Attempted to add null housing for player {} on map {} instanceId {}",
             playerGuid.ToString(), GetId(), GetInstanceId());
         return;
     }
 
     _playerHousings[playerGuid] = housing;
 
-    TC_LOG_DEBUG("maps", "HousingMap::AddPlayerHousing: Added housing for player {} on map {} instanceId {} (total: {})",
+    TC_LOG_DEBUG("housing", "HousingMap::AddPlayerHousing: Added housing for player {} on map {} instanceId {} (total: {})",
         playerGuid.ToString(), GetId(), GetInstanceId(), static_cast<uint32>(_playerHousings.size()));
 }
 
@@ -315,12 +340,12 @@ void HousingMap::RemovePlayerHousing(ObjectGuid playerGuid)
     {
         _playerHousings.erase(itr);
 
-        TC_LOG_DEBUG("maps", "HousingMap::RemovePlayerHousing: Removed housing for player {} on map {} instanceId {} (remaining: {})",
+        TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerHousing: Removed housing for player {} on map {} instanceId {} (remaining: {})",
             playerGuid.ToString(), GetId(), GetInstanceId(), static_cast<uint32>(_playerHousings.size()));
     }
     else
     {
-        TC_LOG_DEBUG("maps", "HousingMap::RemovePlayerHousing: No housing found for player {} on map {} instanceId {}",
+        TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerHousing: No housing found for player {} on map {} instanceId {}",
             playerGuid.ToString(), GetId(), GetInstanceId());
     }
 }

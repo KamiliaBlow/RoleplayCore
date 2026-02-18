@@ -260,8 +260,30 @@ void HousingMgr::LoadNeighborhoodPlotData()
     for (auto const& [id, plot] : _neighborhoodPlotStore)
         _plotsByMap[plot.NeighborhoodMapID].push_back(&plot);
 
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodPlotData: Loaded {} NeighborhoodPlot entries across {} maps",
+    TC_LOG_INFO("housing", "HousingMgr::LoadNeighborhoodPlotData: Loaded {} NeighborhoodPlot entries across {} maps",
         uint32(_neighborhoodPlotStore.size()), uint32(_plotsByMap.size()));
+
+    // Dump per-map plot counts and sample GO entries for debugging
+    for (auto const& [mapId, plotVec] : _plotsByMap)
+    {
+        uint32 hasForSale = 0, hasCornerstone = 0;
+        for (auto const* p : plotVec)
+        {
+            if (p->PlotGameObjectID) ++hasForSale;
+            if (p->CornerstoneGameObjectID) ++hasCornerstone;
+        }
+        TC_LOG_INFO("housing", "  NeighborhoodMapID={}: {} plots, {} with ForSaleGO, {} with CornerstoneGO",
+            mapId, uint32(plotVec.size()), hasForSale, hasCornerstone);
+
+        // Log first plot as sample
+        if (!plotVec.empty())
+        {
+            auto const* sample = plotVec[0];
+            TC_LOG_INFO("housing", "    Sample plot[0]: ID={} PlotIndex={} ForSaleGO={} CornerstoneGO={} Cost={} Pos=({:.1f},{:.1f},{:.1f})",
+                sample->ID, sample->PlotIndex, sample->PlotGameObjectID, sample->CornerstoneGameObjectID,
+                sample->Cost, sample->CornerstonePosition[0], sample->CornerstonePosition[1], sample->CornerstonePosition[2]);
+        }
+    }
 }
 
 void HousingMgr::LoadNeighborhoodNameGenData()
@@ -353,6 +375,10 @@ std::vector<NeighborhoodPlotData const*> HousingMgr::GetPlotsForMap(uint32 neigh
     auto itr = _plotsByMap.find(neighborhoodMapId);
     if (itr != _plotsByMap.end())
         return itr->second;
+
+    TC_LOG_ERROR("housing", "HousingMgr::GetPlotsForMap: No plots found for neighborhoodMapId={}. Available map IDs:", neighborhoodMapId);
+    for (auto const& [id, vec] : _plotsByMap)
+        TC_LOG_ERROR("housing", "  neighborhoodMapId={} ({} plots)", id, uint32(vec.size()));
 
     return {};
 }

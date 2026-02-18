@@ -45,6 +45,7 @@ public:
     uint32 GetNeighborhoodId() const { return _neighborhoodId; }
 
     void LoadNeighborhoodData();
+    void SpawnPlotGameObjects();
 
     // Player housing instance tracking
     void AddPlayerHousing(ObjectGuid playerGuid, Housing* housing);
