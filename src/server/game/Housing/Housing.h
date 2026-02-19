@@ -136,6 +136,7 @@ public:
     std::vector<CatalogEntry const*> GetCatalogEntries() const;
 
     // House level and favor
+    void AddLevel(uint32 amount);
     void AddFavor(uint64 amount);
     uint64 GetFavor64() const { return _favor64; }
     uint32 GetMaxDecorCount() const;
@@ -160,6 +161,18 @@ public:
     // Settings
     void SaveSettings(uint32 settingsFlags);
 
+    // Exterior lock state
+    void SetExteriorLocked(bool locked);
+    bool IsExteriorLocked() const { return _exteriorLocked; }
+
+    // House size (HousingFixtureSize enum)
+    void SetHouseSize(uint8 size);
+    uint8 GetHouseSize() const { return _houseSize; }
+
+    // House type (HouseExteriorWmoData ID)
+    void SetHouseType(uint32 typeId);
+    uint32 GetHouseType() const { return _houseType; }
+
 private:
     uint64 GenerateDecorDbId();
     uint64 GenerateRoomDbId();
@@ -181,6 +194,9 @@ private:
     uint64 _favor64 = 0;
     uint32 _settingsFlags;
     HousingEditorMode _editorMode;
+    bool _exteriorLocked = false;
+    uint8 _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
+    uint32 _houseType = 0;
 
     // WeightCost-based budget tracking
     uint32 _interiorDecorWeightUsed = 0;

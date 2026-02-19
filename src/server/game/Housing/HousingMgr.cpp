@@ -275,13 +275,12 @@ void HousingMgr::LoadNeighborhoodPlotData()
         TC_LOG_INFO("housing", "  NeighborhoodMapID={}: {} plots, {} with ForSaleGO, {} with CornerstoneGO",
             mapId, uint32(plotVec.size()), hasForSale, hasCornerstone);
 
-        // Log first plot as sample
-        if (!plotVec.empty())
+        // Log all plots with their WorldState IDs
+        for (auto const* p : plotVec)
         {
-            auto const* sample = plotVec[0];
-            TC_LOG_INFO("housing", "    Sample plot[0]: ID={} PlotIndex={} ForSaleGO={} CornerstoneGO={} Cost={} Pos=({:.1f},{:.1f},{:.1f})",
-                sample->ID, sample->PlotIndex, sample->PlotGameObjectID, sample->CornerstoneGameObjectID,
-                sample->Cost, sample->CornerstonePosition[0], sample->CornerstonePosition[1], sample->CornerstonePosition[2]);
+            TC_LOG_INFO("housing", "    Plot[{}]: ID={} ForSaleGO={} CornerstoneGO={} WorldState={} Cost={}",
+                p->PlotIndex, p->ID, p->PlotGameObjectID, p->CornerstoneGameObjectID,
+                p->WorldState, p->Cost);
         }
     }
 }
@@ -492,7 +491,7 @@ HousingResult HousingMgr::ValidateDecorPlacement(uint32 decorId, Position const&
 {
     HouseDecorData const* decorEntry = GetHouseDecorData(decorId);
     if (!decorEntry)
-        return HOUSING_RESULT_DECOR_INVALID_GUID;
+        return HOUSING_RESULT_DECOR_NOT_FOUND;
 
     // Validate position is within reasonable bounds
     if (!pos.IsPositionValid())

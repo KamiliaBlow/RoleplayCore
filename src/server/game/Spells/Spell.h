@@ -463,6 +463,12 @@ class TC_GAME_API Spell
         void EffectSetPlayerDataElementCharacter();
         void EffectSetPlayerDataFlagAccount();
         void EffectSetPlayerDataFlagCharacter();
+        void EffectGiveHouseLevel();
+        void EffectLearnHouseRoom();
+        void EffectLearnHouseExteriorComponent();
+        void EffectLearnHouseTheme();
+        void EffectLearnHouseRoomComponentTexture();
+        void EffectSetNeighborhoodInitiative();
 
         //NEW
         void EffectApplyAreaAura();

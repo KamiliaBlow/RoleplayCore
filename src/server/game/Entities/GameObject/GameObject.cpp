@@ -4254,6 +4254,20 @@ void GameObject::ClearValuesChangesMask()
     WorldObject::ClearValuesChangesMask();
 }
 
+void GameObject::InitHousingCornerstoneData(uint64 cost, int32 plotIndex)
+{
+    if (m_housingCornerstoneData.has_value())
+        return;
+
+    SetUpdateFieldValue(m_values.ModifyValue(&GameObject::m_housingCornerstoneData, 0)
+        .ModifyValue(&UF::HousingCornerstoneData::Cost), cost);
+    SetUpdateFieldValue(m_values.ModifyValue(&GameObject::m_housingCornerstoneData, 0)
+        .ModifyValue(&UF::HousingCornerstoneData::PlotIndex), plotIndex);
+
+    m_entityFragments.Add(WowCS::EntityFragment::FJamHousingCornerstone_C, IsInWorld(),
+        WowCS::GetRawFragmentData(m_housingCornerstoneData));
+}
+
 std::span<uint32 const> GameObject::GetPauseTimes() const
 {
     std::span<uint32 const> result;

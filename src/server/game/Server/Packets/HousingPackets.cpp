@@ -932,6 +932,24 @@ WorldPacket const* AccountHouseTypeCollectionUpdate::Write()
     return &_worldPacket;
 }
 
+WorldPacket const* AccountRoomCollectionUpdate::Write()
+{
+    _worldPacket << uint32(RoomID);
+    return &_worldPacket;
+}
+
+WorldPacket const* AccountRoomThemeCollectionUpdate::Write()
+{
+    _worldPacket << uint32(ThemeID);
+    return &_worldPacket;
+}
+
+WorldPacket const* AccountRoomMaterialCollectionUpdate::Write()
+{
+    _worldPacket << uint32(MaterialID);
+    return &_worldPacket;
+}
+
 WorldPacket const* InvalidateNeighborhood::Write()
 {
     _worldPacket << NeighborhoodGuid;
@@ -1277,16 +1295,63 @@ WorldPacket const* NeighborhoodOfferOwnershipResponse::Write()
 
 WorldPacket const* NeighborhoodGetRosterResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // Wire format verified against retail sniff + IDA client handler analysis
+    // Structure: Result(1) + CountA(4) + ArrayB{CountB(4) + GroupEntry{...}} + Flags(1) + ArrayA{...}
+
+    // Step 1: Result (uint8, NOT uint32)
+    _worldPacket << uint8(Result);
+
+    // Step 2: Count A — number of entries in the flat player-GUID array at the end
     _worldPacket << uint32(Members.size());
+
+    // Step 3: Array B — "groups" (always 1 group = the neighborhood)
+    _worldPacket << uint32(1); // Count B = 1 group
+
+    // Step 3b: Single group entry (sub_7FF6A8B3A570)
+    _worldPacket << ObjectGuid::Empty;  // Group GUID 1 (empty in retail sniff)
+    _worldPacket << ObjectGuid::Empty;  // Group GUID 2 (empty in retail sniff)
+    _worldPacket << uint64(0);          // Value 1 (timestamp or flags, 0 in sniff)
+    _worldPacket << uint64(0);          // Value 2 (timestamp or flags, 0 in sniff)
+
+    // Sub-array count within this group = number of residents
+    _worldPacket << uint32(Members.size());
+
+    // String length for connected realm name (read before sub-entries, used after)
+    // When length <= 1, client treats as empty string and reads no bytes
+    uint8 realmNameLen = ConnectedRealmName.empty() ? 0 : static_cast<uint8>(ConnectedRealmName.size() + 1); // +1 for null terminator
+    _worldPacket << uint8(realmNameLen);
+
+    // Group flags (bit 7 unused for now)
+    _worldPacket << uint8(0);
+
+    // Step 3b-viii: Sub-entries — per-resident data (sub_7FF6A8B3A420)
     for (auto const& member : Members)
     {
-        _worldPacket << member.HouseGuid;
-        _worldPacket << member.PlayerGuid;
-        _worldPacket << uint8(member.Role);
-        _worldPacket << uint8(member.PlotIndex);
-        _worldPacket << uint32(member.JoinTime);
+        _worldPacket << member.HouseGuid;        // PackedGUID — house GUID
+        _worldPacket << member.PlayerGuid;       // PackedGUID — player GUID
+        _worldPacket << member.BnetAccountGuid;  // PackedGUID — bnet account GUID (usually empty)
+        _worldPacket << uint8(member.PlotIndex); // Plot index
+        _worldPacket << uint32(member.JoinTime); // Join timestamp
+        _worldPacket << uint8(0);                // Entry flags (bit 7 = has optional uint64)
     }
+
+    // Step 3b-ix: Connected realm name string (realmNameLen bytes including null terminator)
+    if (realmNameLen > 1)
+        _worldPacket.append(reinterpret_cast<uint8 const*>(ConnectedRealmName.c_str()), realmNameLen);
+
+    // Step 4: Main flags byte (bit 7 = has optional trailing GUID)
+    _worldPacket << uint8(0);
+
+    // Step 5: Array A — flat player GUID list with 2 status bytes each (sub_7FF6A8B3A780)
+    for (auto const& member : Members)
+    {
+        _worldPacket << member.PlayerGuid; // PackedGUID
+        _worldPacket << uint8(0);          // Status field 1
+        _worldPacket << uint8(0);          // Status field 2 (only bit 7 used by client)
+    }
+
+    // Step 6: Optional trailing GUID (skipped since MainFlags.bit7 = 0)
+
     return &_worldPacket;
 }
 

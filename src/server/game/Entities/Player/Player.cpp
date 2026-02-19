@@ -9309,14 +9309,15 @@ void Player::SendInitWorldStates(uint32 zoneId, uint32 areaId)
 {
     uint32 mapId = GetMapId();
 
-    TC_LOG_DEBUG("network", "Player::SendInitWorldStates: Sending SMSG_INIT_WORLD_STATES for Map: {}, Zone: {}", mapId, zoneId);
-
     WorldPackets::WorldState::InitWorldStates packet;
     packet.MapID = mapId;
     packet.AreaID = zoneId;
     packet.SubareaID = areaId;
 
     sWorldStateMgr->FillInitialWorldStates(packet, GetMap(), areaId);
+
+    TC_LOG_INFO("housing", "Player::SendInitWorldStates: Map={} Zone={} Area={} WorldStateCount={}",
+        mapId, zoneId, areaId, uint32(packet.Worldstates.size()));
 
     SendDirectMessage(packet.Write());
 }
@@ -25370,29 +25371,27 @@ void Player::SendInitialPacketsAfterAddToMap()
         _garrison->SendRemoteInfo();
 
     // Send housing neighborhood notifications when entering a neighborhood map.
-    // The client needs SMSG_HOUSING_HOUSE_STATUS_RESPONSE with NeighborhoodGuid
-    // to know it's in a neighborhood and trigger roster/map requests.
-    // It also needs NeighborhoodMirrorData populated on the Account entity
-    // for the map to render plot markers.
-    if (sHousingMgr.IsNeighborhoodWorldMap(GetMapId()))
+    // The client needs NeighborhoodMirrorData populated on the Account entity
+    // for the map to render plot markers and roster data.
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
     {
-        std::vector<Neighborhood*> neighborhoods = sNeighborhoodMgr.GetNeighborhoodsForPlayer(GetGUID());
-        if (!neighborhoods.empty())
+        Neighborhood* neighborhood = housingMap->GetNeighborhood();
+        if (neighborhood)
         {
-            Neighborhood* neighborhood = neighborhoods[0];
             Housing* housing = GetHousingForNeighborhood(neighborhood->GetGuid());
 
-            // Send proactive HouseStatus so client knows about the neighborhood
+            // Send proactive HouseStatus so client knows about house ownership
             WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
-            statusResponse.OwnerBNetGuid = GetSession()->GetBattlenetAccountGUID();
-            statusResponse.OwnerPlayerGuid = GetGUID();
             if (housing)
             {
                 statusResponse.HouseGuid = housing->GetHouseGuid();
+                statusResponse.OwnerBNetGuid = GetSession()->GetBattlenetAccountGUID();
+                statusResponse.OwnerPlayerGuid = GetGUID();
                 statusResponse.HouseStatus = 1;  // Has house
                 statusResponse.PlotIndex = housing->GetPlotIndex();
                 statusResponse.StatusFlags = 0;
             }
+            // No house: all fields stay at defaults (empty GUIDs, HouseStatus=0, PlotIndex=0xFF).
             SendDirectMessage(statusResponse.Write());
 
             // Populate NeighborhoodMirrorData on the Account entity so the
@@ -25428,13 +25427,13 @@ void Player::SendInitialPacketsAfterAddToMap()
             // for the map without needing to request it.
             WorldPackets::Neighborhood::NeighborhoodGetRosterResponse rosterResponse;
             rosterResponse.Result = 0; // Success
+            rosterResponse.ConnectedRealmName = std::to_string(GetVirtualRealmAddress());
             auto const& members = neighborhood->GetMembers();
             rosterResponse.Members.reserve(members.size());
             for (auto const& member : members)
             {
                 WorldPackets::Neighborhood::NeighborhoodGetRosterResponse::RosterMemberData data;
                 data.PlayerGuid = member.PlayerGuid;
-                data.Role = member.Role;
                 data.PlotIndex = member.PlotIndex;
                 data.JoinTime = member.JoinTime;
                 if (member.PlotIndex != INVALID_PLOT_INDEX)

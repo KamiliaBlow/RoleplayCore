@@ -26,6 +26,7 @@
 #include <vector>
 
 class Neighborhood;
+class Player;
 
 class TC_GAME_API NeighborhoodMgr
 {
@@ -46,6 +47,10 @@ public:
     void DeleteNeighborhood(ObjectGuid neighborhoodGuid);
     Neighborhood* GetNeighborhood(ObjectGuid neighborhoodGuid);
     Neighborhood const* GetNeighborhood(ObjectGuid neighborhoodGuid) const;
+
+    // Resolve a neighborhood GUID that may be in client format (GO GUID of bulletin board)
+    // Falls back to the player's current HousingMap neighborhood when direct lookup fails
+    Neighborhood* ResolveNeighborhood(ObjectGuid guid, Player* player);
 
     // Queries
     Neighborhood* GetNeighborhoodByOwner(ObjectGuid ownerGuid);

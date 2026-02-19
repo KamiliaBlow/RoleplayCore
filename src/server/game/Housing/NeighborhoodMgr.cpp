@@ -19,9 +19,13 @@
 #include "DatabaseEnv.h"
 #include "GameTime.h"
 #include "HousingDefines.h"
+#include "HousingMap.h"
 #include "HousingMgr.h"
 #include "Log.h"
+#include "Map.h"
 #include "Neighborhood.h"
+#include "Player.h"
+#include "RealmList.h"
 #include "SharedDefines.h"
 #include "Timer.h"
 #include "World.h"
@@ -67,7 +71,7 @@ void NeighborhoodMgr::LoadFromDB()
         if (guidLow >= _nextGuid)
             _nextGuid = guidLow + 1;
 
-        ObjectGuid neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, guidLow);
+        ObjectGuid neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 0, guidLow);
 
         auto neighborhood = std::make_unique<Neighborhood>(neighborhoodGuid);
 
@@ -234,6 +238,30 @@ Neighborhood const* NeighborhoodMgr::GetNeighborhood(ObjectGuid neighborhoodGuid
     return nullptr;
 }
 
+Neighborhood* NeighborhoodMgr::ResolveNeighborhood(ObjectGuid guid, Player* player)
+{
+    // Try direct lookup first (correct Housing GUID format)
+    if (Neighborhood* neighborhood = GetNeighborhood(guid))
+        return neighborhood;
+
+    // If the GUID lookup fails (e.g., client sent a bulletin board GO GUID),
+    // fall back to the player's current housing map neighborhood
+    if (player)
+    {
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+            {
+                TC_LOG_DEBUG("housing", "NeighborhoodMgr::ResolveNeighborhood: Resolved client GUID {} to neighborhood '{}' via housing map fallback",
+                    guid.ToString(), neighborhood->GetName());
+                return neighborhood;
+            }
+        }
+    }
+
+    return nullptr;
+}
+
 Neighborhood* NeighborhoodMgr::GetNeighborhoodByOwner(ObjectGuid ownerGuid)
 {
     auto it = _ownerToNeighborhood.find(ownerGuid);
@@ -392,7 +420,7 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
         {
             // Create a system-owned Alliance neighborhood (owner guid = empty)
             // Use a sentinel owner guid so the neighborhood has a valid owner
-            ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, uint64(0));
+            ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 0, uint64(0));
             std::string allianceName = sHousingMgr.GenerateNeighborhoodName(id);
             Neighborhood* neighborhood = CreateNeighborhood(systemOwner, allianceName, id, NEIGHBORHOOD_FACTION_ALLIANCE, /*isPublic*/ true);
             if (neighborhood)
@@ -404,7 +432,7 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
 
         if (!hasHordePublic && isHorde)
         {
-            ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 1, uint64(0));
+            ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 1, uint64(0));
             std::string hordeName = sHousingMgr.GenerateNeighborhoodName(id);
             Neighborhood* neighborhood = CreateNeighborhood(systemOwner, hordeName, id, NEIGHBORHOOD_FACTION_HORDE, /*isPublic*/ true);
             if (neighborhood)
@@ -480,11 +508,9 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
             continue;
 
         std::string name = sHousingMgr.GenerateNeighborhoodName(targetMapId);
-        ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, uint64(0));
-
         // Use a unique system owner per neighborhood to avoid the "owner already has a neighborhood" check
         // Offset by the number of existing neighborhoods for this faction
-        systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0,
+        ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
             /*arg2*/ static_cast<uint32>(neighborhoods.size()), uint64(0));
 
         Neighborhood* newNeighborhood = CreateNeighborhood(systemOwner, name, targetMapId, faction, /*isPublic*/ true);
@@ -505,5 +531,5 @@ ObjectGuid NeighborhoodMgr::GenerateNeighborhoodGuid()
     }
 
     uint64 counter = _nextGuid++;
-    return ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ 0, /*arg2*/ 0, counter);
+    return ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 0, counter);
 }

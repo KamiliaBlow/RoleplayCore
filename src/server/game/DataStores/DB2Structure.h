@@ -3569,7 +3569,7 @@ struct NeighborhoodNameGenEntry
     LocalizedString Prefix;
     LocalizedString Suffix;
     LocalizedString FullName;
-    int32 NeighborhoodMapID;
+    uint32 NeighborhoodMapID;
 };
 
 struct NeighborhoodPlotEntry
@@ -3582,7 +3582,7 @@ struct NeighborhoodPlotEntry
     DBCPosition3D CornerstoneRotation;       // Meta field 5: FT_FLOAT[3]
     DBCPosition3D TeleportPosition;          // Meta field 6: FT_FLOAT[3]
     uint32 ID;                               // Meta field 7: IndexField
-    int32 NeighborhoodMapID;
+    uint32 NeighborhoodMapID;
     int32 Field_010;
     int32 CornerstoneGameObjectID;
     int32 PlotIndex;

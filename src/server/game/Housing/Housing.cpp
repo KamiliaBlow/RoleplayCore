@@ -24,6 +24,7 @@
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RealmList.h"
 #include "WorldSession.h"
 #include <cmath>
 #include <queue>
@@ -34,7 +35,7 @@ Housing::Housing(Player* owner)
     , _plotIndex(INVALID_PLOT_INDEX)
     , _level(1)
     , _favor(0)
-    , _settingsFlags(HOUSE_SETTING_ALLOW_VISITORS)
+    , _settingsFlags(HOUSE_SETTING_HOUSE_ACCESS_ANYONE)
     , _editorMode(HOUSING_EDITOR_MODE_NONE)
     , _decorDbIdGenerator(1)
     , _roomDbIdGenerator(1)
@@ -48,13 +49,16 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         return false;
 
     Field* fields = housing->Fetch();
-    // Expected columns: houseGuid, neighborhoodGuid, plotIndex, level, favor, settingsFlags
-    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, fields[0].GetUInt64());
-    _neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, fields[1].GetUInt64());
+    // Expected columns: houseGuid, neighborhoodGuid, plotIndex, level, favor, settingsFlags, exteriorLocked, houseSize, houseType
+    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, fields[0].GetUInt64());
+    _neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 0, fields[1].GetUInt64());
     _plotIndex = fields[2].GetUInt8();
     _level = fields[3].GetUInt32();
     _favor = fields[4].GetUInt32();
     _settingsFlags = fields[5].GetUInt32();
+    _exteriorLocked = fields[6].GetUInt8() != 0;
+    _houseSize = fields[7].GetUInt8();
+    _houseType = fields[8].GetUInt32();
 
     // Load placed decor
     //           0        1             2     3     4     5          6          7          8          9       10       11       12        13
@@ -201,6 +205,9 @@ void Housing::SaveToDB(CharacterDatabaseTransaction trans)
     stmt->setUInt32(4, _level);
     stmt->setUInt32(5, _favor);
     stmt->setUInt32(6, _settingsFlags);
+    stmt->setUInt8(7, _exteriorLocked ? 1 : 0);
+    stmt->setUInt8(8, _houseSize);
+    stmt->setUInt32(9, _houseType);
     trans->Append(stmt);
 
     // Save placed decor
@@ -305,20 +312,23 @@ void Housing::SetEditorMode(HousingEditorMode mode)
 HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
 {
     if (!_houseGuid.IsEmpty())
-        return HOUSING_RESULT_HOUSE_ALREADY_EXISTS;
+        return HOUSING_RESULT_INVALID_HOUSE;
 
     if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
-        return HOUSING_RESULT_INVALID_PLOT;
+        return HOUSING_RESULT_PLOT_NOT_FOUND;
 
     _neighborhoodGuid = neighborhoodGuid;
     _plotIndex = plotIndex;
     _level = 1;
     _favor = 0;
-    _settingsFlags = HOUSE_SETTING_ALLOW_VISITORS;
+    _settingsFlags = HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
     _editorMode = HOUSING_EDITOR_MODE_NONE;
+    _exteriorLocked = false;
+    _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
+    _houseType = 0;
 
     // Generate a new house guid using the owner's low guid as a base
-    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, _owner->GetGUID().GetCounter());
+    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, _owner->GetGUID().GetCounter());
 
     TC_LOG_DEBUG("housing", "Housing::Create: Player {} (GUID {}) created house on plot {} in neighborhood {}",
         _owner->GetName(), _owner->GetGUID().GetCounter(), plotIndex, _neighborhoodGuid.ToString());
@@ -349,8 +359,11 @@ void Housing::Delete()
     _plotIndex = INVALID_PLOT_INDEX;
     _level = 1;
     _favor = 0;
-    _settingsFlags = HOUSE_SETTING_ALLOW_VISITORS;
+    _settingsFlags = HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
     _editorMode = HOUSING_EDITOR_MODE_NONE;
+    _exteriorLocked = false;
+    _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
+    _houseType = 0;
     _placedDecor.clear();
     _rooms.clear();
     _fixtures.clear();
@@ -376,19 +389,19 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     // Check decor count limit based on house level
     uint32 maxDecor = GetMaxDecorCount();
     if (GetDecorCount() >= maxDecor)
-        return HOUSING_RESULT_DECOR_COUNT_EXCEEDED;
+        return HOUSING_RESULT_MAX_DECOR_REACHED;
 
     // Check WeightCost-based budget
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
     if (_interiorDecorWeightUsed + weightCost > GetMaxInteriorDecorBudget())
-        return HOUSING_RESULT_DECOR_BUDGET_EXCEEDED;
+        return HOUSING_RESULT_MAX_DECOR_REACHED;
 
     // Validate room exists if specified, and check per-room decor limit
     if (!roomGuid.IsEmpty())
     {
         auto roomItr = _rooms.find(roomGuid);
         if (roomItr == _rooms.end())
-            return HOUSING_RESULT_INVALID_ROOM;
+            return HOUSING_RESULT_ROOM_NOT_FOUND;
 
         // Enforce per-room decor limit
         uint32 roomDecorCount = 0;
@@ -398,13 +411,13 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
                 ++roomDecorCount;
         }
         if (roomDecorCount >= MAX_HOUSING_DECOR_PER_ROOM)
-            return HOUSING_RESULT_DECOR_COUNT_EXCEEDED;
+            return HOUSING_RESULT_MAX_DECOR_REACHED;
     }
 
     // Check catalog for available copies
     auto catalogItr = _catalog.find(decorEntryId);
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
-        return HOUSING_RESULT_STORAGE_EMPTY;
+        return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
     // Generate a new decor guid
     uint64 newDbId = GenerateDecorDbId();
@@ -456,10 +469,10 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
-        return HOUSING_RESULT_DECOR_INVALID_GUID;
+        return HOUSING_RESULT_DECOR_NOT_FOUND;
 
     if (itr->second.Locked)
-        return HOUSING_RESULT_LOCK_DENIED;
+        return HOUSING_RESULT_LOCKED_BY_OTHER_PLAYER;
 
     PlacedDecor& decor = itr->second;
     decor.PosX = x;
@@ -497,10 +510,10 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
-        return HOUSING_RESULT_DECOR_INVALID_GUID;
+        return HOUSING_RESULT_DECOR_NOT_FOUND;
 
     if (itr->second.Locked)
-        return HOUSING_RESULT_LOCK_DENIED;
+        return HOUSING_RESULT_LOCKED_BY_OTHER_PLAYER;
 
     // Refund WeightCost budget
     uint32 decorEntryId = itr->second.DecorEntryId;
@@ -534,7 +547,7 @@ HousingResult Housing::CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
-        return HOUSING_RESULT_DECOR_INVALID_GUID;
+        return HOUSING_RESULT_DECOR_NOT_FOUND;
 
     itr->second.DyeSlots = dyeSlots;
 
@@ -561,7 +574,7 @@ HousingResult Housing::SetDecorLocked(ObjectGuid decorGuid, bool locked)
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
-        return HOUSING_RESULT_DECOR_INVALID_GUID;
+        return HOUSING_RESULT_DECOR_NOT_FOUND;
 
     itr->second.Locked = locked;
 
@@ -605,11 +618,11 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     // Validate room entry exists
     HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(roomEntryId);
     if (!roomData)
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     // Validate orientation (0-3 for cardinal directions)
     if (orientation > 3)
-        return HOUSING_RESULT_INVALID_PLOT;
+        return HOUSING_RESULT_PLOT_NOT_FOUND;
 
     // First room placed must be a base room
     if (_rooms.empty() && !roomData->IsBaseRoom())
@@ -622,28 +635,28 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
         {
             HouseRoomData const* existingData = sHousingMgr.GetHouseRoomData(existingRoom.RoomEntryId);
             if (existingData && existingData->IsBaseRoom())
-                return HOUSING_RESULT_ROOM_IS_BASE_ROOM;
+                return HOUSING_RESULT_ROOM_UPDATE_FAILED;
         }
     }
 
     // Non-base rooms require at least one existing room in the house
     if (!roomData->IsBaseRoom() && _rooms.empty())
-        return HOUSING_RESULT_ROOM_UNREACHABLE;
+        return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Check room count limit
     if (_rooms.size() >= MAX_HOUSING_ROOMS_PER_HOUSE)
-        return HOUSING_RESULT_ROOM_BUDGET_EXCEEDED;
+        return HOUSING_RESULT_GENERIC_FAILURE;
 
     // Check WeightCost-based room budget
     uint32 roomWeightCost = sHousingMgr.GetRoomWeightCost(roomEntryId);
     if (_roomWeightUsed + roomWeightCost > GetMaxRoomBudget())
-        return HOUSING_RESULT_ROOM_BUDGET_EXCEEDED;
+        return HOUSING_RESULT_GENERIC_FAILURE;
 
     // Check for slot collision
     for (auto const& [guid, room] : _rooms)
     {
         if (room.SlotIndex == slotIndex)
-            return HOUSING_RESULT_INVALID_PLOT;
+            return HOUSING_RESULT_PLOT_NOT_FOUND;
     }
 
     // Room must have at least one doorway to connect to the house layout
@@ -654,7 +667,7 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
         {
             TC_LOG_ERROR("housing", "Housing::PlaceRoom: Room entry {} has no doorways, cannot connect to house layout",
                 roomEntryId);
-            return HOUSING_RESULT_ROOM_UNREACHABLE;
+            return HOUSING_RESULT_ROOM_UPDATE_FAILED;
         }
     }
 
@@ -688,27 +701,27 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     // Can't remove the base room
     HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(itr->second.RoomEntryId);
     if (roomData && roomData->IsBaseRoom())
-        return HOUSING_RESULT_ROOM_IS_BASE_ROOM;
+        return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Can't remove the last room
     if (_rooms.size() <= 1)
-        return HOUSING_RESULT_ROOM_LAST;
+        return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Check if any placed decor references this room
     for (auto const& [guid, decor] : _placedDecor)
     {
         if (decor.RoomGuid == roomGuid)
-            return HOUSING_RESULT_ROOM_NOT_LEAF;
+            return HOUSING_RESULT_ROOM_UPDATE_FAILED;
     }
 
     // Verify remaining rooms stay connected after removal (BFS from base room)
     if (!IsRoomGraphConnectedWithout(roomGuid))
-        return HOUSING_RESULT_ROOM_UNREACHABLE;
+        return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Refund room WeightCost budget
     uint32 roomWeightCost = sHousingMgr.GetRoomWeightCost(itr->second.RoomEntryId);
@@ -733,7 +746,7 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     Room& room = itr->second;
     if (clockwise)
@@ -757,14 +770,14 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     // If swapping with another room
     if (!swapRoomGuid.IsEmpty())
     {
         auto swapItr = _rooms.find(swapRoomGuid);
         if (swapItr == _rooms.end())
-            return HOUSING_RESULT_INVALID_ROOM;
+            return HOUSING_RESULT_ROOM_NOT_FOUND;
 
         // Swap slot indices
         uint32 tempSlot = itr->second.SlotIndex;
@@ -783,7 +796,7 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
         for (auto const& [guid, room] : _rooms)
         {
             if (guid != roomGuid && room.SlotIndex == newSlotIndex)
-                return HOUSING_RESULT_INVALID_PLOT;
+                return HOUSING_RESULT_PLOT_NOT_FOUND;
         }
 
         itr->second.SlotIndex = newSlotIndex;
@@ -877,7 +890,7 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     // Validate componentIds if provided
     for (uint32 componentId : componentIds)
@@ -886,7 +899,7 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
         {
             TC_LOG_DEBUG("housing", "Housing::ApplyRoomTheme: Invalid RoomComponent ID {} for room {}",
                 componentId, roomGuid.ToString());
-            return HOUSING_RESULT_INVALID_ROOM;
+            return HOUSING_RESULT_ROOM_NOT_FOUND;
         }
     }
 
@@ -908,7 +921,7 @@ HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperI
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     // Validate componentIds if provided
     for (uint32 componentId : componentIds)
@@ -917,7 +930,7 @@ HousingResult Housing::ApplyRoomWallpaper(ObjectGuid roomGuid, uint32 wallpaperI
         {
             TC_LOG_DEBUG("housing", "Housing::ApplyRoomWallpaper: Invalid RoomComponent ID {} for room {}",
                 componentId, roomGuid.ToString());
-            return HOUSING_RESULT_INVALID_ROOM;
+            return HOUSING_RESULT_ROOM_NOT_FOUND;
         }
     }
 
@@ -940,7 +953,7 @@ HousingResult Housing::SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     itr->second.DoorTypeId = doorTypeId;
     itr->second.DoorSlot = doorSlot;
@@ -961,7 +974,7 @@ HousingResult Housing::SetCeilingType(ObjectGuid roomGuid, uint32 ceilingTypeId,
 
     auto itr = _rooms.find(roomGuid);
     if (itr == _rooms.end())
-        return HOUSING_RESULT_INVALID_ROOM;
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
     itr->second.CeilingTypeId = ceilingTypeId;
     itr->second.CeilingSlot = ceilingSlot;
@@ -991,14 +1004,14 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
 
     bool isNew = _fixtures.find(fixturePointId) == _fixtures.end();
     if (isNew && _fixtures.size() >= MAX_HOUSING_FIXTURES_PER_HOUSE)
-        return HOUSING_RESULT_FIXTURE_INVALID_DATA;
+        return HOUSING_RESULT_FIXTURE_NOT_FOUND;
 
     // Enforce fixture budget for new fixtures (WeightCost = 1 per fixture by default)
     uint32 const fixtureWeightCost = 1;
     if (isNew)
     {
         if (_fixtureWeightUsed + fixtureWeightCost > GetMaxFixtureBudget())
-            return HOUSING_RESULT_FIXTURE_BUDGET_EXCEEDED;
+            return HOUSING_RESULT_GENERIC_FAILURE;
         _fixtureWeightUsed += fixtureWeightCost;
     }
 
@@ -1034,7 +1047,7 @@ HousingResult Housing::RemoveFixture(uint32 fixturePointId)
 
     auto itr = _fixtures.find(fixturePointId);
     if (itr == _fixtures.end())
-        return HOUSING_RESULT_FIXTURE_INVALID_DATA;
+        return HOUSING_RESULT_FIXTURE_NOT_FOUND;
 
     _fixtures.erase(itr);
 
@@ -1091,7 +1104,7 @@ HousingResult Housing::RemoveFromCatalog(uint32 decorEntryId)
 
     auto itr = _catalog.find(decorEntryId);
     if (itr == _catalog.end() || itr->second.Count == 0)
-        return HOUSING_RESULT_STORAGE_EMPTY;
+        return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
     itr->second.Count--;
     if (itr->second.Count == 0)
@@ -1111,7 +1124,7 @@ HousingResult Housing::DestroyAllCopies(uint32 decorEntryId)
 
     auto itr = _catalog.find(decorEntryId);
     if (itr == _catalog.end())
-        return HOUSING_RESULT_STORAGE_EMPTY;
+        return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
     uint32 destroyedCount = itr->second.Count;
     _catalog.erase(itr);
@@ -1151,6 +1164,31 @@ std::vector<Housing::CatalogEntry const*> Housing::GetCatalogEntries() const
     for (auto const& [entryId, entry] : _catalog)
         result.push_back(&entry);
     return result;
+}
+
+void Housing::AddLevel(uint32 amount)
+{
+    uint32 newLevel = std::min(_level + amount, MAX_HOUSE_LEVEL);
+    if (newLevel == _level)
+        return;
+
+    _level = newLevel;
+
+    TC_LOG_DEBUG("housing", "Housing::AddLevel: Player {} house leveled up to {} (added {}) in house {}",
+        _owner->GetName(), _level, amount, _houseGuid.ToString());
+
+    RecalculateBudgets();
+    SyncUpdateFields();
+
+    // Broadcast level/favor update to the owner
+    if (_owner && _owner->GetSession())
+    {
+        WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor levelUpdate;
+        levelUpdate.HouseGuid = _houseGuid;
+        levelUpdate.Level = _level;
+        levelUpdate.Favor = _favor64;
+        _owner->SendDirectMessage(levelUpdate.Write());
+    }
 }
 
 void Housing::AddFavor(uint64 amount)
@@ -1284,6 +1322,52 @@ void Housing::SaveSettings(uint32 settingsFlags)
 
     TC_LOG_DEBUG("housing", "Housing::SaveSettings: Player {} updated house settings to {} in house {}",
         _owner->GetName(), settingsFlags, _houseGuid.ToString());
+}
+
+void Housing::SetExteriorLocked(bool locked)
+{
+    _exteriorLocked = locked;
+
+    // Immediate persist for crash safety
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_EXTERIOR_LOCKED);
+    stmt->setUInt8(0, locked ? 1 : 0);
+    stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    TC_LOG_DEBUG("housing", "Housing::SetExteriorLocked: Player {} {} exterior of house {}",
+        _owner->GetName(), locked ? "locked" : "unlocked", _houseGuid.ToString());
+}
+
+void Housing::SetHouseSize(uint8 size)
+{
+    _houseSize = size;
+
+    // Immediate persist for crash safety
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_HOUSE_SIZE);
+    stmt->setUInt8(0, size);
+    stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    SyncUpdateFields();
+
+    TC_LOG_DEBUG("housing", "Housing::SetHouseSize: Player {} set house {} size to {}",
+        _owner->GetName(), _houseGuid.ToString(), size);
+}
+
+void Housing::SetHouseType(uint32 typeId)
+{
+    _houseType = typeId;
+
+    // Immediate persist for crash safety
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_HOUSE_TYPE);
+    stmt->setUInt32(0, typeId);
+    stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    SyncUpdateFields();
+
+    TC_LOG_DEBUG("housing", "Housing::SetHouseType: Player {} set house {} type to {}",
+        _owner->GetName(), _houseGuid.ToString(), typeId);
 }
 
 uint64 Housing::GenerateDecorDbId()

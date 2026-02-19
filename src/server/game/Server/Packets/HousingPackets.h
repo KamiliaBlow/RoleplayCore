@@ -1338,6 +1338,30 @@ namespace WorldPackets::Housing
         uint32 HouseTypeID = 0;
     };
 
+    class AccountRoomCollectionUpdate final : public ServerPacket
+    {
+    public:
+        AccountRoomCollectionUpdate() : ServerPacket(SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 RoomID = 0;
+    };
+
+    class AccountRoomThemeCollectionUpdate final : public ServerPacket
+    {
+    public:
+        AccountRoomThemeCollectionUpdate() : ServerPacket(SMSG_ACCOUNT_ROOM_THEME_COLLECTION_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 ThemeID = 0;
+    };
+
+    class AccountRoomMaterialCollectionUpdate final : public ServerPacket
+    {
+    public:
+        AccountRoomMaterialCollectionUpdate() : ServerPacket(SMSG_ACCOUNT_ROOM_MATERIAL_COLLECTION_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 MaterialID = 0;
+    };
+
     class InvalidateNeighborhood final : public ServerPacket
     {
     public:
@@ -1840,17 +1864,20 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodGetRosterResponse() : ServerPacket(SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct RosterMemberData
         {
             ObjectGuid HouseGuid;
             ObjectGuid PlayerGuid;
-            uint8 Role = 0;           // NeighborhoodMemberRole
-            uint8 PlotIndex = 0xFF;   // INVALID_PLOT_INDEX
+            ObjectGuid BnetAccountGuid;  // Usually empty
+            uint8 PlotIndex = 0xFF;      // INVALID_PLOT_INDEX
             uint32 JoinTime = 0;
         };
         std::vector<RosterMemberData> Members;
+
+        // Connected realm name string (e.g. "64-67-63" in retail)
+        std::string ConnectedRealmName;
     };
 
     class NeighborhoodRosterResidentUpdate final : public ServerPacket

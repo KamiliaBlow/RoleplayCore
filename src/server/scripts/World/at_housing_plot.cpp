@@ -20,6 +20,7 @@
 #include "AreaTriggerAI.h"
 #include "Log.h"
 #include "Player.h"
+#include "SpellMgr.h"
 #include "WorldSession.h"
 #include "HousingPackets.h"
 
@@ -40,23 +41,28 @@ struct at_housing_plot : AreaTriggerAI
             return;
 
         ObjectGuid ownerGuid;
+        uint32 plotId = 0;
         if (at->m_housingPlotAreaTriggerData.has_value())
+        {
             ownerGuid = at->m_housingPlotAreaTriggerData->HouseOwnerGUID;
+            plotId = at->m_housingPlotAreaTriggerData->PlotID;
+        }
 
         bool isOwnPlot = !ownerGuid.IsEmpty() && player->GetGUID() == ownerGuid;
 
-        if (isOwnPlot)
-            player->CastSpell(player, SPELL_OWN_PLOT_AURA, true);
-        else
-            player->CastSpell(player, SPELL_VISITING_PLOT_AURA, true);
+        // Cast plot auras if the spells exist in DB2
+        uint32 auraSpell = isOwnPlot ? SPELL_OWN_PLOT_AURA : SPELL_VISITING_PLOT_AURA;
+        if (sSpellMgr->GetSpellInfo(auraSpell, DIFFICULTY_NONE))
+            player->CastSpell(player, auraSpell, true);
 
         // Notify the client that the player has entered a plot
         WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
         enterPlot.PlotAreaTriggerGuid = at->GetGUID();
         player->SendDirectMessage(enterPlot.Write());
 
-        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} entered plot AT {} (own: {})",
-            player->GetGUID().ToString(), at->GetGUID().ToString(), isOwnPlot);
+        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} entered plot {} AT {} (own: {}, owner: {})",
+            player->GetGUID().ToString(), plotId, at->GetGUID().ToString(), isOwnPlot,
+            ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
     }
 
     void OnUnitExit(Unit* unit, AreaTriggerExitReason reason) override
@@ -68,9 +74,11 @@ struct at_housing_plot : AreaTriggerAI
         if (!player)
             return;
 
-        // Remove both auras (only the active one will actually be removed)
-        player->RemoveAurasDueToSpell(SPELL_OWN_PLOT_AURA);
-        player->RemoveAurasDueToSpell(SPELL_VISITING_PLOT_AURA);
+        // Remove plot auras if they exist
+        if (sSpellMgr->GetSpellInfo(SPELL_OWN_PLOT_AURA, DIFFICULTY_NONE))
+            player->RemoveAurasDueToSpell(SPELL_OWN_PLOT_AURA);
+        if (sSpellMgr->GetSpellInfo(SPELL_VISITING_PLOT_AURA, DIFFICULTY_NONE))
+            player->RemoveAurasDueToSpell(SPELL_VISITING_PLOT_AURA);
 
         // Notify the client that the player has left the plot
         WorldPackets::Neighborhood::NeighborhoodPlayerLeavePlot leavePlot;

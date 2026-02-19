@@ -40,7 +40,7 @@ public:
     Housing* GetHousingForPlayer(ObjectGuid playerGuid) const;
     AreaTrigger* GetPlotAreaTrigger(uint8 plotIndex);
     GameObject* GetPlotGameObject(uint8 plotIndex);
-    void SwapPlotGameObject(uint8 plotIndex, uint32 newGoEntry);
+    void SetPlotOwnershipState(uint8 plotIndex, bool owned);
     Neighborhood* GetNeighborhood() const { return _neighborhood; }
     uint32 GetNeighborhoodId() const { return _neighborhoodId; }
 
