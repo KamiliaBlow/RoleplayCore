@@ -94,7 +94,7 @@ void HousingMap::SpawnPlotGameObjects()
         LoadGrid(x, y);
 
         // Retail always uses CornerstoneGameObjectID (457142) for ALL plots.
-        // Ownership state is communicated via GOState: 0 (ACTIVE) = ForSale, 1 (READY) = Owned.
+        // Ownership state via GOState: 0 (ACTIVE) = Owned/Claimed, 1 (READY) = ForSale sign.
         Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(static_cast<uint8>(plot->PlotIndex));
         uint32 goEntry = static_cast<uint32>(plot->CornerstoneGameObjectID);
         bool isOwned = plotInfo && !plotInfo->OwnerGuid.IsEmpty();
@@ -115,8 +115,8 @@ void HousingMap::SpawnPlotGameObjects()
         float rotZ = plot->CornerstoneRotation[2];
         QuaternionData rot = QuaternionData::fromEulerAnglesZYX(rotZ, plot->CornerstoneRotation[1], plot->CornerstoneRotation[0]);
 
-        // Retail sniff: ForSale = GOState 0 (ACTIVE), Owned = GOState 1 (READY)
-        GOState plotState = isOwned ? GO_STATE_READY : GO_STATE_ACTIVE;
+        // GOState 0 (ACTIVE) = Owned/Claimed cornerstone, GOState 1 (READY) = ForSale sign
+        GOState plotState = isOwned ? GO_STATE_ACTIVE : GO_STATE_READY;
 
         Position pos(x, y, z, rotZ);
         GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, plotState);
@@ -233,8 +233,8 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
         return;
 
     // Toggle GOState on the existing Cornerstone GO.
-    // Retail sniff: GOState 0 (ACTIVE) = ForSale, GOState 1 (READY) = Owned.
-    GOState newState = owned ? GO_STATE_READY : GO_STATE_ACTIVE;
+    // GOState 0 (ACTIVE) = Owned/Claimed cornerstone, GOState 1 (READY) = ForSale sign
+    GOState newState = owned ? GO_STATE_ACTIVE : GO_STATE_READY;
 
     auto itr = _plotGameObjects.find(plotIndex);
     if (itr != _plotGameObjects.end())
@@ -319,17 +319,22 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // Send neighborhood context so the client can call SetViewingNeighborhood()
     // and enable Cornerstone purchase UI interaction
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse houseInfo;
-    houseInfo.NeighborhoodGuid = _neighborhood->GetGuid();
     if (housing)
     {
-        houseInfo.HouseGuid = housing->GetHouseGuid();
-        houseInfo.OwnerPlayerGuid = player->GetGUID();
-        houseInfo.PlotIndex = housing->GetPlotIndex();
-        houseInfo.HouseProperties = housing->GetSettingsFlags() & 0xFF;
-        houseInfo.HouseLevel = static_cast<uint8>(housing->GetLevel());
+        // Sniff-verified: OwnerGuid=HouseGUID, SecondaryOwnerGuid=PlotGUID, PlotGuid=NeighborhoodGUID
+        houseInfo.HouseInfo.OwnerGuid = housing->GetHouseGuid();
+        houseInfo.HouseInfo.SecondaryOwnerGuid = housing->GetPlotGuid();
+        houseInfo.HouseInfo.PlotGuid = housing->GetNeighborhoodGuid();
+        houseInfo.HouseInfo.Flags = housing->GetPlotIndex();
+        houseInfo.HouseInfo.HouseTypeId = 32;
+        houseInfo.HouseInfo.StatusFlags = 0;
     }
-    // No house: OwnerPlayerGuid stays empty. Only NeighborhoodGuid is set
-    // so the client knows which neighborhood it's viewing.
+    else if (_neighborhood)
+    {
+        // No house — provide neighborhood GUID in PlotGuid field for purchase UI context
+        houseInfo.HouseInfo.PlotGuid = _neighborhood->GetGuid();
+    }
+    houseInfo.ResponseFlags = 0;
     player->SendDirectMessage(houseInfo.Write());
 
     TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Sent neighborhood context to player {} (neighborhood='{}', hasHouse={})",

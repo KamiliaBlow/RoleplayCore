@@ -19,6 +19,7 @@
 #include "Account.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
+#include "GameTime.h"
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
@@ -59,6 +60,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     _exteriorLocked = fields[6].GetUInt8() != 0;
     _houseSize = fields[7].GetUInt8();
     _houseType = fields[8].GetUInt32();
+    _createTime = fields[9].GetUInt32();
 
     // Load placed decor
     //           0        1             2     3     4     5          6          7          8          9       10       11       12        13
@@ -326,6 +328,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
     _houseType = 0;
+    _createTime = static_cast<uint32>(GameTime::GetGameTime());
 
     // Generate a new house guid using the owner's low guid as a base
     _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, _owner->GetGUID().GetCounter());
@@ -335,6 +338,16 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
+}
+
+ObjectGuid Housing::GetPlotGuid() const
+{
+    // Deterministic PlotGUID: subType=2 encodes neighborhood + plot index
+    return ObjectGuid::Create<HighGuid::Housing>(
+        /*subType*/ 2,
+        /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+        /*arg2*/ _plotIndex,
+        _neighborhoodGuid.GetCounter());
 }
 
 void Housing::Delete()
@@ -1184,9 +1197,15 @@ void Housing::AddLevel(uint32 amount)
     if (_owner && _owner->GetSession())
     {
         WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor levelUpdate;
+        levelUpdate.Type = 0;
+        levelUpdate.PreviousFavor = static_cast<int32>(_level > 1 ? _favor : -1);
+        levelUpdate.PreviousLevel = static_cast<int32>(_level - amount);
+        levelUpdate.NewLevel = static_cast<int32>(_level);
+        levelUpdate.Field4 = 0;
         levelUpdate.HouseGuid = _houseGuid;
-        levelUpdate.Level = _level;
-        levelUpdate.Favor = _favor64;
+        levelUpdate.PreviousLevelId = -1;
+        levelUpdate.NextLevelFavorCost = -1;
+        levelUpdate.Flags = 0x8000;
         _owner->SendDirectMessage(levelUpdate.Write());
     }
 }
@@ -1205,9 +1224,15 @@ void Housing::AddFavor(uint64 amount)
     if (_owner && _owner->GetSession())
     {
         WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor favorUpdate;
+        favorUpdate.Type = 0;
+        favorUpdate.PreviousFavor = static_cast<int32>(_favor);
+        favorUpdate.PreviousLevel = static_cast<int32>(_level);
+        favorUpdate.NewLevel = static_cast<int32>(_level);
+        favorUpdate.Field4 = 0;
         favorUpdate.HouseGuid = _houseGuid;
-        favorUpdate.Level = _level;
-        favorUpdate.Favor = _favor64;
+        favorUpdate.PreviousLevelId = -1;
+        favorUpdate.NextLevelFavorCost = -1;
+        favorUpdate.Flags = 0x8000;
         _owner->SendDirectMessage(favorUpdate.Write());
     }
 }
@@ -1219,6 +1244,7 @@ void Housing::OnQuestCompleted(uint32 questId)
     uint32 nextLevelQuestId = sHousingMgr.GetQuestForLevel(_level + 1);
     if (nextLevelQuestId > 0 && nextLevelQuestId == questId)
     {
+        uint32 previousLevel = _level;
         _level++;
         TC_LOG_DEBUG("housing", "Housing::OnQuestCompleted: Player {} house leveled up to {} (quest {}) in house {}",
             _owner->GetName(), _level, questId, _houseGuid.ToString());
@@ -1229,9 +1255,15 @@ void Housing::OnQuestCompleted(uint32 questId)
         if (_owner && _owner->GetSession())
         {
             WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor levelUpdate;
+            levelUpdate.Type = 0;
+            levelUpdate.PreviousFavor = static_cast<int32>(_favor);
+            levelUpdate.PreviousLevel = static_cast<int32>(previousLevel);
+            levelUpdate.NewLevel = static_cast<int32>(_level);
+            levelUpdate.Field4 = 0;
             levelUpdate.HouseGuid = _houseGuid;
-            levelUpdate.Level = _level;
-            levelUpdate.Favor = _favor64;
+            levelUpdate.PreviousLevelId = -1;
+            levelUpdate.NextLevelFavorCost = -1;
+            levelUpdate.Flags = 0x8000;
             _owner->SendDirectMessage(levelUpdate.Write());
         }
     }

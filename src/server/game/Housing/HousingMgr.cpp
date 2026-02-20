@@ -382,6 +382,19 @@ std::vector<NeighborhoodPlotData const*> HousingMgr::GetPlotsForMap(uint32 neigh
     return {};
 }
 
+NeighborhoodPlotData const* HousingMgr::GetPlotByCornerstoneEntry(uint32 neighborhoodMapId, uint32 cornerstoneGoEntry) const
+{
+    auto itr = _plotsByMap.find(neighborhoodMapId);
+    if (itr == _plotsByMap.end())
+        return nullptr;
+
+    for (NeighborhoodPlotData const* plot : itr->second)
+        if (static_cast<uint32>(plot->CornerstoneGameObjectID) == cornerstoneGoEntry)
+            return plot;
+
+    return nullptr;
+}
+
 std::string HousingMgr::GenerateNeighborhoodName(uint32 neighborhoodMapId) const
 {
     auto itr = _nameGenByMap.find(neighborhoodMapId);
@@ -485,6 +498,20 @@ uint32 HousingMgr::GetRoomWeightCost(uint32 roomEntryId) const
         return static_cast<uint32>(std::max<int32>(roomData->WeightCost, 1));
 
     return 1;
+}
+
+std::vector<uint32> HousingMgr::GetStarterDecorIds() const
+{
+    std::vector<uint32> result;
+    for (auto const& [id, decor] : _houseDecorStore)
+    {
+        if (decor.StartingQuantity > 0)
+        {
+            for (int32 i = 0; i < decor.StartingQuantity; ++i)
+                result.push_back(id);
+        }
+    }
+    return result;
 }
 
 HousingResult HousingMgr::ValidateDecorPlacement(uint32 decorId, Position const& pos, uint32 houseLevel) const

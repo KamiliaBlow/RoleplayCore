@@ -239,6 +239,8 @@ public:
 
     // Neighborhood plot lookups
     std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
+    // Find a plot by its cornerstone GO entry within a specific neighborhood map
+    NeighborhoodPlotData const* GetPlotByCornerstoneEntry(uint32 neighborhoodMapId, uint32 cornerstoneGoEntry) const;
 
     // Check if a world MapID corresponds to a neighborhood map
     bool IsNeighborhoodWorldMap(uint32 mapId) const;
@@ -264,6 +266,9 @@ public:
     bool IsBaseRoom(uint32 roomEntryId) const;
     uint32 GetRoomDoorCount(uint32 roomEntryId) const;
     std::vector<RoomDoorInfo> const* GetRoomDoors(uint32 roomWmoDataId) const;
+
+    // Starter decor (items granted on first house purchase)
+    std::vector<uint32> GetStarterDecorIds() const;
 
     // Validation
     HousingResult ValidateDecorPlacement(uint32 decorId, Position const& pos, uint32 houseLevel) const;

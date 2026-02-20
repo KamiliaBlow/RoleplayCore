@@ -291,12 +291,14 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
             }
         }
 
-        // Auto-assign if not already a member
+        // If the player isn't a member of any neighborhood on this map,
+        // find an existing public neighborhood for map rendering only.
+        // Do NOT auto-add the player as a member ? membership is only
+        // granted through the tutorial flow, buying a plot, or being invited.
         if (!neighborhood)
 		{
-            TC_LOG_DEBUG("housing", "MapManager::CreateMap: No existing membership, auto-assigning tutorial neighborhood");
-            neighborhood = sNeighborhoodMgr.FindOrCreateTutorialNeighborhood(
-                player->GetGUID(), player->GetTeam());
+            TC_LOG_DEBUG("housing", "MapManager::CreateMap: No existing membership, finding public neighborhood for viewing");
+            neighborhood = sNeighborhoodMgr.FindPublicNeighborhoodForMap(neighborhoodMapId);
 		}
 
         if (!neighborhood)

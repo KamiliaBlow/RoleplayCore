@@ -2428,10 +2428,10 @@ struct RoomComponentEntry
 struct RoomComponentOptionEntry
 {
     uint32 ID;
-    int32 RoomComponentID;
     uint8 Type;
-    int32 ModelFileDataID;
     uint8 SubType;
+    int32 ModelFileDataID;
+    int32 RoomComponentID;
     int32 MeshStyleFilterID;
     int32 HouseThemeID;
     int32 Flags;

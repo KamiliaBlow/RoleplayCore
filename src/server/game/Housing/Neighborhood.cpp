@@ -42,7 +42,10 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
     // _guid is already set in constructor
     _name               = fields[1].GetString();
     _neighborhoodMapID  = fields[2].GetUInt32();
-    _ownerGuid          = ObjectGuid::Create<HighGuid::Player>(fields[3].GetUInt64());
+    {
+        uint64 ownerCounter = fields[3].GetUInt64();
+        _ownerGuid = ownerCounter ? ObjectGuid::Create<HighGuid::Player>(ownerCounter) : ObjectGuid::Empty;
+    }
     _factionRestriction = fields[4].GetInt32();
     _isPublic           = fields[5].GetBool();
     _createTime         = fields[6].GetUInt32();

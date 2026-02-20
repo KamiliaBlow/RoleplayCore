@@ -477,6 +477,8 @@ namespace WorldPackets
         class InvitePlayerToNeighborhood;
         class GuildGetOthersOwnedHouses;
         class HouseExteriorLock;
+        class HousingPhotoSharingCompleteAuthorization;
+        class HousingPhotoSharingClearAuthorization;
         class HousingFixtureSetHouseSize;
         class HousingFixtureSetHouseType;
     }
@@ -1601,6 +1603,10 @@ class TC_GAME_API WorldSession
         void HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhood const& housingSvcsGetHouseFinderNeighborhood);
         void HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& housingSvcsGetBnetFriendNeighborhoods);
         void HandleHousingSvcsDeleteAllNeighborhoodInvites(WorldPackets::Housing::HousingSvcsDeleteAllNeighborhoodInvites const& housingSvcsDeleteAllNeighborhoodInvites);
+
+        // Housing - Photo Sharing
+        void HandleHousingPhotoSharingCompleteAuthorization(WorldPackets::Housing::HousingPhotoSharingCompleteAuthorization const& packet);
+        void HandleHousingPhotoSharingClearAuthorization(WorldPackets::Housing::HousingPhotoSharingClearAuthorization const& packet);
 
         // Housing - Misc
         void HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseStatus const& housingHouseStatus);

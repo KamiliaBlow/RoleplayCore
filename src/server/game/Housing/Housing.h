@@ -92,7 +92,9 @@ public:
     Player* GetOwner() const { return _owner; }
     ObjectGuid GetHouseGuid() const { return _houseGuid; }
     ObjectGuid GetNeighborhoodGuid() const { return _neighborhoodGuid; }
+    ObjectGuid GetPlotGuid() const;
     uint8 GetPlotIndex() const { return _plotIndex; }
+    uint32 GetCreateTime() const { return _createTime; }
     uint32 GetLevel() const { return _level; }
     uint32 GetFavor() const { return _favor; }
     uint32 GetSettingsFlags() const { return _settingsFlags; }
@@ -197,6 +199,7 @@ private:
     bool _exteriorLocked = false;
     uint8 _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
     uint32 _houseType = 0;
+    uint32 _createTime = 0;
 
     // WeightCost-based budget tracking
     uint32 _interiorDecorWeightUsed = 0;

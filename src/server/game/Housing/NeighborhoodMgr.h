@@ -54,13 +54,18 @@ public:
 
     // Queries
     Neighborhood* GetNeighborhoodByOwner(ObjectGuid ownerGuid);
+    std::vector<Neighborhood*> GetAllNeighborhoods() const;
     std::vector<Neighborhood*> GetPublicNeighborhoods() const;
     std::vector<Neighborhood*> GetNeighborhoodsForPlayer(ObjectGuid playerGuid) const;
+    std::vector<Neighborhood*> GetNeighborhoodsByBnetAccount(ObjectGuid bnetAccountGuid) const;
     std::string GetNeighborhoodName(ObjectGuid neighborhoodGuid) const;
     Neighborhood* FindNeighborhoodWithPendingInvite(ObjectGuid playerGuid);
 
-    // Tutorial support
-    Neighborhood* FindOrCreateTutorialNeighborhood(ObjectGuid playerGuid, uint32 teamId);
+    // Find or create a public neighborhood for a faction (no membership changes)
+    Neighborhood* FindOrCreatePublicNeighborhood(uint32 teamId);
+
+    // Find a public neighborhood on the given map (for visitors, no membership change)
+    Neighborhood* FindPublicNeighborhoodForMap(uint32 neighborhoodMapId) const;
 
     // Expansion
     void CheckAndExpandNeighborhoods();

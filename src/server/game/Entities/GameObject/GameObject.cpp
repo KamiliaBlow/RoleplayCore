@@ -3461,6 +3461,14 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
             if (!player)
                 return;
 
+            TC_LOG_DEBUG("housing", "GameObject::Use(GAMEOBJECT_TYPE_UI_LINK): entry={} guid={} "
+                "UILinkType={} PlayerInteractionType={} spell={} player={}",
+                GetEntry(), GetGUID().ToString(),
+                GetGOInfo()->UILink.UILinkType,
+                GetGOInfo()->UILink.PlayerInteractionType,
+                GetGOInfo()->UILink.spell,
+                player->GetGUID().ToString());
+
             if (GetGOInfo()->UILink.PlayerInteractionType)
             {
                 WorldPackets::NPC::NPCInteractionOpenResult npcInteraction;
@@ -3469,8 +3477,23 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
                 npcInteraction.Success = true;
                 player->SendDirectMessage(npcInteraction.Write());
 
-                if (uint32 spellId = GetGOInfo()->UILink.spell)
+                TC_LOG_DEBUG("housing", "  -> Sent SMSG_NPC_INTERACTION_OPEN_RESULT: npc={} interactionType={} success=true",
+                    GetGUID().ToString(), GetGOInfo()->UILink.PlayerInteractionType);
+
+                uint32 spellId = GetGOInfo()->UILink.spell;
+
+                // Per-plot cornerstone GOs from DB2 CASC data have spell=0 in their
+                // template.  The master template (entry 457142) has Data8=1266097 but
+                // the actual per-plot entries do not.  Fall back to the known spell
+                // for CornerstoneInteraction (type 70).
+                if (!spellId && GetGOInfo()->UILink.PlayerInteractionType == 70)
+                    spellId = 1266097; // [DNT] Trigger Convo for Unowned Plot
+
+                if (spellId)
+                {
+                    TC_LOG_DEBUG("housing", "  -> Casting spell {} on player", spellId);
                     player->CastSpell(player, spellId, true);
+                }
             }
             else
             {
@@ -4266,6 +4289,11 @@ void GameObject::InitHousingCornerstoneData(uint64 cost, int32 plotIndex)
 
     m_entityFragments.Add(WowCS::EntityFragment::FJamHousingCornerstone_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingCornerstoneData));
+
+    TC_LOG_DEBUG("housing", "GameObject::InitHousingCornerstoneData: entry={} guid={} cost={} plotIndex={} "
+        "isInWorld={} fragmentCount={} updateableCount={}",
+        GetEntry(), GetGUID().ToString(), cost, plotIndex,
+        IsInWorld(), m_entityFragments.Count, m_entityFragments.UpdateableCount);
 }
 
 std::span<uint32 const> GameObject::GetPauseTimes() const

@@ -317,10 +317,10 @@ void HousingSvcsGetBnetFriendNeighborhoods::Read()
 
 void HousingGetPlayerPermissions::Read()
 {
-    _worldPacket >> OptionalInit(PlayerGuid);
+    _worldPacket >> OptionalInit(HouseGuid);
 
-    if (PlayerGuid)
-        _worldPacket >> *PlayerGuid;
+    if (HouseGuid)
+        _worldPacket >> *HouseGuid;
 }
 
 void HousingSvcsGetPotentialHouseOwners::Read()
@@ -355,18 +355,20 @@ void GuildGetOthersOwnedHouses::Read()
 
 WorldPacket const* QueryNeighborhoodNameResponse::Write()
 {
+    // Wire format verified against retail 12.0.1 build 65940 (opcode 0x460012)
+    // Retail: [PackedGUID] [0x80] [uint8 len] [string bytes]
+    // Byte after GUID: bit 7 = Allow, bits 6-0 = zero padding (NOT a length field)
+    // The 7-bit field was incorrectly used as SizedString::BitsSize<7> before,
+    // causing the client to read NameLen bytes before the uint8 prefix, shifting everything.
     _worldPacket << NeighborhoodGuid;
     _worldPacket << Bits<1>(Allow);
+    _worldPacket.FlushBits();
 
     if (Allow)
     {
-        _worldPacket << SizedString::BitsSize<7>(Name);
-        _worldPacket.FlushBits();
-
-        _worldPacket << SizedString::Data(Name);
+        _worldPacket << uint8(Name.size());
+        _worldPacket.WriteString(Name);
     }
-    else
-        _worldPacket.FlushBits();
 
     return &_worldPacket;
 }
@@ -404,9 +406,13 @@ WorldPacket const* HouseExteriorSetHousePositionResponse::Write()
 
 WorldPacket const* HousingDecorSetEditModeResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket.WriteBit(Active);
-    _worldPacket.FlushBits();
+    // Sniff-verified (0x510000): HouseGuid + PlotGuid + uint8(Active) + uint32(Status) + [if Active: OwnerGuid]
+    _worldPacket << HouseGuid;
+    _worldPacket << PlotGuid;
+    _worldPacket << uint8(Active ? 1 : 0);
+    _worldPacket << uint32(Status);
+    if (Active)
+        _worldPacket << OwnerGuid;
     return &_worldPacket;
 }
 
@@ -669,17 +675,15 @@ WorldPacket const* HousingSvcsCancelRelinquishHouseResponse::Write()
     return &_worldPacket;
 }
 
+static void WriteJamCurrentHouseInfo(WorldPacket& packet, JamCurrentHouseInfo const& info);
+
 WorldPacket const* HousingSvcsGetPlayerHousesInfoResponse::Write()
 {
+    // Sniff-verified: uint32 Count + uint8 Unknown + JamCurrentHouseInfo per house
     _worldPacket << uint32(Houses.size());
     _worldPacket << uint8(Unknown);
     for (auto const& house : Houses)
-    {
-        _worldPacket << house.HouseGuid;
-        _worldPacket << house.NeighborhoodGuid;
-        _worldPacket << uint8(house.PlotIndex);
-        _worldPacket << uint8(house.Level);
-    }
+        WriteJamCurrentHouseInfo(_worldPacket, house);
     return &_worldPacket;
 }
 
@@ -708,9 +712,16 @@ WorldPacket const* HousingSvcsChangeHouseCosmeticOwner::Write()
 
 WorldPacket const* HousingSvcsUpdateHousesLevelFavor::Write()
 {
+    // Sniff-verified (36 bytes): uint8 + 4x int32 + PackedGUID + 2x int32 + uint16
+    _worldPacket << uint8(Type);
+    _worldPacket << int32(PreviousFavor);
+    _worldPacket << int32(PreviousLevel);
+    _worldPacket << int32(NewLevel);
+    _worldPacket << int32(Field4);
     _worldPacket << HouseGuid;
-    _worldPacket << uint32(Level);
-    _worldPacket << uint64(Favor);
+    _worldPacket << int32(PreviousLevelId);
+    _worldPacket << int32(NextLevelFavorCost);
+    _worldPacket << uint16(Flags);
     return &_worldPacket;
 }
 
@@ -870,26 +881,46 @@ WorldPacket const* HousingSvcsDeleteAllNeighborhoodInvitesResponse::Write()
 // Housing General SMSG Responses (0x55xxxx)
 // ============================================================
 
+// Helper: Write JamCurrentHouseInfo struct to packet (IDA sub_7FF6F6E0A170)
+static void WriteJamCurrentHouseInfo(WorldPacket& packet, JamCurrentHouseInfo const& info)
+{
+    packet << info.OwnerGuid;
+    packet << info.SecondaryOwnerGuid;
+    packet << info.PlotGuid;
+    packet << uint8(info.Flags);
+    packet << uint32(info.HouseTypeId);
+    uint8 statusFlags = info.StatusFlags;
+    if (info.HouseId)
+        statusFlags |= 0x80;
+    packet << uint8(statusFlags);
+    if (info.HouseId)
+        packet << uint64(*info.HouseId);
+}
+
+// Helper: Write JamNeighborhoodRosterEntry struct to packet (IDA sub_7FF6F6E0A460)
+static void WriteJamNeighborhoodRosterEntry(WorldPacket& packet, JamNeighborhoodRosterEntry const& entry)
+{
+    packet << uint64(entry.Timestamp);
+    packet << entry.PlayerGuid;
+    packet << entry.HouseGuid;
+    packet << uint64(entry.ExtraData);
+}
+
 WorldPacket const* HousingHouseStatusResponse::Write()
 {
+    // Sniff-verified (0x550000): 3x PackedGUID + uint32 Status
     _worldPacket << HouseGuid;
-    _worldPacket << OwnerBNetGuid;
-    _worldPacket << OwnerPlayerGuid;
-    _worldPacket << uint16(HouseStatus);
-    _worldPacket << uint8(PlotIndex);
-    _worldPacket << uint8(StatusFlags);
+    _worldPacket << HouseTemplateGuid;
+    _worldPacket << PlotGuid;
+    _worldPacket << uint32(Status);
     return &_worldPacket;
 }
 
 WorldPacket const* HousingGetCurrentHouseInfoResponse::Write()
 {
-    _worldPacket << HouseGuid;
-    _worldPacket << OwnerPlayerGuid;
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << uint8(PlotIndex);
-    _worldPacket << uint8(HouseProperties);
-    _worldPacket << uint8(HouseLevel);
-    _worldPacket << uint32(Reserved);
+    // IDA 12.0 verified (0x550001): JamCurrentHouseInfo + uint8 ResponseFlags
+    WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
+    _worldPacket << uint8(ResponseFlags);
     return &_worldPacket;
 }
 
@@ -905,14 +936,17 @@ WorldPacket const* HousingExportHouseResponse::Write()
 
 WorldPacket const* HousingGetPlayerPermissionsResponse::Write()
 {
+    // IDA 12.0 verified (0x550006): PackedGUID + uint8 ResultCode + uint8 Permissions
     _worldPacket << HouseGuid;
-    _worldPacket << uint16(PermissionFlags);
+    _worldPacket << uint8(ResultCode);
+    _worldPacket << uint8(PermissionFlags);
     return &_worldPacket;
 }
 
 WorldPacket const* HousingResetKioskModeResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // IDA 12.0 verified (0x550007): single uint8
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
@@ -974,6 +1008,18 @@ WorldPacket const* GetPlayerInitiativeInfoResult::Write()
 }
 
 WorldPacket const* GetInitiativeActivityLogResult::Write()
+{
+    _worldPacket << uint32(Result);
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingPhotoSharingAuthorizationResult::Write()
+{
+    _worldPacket << uint32(Result);
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingPhotoSharingAuthorizationClearedResult::Write()
 {
     _worldPacket << uint32(Result);
     return &_worldPacket;
@@ -1171,125 +1217,144 @@ WorldPacket const* NeighborhoodEvictPlayerResponse::Write()
 
 WorldPacket const* NeighborhoodUpdateNameResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
+    // IDA 12.0 verified (0x5C0003): single uint8
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodUpdateNameNotification::Write()
 {
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << SizedString::BitsSize<7>(NewName);
-    _worldPacket.FlushBits();
-    _worldPacket << SizedString::Data(NewName);
+    // IDA 12.0 verified (0x5C0004): uint8(nameLen) + bytes[nameLen]
+    uint8 nameLen = NewName.empty() ? 0 : static_cast<uint8>(NewName.size() + 1);
+    _worldPacket << uint8(nameLen);
+    if (nameLen > 0)
+        _worldPacket.append(reinterpret_cast<uint8 const*>(NewName.c_str()), nameLen);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodAddSecondaryOwnerResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
+    // IDA 12.0 verified (0x5C0006): PackedGUID + uint8 Result
     _worldPacket << PlayerGuid;
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodRemoveSecondaryOwnerResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
+    // IDA 12.0 verified (0x5C0007): PackedGUID + uint8 Result
     _worldPacket << PlayerGuid;
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodBuyHouseResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << HouseGuid;
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << uint8(PlotIndex);
+    // IDA 12.0 verified (0x5C0008): JamCurrentHouseInfo + uint8 Result
+    Housing::WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodMoveHouseResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << uint8(NewPlotIndex);
+    // IDA 12.0 verified (0x5C0009): JamCurrentHouseInfo + PackedGUID + uint8 Result
+    Housing::WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
+    _worldPacket << MoveTransactionGuid;
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodOpenCornerstoneUIResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << uint64(Cost);
-    _worldPacket << uint8(PlotIndex);
+    // Wire format verified against retail 12.0.1 build 65940 packet captures (Alliance + Horde)
+    // IDA deserializer sub_7FF6F6E3E200: uint32→+32, GUID→+40, GUID→+56, uint64→+72, uint8→+80, GUID→+128
+    // Fixed fields
+    _worldPacket << uint32(PlotIndex);          // Echoed from CMSG (NOT a result code)
+    _worldPacket << PlotOwnerGuid;              // →+40: Player GUID when owned, Empty when unclaimed
+    _worldPacket << NeighborhoodGuid;           // →+56: Housing GUID when owned, Empty when unclaimed
+    _worldPacket << uint64(Cost);               // →+72: Purchase price
+    _worldPacket << uint8(PurchaseStatus);      // →+80: 73=purchasable, 0=not. Client checks ==73
+    _worldPacket << CornerstoneGuid;            // →+128: Cornerstone game object
+
+    // Bit-packed section: 1 bool + 8-bit nameLen + 6 bools = 15 bits = 2 bytes
+    // Retail uses NUL-terminated CString: NameLen includes the NUL byte
+    _worldPacket << Bits<1>(IsPlotOwned);
+    _worldPacket << SizedCString::BitsSize<8>(NeighborhoodName);
+    _worldPacket << OptionalInit(AlternatePrice);
+    _worldPacket << Bits<1>(CanPurchase);
+    _worldPacket.WriteBit(false);               // HasOptionalStruct — not yet implemented
+    _worldPacket << Bits<1>(HasResidents);
+    _worldPacket << OptionalInit(StatusValue);
+    _worldPacket << Bits<1>(IsInitiative);
+    _worldPacket.FlushBits();
+
+    // Variable-length data (order matches client deserialization)
+    // Optional struct data would go here if HasOptionalStruct was set
+    _worldPacket << SizedCString::Data(NeighborhoodName);
+
+    if (AlternatePrice)
+        _worldPacket << uint64(*AlternatePrice);
+
+    if (StatusValue)
+        _worldPacket << uint32(*StatusValue);
+
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodInviteResidentResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
+    // IDA 12.0 verified (0x5C000B): uint8 Result + PackedGUID
+    _worldPacket << uint8(Result);
     _worldPacket << InviteeGuid;
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodCancelInvitationResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
+    // IDA 12.0 verified (0x5C000C): uint8 Result + PackedGUID
+    _worldPacket << uint8(Result);
     _worldPacket << InviteeGuid;
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodDeclineInvitationResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // IDA 12.0 verified (0x5C000D): uint8 Result + PackedGUID
+    _worldPacket << uint8(Result);
     _worldPacket << NeighborhoodGuid;
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodPlayerGetInviteResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << InviterGuid;
-    _worldPacket << uint32(InviteTime);
-    _worldPacket << SizedString::BitsSize<7>(NeighborhoodName);
-    _worldPacket.FlushBits();
-    _worldPacket << SizedString::Data(NeighborhoodName);
+    // IDA 12.0 verified (0x5C000E): uint8 Result + JamNeighborhoodRosterEntry(48 bytes)
+    _worldPacket << uint8(Result);
+    Housing::WriteJamNeighborhoodRosterEntry(_worldPacket, Entry);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodGetInvitesResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // IDA 12.0 verified (0x5C000F): uint8 Result + uint32 Count + RosterEntry[Count]
+    _worldPacket << uint8(Result);
     _worldPacket << uint32(Invites.size());
     for (auto const& invite : Invites)
-    {
-        _worldPacket << invite.InviteeGuid;
-        _worldPacket << invite.InviterGuid;
-        _worldPacket << uint32(invite.InviteTime);
-    }
+        Housing::WriteJamNeighborhoodRosterEntry(_worldPacket, invite);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodInviteNotification::Write()
 {
+    // IDA 12.0 verified (0x5C0010): single PackedGUID
     _worldPacket << NeighborhoodGuid;
-    _worldPacket << InviterGuid;
-    _worldPacket << SizedString::BitsSize<7>(NeighborhoodName);
-    _worldPacket.FlushBits();
-    _worldPacket << SizedString::Data(NeighborhoodName);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodOfferOwnershipResponse::Write()
 {
-    _worldPacket << uint32(Result);
-    _worldPacket << NeighborhoodGuid;
-    _worldPacket << NewOwnerGuid;
+    // IDA 12.0 verified (0x5C0011): single uint8 Result
+    _worldPacket << uint8(Result);
     return &_worldPacket;
 }
 
@@ -1308,18 +1373,21 @@ WorldPacket const* NeighborhoodGetRosterResponse::Write()
     _worldPacket << uint32(1); // Count B = 1 group
 
     // Step 3b: Single group entry (sub_7FF6A8B3A570)
-    _worldPacket << ObjectGuid::Empty;  // Group GUID 1 (empty in retail sniff)
-    _worldPacket << ObjectGuid::Empty;  // Group GUID 2 (empty in retail sniff)
-    _worldPacket << uint64(0);          // Value 1 (timestamp or flags, 0 in sniff)
-    _worldPacket << uint64(0);          // Value 2 (timestamp or flags, 0 in sniff)
+    // These GUIDs populate the HousingNeighborhoodState singleton (sub_7FF6F69ECCD0):
+    //   offset 352 = NeighborhoodGUID, offset 292 = ownerType (computed from OwnerGUID)
+    _worldPacket << GroupNeighborhoodGuid;  // PackedGUID — Neighborhood GUID
+    _worldPacket << GroupOwnerGuid;         // PackedGUID — Neighborhood owner GUID
+    _worldPacket << uint64(0);             // Value 1 (timestamp or flags, 0 in sniff)
+    _worldPacket << uint64(0);             // Value 2 (timestamp or flags, 0 in sniff)
 
     // Sub-array count within this group = number of residents
     _worldPacket << uint32(Members.size());
 
-    // String length for connected realm name (read before sub-entries, used after)
-    // When length <= 1, client treats as empty string and reads no bytes
-    uint8 realmNameLen = ConnectedRealmName.empty() ? 0 : static_cast<uint8>(ConnectedRealmName.size() + 1); // +1 for null terminator
-    _worldPacket << uint8(realmNameLen);
+    // Neighborhood name length (read before sub-entries, string data written after).
+    // Client stores at singleton offset 296 via sub_7FF6F97E62B0.
+    // When length <= 1, client treats as empty string and reads no bytes.
+    uint8 nameLen = NeighborhoodName.empty() ? 0 : static_cast<uint8>(NeighborhoodName.size() + 1); // +1 for null terminator
+    _worldPacket << uint8(nameLen);
 
     // Group flags (bit 7 unused for now)
     _worldPacket << uint8(0);
@@ -1335,9 +1403,9 @@ WorldPacket const* NeighborhoodGetRosterResponse::Write()
         _worldPacket << uint8(0);                // Entry flags (bit 7 = has optional uint64)
     }
 
-    // Step 3b-ix: Connected realm name string (realmNameLen bytes including null terminator)
-    if (realmNameLen > 1)
-        _worldPacket.append(reinterpret_cast<uint8 const*>(ConnectedRealmName.c_str()), realmNameLen);
+    // Step 3b-ix: Neighborhood name string (nameLen bytes including null terminator)
+    if (nameLen > 1)
+        _worldPacket.append(reinterpret_cast<uint8 const*>(NeighborhoodName.c_str()), nameLen);
 
     // Step 4: Main flags byte (bit 7 = has optional trailing GUID)
     _worldPacket << uint8(0);
@@ -1347,7 +1415,8 @@ WorldPacket const* NeighborhoodGetRosterResponse::Write()
     {
         _worldPacket << member.PlayerGuid; // PackedGUID
         _worldPacket << uint8(0);          // Status field 1
-        _worldPacket << uint8(0);          // Status field 2 (only bit 7 used by client)
+        // Status field 2: bit 7 (0x80) = online flag, checked by client UI for roster display
+        _worldPacket << uint8(member.IsOnline ? 0x80 : 0x00);
     }
 
     // Step 6: Optional trailing GUID (skipped since MainFlags.bit7 = 0)
@@ -1368,24 +1437,24 @@ WorldPacket const* NeighborhoodRosterResidentUpdate::Write()
 
 WorldPacket const* NeighborhoodInviteNameLookupResult::Write()
 {
-    _worldPacket << uint32(Result);
+    // IDA 12.0 verified (0x5C0014): uint8 Result + PackedGUID
+    _worldPacket << uint8(Result);
     _worldPacket << PlayerGuid;
-    _worldPacket << SizedString::BitsSize<7>(PlayerName);
-    _worldPacket.FlushBits();
-    _worldPacket << SizedString::Data(PlayerName);
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodEvictPlotResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // IDA 12.0 verified (0x5C0015): uint8 Result + PackedGUID
+    _worldPacket << uint8(Result);
     _worldPacket << NeighborhoodGuid;
-    _worldPacket << PlotGuid;
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodEvictPlotNotice::Write()
 {
+    // IDA 12.0 verified (0x5C0016): uint32 + PackedGUID + PackedGUID
+    _worldPacket << uint32(PlotId);
     _worldPacket << NeighborhoodGuid;
     _worldPacket << PlotGuid;
     return &_worldPacket;
