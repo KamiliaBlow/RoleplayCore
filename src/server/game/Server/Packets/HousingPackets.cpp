@@ -406,13 +406,10 @@ WorldPacket const* HouseExteriorSetHousePositionResponse::Write()
 
 WorldPacket const* HousingDecorSetEditModeResponse::Write()
 {
-    // Sniff-verified (0x510000): HouseGuid + PlotGuid + uint8(Active) + uint32(Status) + [if Active: OwnerGuid]
-    _worldPacket << HouseGuid;
-    _worldPacket << PlotGuid;
-    _worldPacket << uint8(Active ? 1 : 0);
-    _worldPacket << uint32(Status);
-    if (Active)
-        _worldPacket << OwnerGuid;
+    // Same wire format as Fixture/Room edit mode responses: uint32(Result) + Bit(Active)
+    _worldPacket << uint32(Result);
+    _worldPacket.WriteBit(Active);
+    _worldPacket.FlushBits();
     return &_worldPacket;
 }
 
@@ -909,9 +906,10 @@ static void WriteJamNeighborhoodRosterEntry(WorldPacket& packet, JamNeighborhood
 WorldPacket const* HousingHouseStatusResponse::Write()
 {
     // Sniff-verified (0x550000): 3x PackedGUID + uint32 Status
+    // GUID3 (NeighborhoodGuid) must match EditMode DecorGuids[0]
     _worldPacket << HouseGuid;
-    _worldPacket << HouseTemplateGuid;
     _worldPacket << PlotGuid;
+    _worldPacket << NeighborhoodGuid;
     _worldPacket << uint32(Status);
     return &_worldPacket;
 }

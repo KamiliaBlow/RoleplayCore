@@ -77,7 +77,7 @@ void WorldSession::HandleDeclineNeighborhoodInvites(WorldPackets::Housing::Decli
 // House Exterior System
 // ============================================================
 
-void WorldSession::HandleHouseExteriorSetHousePosition(WorldPackets::Housing::HouseExteriorCommitPosition const& /*houseExteriorCommitPosition*/)
+void WorldSession::HandleHouseExteriorSetHousePosition(WorldPackets::Housing::HouseExteriorCommitPosition const& houseExteriorCommitPosition)
 {
     Player* player = GetPlayer();
     if (!player)
@@ -92,14 +92,38 @@ void WorldSession::HandleHouseExteriorSetHousePosition(WorldPackets::Housing::Ho
         return;
     }
 
-    // Exterior position commit is a visual-only operation handled by the client
-    // Server acknowledges receipt; the client positions the house model locally
+    // Persist the house position to the database
+    housing->SetHousePosition(
+        houseExteriorCommitPosition.PositionX,
+        houseExteriorCommitPosition.PositionY,
+        houseExteriorCommitPosition.PositionZ,
+        houseExteriorCommitPosition.Facing);
+
+    // Update the house GO position on the map
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+    {
+        if (GameObject* houseGO = housingMap->GetHouseGameObject(housing->GetPlotIndex()))
+        {
+            Position newPos(houseExteriorCommitPosition.PositionX,
+                houseExteriorCommitPosition.PositionY,
+                houseExteriorCommitPosition.PositionZ,
+                houseExteriorCommitPosition.Facing);
+            houseGO->Relocate(newPos);
+
+            QuaternionData rot = QuaternionData::fromEulerAnglesZYX(houseExteriorCommitPosition.Facing, 0.0f, 0.0f);
+            houseGO->SetLocalRotation(rot.x, rot.y, rot.z, rot.w);
+        }
+    }
+
     WorldPackets::Housing::HouseExteriorSetHousePositionResponse response;
     response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     response.HouseGuid = housing->GetHouseGuid();
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSE_EXTERIOR_COMMIT_POSITION received for player {}", player->GetGUID().ToString());
+    TC_LOG_INFO("housing", "CMSG_HOUSE_EXTERIOR_COMMIT_POSITION: Player {} positioned house at ({}, {}, {}, {:.2f})",
+        player->GetGUID().ToString(),
+        houseExteriorCommitPosition.PositionX, houseExteriorCommitPosition.PositionY,
+        houseExteriorCommitPosition.PositionZ, houseExteriorCommitPosition.Facing);
 }
 
 void WorldSession::HandleHouseExteriorLock(WorldPackets::Housing::HouseExteriorLock const& houseExteriorLock)
@@ -150,8 +174,8 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
     // Send updated house status to acknowledge the interior exit
     WorldPackets::Housing::HousingHouseStatusResponse response;
     response.HouseGuid = housing->GetHouseGuid();
-    response.HouseTemplateGuid = ObjectGuid::Create<HighGuid::Housing>(3, 0, 7, 0); // static template GUID
     response.PlotGuid = housing->GetPlotGuid();
+    response.NeighborhoodGuid = housing->GetNeighborhoodGuid();
     response.Status = 0;
     SendPacket(response.Write());
 
@@ -165,6 +189,8 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
 
 void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingDecorSetEditMode const& housingDecorSetEditMode)
 {
+    TC_LOG_ERROR("housing", ">>> CMSG_HOUSING_DECOR_SET_EDIT_MODE Active={}", housingDecorSetEditMode.Active);
+
     Player* player = GetPlayer();
     if (!player)
         return;
@@ -172,24 +198,50 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
     Housing* housing = player->GetHousing();
     if (!housing)
     {
-        WorldPackets::Housing::HousingDecorSetEditModeResponse response;
-        SendPacket(response.Write());
+        TC_LOG_ERROR("housing", "  EditMode: GetHousing() returned null!");
         return;
     }
 
-    housing->SetEditorMode(housingDecorSetEditMode.Active ? HOUSING_EDITOR_MODE_BASIC_DECOR : HOUSING_EDITOR_MODE_NONE);
+    HousingEditorMode targetMode = housingDecorSetEditMode.Active ? HOUSING_EDITOR_MODE_BASIC_DECOR : HOUSING_EDITOR_MODE_NONE;
 
+    TC_LOG_ERROR("housing", "  HouseGuid={} PlotGuid={} NeighborhoodGuid={}",
+        housing->GetHouseGuid().ToString(), housing->GetPlotGuid().ToString(), housing->GetNeighborhoodGuid().ToString());
+
+    if (player->m_playerHouseInfoComponentData.has_value())
+    {
+        UF::PlayerHouseInfoComponentData const& phData = *player->m_playerHouseInfoComponentData;
+        TC_LOG_ERROR("housing", "  BEFORE SetEditorMode: EditorMode={} HouseCount={}",
+            uint32(*phData.EditorMode), phData.Houses.size());
+        for (uint32 i = 0; i < phData.Houses.size(); ++i)
+        {
+            TC_LOG_ERROR("housing", "    Houses[{}]: Guid={} MapID={} PlotID={} Level={} NeighborhoodGUID={}",
+                i, phData.Houses[i].Guid.ToString(), phData.Houses[i].MapID,
+                phData.Houses[i].PlotID, phData.Houses[i].Level,
+                phData.Houses[i].NeighborhoodGUID.ToString());
+        }
+    }
+    else
+    {
+        TC_LOG_ERROR("housing", "  PlayerHouseInfoComponentData: NOT initialized!");
+        return;
+    }
+
+    // Set edit mode via UpdateField — client needs both the UpdateField change AND the SMSG response
+    housing->SetEditorMode(targetMode);
+
+    // Send response — same wire format as Fixture/Room: uint32(Result) + Bit(Active)
     WorldPackets::Housing::HousingDecorSetEditModeResponse response;
-    response.HouseGuid = housing->GetHouseGuid();
-    response.PlotGuid = housing->GetPlotGuid();
+    response.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
     response.Active = housingDecorSetEditMode.Active;
-    response.Status = 0;
-    if (housingDecorSetEditMode.Active)
-        response.OwnerGuid = housing->GetNeighborhoodGuid();
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_SET_EDITOR_MODE_ACTIVE Active: {} HouseGuid: {}",
-        housingDecorSetEditMode.Active, housing->GetHouseGuid().ToString());
+    // Verify the UpdateField was actually set
+    if (player->m_playerHouseInfoComponentData.has_value())
+    {
+        UF::PlayerHouseInfoComponentData const& phData = *player->m_playerHouseInfoComponentData;
+        TC_LOG_ERROR("housing", "  AFTER: EditorMode={} (target={}), Response: Result=0 Active={}",
+            uint32(*phData.EditorMode), uint32(targetMode), housingDecorSetEditMode.Active);
+    }
 }
 
 void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPlace const& housingDecorPlace)
@@ -212,6 +264,28 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
         housingDecorPlace.RotationX, housingDecorPlace.RotationY,
         housingDecorPlace.RotationZ, housingDecorPlace.RotationW,
         housingDecorPlace.RoomGuid);
+
+    // Spawn decor GO on the map if placement succeeded
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        // Find the most recently placed decor (highest GUID)
+        ObjectGuid newestDecorGuid;
+        for (auto const& [guid, decor] : housing->GetPlacedDecorMap())
+        {
+            if (decor.DecorEntryId == housingDecorPlace.DecorRecID &&
+                (newestDecorGuid.IsEmpty() || guid.GetCounter() > newestDecorGuid.GetCounter()))
+                newestDecorGuid = guid;
+        }
+
+        if (!newestDecorGuid.IsEmpty())
+        {
+            if (Housing::PlacedDecor const* newDecor = housing->GetPlacedDecor(newestDecorGuid))
+            {
+                if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+                    housingMap->SpawnDecorItem(housing->GetPlotIndex(), *newDecor, housing->GetHouseGuid());
+            }
+        }
+    }
 
     WorldPackets::Housing::HousingDecorPlaceResponse response;
     response.Result = static_cast<uint32>(result);
@@ -241,6 +315,18 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
         housingDecorMove.RotationX, housingDecorMove.RotationY,
         housingDecorMove.RotationZ, housingDecorMove.RotationW);
 
+    // Update decor GO position on the map
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            Position newPos(housingDecorMove.PositionX, housingDecorMove.PositionY, housingDecorMove.PositionZ);
+            QuaternionData newRot(housingDecorMove.RotationX, housingDecorMove.RotationY,
+                housingDecorMove.RotationZ, housingDecorMove.RotationW);
+            housingMap->UpdateDecorPosition(housing->GetPlotIndex(), housingDecorMove.DecorGuid, newPos, newRot);
+        }
+    }
+
     WorldPackets::Housing::HousingDecorMoveResponse response;
     response.Result = static_cast<uint32>(result);
     response.DecorGuid = housingDecorMove.DecorGuid;
@@ -265,15 +351,26 @@ void WorldSession::HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorR
         return;
     }
 
-    HousingResult result = housing->RemoveDecor(housingDecorRemove.DecorGuid);
+    // Capture plotIndex before RemoveDecor (which may clear the data)
+    uint8 plotIndex = housing->GetPlotIndex();
+    ObjectGuid decorGuid = housingDecorRemove.DecorGuid;
+
+    HousingResult result = housing->RemoveDecor(decorGuid);
+
+    // Despawn the decor GO from the map
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+            housingMap->DespawnDecorItem(plotIndex, decorGuid);
+    }
 
     WorldPackets::Housing::HousingDecorRemoveResponse response;
     response.Result = static_cast<uint32>(result);
-    response.DecorGuid = housingDecorRemove.DecorGuid;
+    response.DecorGuid = decorGuid;
     SendPacket(response.Write());
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_DECOR_REMOVE_PLACED_DECOR_ENTRY DecorGuid: {}, Result: {}",
-        housingDecorRemove.DecorGuid.ToString(), uint32(result));
+        decorGuid.ToString(), uint32(result));
 }
 
 void WorldSession::HandleHousingDecorLock(WorldPackets::Housing::HousingDecorLock const& housingDecorLock)
@@ -1014,7 +1111,10 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
     HousingResult result = neighborhood->PurchasePlot(player->GetGUID(), housingSvcsNeighborhoodReservePlot.PlotIndex);
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        player->CreateHousing(housingSvcsNeighborhoodReservePlot.NeighborhoodGuid, housingSvcsNeighborhoodReservePlot.PlotIndex);
+        // Use the server's canonical neighborhood GUID, NOT the client-supplied GUID.
+        // Client may send DB2 NeighborhoodID as counter (e.g. 1390) while server uses
+        // internal instance counter (e.g. 2). Mismatch breaks GetHousingForNeighborhood().
+        player->CreateHousing(neighborhood->GetGuid(), housingSvcsNeighborhoodReservePlot.PlotIndex);
 
         // Update the PlotInfo with the newly created HouseGuid and Battle.net account GUID
         if (Housing const* housing = player->GetHousing())
@@ -1073,7 +1173,7 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
     response.HouseGuid = houseGuid;
     SendPacket(response.Write());
 
-    // House deletion is a major data change ? request client to reload housing data
+    // House deletion is a major data change — request client to reload housing data
     WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
     SendPacket(reloadData.Write());
 
@@ -1272,7 +1372,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
 
     // Step 1: Find or create a tutorial neighborhood for the player's faction.
     // The tutorial only needs a neighborhood to exist so the map instance can be
-    // created. It does NOT grant membership ? that happens when the player buys a plot.
+    // created. It does NOT grant membership — that happens when the player buys a plot.
     Neighborhood* neighborhood = sNeighborhoodMgr.FindOrCreatePublicNeighborhood(player->GetTeam());
 
     if (neighborhood)
@@ -1280,7 +1380,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
         TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_START_TUTORIAL: Player {} assigned to neighborhood '{}' ({})",
             player->GetGUID().ToString(), neighborhood->GetName(), neighborhood->GetGuid().ToString());
 
-        // Send empty house status ? the player has no house yet during tutorial.
+        // Send empty house status — the player has no house yet during tutorial.
         // HouseStatus=1 would tell the client "you own a house" which prevents
         // the Cornerstone purchase UI from showing. Neighborhood context is
         // provided separately via SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE
@@ -1309,7 +1409,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
         QuestStatus status = player->GetQuestStatus(QUEST_MY_FIRST_HOME);
         if (status == QUEST_STATUS_NONE)
         {
-            // Quest not in log and not yet rewarded ? safe to add
+            // Quest not in log and not yet rewarded — safe to add
             if (player->CanAddQuest(quest, true))
             {
                 player->AddQuestAndCheckCompletion(quest, nullptr);
@@ -1382,7 +1482,7 @@ void WorldSession::HandleHousingSvcsAcceptNeighborhoodOwnership(WorldPackets::Ho
         }
     }
 
-    // Ownership change is a major data change ? request client to reload housing data
+    // Ownership change is a major data change — request client to reload housing data
     WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
     SendPacket(reloadData.Write());
 
@@ -1615,16 +1715,16 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
     if (housing)
     {
         response.HouseGuid = housing->GetHouseGuid();
-        response.HouseTemplateGuid = ObjectGuid::Create<HighGuid::Housing>(3, 0, 7, 0);
         response.PlotGuid = housing->GetPlotGuid();
+        response.NeighborhoodGuid = housing->GetNeighborhoodGuid();
         response.Status = 0;
     }
     // No house: all fields stay at defaults (empty GUIDs, Status=0).
     SendPacket(response.Write());
 
     TC_LOG_INFO("housing", ">>> CMSG_HOUSING_HOUSE_STATUS received");
-    TC_LOG_INFO("housing", "<<< SMSG_HOUSING_HOUSE_STATUS_RESPONSE sent (HouseGuid: {}, PlotGuid: {}, Status: {})",
-        response.HouseGuid.ToString(), response.PlotGuid.ToString(), response.Status);
+    TC_LOG_INFO("housing", "<<< SMSG_HOUSING_HOUSE_STATUS_RESPONSE sent (HouseGuid: {}, PlotGuid: {}, NeighborhoodGuid: {}, Status: {})",
+        response.HouseGuid.ToString(), response.PlotGuid.ToString(), response.NeighborhoodGuid.ToString(), response.Status);
 }
 
 void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::HousingGetPlayerPermissions const& housingGetPlayerPermissions)
@@ -1686,26 +1786,34 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse response;
     if (housing)
     {
-        // Sniff-verified: JamCurrentHouseInfo fields carry HouseGuid, PlotGuid, NeighborhoodGuid
+        // Sniff-verified: JamCurrentHouseInfo field mapping
+        // SecondaryOwnerGuid = NeighborhoodGuid (client uses this as context GUID for edit mode matching)
+        // PlotGuid = PlotGuid (deterministic from neighborhood + plot index)
         response.HouseInfo.OwnerGuid = housing->GetHouseGuid();
-        response.HouseInfo.SecondaryOwnerGuid = housing->GetPlotGuid();
-        response.HouseInfo.PlotGuid = housing->GetNeighborhoodGuid();
+        response.HouseInfo.SecondaryOwnerGuid = housing->GetNeighborhoodGuid();
+        response.HouseInfo.PlotGuid = housing->GetPlotGuid();
         response.HouseInfo.Flags = housing->GetPlotIndex();
         response.HouseInfo.HouseTypeId = 32;  // sniff value: 0x20 = default house type
         response.HouseInfo.StatusFlags = 0;
     }
     else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
     {
-        // No house, but on a housing map ? provide the neighborhood GUID
-        // in the PlotGuid field (3rd GUID) so the client knows the context.
+        // No house, but on a housing map — provide the neighborhood GUID
+        // in the SecondaryOwnerGuid field so the client knows the context.
         if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
-            response.HouseInfo.PlotGuid = neighborhood->GetGuid();
+            response.HouseInfo.SecondaryOwnerGuid = neighborhood->GetGuid();
     }
     response.ResponseFlags = 0;
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "<<< SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE sent (HasHouse: {}, HouseGuid: {})",
-        housing ? "yes" : "no", response.HouseInfo.OwnerGuid.ToString());
+    TC_LOG_ERROR("housing", "<<< SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE sent (HasHouse: {}) OwnerGuid={} SecondaryOwnerGuid={} PlotGuid={} Flags={} HouseTypeId={} StatusFlags={}",
+        housing ? "yes" : "no",
+        response.HouseInfo.OwnerGuid.ToString(),
+        response.HouseInfo.SecondaryOwnerGuid.ToString(),
+        response.HouseInfo.PlotGuid.ToString(),
+        response.HouseInfo.Flags,
+        response.HouseInfo.HouseTypeId,
+        response.HouseInfo.StatusFlags);
 }
 
 void WorldSession::HandleHousingResetKioskMode(WorldPackets::Housing::HousingResetKioskMode const& /*housingResetKioskMode*/)

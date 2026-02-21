@@ -808,8 +808,8 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_INS_CHARACTER_BANK_TAB_SETTINGS, "INSERT INTO character_bank_tab_settings (characterGuid, tabId, name, icon, description, depositFlags) VALUES (?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
 
     // Housing
-    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING, "SELECT houseId, neighborhoodGuid, plotIndex, houseLevel, favor, settingsFlags, exteriorLocked, houseSize, houseType, createTime FROM character_housing WHERE guid = ?", CONNECTION_ASYNC);
-    PrepareStatement(CHAR_INS_CHARACTER_HOUSING, "INSERT INTO character_housing (guid, houseId, neighborhoodGuid, plotIndex, houseLevel, favor, settingsFlags, exteriorLocked, houseSize, houseType, createTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP())", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_HOUSING, "SELECT houseId, neighborhoodGuid, plotIndex, houseLevel, favor, settingsFlags, exteriorLocked, houseSize, houseType, createTime, posX, posY, posZ, facing FROM character_housing WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_INS_CHARACTER_HOUSING, "INSERT INTO character_housing (guid, houseId, neighborhoodGuid, plotIndex, houseLevel, favor, settingsFlags, exteriorLocked, houseSize, houseType, createTime, posX, posY, posZ, facing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP(), ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING, "DELETE FROM character_housing WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_CHARACTER_HOUSING_DECOR, "SELECT id, houseDecorId, posX, posY, posZ, rotX, rotY, rotZ, rotW, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked FROM character_housing_decor WHERE ownerGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_CHARACTER_HOUSING_DECOR, "INSERT INTO character_housing_decor (ownerGuid, id, houseDecorId, posX, posY, posZ, rotX, rotY, rotZ, rotW, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
@@ -827,12 +827,15 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_EXTERIOR_LOCKED, "UPDATE character_housing SET exteriorLocked = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_HOUSE_SIZE, "UPDATE character_housing SET houseSize = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_HOUSE_TYPE, "UPDATE character_housing SET houseType = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_POSITION, "UPDATE character_housing SET posX = ?, posY = ?, posZ = ?, facing = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_POSITION, "UPDATE character_housing_decor SET posX = ?, posY = ?, posZ = ?, rotX = ?, rotY = ?, rotZ = ?, rotW = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_DYES, "UPDATE character_housing_decor SET dyeSlot0 = ?, dyeSlot1 = ?, dyeSlot2 = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_LOCKED, "UPDATE character_housing_decor SET locked = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_ROOM, "UPDATE character_housing_rooms SET slotIndex = ?, orientation = ?, mirrored = ?, themeId = ?, wallpaperId = ?, materialId = ?, doorTypeId = ?, doorSlot = ?, ceilingTypeId = ?, ceilingSlot = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_FIXTURE, "UPDATE character_housing_fixtures SET fixtureOptionId = ? WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE, "DELETE FROM character_housing_fixtures WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT, "UPDATE character_housing_catalog SET quantity = ? WHERE ownerGuid = ? AND houseDecorId = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_DECOR_SINGLE, "DELETE FROM character_housing_decor WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
 
     // Neighborhoods
     PrepareStatement(CHAR_SEL_NEIGHBORHOOD, "SELECT guid, name, neighborhoodMapId, ownerGuid, factionRestriction, isPublic, createTime FROM neighborhoods WHERE guid = ?", CONNECTION_SYNCH);

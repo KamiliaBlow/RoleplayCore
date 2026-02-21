@@ -61,6 +61,11 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     _houseSize = fields[7].GetUInt8();
     _houseType = fields[8].GetUInt32();
     _createTime = fields[9].GetUInt32();
+    _housePosX = fields[10].GetFloat();
+    _housePosY = fields[11].GetFloat();
+    _housePosZ = fields[12].GetFloat();
+    _houseFacing = fields[13].GetFloat();
+    _hasCustomPosition = (_housePosX != 0.0f || _housePosY != 0.0f || _housePosZ != 0.0f);
 
     // Load placed decor
     //           0        1             2     3     4     5          6          7          8          9       10       11       12        13
@@ -210,6 +215,10 @@ void Housing::SaveToDB(CharacterDatabaseTransaction trans)
     stmt->setUInt8(7, _exteriorLocked ? 1 : 0);
     stmt->setUInt8(8, _houseSize);
     stmt->setUInt32(9, _houseType);
+    stmt->setFloat(10, _housePosX);
+    stmt->setFloat(11, _housePosY);
+    stmt->setFloat(12, _housePosZ);
+    stmt->setFloat(13, _houseFacing);
     trans->Append(stmt);
 
     // Save placed decor
@@ -327,8 +336,10 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     _editorMode = HOUSING_EDITOR_MODE_NONE;
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
-    _houseType = 0;
+    _houseType = 32; // Sniff-verified default house type
     _createTime = static_cast<uint32>(GameTime::GetGameTime());
+    _hasCustomPosition = false;
+    _housePosX = _housePosY = _housePosZ = _houseFacing = 0.0f;
 
     // Generate a new house guid using the owner's low guid as a base
     _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, _owner->GetGUID().GetCounter());
@@ -377,6 +388,8 @@ void Housing::Delete()
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
     _houseType = 0;
+    _hasCustomPosition = false;
+    _housePosX = _housePosY = _housePosZ = _houseFacing = 0.0f;
     _placedDecor.clear();
     _rooms.clear();
     _fixtures.clear();
@@ -404,10 +417,20 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (GetDecorCount() >= maxDecor)
         return HOUSING_RESULT_MAX_DECOR_REACHED;
 
-    // Check WeightCost-based budget
+    // Check WeightCost-based budget (exterior vs interior)
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
-    if (_interiorDecorWeightUsed + weightCost > GetMaxInteriorDecorBudget())
-        return HOUSING_RESULT_MAX_DECOR_REACHED;
+    if (roomGuid.IsEmpty())
+    {
+        // Outdoor decor uses exterior budget
+        if (_exteriorDecorWeightUsed + weightCost > GetMaxExteriorDecorBudget())
+            return HOUSING_RESULT_MAX_DECOR_REACHED;
+    }
+    else
+    {
+        // Indoor decor uses interior budget
+        if (_interiorDecorWeightUsed + weightCost > GetMaxInteriorDecorBudget())
+            return HOUSING_RESULT_MAX_DECOR_REACHED;
+    }
 
     // Validate room exists if specified, and check per-room decor limit
     if (!roomGuid.IsEmpty())
@@ -454,16 +477,52 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (catalogItr->second.Count == 0)
         _catalog.erase(catalogItr);
 
-    // Update budget tracking
-    _interiorDecorWeightUsed += weightCost;
+    // Update budget tracking (route to correct budget based on room)
+    if (roomGuid.IsEmpty())
+        _exteriorDecorWeightUsed += weightCost;
+    else
+        _interiorDecorWeightUsed += weightCost;
+
+    // Immediate persist for crash safety
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_DECOR);
+        uint8 index = 0;
+        stmt->setUInt64(index++, _owner->GetGUID().GetCounter());
+        stmt->setUInt64(index++, decorGuid.GetCounter());
+        stmt->setUInt32(index++, decorEntryId);
+        stmt->setFloat(index++, x);
+        stmt->setFloat(index++, y);
+        stmt->setFloat(index++, z);
+        stmt->setFloat(index++, rotX);
+        stmt->setFloat(index++, rotY);
+        stmt->setFloat(index++, rotZ);
+        stmt->setFloat(index++, rotW);
+        stmt->setUInt32(index++, 0); // dyeSlot0
+        stmt->setUInt32(index++, 0); // dyeSlot1
+        stmt->setUInt32(index++, 0); // dyeSlot2
+        stmt->setUInt64(index++, roomGuid.IsEmpty() ? 0 : roomGuid.GetCounter());
+        stmt->setUInt8(index++, 0);  // locked
+        CharacterDatabase.Execute(stmt);
+    }
+
+    // Also persist updated catalog count
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
+        auto catItr = _catalog.find(decorEntryId);
+        stmt->setUInt32(0, catItr != _catalog.end() ? catItr->second.Count : 0);
+        stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+        stmt->setUInt32(2, decorEntryId);
+        CharacterDatabase.Execute(stmt);
+    }
 
     // Update account decor storage UpdateField
     if (_owner->GetSession())
         _owner->GetSession()->GetBattlenetAccount().SetHousingDecorStorageEntry(decorGuid, _houseGuid, 0);
 
-    TC_LOG_DEBUG("housing", "Housing::PlaceDecor: Player {} placed decor entry {} at ({}, {}, {}) in house {} (budget {}/{})",
+    TC_LOG_DEBUG("housing", "Housing::PlaceDecor: Player {} placed decor entry {} at ({}, {}, {}) in house {} (interior {}/{}, exterior {}/{})",
         _owner->GetName(), decorEntryId, x, y, z, _houseGuid.ToString(),
-        _interiorDecorWeightUsed, GetMaxInteriorDecorBudget());
+        _interiorDecorWeightUsed, GetMaxInteriorDecorBudget(),
+        _exteriorDecorWeightUsed, GetMaxExteriorDecorBudget());
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -528,19 +587,46 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     if (itr->second.Locked)
         return HOUSING_RESULT_LOCKED_BY_OTHER_PLAYER;
 
-    // Refund WeightCost budget
+    // Refund WeightCost budget (route to correct budget based on room)
     uint32 decorEntryId = itr->second.DecorEntryId;
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
-    if (_interiorDecorWeightUsed >= weightCost)
-        _interiorDecorWeightUsed -= weightCost;
+    if (itr->second.RoomGuid.IsEmpty())
+    {
+        if (_exteriorDecorWeightUsed >= weightCost)
+            _exteriorDecorWeightUsed -= weightCost;
+        else
+            _exteriorDecorWeightUsed = 0;
+    }
     else
-        _interiorDecorWeightUsed = 0;
+    {
+        if (_interiorDecorWeightUsed >= weightCost)
+            _interiorDecorWeightUsed -= weightCost;
+        else
+            _interiorDecorWeightUsed = 0;
+    }
 
     // Return decor to catalog
     _catalog[decorEntryId].DecorEntryId = decorEntryId;
     _catalog[decorEntryId].Count++;
 
     _placedDecor.erase(itr);
+
+    // Immediate persist for crash safety — delete the placed decor row
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_DECOR_SINGLE);
+        stmt->setUInt64(0, _owner->GetGUID().GetCounter());
+        stmt->setUInt64(1, decorGuid.GetCounter());
+        CharacterDatabase.Execute(stmt);
+    }
+
+    // Persist updated catalog count
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
+        stmt->setUInt32(0, _catalog[decorEntryId].Count);
+        stmt->setUInt64(1, _owner->GetGUID().GetCounter());
+        stmt->setUInt32(2, decorEntryId);
+        CharacterDatabase.Execute(stmt);
+    }
 
     // Remove from account decor storage UpdateField
     if (_owner->GetSession())
@@ -1301,12 +1387,14 @@ void Housing::RecalculateBudgets()
     _roomWeightUsed = 0;
     _fixtureWeightUsed = 0;
 
-    // Sum WeightCost of all placed decor
+    // Sum WeightCost of all placed decor, routing to interior or exterior budget
     for (auto const& [guid, decor] : _placedDecor)
     {
         uint32 weightCost = sHousingMgr.GetDecorWeightCost(decor.DecorEntryId);
-        // For now, all placed decor counts as interior
-        _interiorDecorWeightUsed += weightCost;
+        if (decor.RoomGuid.IsEmpty())
+            _exteriorDecorWeightUsed += weightCost;
+        else
+            _interiorDecorWeightUsed += weightCost;
     }
 
     // Sum WeightCost of all placed rooms
@@ -1316,8 +1404,9 @@ void Housing::RecalculateBudgets()
         _roomWeightUsed += weightCost;
     }
 
-    TC_LOG_DEBUG("housing", "Housing::RecalculateBudgets: Interior decor weight: {}/{}, Room weight: {}/{}",
+    TC_LOG_DEBUG("housing", "Housing::RecalculateBudgets: Interior decor weight: {}/{}, Exterior decor weight: {}/{}, Room weight: {}/{}",
         _interiorDecorWeightUsed, GetMaxInteriorDecorBudget(),
+        _exteriorDecorWeightUsed, GetMaxExteriorDecorBudget(),
         _roomWeightUsed, GetMaxRoomBudget());
 }
 
@@ -1400,6 +1489,27 @@ void Housing::SetHouseType(uint32 typeId)
 
     TC_LOG_DEBUG("housing", "Housing::SetHouseType: Player {} set house {} type to {}",
         _owner->GetName(), _houseGuid.ToString(), typeId);
+}
+
+void Housing::SetHousePosition(float x, float y, float z, float facing)
+{
+    _housePosX = x;
+    _housePosY = y;
+    _housePosZ = z;
+    _houseFacing = facing;
+    _hasCustomPosition = true;
+
+    // Immediate persist for crash safety
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_POSITION);
+    stmt->setFloat(0, x);
+    stmt->setFloat(1, y);
+    stmt->setFloat(2, z);
+    stmt->setFloat(3, facing);
+    stmt->setUInt64(4, _owner->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    TC_LOG_DEBUG("housing", "Housing::SetHousePosition: Player {} positioned house at ({}, {}, {}, {}) in house {}",
+        _owner->GetName(), x, y, z, facing, _houseGuid.ToString());
 }
 
 uint64 Housing::GenerateDecorDbId()

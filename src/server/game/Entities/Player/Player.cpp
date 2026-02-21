@@ -25418,8 +25418,8 @@ void Player::SendInitialPacketsAfterAddToMap()
             if (housing)
             {
                 statusResponse.HouseGuid = housing->GetHouseGuid();
-                statusResponse.HouseTemplateGuid = ObjectGuid::Create<HighGuid::Housing>(3, 0, 7, 0);
                 statusResponse.PlotGuid = housing->GetPlotGuid();
+                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
                 statusResponse.Status = 0;
             }
             // No house: all fields stay at defaults (empty GUIDs, Status=0).
@@ -30484,7 +30484,7 @@ void Player::CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex)
         mirrorHouse.NeighborhoodGUID = housing->GetNeighborhoodGuid();
         mirrorHouse.Level = housing->GetLevel();
         mirrorHouse.Favor = 0;
-        mirrorHouse.MapID = 0;
+        mirrorHouse.MapID = static_cast<int32>(GetMapId());
         mirrorHouse.PlotID = housing->GetPlotIndex();
 
         _housings.push_back(std::move(housing));
@@ -30550,6 +30550,84 @@ void Player::SetHousingEditorModeUpdateField(uint8 mode)
         SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
             .ModifyValue(&UF::PlayerHouseInfoComponentData::EditorMode), mode);
     }
+}
+
+void Player::UpdateHousingMapId(ObjectGuid houseGuid, int32 mapId)
+{
+    if (!m_playerHouseInfoComponentData.has_value())
+        return;
+
+    // The DynamicUpdateField system enforces PublicSet=false on nested struct fields
+    // so we cannot modify individual fields in-place. Instead, collect current data,
+    // clear the array, and re-add entries with the updated MapID.
+    struct HouseSnapshot
+    {
+        ObjectGuid Guid;
+        ObjectGuid NeighborhoodGUID;
+        uint32 Level;
+        uint32 Favor;
+        uint32 InitiativeFavor;
+        int32 InitiativeCycleID;
+        int32 MapID;
+        int32 PlotID;
+    };
+
+    UF::PlayerHouseInfoComponentData const& data = *m_playerHouseInfoComponentData;
+    bool found = false;
+    std::vector<HouseSnapshot> snapshots;
+    snapshots.reserve(data.Houses.size());
+
+    for (uint32 i = 0; i < data.Houses.size(); ++i)
+    {
+        HouseSnapshot s;
+        s.Guid = data.Houses[i].Guid;
+        s.NeighborhoodGUID = data.Houses[i].NeighborhoodGUID;
+        s.Level = data.Houses[i].Level;
+        s.Favor = data.Houses[i].Favor;
+        s.InitiativeFavor = data.Houses[i].InitiativeFavor;
+        s.InitiativeCycleID = data.Houses[i].InitiativeCycleID;
+        s.PlotID = data.Houses[i].PlotID;
+
+        if (data.Houses[i].Guid == houseGuid)
+        {
+            s.MapID = mapId;
+            found = true;
+        }
+        else
+        {
+            s.MapID = data.Houses[i].MapID;
+        }
+        snapshots.push_back(s);
+    }
+
+    if (!found)
+    {
+        TC_LOG_ERROR("housing", "Player::UpdateHousingMapId: House {} not found in PlayerHouseInfoComponentData for player {}",
+            houseGuid.ToString(), GetGUID().ToString());
+        return;
+    }
+
+    // Clear and rebuild the Houses array
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+
+    for (auto const& s : snapshots)
+    {
+        UF::PlayerMirrorHouse& h = AddDynamicUpdateFieldValue(
+            m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+            .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+        h.Guid = s.Guid;
+        h.NeighborhoodGUID = s.NeighborhoodGUID;
+        h.Level = s.Level;
+        h.Favor = s.Favor;
+        h.InitiativeFavor = s.InitiativeFavor;
+        h.InitiativeCycleID = s.InitiativeCycleID;
+        h.MapID = s.MapID;
+        h.PlotID = s.PlotID;
+    }
+
+    TC_LOG_ERROR("housing", "Player::UpdateHousingMapId: Updated house {} MapID to {} for player {}",
+        houseGuid.ToString(), mapId, GetGUID().ToString());
 }
 
 void Player::SendMovementSetCollisionHeight(float height, WorldPackets::Movement::UpdateCollisionHeightReason reason)

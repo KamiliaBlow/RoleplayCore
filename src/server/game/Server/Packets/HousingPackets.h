@@ -741,12 +741,9 @@ namespace WorldPackets::Housing
         HousingDecorSetEditModeResponse() : ServerPacket(SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
 
-        // Sniff-verified (0x510000): HouseGuid + PlotGuid + uint8 Active + uint32 Status + [if Active: OwnerGuid]
-        ObjectGuid HouseGuid;
-        ObjectGuid PlotGuid;
+        // Same wire format as Fixture/Room edit mode responses: uint32(Result) + Bit(Active)
+        uint32 Result = 0;
         bool Active = false;
-        uint32 Status = 0;
-        ObjectGuid OwnerGuid;   // Only serialized when Active=true
     };
 
     class HousingDecorMoveResponse final : public ServerPacket
@@ -1313,10 +1310,11 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
 
         // Wire format (sniff-verified, 0x550000):
-        // PackedGUID HouseGuid + PackedGUID HouseTemplateGuid + PackedGUID PlotGuid + uint32 Status
+        // PackedGUID HouseGuid + PackedGUID PlotGuid + PackedGUID NeighborhoodGuid + uint32 Status
+        // GUID3 (NeighborhoodGuid) must match EditMode DecorGuids[0] for edit mode to activate
         ObjectGuid HouseGuid;
-        ObjectGuid HouseTemplateGuid;
         ObjectGuid PlotGuid;
+        ObjectGuid NeighborhoodGuid;
         uint32 Status = 0;
     };
 

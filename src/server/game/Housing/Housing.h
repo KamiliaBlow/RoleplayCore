@@ -92,6 +92,7 @@ public:
     Player* GetOwner() const { return _owner; }
     ObjectGuid GetHouseGuid() const { return _houseGuid; }
     ObjectGuid GetNeighborhoodGuid() const { return _neighborhoodGuid; }
+    void SetNeighborhoodGuid(ObjectGuid guid) { _neighborhoodGuid = guid; }
     ObjectGuid GetPlotGuid() const;
     uint8 GetPlotIndex() const { return _plotIndex; }
     uint32 GetCreateTime() const { return _createTime; }
@@ -175,6 +176,14 @@ public:
     void SetHouseType(uint32 typeId);
     uint32 GetHouseType() const { return _houseType; }
 
+    // House position persistence (player can reposition house on plot)
+    bool HasCustomPosition() const { return _hasCustomPosition; }
+    Position GetHousePosition() const { return Position(_housePosX, _housePosY, _housePosZ, _houseFacing); }
+    void SetHousePosition(float x, float y, float z, float facing);
+
+    // Direct access to placed decor map (for GO spawning)
+    std::unordered_map<ObjectGuid, PlacedDecor> const& GetPlacedDecorMap() const { return _placedDecor; }
+
 private:
     uint64 GenerateDecorDbId();
     uint64 GenerateRoomDbId();
@@ -200,6 +209,13 @@ private:
     uint8 _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
     uint32 _houseType = 0;
     uint32 _createTime = 0;
+
+    // Persisted house position on plot
+    float _housePosX = 0.0f;
+    float _housePosY = 0.0f;
+    float _housePosZ = 0.0f;
+    float _houseFacing = 0.0f;
+    bool _hasCustomPosition = false;
 
     // WeightCost-based budget tracking
     uint32 _interiorDecorWeightUsed = 0;

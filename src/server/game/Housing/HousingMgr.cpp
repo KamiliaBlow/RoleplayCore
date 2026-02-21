@@ -210,6 +210,9 @@ void HousingMgr::LoadNeighborhoodMapData()
         data.PlotSpacing = entry->Radius;
         data.MaxPlots = entry->PlotCount;
         data.UiMapID = entry->FactionRestriction;
+
+        TC_LOG_INFO("housing", "LoadNeighborhoodMapData: ID={} MapID={} FactionRestriction={} Position=({},{},{}) Radius={} PlotCount={}",
+            entry->ID, entry->MapID, entry->FactionRestriction, entry->Position.X, entry->Position.Y, entry->Position.Z, entry->Radius, entry->PlotCount);
     }
 
     // Build reverse lookup: world MapID -> NeighborhoodMap ID

@@ -16,6 +16,7 @@
  */
 
 #include "HousingMap.h"
+#include <algorithm>
 #include "AreaTrigger.h"
 #include "GameObject.h"
 #include "GridDefines.h"
@@ -178,8 +179,8 @@ void HousingMap::SpawnPlotGameObjects()
                 _plotAreaTriggers[plotIndex] = at->GetGUID();
                 _neighborhood->SetPlotAreaTriggerGuid(plotIndex, at->GetGUID());
 
-                TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Spawned plot AT for plot {} at ({}, {}, {}) in neighborhood '{}'",
-                    plotIndex, atPos.GetPositionX(), atPos.GetPositionY(), atPos.GetPositionZ(), _neighborhood->GetName());
+                TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Spawned plot AT for plot {} at ({}, {}, {}) guid={} in neighborhood '{}'",
+                    plotIndex, atPos.GetPositionX(), atPos.GetPositionY(), atPos.GetPositionZ(), at->GetGUID().ToString(), _neighborhood->GetName());
             }
             else
             {
@@ -207,6 +208,37 @@ void HousingMap::SpawnPlotGameObjects()
 
     TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs, {} ATs, set {} WorldStates for {} plots in neighborhood '{}' (noEntry={})",
         goCount, uint32(_plotAreaTriggers.size()), wsSetCount, uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
+
+    // Spawn house structure GOs for owned plots
+    uint32 houseCount = 0;
+    for (NeighborhoodPlotData const* plot : plots)
+    {
+        uint8 plotIdx = static_cast<uint8>(plot->PlotIndex);
+        Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(plotIdx);
+        if (!plotInfo || plotInfo->OwnerGuid.IsEmpty())
+            continue;
+
+        // Try to get persisted position from the player's Housing object (if online)
+        Housing* housing = GetHousingForPlayer(plotInfo->OwnerGuid);
+        if (housing && housing->HasCustomPosition())
+        {
+            Position customPos = housing->GetHousePosition();
+            SpawnHouseForPlot(plotIdx, &customPos);
+        }
+        else
+        {
+            SpawnHouseForPlot(plotIdx); // DB2 default position
+        }
+        ++houseCount;
+
+        // Spawn decor GOs if the player's Housing data is loaded
+        if (housing)
+            SpawnAllDecorForPlot(plotIdx, housing);
+    }
+
+    if (houseCount > 0)
+        TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} house GOs for owned plots in neighborhood '{}'",
+            houseCount, _neighborhood->GetName());
 }
 
 AreaTrigger* HousingMap::GetPlotAreaTrigger(uint8 plotIndex)
@@ -308,10 +340,52 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // Auto-adding causes the client to resolve neighborhoodOwnerType as
     // Self instead of None, which prevents the "For Sale" Cornerstone UI.
 
-    // Track player housing if they own a house in this neighborhood
+    // Track player housing if they own a house in this neighborhood.
+    // First try exact GUID match, then fall back to checking all housings
+    // (handles legacy data where neighborhood GUID counter was from client's DB2 ID
+    // instead of the server's canonical counter).
     Housing* housing = player->GetHousingForNeighborhood(_neighborhood->GetGuid());
+    if (!housing)
+    {
+        // Fallback: check if any of the player's housings has a plot in this neighborhood
+        for (Housing const* h : player->GetAllHousings())
+        {
+            if (h && _neighborhood->GetPlotInfo(h->GetPlotIndex()))
+            {
+                housing = const_cast<Housing*>(h);
+                TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Fixed neighborhood GUID mismatch for player {} (stored={}, canonical={})",
+                    player->GetGUID().ToString(), h->GetNeighborhoodGuid().ToString(), _neighborhood->GetGuid().ToString());
+                // Fix the stored GUID so future lookups work
+                housing->SetNeighborhoodGuid(_neighborhood->GetGuid());
+                break;
+            }
+        }
+    }
     if (housing)
+    {
         AddPlayerHousing(player->GetGUID(), housing);
+
+        // Update PlayerMirrorHouse.MapID so the client knows this house is on the current map.
+        // Without this, MapID stays at 0 (set during login) and the client rejects
+        // edit mode with HOUSING_RESULT_ACTION_LOCKED_BY_COMBAT (error 1 = first non-success code).
+        player->UpdateHousingMapId(housing->GetHouseGuid(), static_cast<int32>(GetId()));
+
+        // Spawn house GO if not already present (handles offline → online transition)
+        uint8 plotIdx = housing->GetPlotIndex();
+        if (_houseGameObjects.find(plotIdx) == _houseGameObjects.end())
+        {
+            if (housing->HasCustomPosition())
+            {
+                Position customPos = housing->GetHousePosition();
+                SpawnHouseForPlot(plotIdx, &customPos);
+            }
+            else
+                SpawnHouseForPlot(plotIdx);
+        }
+
+        // Spawn decor GOs if not already spawned for this plot
+        SpawnAllDecorForPlot(plotIdx, housing);
+    }
 
     if (!Map::AddPlayerToMap(player, initPlayer))
         return false;
@@ -321,24 +395,48 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse houseInfo;
     if (housing)
     {
-        // Sniff-verified: OwnerGuid=HouseGUID, SecondaryOwnerGuid=PlotGUID, PlotGuid=NeighborhoodGUID
+        // Sniff-verified: SecondaryOwnerGuid=NeighborhoodGUID (context for edit mode), PlotGuid=PlotGUID
         houseInfo.HouseInfo.OwnerGuid = housing->GetHouseGuid();
-        houseInfo.HouseInfo.SecondaryOwnerGuid = housing->GetPlotGuid();
-        houseInfo.HouseInfo.PlotGuid = housing->GetNeighborhoodGuid();
+        houseInfo.HouseInfo.SecondaryOwnerGuid = housing->GetNeighborhoodGuid();
+        houseInfo.HouseInfo.PlotGuid = housing->GetPlotGuid();
         houseInfo.HouseInfo.Flags = housing->GetPlotIndex();
         houseInfo.HouseInfo.HouseTypeId = 32;
         houseInfo.HouseInfo.StatusFlags = 0;
     }
     else if (_neighborhood)
     {
-        // No house — provide neighborhood GUID in PlotGuid field for purchase UI context
-        houseInfo.HouseInfo.PlotGuid = _neighborhood->GetGuid();
+        // No house — provide neighborhood GUID in SecondaryOwnerGuid field for context
+        houseInfo.HouseInfo.SecondaryOwnerGuid = _neighborhood->GetGuid();
     }
     houseInfo.ResponseFlags = 0;
     player->SendDirectMessage(houseInfo.Write());
 
-    TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Sent neighborhood context to player {} (neighborhood='{}', hasHouse={})",
-        player->GetGUID().ToString(), _neighborhood->GetName(), housing ? "yes" : "no");
+    // Proactively send ENTER_PLOT for the player's own plot so the client
+    // has plot context immediately (the AT-based ENTER_PLOT may fire later
+    // when the player physically moves into AT radius, but sniff shows
+    // retail sends this early in the map-enter sequence).
+    if (housing)
+    {
+        uint8 plotIndex = housing->GetPlotIndex();
+        auto atItr = _plotAreaTriggers.find(plotIndex);
+        if (atItr != _plotAreaTriggers.end())
+        {
+            WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
+            enterPlot.PlotAreaTriggerGuid = atItr->second;
+            player->SendDirectMessage(enterPlot.Write());
+
+            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Sent proactive ENTER_PLOT for plot {} AT {} to player {}",
+                plotIndex, atItr->second.ToString(), player->GetGUID().ToString());
+        }
+        else
+        {
+            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: No AT tracked for plot {} - ENTER_PLOT NOT sent (player {})",
+                plotIndex, player->GetGUID().ToString());
+        }
+    }
+
+    TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Sent neighborhood context to player {} (neighborhood='{}', hasHouse={}, plotATs={})",
+        player->GetGUID().ToString(), _neighborhood->GetName(), housing ? "yes" : "no", uint32(_plotAreaTriggers.size()));
 
     return true;
 }
@@ -382,5 +480,263 @@ void HousingMap::RemovePlayerHousing(ObjectGuid playerGuid)
     {
         TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerHousing: No housing found for player {} on map {} instanceId {}",
             playerGuid.ToString(), GetId(), GetInstanceId());
+    }
+}
+
+// ============================================================
+// House Structure GO Management
+// ============================================================
+
+GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* customPos /*= nullptr*/)
+{
+    if (!_neighborhood)
+        return nullptr;
+
+    uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
+    std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
+
+    NeighborhoodPlotData const* targetPlot = nullptr;
+    for (NeighborhoodPlotData const* plot : plots)
+    {
+        if (static_cast<uint8>(plot->PlotIndex) == plotIndex)
+        {
+            targetPlot = plot;
+            break;
+        }
+    }
+
+    if (!targetPlot)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: No plot data for plotIndex {} in neighborhood '{}'",
+            plotIndex, _neighborhood->GetName());
+        return nullptr;
+    }
+
+    // Determine position: use customPos (persisted player position) or DB2 defaults
+    float x, y, z, facing;
+    if (customPos)
+    {
+        x = customPos->GetPositionX();
+        y = customPos->GetPositionY();
+        z = customPos->GetPositionZ();
+        facing = customPos->GetOrientation();
+    }
+    else
+    {
+        x = targetPlot->HousePosition[0];
+        y = targetPlot->HousePosition[1];
+        z = targetPlot->HousePosition[2];
+        facing = targetPlot->HouseRotation[2]; // Z euler angle as facing
+    }
+
+    LoadGrid(x, y);
+
+    // Build rotation quaternion from euler angles
+    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(facing,
+        customPos ? 0.0f : targetPlot->HouseRotation[1],
+        customPos ? 0.0f : targetPlot->HouseRotation[0]);
+
+    // PlotGameObjectID is the plot marker (For Sale sign), NOT the house structure.
+    // Use the default house structure GO (574432) for now.
+    // TODO: Look up house GO entry from HouseExteriorWmo based on house type when data is available.
+    uint32 goEntry = 574432; // Housing - Generic - Ground WMO (type 43, displayId 113521)
+
+    Position pos(x, y, z, facing);
+    GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, GO_STATE_ACTIVE);
+    if (!go)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Failed to create house GO entry {} at ({}, {}, {}) for plot {}",
+            goEntry, x, y, z, plotIndex);
+        return nullptr;
+    }
+
+    // Retail sniff: house GOs have Flags=32 (GO_FLAG_NODESPAWN) | GO_FLAG_MAP_OBJECT
+    go->SetFlag(GO_FLAG_NODESPAWN | GO_FLAG_MAP_OBJECT);
+
+    if (!AddToMap(go))
+    {
+        delete go;
+        TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Failed to add house GO to map for plot {}", plotIndex);
+        return nullptr;
+    }
+
+    _houseGameObjects[plotIndex] = go->GetGUID();
+
+    TC_LOG_INFO("housing", "HousingMap::SpawnHouseForPlot: Spawned house GO entry={} guid={} at ({:.1f}, {:.1f}, {:.1f}) for plot {} in neighborhood '{}'",
+        goEntry, go->GetGUID().ToString(), x, y, z, plotIndex, _neighborhood->GetName());
+
+    return go;
+}
+
+void HousingMap::DespawnHouseForPlot(uint8 plotIndex)
+{
+    auto itr = _houseGameObjects.find(plotIndex);
+    if (itr == _houseGameObjects.end())
+        return;
+
+    if (GameObject* go = GetGameObject(itr->second))
+        go->AddObjectToRemoveList();
+
+    TC_LOG_DEBUG("housing", "HousingMap::DespawnHouseForPlot: Despawned house GO for plot {}", plotIndex);
+    _houseGameObjects.erase(itr);
+}
+
+GameObject* HousingMap::GetHouseGameObject(uint8 plotIndex)
+{
+    auto itr = _houseGameObjects.find(plotIndex);
+    if (itr == _houseGameObjects.end())
+        return nullptr;
+
+    return GetGameObject(itr->second);
+}
+
+// ============================================================
+// Decor GO Management
+// ============================================================
+
+GameObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid)
+{
+    HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(decor.DecorEntryId);
+    if (!decorData)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: No HouseDecorData for entry {} (decorGuid={})",
+            decor.DecorEntryId, decor.Guid.ToString());
+        return nullptr;
+    }
+
+    uint32 goEntry = decorData->GameObjectID > 0 ? static_cast<uint32>(decorData->GameObjectID) : 0;
+    if (!goEntry)
+    {
+        TC_LOG_DEBUG("housing", "HousingMap::SpawnDecorItem: Decor entry {} has GameObjectID=0 (CLIENT_MODEL type), skipping GO spawn",
+            decor.DecorEntryId);
+        return nullptr;
+    }
+
+    float x = decor.PosX;
+    float y = decor.PosY;
+    float z = decor.PosZ;
+
+    LoadGrid(x, y);
+
+    // Decor rotation is stored as quaternion
+    QuaternionData rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
+
+    Position pos(x, y, z);
+    GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, GO_STATE_ACTIVE);
+    if (!go)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to create decor GO entry {} at ({}, {}, {}) for decor {}",
+            goEntry, x, y, z, decor.Guid.ToString());
+        return nullptr;
+    }
+
+    go->SetFlag(GO_FLAG_NODESPAWN);
+
+    // Populate the FHousingDecor_C entity fragment
+    go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0);
+
+    if (!AddToMap(go))
+    {
+        delete go;
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to add decor GO to map for decor {}", decor.Guid.ToString());
+        return nullptr;
+    }
+
+    // Track the decor GO
+    _decorGameObjects[plotIndex].push_back(go->GetGUID());
+    _decorGuidToGoGuid[decor.Guid] = go->GetGUID();
+    _decorGuidToPlotIndex[decor.Guid] = plotIndex;
+
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnDecorItem: Spawned decor GO entry={} goGuid={} decorGuid={} at ({:.1f}, {:.1f}, {:.1f}) for plot {}",
+        goEntry, go->GetGUID().ToString(), decor.Guid.ToString(), x, y, z, plotIndex);
+
+    return go;
+}
+
+void HousingMap::DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid)
+{
+    auto goItr = _decorGuidToGoGuid.find(decorGuid);
+    if (goItr == _decorGuidToGoGuid.end())
+        return;
+
+    ObjectGuid goGuid = goItr->second;
+    if (GameObject* go = GetGameObject(goGuid))
+        go->AddObjectToRemoveList();
+
+    // Remove from tracking
+    auto& plotDecor = _decorGameObjects[plotIndex];
+    plotDecor.erase(std::remove(plotDecor.begin(), plotDecor.end(), goGuid), plotDecor.end());
+    _decorGuidToGoGuid.erase(goItr);
+    _decorGuidToPlotIndex.erase(decorGuid);
+
+    TC_LOG_DEBUG("housing", "HousingMap::DespawnDecorItem: Despawned decor GO for decorGuid={} plot={}", decorGuid.ToString(), plotIndex);
+}
+
+void HousingMap::DespawnAllDecorForPlot(uint8 plotIndex)
+{
+    auto itr = _decorGameObjects.find(plotIndex);
+    if (itr == _decorGameObjects.end())
+        return;
+
+    for (ObjectGuid const& goGuid : itr->second)
+    {
+        if (GameObject* go = GetGameObject(goGuid))
+            go->AddObjectToRemoveList();
+    }
+
+    // Clean up all tracking for this plot's decor
+    std::vector<ObjectGuid> decorGuidsToRemove;
+    for (auto const& [decorGuid, pIdx] : _decorGuidToPlotIndex)
+    {
+        if (pIdx == plotIndex)
+            decorGuidsToRemove.push_back(decorGuid);
+    }
+    for (ObjectGuid const& decorGuid : decorGuidsToRemove)
+    {
+        _decorGuidToGoGuid.erase(decorGuid);
+        _decorGuidToPlotIndex.erase(decorGuid);
+    }
+
+    itr->second.clear();
+    _decorSpawnedPlots.erase(plotIndex);
+
+    TC_LOG_DEBUG("housing", "HousingMap::DespawnAllDecorForPlot: Despawned all decor GOs for plot {}", plotIndex);
+}
+
+void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
+{
+    if (!housing)
+        return;
+
+    if (_decorSpawnedPlots.count(plotIndex))
+        return; // Already spawned
+
+    ObjectGuid houseGuid = housing->GetHouseGuid();
+    uint32 spawnCount = 0;
+    for (auto const& [decorGuid, decor] : housing->GetPlacedDecorMap())
+    {
+        if (SpawnDecorItem(plotIndex, decor, houseGuid))
+            ++spawnCount;
+    }
+
+    _decorSpawnedPlots.insert(plotIndex);
+
+    TC_LOG_INFO("housing", "HousingMap::SpawnAllDecorForPlot: Spawned {} decor GOs for plot {} in neighborhood '{}'",
+        spawnCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?");
+}
+
+void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot)
+{
+    auto goItr = _decorGuidToGoGuid.find(decorGuid);
+    if (goItr == _decorGuidToGoGuid.end())
+        return;
+
+    if (GameObject* go = GetGameObject(goItr->second))
+    {
+        go->Relocate(pos);
+        go->SetLocalRotation(rot.x, rot.y, rot.z, rot.w);
+
+        TC_LOG_DEBUG("housing", "HousingMap::UpdateDecorPosition: Moved decor GO {} to ({:.1f}, {:.1f}, {:.1f}) for plot {}",
+            decorGuid.ToString(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), plotIndex);
     }
 }

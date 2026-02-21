@@ -366,12 +366,12 @@ Neighborhood* NeighborhoodMgr::FindOrCreatePublicNeighborhood(uint32 teamId)
         return nullptr;
     }
 
-    // Look for an existing public neighborhood ? no membership changes
+    // Look for an existing public neighborhood — no membership changes
     Neighborhood* found = FindPublicNeighborhoodForMap(targetMapId);
     if (found)
         return found;
 
-    // None exists yet ? EnsurePublicNeighborhoods should have created them at startup.
+    // None exists yet — EnsurePublicNeighborhoods should have created them at startup.
     // Force-run it now as a fallback, then retry.
     TC_LOG_WARN("housing", "FindOrCreatePublicNeighborhood: No public neighborhood for map {}, running EnsurePublicNeighborhoods", targetMapId);
     EnsurePublicNeighborhoods();
@@ -450,7 +450,7 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
     if (hasAlliancePublic && hasHordePublic)
         TC_LOG_INFO("server.loading", ">> Public neighborhoods verified for both factions");
     else if (!hasAlliancePublic || !hasHordePublic)
-        TC_LOG_WARN("server.loading", ">> Missing public neighborhood for {} ? no system-generatable NeighborhoodMap found",
+        TC_LOG_WARN("server.loading", ">> Missing public neighborhood for {} — no system-generatable NeighborhoodMap found",
             !hasAlliancePublic ? "Alliance" : "Horde");
 }
 
@@ -489,7 +489,7 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
         if (hasCapacity)
             continue;
 
-        // All public neighborhoods for this faction are at or above 50% ? create a new one
+        // All public neighborhoods for this faction are at or above 50% — create a new one
         // Find the correct NeighborhoodMapID for this faction
         uint32 targetMapId = 0;
         for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())

@@ -1022,7 +1022,9 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     HousingResult result = neighborhood->PurchasePlot(player->GetGUID(), resolvedPlotIndex);
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        player->CreateHousing(neighborhoodBuyHouse.NeighborhoodGuid, resolvedPlotIndex);
+        // Use the server's canonical neighborhood GUID, NOT the client-supplied GUID.
+        // Client may send DB2 NeighborhoodID as counter while server uses internal counter.
+        player->CreateHousing(neighborhood->GetGuid(), resolvedPlotIndex);
 
         // Update the PlotInfo with the newly created HouseGuid and Battle.net account GUID
         if (Housing const* housing = player->GetHousing())
@@ -1053,10 +1055,10 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
         if (Housing const* h = player->GetHousing())
         {
-            // Sniff-verified: OwnerGuid=HouseGUID, SecondaryOwnerGuid=PlotGUID, PlotGuid=NeighborhoodGUID
+            // Sniff-verified: SecondaryOwnerGuid=NeighborhoodGUID (context for edit mode), PlotGuid=PlotGUID
             response.HouseInfo.OwnerGuid = h->GetHouseGuid();
-            response.HouseInfo.SecondaryOwnerGuid = h->GetPlotGuid();
-            response.HouseInfo.PlotGuid = neighborhood->GetGuid();
+            response.HouseInfo.SecondaryOwnerGuid = neighborhood->GetGuid();
+            response.HouseInfo.PlotGuid = h->GetPlotGuid();
             response.HouseInfo.Flags = resolvedPlotIndex;
             response.HouseInfo.HouseTypeId = 32; // sniff value: 0x20
             response.HouseInfo.StatusFlags = 0;
@@ -1122,7 +1124,21 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
 
         // Mark the plot Cornerstone as owned (GOState 1 = READY)
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
             housingMap->SetPlotOwnershipState(resolvedPlotIndex, true);
+
+            // Spawn the house structure GO at DB2 default position
+            housingMap->SpawnHouseForPlot(resolvedPlotIndex);
+        }
+
+        // Notify client that the basic house was created
+        if (Housing const* h = player->GetHousing())
+        {
+            WorldPackets::Housing::HousingFixtureCreateBasicHouseResponse houseResponse;
+            houseResponse.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+            houseResponse.HouseGuid = h->GetHouseGuid();
+            SendPacket(houseResponse.Write());
+        }
 
         TC_LOG_DEBUG("housing", "Player {} purchased plot {} in neighborhood '{}'",
             player->GetGUID().ToString(), resolvedPlotIndex,
@@ -1509,7 +1525,11 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     {
         // Mark the plot Cornerstone as unowned/for-sale (GOState 0 = ACTIVE)
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
             housingMap->SetPlotOwnershipState(neighborhoodEvictPlot.PlotIndex, false);
+            housingMap->DespawnHouseForPlot(neighborhoodEvictPlot.PlotIndex);
+            housingMap->DespawnAllDecorForPlot(neighborhoodEvictPlot.PlotIndex);
+        }
 
         if (!evictedPlayerGuid.IsEmpty())
         {

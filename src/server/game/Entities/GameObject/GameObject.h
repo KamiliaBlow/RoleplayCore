@@ -460,6 +460,9 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
         UF::OptionalUpdateField<UF::HousingCornerstoneData, int32(WowCS::EntityFragment::FJamHousingCornerstone_C), 0> m_housingCornerstoneData;
         void InitHousingCornerstoneData(uint64 cost, int32 plotIndex);
 
+        // Housing decor entity fragment (optional - only set on decor item GameObjects)
+        void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags, ObjectGuid attachParent = ObjectGuid::Empty);
+
         TeamId GetControllingTeam() const;
 
     protected:

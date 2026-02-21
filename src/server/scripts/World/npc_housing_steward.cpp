@@ -25,26 +25,29 @@
 enum HousingTutorialData
 {
     // Quest: "My First Home" (91863) kill credit NPCs
-    NPC_KILL_CREDIT_GREET_STEWARD   = 249851,
-    NPC_KILL_CREDIT_ASK_STEWARD     = 248857,
+    NPC_KILL_CREDIT_GREET_STEWARD = 249851,
+    NPC_KILL_CREDIT_ASK_STEWARD = 248857,
 
     // Gossip actions
-    GOSSIP_ACTION_ASK_TO_JOIN       = 1001,
+    GOSSIP_ACTION_ASK_TO_JOIN = 1001,
 };
 
-// Lyssabel Dawnpetal (233063) / Tocho (233708) — Housing tutorial steward NPCs.
+// Lyssabel Dawnpetal (233063) / Tocho (233708) ? Housing tutorial steward NPCs.
 // When the player interacts with the steward during the "My First Home" quest (91863),
 // the gossip grants quest kill credits for greeting the steward and asking them to join.
 struct npc_housing_steward : public CreatureAI
 {
-    npc_housing_steward(Creature* creature) : CreatureAI(creature) { }
+    npc_housing_steward(Creature* creature) : CreatureAI(creature) {}
 
-    void UpdateAI(uint32 /*diff*/) override { }
+    void UpdateAI(uint32 /*diff*/) override {}
 
     bool OnGossipHello(Player* player) override
     {
-        // Grant "Greet the steward" kill credit (quest objective 0)
+        // Grant "Greet the steward" kill credit (quest objective 0: MONSTER 249851)
         player->KilledMonsterCredit(NPC_KILL_CREDIT_GREET_STEWARD);
+
+        // Satisfy "Talk to Lyssabel/Tocho" objective (quest objective 1/2: TALKTO with NPC entry)
+        player->TalkedToCreature(me->GetEntry(), me->GetGUID());
 
         // Show gossip menu with option to ask the steward to join the neighborhood
         InitGossipMenuFor(player, 0);
@@ -55,8 +58,8 @@ struct npc_housing_steward : public CreatureAI
             GOSSIP_SENDER_MAIN, GOSSIP_ACTION_ASK_TO_JOIN);
         SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
 
-        TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} greeted steward {} (kill credit {})",
-            player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_GREET_STEWARD);
+        TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} greeted steward {} (kill credit {}, talkto {})",
+            player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_GREET_STEWARD, me->GetEntry());
 
         return true;
     }

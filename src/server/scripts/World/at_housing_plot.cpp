@@ -60,7 +60,7 @@ struct at_housing_plot : AreaTriggerAI
         enterPlot.PlotAreaTriggerGuid = at->GetGUID();
         player->SendDirectMessage(enterPlot.Write());
 
-        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} entered plot {} AT {} (own: {}, owner: {})",
+        TC_LOG_ERROR("housing", "at_housing_plot: Player {} entered plot {} AT {} (own: {}, owner: {})",
             player->GetGUID().ToString(), plotId, at->GetGUID().ToString(), isOwnPlot,
             ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
     }
@@ -84,7 +84,7 @@ struct at_housing_plot : AreaTriggerAI
         WorldPackets::Neighborhood::NeighborhoodPlayerLeavePlot leavePlot;
         player->SendDirectMessage(leavePlot.Write());
 
-        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} left plot AT {}",
+        TC_LOG_ERROR("housing", "at_housing_plot: Player {} left plot AT {}",
             player->GetGUID().ToString(), at->GetGUID().ToString());
     }
 };
