@@ -207,12 +207,12 @@ void HousingMgr::LoadNeighborhoodMapData()
         data.Origin[1] = entry->Position.Y;
         data.Origin[2] = entry->Position.Z;
         data.MapID = entry->MapID;
-        data.PlotSpacing = entry->Radius;
-        data.MaxPlots = entry->PlotCount;
-        data.UiMapID = entry->FactionRestriction;
+        data.PlotSpacing = 0.0f;  // EntryRotation not used as spacing
+        data.MaxPlots = 0;        // UiTextureKitID not used as plot count
+        data.UiMapID = entry->Flags;
 
-        TC_LOG_INFO("housing", "LoadNeighborhoodMapData: ID={} MapID={} FactionRestriction={} Position=({},{},{}) Radius={} PlotCount={}",
-            entry->ID, entry->MapID, entry->FactionRestriction, entry->Position.X, entry->Position.Y, entry->Position.Z, entry->Radius, entry->PlotCount);
+        TC_LOG_INFO("housing", "LoadNeighborhoodMapData: ID={} MapID={} Flags={} Position=({},{},{})",
+            entry->ID, entry->MapID, entry->Flags, entry->Position.X, entry->Position.Y, entry->Position.Z);
     }
 
     // Build reverse lookup: world MapID -> NeighborhoodMap ID

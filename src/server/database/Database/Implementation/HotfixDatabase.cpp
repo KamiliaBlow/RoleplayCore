@@ -1477,7 +1477,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT ID, Name_lang, Description_lang FROM neighborhood_initiative_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
 
     // NeighborhoodMap.db2
-    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT PositionX, PositionY, PositionZ, ID, MapID, Radius, PlotCount, FactionRestriction"
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT PositionX, PositionY, PositionZ, ID, MapID, EntryRotation, UiTextureKitID, Flags"
         " FROM neighborhood_map WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT MAX(ID) + 1 FROM neighborhood_map", CONNECTION_SYNCH);
 

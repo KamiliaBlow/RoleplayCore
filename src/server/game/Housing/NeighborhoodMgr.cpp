@@ -410,12 +410,19 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
     }
 
     // Find system-generatable NeighborhoodMap entries for missing factions
-    for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
+    auto const& mapData = sHousingMgr.GetAllNeighborhoodMapData();
+    TC_LOG_INFO("housing", "EnsurePublicNeighborhoods: Checking {} maps, hasAlliancePublic={}, hasHordePublic={}",
+        mapData.size(), hasAlliancePublic, hasHordePublic);
+
+    for (auto const& [id, data] : mapData)
     {
         int32 flags = data.UiMapID; // Stores faction/flags bitmask
         bool isAlliance = (flags & 0x1) != 0;
         bool isHorde = (flags & 0x2) != 0;
         bool canSystemGenerate = (flags & 0x4) != 0;
+
+        TC_LOG_INFO("housing", "  Map ID={} flags={} isAlliance={} isHorde={} canSystemGenerate={}",
+            id, flags, isAlliance, isHorde, canSystemGenerate);
 
         if (!canSystemGenerate)
             continue;

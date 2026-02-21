@@ -4764,9 +4764,9 @@ struct NeighborhoodMapLoadInfo
         {.IsSigned = false, .Type = FT_FLOAT, .Name = "PositionZ" },
         {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
         {.IsSigned = true, .Type = FT_INT, .Name = "MapID" },
-        {.IsSigned = false, .Type = FT_FLOAT, .Name = "Radius" },
-        {.IsSigned = false, .Type = FT_INT, .Name = "PlotCount" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "FactionRestriction" },
+        {.IsSigned = false, .Type = FT_FLOAT, .Name = "EntryRotation" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "UiTextureKitID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 8, &NeighborhoodMapMeta::Instance, HOTFIX_SEL_NEIGHBORHOOD_MAP };

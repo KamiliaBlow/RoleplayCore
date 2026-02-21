@@ -3558,9 +3558,9 @@ struct NeighborhoodMapEntry
     DBCPosition3D Position;                  // Meta field 0: FT_FLOAT[3]
     uint32 ID;                               // Meta field 1: IndexField
     int32 MapID;
-    float Radius;
-    uint32 PlotCount;
-    int32 FactionRestriction;
+    float EntryRotation;
+    int32 UiTextureKitID;
+    int32 Flags;
 };
 
 struct NeighborhoodNameGenEntry
