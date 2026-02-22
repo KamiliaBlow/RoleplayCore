@@ -78,6 +78,7 @@
 #include "InstanceScript.h"
 #include "ItemPackets.h"
 #include "Language.h"
+#include <cstdlib>
 #include "LanguageMgr.h"
 #include "LFGMgr.h"
 #include "ListUtils.h"
@@ -17953,6 +17954,89 @@ void Player::_LoadTransmogOutfits(PreparedQueryResult result)
     } while (result->NextRow());
 }
 
+void Player::_SyncTransmogOutfitsToActivePlayerData()
+{
+    auto activePlayerData = m_values.ModifyValue(&Player::m_activePlayerData);
+
+    std::vector<uint32> existingOutfitIds;
+    existingOutfitIds.reserve(m_activePlayerData->TransmogOutfits.size());
+    for (auto itr = m_activePlayerData->TransmogOutfits.begin(); itr != m_activePlayerData->TransmogOutfits.end(); ++itr)
+        existingOutfitIds.push_back(itr->first);
+
+    for (uint32 existingOutfitId : existingOutfitIds)
+        RemoveMapUpdateFieldValue(activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogOutfits), existingOutfitId);
+
+    uint32 firstOutfitId = 0;
+
+    for (auto const& [_, equipmentSet] : _equipmentSets)
+    {
+        if (equipmentSet.Data.Type != EquipmentSetInfo::TRANSMOG)
+            continue;
+
+        UF::TransmogOutfitData transmogOutfitData;
+        transmogOutfitData.Id = equipmentSet.Data.SetID;
+        transmogOutfitData.Flags = 0;
+        transmogOutfitData.OutfitInfo->SituationsEnabled = false;
+        transmogOutfitData.OutfitInfo->SetType = 0;
+        transmogOutfitData.OutfitInfo->Name = equipmentSet.Data.SetName;
+        transmogOutfitData.OutfitInfo->Icon = std::atoi(equipmentSet.Data.SetIcon.c_str());
+
+        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            if (equipmentSet.Data.IgnoreMask & (1 << slot))
+                continue;
+
+            if (!equipmentSet.Data.Appearances[slot] && slot != EQUIPMENT_SLOT_MAINHAND && slot != EQUIPMENT_SLOT_OFFHAND)
+                continue;
+
+            UF::TransmogOutfitSlotData slotData;
+            slotData.Slot = slot;
+            slotData.SlotOption = 0;
+            slotData.ItemModifiedAppearanceID = equipmentSet.Data.Appearances[slot];
+            slotData.AppearanceDisplayType = 0;
+            slotData.Flags = 0;
+
+            if (slot == EQUIPMENT_SLOT_MAINHAND)
+                slotData.SpellItemEnchantmentID = equipmentSet.Data.Enchants[0];
+            else if (slot == EQUIPMENT_SLOT_OFFHAND)
+                slotData.SpellItemEnchantmentID = equipmentSet.Data.Enchants[1];
+            else
+                slotData.SpellItemEnchantmentID = 0;
+
+            slotData.IllusionDisplayType = 0;
+
+            AddDynamicUpdateFieldValue(transmogOutfitData.Slots) = slotData;
+        }
+
+        SetUpdateFieldValue(activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogOutfits, equipmentSet.Data.SetID), std::move(transmogOutfitData));
+
+        if (!firstOutfitId)
+            firstOutfitId = equipmentSet.Data.SetID;
+    }
+
+    UF::TransmogOutfitMetadata transmogMetadata;
+    transmogMetadata.Locked = false;
+    transmogMetadata.TransmogOutfitID = firstOutfitId;
+    transmogMetadata.SituationTrigger = 0;
+    transmogMetadata.StampedOptionMainHand = 0;
+    transmogMetadata.StampedOptionOffHand = 0;
+    transmogMetadata.CostMod = 0.0f;
+    SetUpdateFieldValue(activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogMetadata), transmogMetadata);
+
+    UF::TransmogOutfitData viewedOutfit;
+    viewedOutfit.Id = firstOutfitId;
+    viewedOutfit.Flags = 0;
+    viewedOutfit.OutfitInfo->SituationsEnabled = false;
+    viewedOutfit.OutfitInfo->SetType = 0;
+    viewedOutfit.OutfitInfo->Name = "";
+    viewedOutfit.OutfitInfo->Icon = 0;
+
+    if (UF::TransmogOutfitData const* selectedOutfit = m_activePlayerData->TransmogOutfits.Get(firstOutfitId))
+        viewedOutfit = *selectedOutfit;
+
+    SetUpdateFieldValue(activePlayerData.ModifyValue(&UF::ActivePlayerData::ViewedOutfit), std::move(viewedOutfit));
+}
+
 void Player::_LoadBGData(PreparedQueryResult result)
 {
     if (!result)
@@ -18914,6 +18998,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
 
     _LoadEquipmentSets(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS));
     _LoadTransmogOutfits(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFITS));
+    _SyncTransmogOutfitsToActivePlayerData();
 
     _LoadCUFProfiles(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_CUF_PROFILES));
 
@@ -28357,6 +28442,9 @@ void Player::SetEquipmentSet(EquipmentSetInfo::EquipmentSetData const& newEqSet)
     }
 
     eqSlot.State = eqSlot.State == EQUIPMENT_SET_NEW ? EQUIPMENT_SET_NEW : EQUIPMENT_SET_CHANGED;
+
+    if (eqSlot.Data.Type == EquipmentSetInfo::TRANSMOG)
+        _SyncTransmogOutfitsToActivePlayerData();
 }
 
 void Player::_SaveEquipmentSets(CharacterDatabaseTransaction trans)
@@ -28480,10 +28568,15 @@ void Player::DeleteEquipmentSet(uint64 id)
     {
         if (itr->second.Data.Guid == id)
         {
+            bool isTransmogOutfit = itr->second.Data.Type == EquipmentSetInfo::TRANSMOG;
             if (itr->second.State == EQUIPMENT_SET_NEW)
                 itr = _equipmentSets.erase(itr);
             else
                 itr->second.State = EQUIPMENT_SET_DELETED;
+
+            if (isTransmogOutfit)
+                _SyncTransmogOutfitsToActivePlayerData();
+
             break;
         }
         ++itr;
