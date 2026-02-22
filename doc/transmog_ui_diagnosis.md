@@ -35,16 +35,50 @@ A bad DB2 load can absolutely break transmog collections, but in this case:
 
 You should still validate DB2 startup logs if slot lists remain empty after opcode fixes.
 
-## Suggested next implementation steps
+## What to do next (troubleshooting sequence)
 
-1. Add packet definitions for the outfit CMSG payloads in `TransmogrificationPackets.h/.cpp`.
-2. Implement world session handlers for the four outfit CMSGs.
-3. Persist/update player transmog outfit state (the player already loads transmog outfits from DB).
-4. Emit the expected outfit update SMSGs (`SMSG_TRANSMOG_OUTFIT_*`) after successful edits.
-5. Re-test with opcode logging while:
-   - logging in
-   - opening transmog UI
-   - selecting and applying an outfit
+Follow this order to avoid chasing SQL issues while protocol handling is still missing.
+
+### Phase 1: Confirm current behavior with logging
+
+1. Enable verbose network logging for opcodes and transmog handler debug.
+2. Reproduce exactly:
+   - Login
+   - Open transmog UI
+   - Attempt: create outfit, rename outfit, change slot appearance, apply set
+3. Confirm log shows incoming `CMSG_TRANSMOG_OUTFIT_*` opcodes but no handler-side processing (because they map to `Handle_NULL`).
+
+Expected: requests arrive, but no outfit state transition occurs server-side.
+
+### Phase 2: Implement missing packet/handler flow
+
+1. Add packet definitions for outfit CMSG payloads in `TransmogrificationPackets.h/.cpp`.
+2. Add corresponding `WorldSession` handlers.
+3. Replace opcode routing in `Opcodes.cpp` from `Handle_NULL` to real handlers.
+4. Persist updates to `character_transmog_outfits` and in-memory player equipment set/transmog outfit structures.
+5. Emit `SMSG_TRANSMOG_OUTFIT_*` updates after successful server-side mutation.
+
+Expected: UI moves from read-only behavior to editable/applicable outfit behavior.
+
+### Phase 3: Validate account appearance feed (slot list population)
+
+After handler implementation, if slot lists are still empty:
+
+1. Re-check account appearance bitmask load path on login (`LoadAccountItemAppearances`).
+2. Verify blocks are actually applied to player with transmog flags (transmog blocks and flags).
+3. Validate DB2 startup integrity for item appearance and transmog set sources.
+4. Re-test with a fresh account/character to rule out stale account cache edge cases.
+
+Expected: slot lists populate when account appearance state and DB2 data are both healthy.
+
+## Suggested implementation checklist
+
+- [ ] Packet structs for outfit new/update info/update situations/update slots.
+- [ ] `WorldSession::HandleTransmogOutfit*` handlers added and registered.
+- [ ] Mutation logic for set name/icon/ignore mask/slot appearances/enchants.
+- [ ] DB write path for `character_transmog_outfits` updates.
+- [ ] `SMSG_TRANSMOG_OUTFIT_*` responses emitted on success.
+- [ ] Negative-path logging (invalid set ID, invalid slot, unknown appearance, etc.).
 
 ## Quick verification checklist
 
@@ -52,3 +86,4 @@ You should still validate DB2 startup logs if slot lists remain empty after opco
 - Confirm handler logs fire when clicking outfit actions in UI.
 - Confirm DB `character_transmog_outfits` rows mutate after rename/icon/slot/situation changes.
 - Confirm client receives corresponding `SMSG_TRANSMOG_OUTFIT_*` updates.
+- Confirm slot appearance lists show data for known collected appearances.
