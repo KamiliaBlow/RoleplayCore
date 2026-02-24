@@ -21,6 +21,7 @@
 #include "Packet.h"
 #include "ObjectGuid.h"
 #include "PacketUtilities.h"
+#include "EquipmentSet.h"
 
 namespace WorldPackets
 {
@@ -49,6 +50,77 @@ namespace WorldPackets
             ObjectGuid Npc;
             Array<TransmogrifyItem, MAX_TRANSMOGRIFY_ITEMS> Items;
             bool CurrentSpecOnly = false;
+        };
+
+
+        struct TransmogOutfitSituationEntry
+        {
+            uint32 SituationID = 0;
+            uint32 SpecID = 0;
+            uint32 LoadoutID = 0;
+            uint32 EquipmentSetID = 0;
+        };
+
+        class TransmogOutfitNew final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitNew(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_NEW, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateInfo final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateInfo(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_INFO, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateSlots final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateSlots(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateSituations final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateSituations(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS, std::move(packet)) { }
+
+            void Read() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+            std::vector<TransmogOutfitSituationEntry> Situations;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
         };
 
         class AccountTransmogUpdate final : public ServerPacket
