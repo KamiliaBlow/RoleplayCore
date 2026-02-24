@@ -20,6 +20,7 @@
 #include "PacketOperators.h"
 #include "Util.h"
 #include <algorithm>
+#include <span>
 
 namespace WorldPackets::Transmogrification
 {
@@ -30,7 +31,7 @@ void CapturePayloadDebugInfo(WorldPacket const& packet, size_t& payloadSize, std
 {
     payloadSize = packet.size();
     size_t previewSize = std::min<size_t>(packet.size(), 128);
-    payloadPreviewHex = ByteArrayToHexStr(packet.data(), previewSize);
+    payloadPreviewHex = ByteArrayToHexStr(std::span(packet.data(), previewSize));
 }
 
 void ReadTransmogOutfitAsEquipmentSetData(WorldPacket& worldPacket, EquipmentSetInfo::EquipmentSetData& set)
