@@ -16,10 +16,57 @@
  */
 
 #include "TransmogrificationPackets.h"
+#include "Log.h"
 #include "PacketOperators.h"
+#include "Util.h"
+#include <algorithm>
+#include <sstream>
+#include <span>
 
 namespace WorldPackets::Transmogrification
 {
+
+namespace
+{
+void CapturePayloadDebugInfo(WorldPacket const& packet, size_t& payloadSize, std::string& payloadPreviewHex)
+{
+    payloadSize = packet.size();
+    size_t previewSize = std::min<size_t>(packet.size(), 128);
+    payloadPreviewHex = ByteArrayToHexStr(std::span(packet.data(), previewSize));
+}
+
+template <typename T>
+T ReadLE(std::span<uint8 const> payload, size_t offset)
+{
+    T value = 0;
+    for (size_t i = 0; i < sizeof(T) && (offset + i) < payload.size(); ++i)
+        value |= T(payload[offset + i]) << (i * 8);
+    return value;
+}
+
+std::string BuildDiagnosticReadTrace(char const* opcodeName, WorldPacket const& packet)
+{
+    std::span<uint8 const> payload(packet.data(), packet.size());
+    std::ostringstream trace;
+    trace << opcodeName << " payload-bytes=" << payload.size();
+
+    if (payload.size() >= 1)
+        trace << " | u8@0=" << uint32(payload[0]);
+    if (payload.size() >= 2)
+        trace << " | u16@0=" << ReadLE<uint16>(payload, 0);
+    if (payload.size() >= 4)
+        trace << " | u32@0=" << ReadLE<uint32>(payload, 0);
+    if (payload.size() >= 8)
+        trace << " | u64@0=" << ReadLE<uint64>(payload, 0);
+    if (payload.size() >= 12)
+        trace << " | u32@4=" << ReadLE<uint32>(payload, 4);
+    if (payload.size() >= 16)
+        trace << " | u64@8=" << ReadLE<uint64>(payload, 8);
+
+    return trace.str();
+}
+}
+
 ByteBuffer& operator>>(ByteBuffer& data, TransmogrifyItem& transmogItem)
 {
     data >> transmogItem.ItemModifiedAppearanceID;
@@ -38,6 +85,43 @@ void TransmogrifyItems::Read()
         _worldPacket >> item;
 
     _worldPacket >> Bits<1>(CurrentSpecOnly);
+}
+
+
+void TransmogOutfitNew::Read()
+{
+    CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
+    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_NEW", _worldPacket);
+    ParseSuccess = false;
+    ParseError = "diagnostic parser active: transmog outfit NEW layout still unknown";
+    _worldPacket.rfinish();
+}
+
+void TransmogOutfitUpdateInfo::Read()
+{
+    CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
+    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_INFO", _worldPacket);
+    ParseSuccess = false;
+    ParseError = "diagnostic parser active: transmog outfit UPDATE_INFO layout still unknown";
+    _worldPacket.rfinish();
+}
+
+void TransmogOutfitUpdateSlots::Read()
+{
+    CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
+    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS", _worldPacket);
+    ParseSuccess = false;
+    ParseError = "diagnostic parser active: transmog outfit UPDATE_SLOTS layout still unknown";
+    _worldPacket.rfinish();
+}
+
+void TransmogOutfitUpdateSituations::Read()
+{
+    CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
+    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS", _worldPacket);
+    ParseSuccess = false;
+    ParseError = "diagnostic parser active: transmog outfit UPDATE_SITUATIONS layout still unknown";
+    _worldPacket.rfinish();
 }
 
 WorldPacket const* AccountTransmogUpdate::Write()

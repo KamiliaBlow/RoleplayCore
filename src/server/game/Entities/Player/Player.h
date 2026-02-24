@@ -2526,6 +2526,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void SendEquipmentSetList();
         void SetEquipmentSet(EquipmentSetInfo::EquipmentSetData const& newEqSet);
         void DeleteEquipmentSet(uint64 id);
+        EquipmentSetInfo::EquipmentSetData const* GetEquipmentSetData(uint64 id) const;
 
         void SendInitWorldStates(uint32 zoneId, uint32 areaId);
         void SendUpdateWorldState(uint32 variable, uint32 value, bool hidden = false) const;
@@ -3128,6 +3129,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadArenaTeamInfo(PreparedQueryResult result);
         void _LoadEquipmentSets(PreparedQueryResult result);
         void _LoadTransmogOutfits(PreparedQueryResult result);
+        void _SyncTransmogOutfitsToActivePlayerData();
         void _LoadBGData(PreparedQueryResult result);
         void _LoadGlyphs(PreparedQueryResult result);
         void _LoadTalents(PreparedQueryResult result);
