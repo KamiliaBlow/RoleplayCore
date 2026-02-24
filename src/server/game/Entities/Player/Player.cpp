@@ -17988,11 +17988,11 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
                 continue;
 
             auto slotSetter = AddDynamicUpdateFieldValue(outfitSetter.ModifyValue(&UF::TransmogOutfitData::Slots));
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot), int8(slot));
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SlotOption), uint8(0));
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::ItemModifiedAppearanceID), equipmentSet->Appearances[slot] > 0 ? uint32(equipmentSet->Appearances[slot]) : 0);
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::AppearanceDisplayType), uint8(0));
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Flags), uint32(0));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot) = int8(slot);
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SlotOption) = uint8(0);
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::ItemModifiedAppearanceID) = equipmentSet->Appearances[slot] > 0 ? uint32(equipmentSet->Appearances[slot]) : 0;
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::AppearanceDisplayType) = uint8(0);
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Flags) = uint32(0);
 
             uint32 enchant = 0;
             if (slot == EQUIPMENT_SLOT_MAINHAND)
@@ -18000,8 +18000,8 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
             else if (slot == EQUIPMENT_SLOT_OFFHAND)
                 enchant = equipmentSet->Enchants[1] > 0 ? uint32(equipmentSet->Enchants[1]) : 0;
 
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SpellItemEnchantmentID), enchant);
-            SetUpdateFieldValue(slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::IllusionDisplayType), uint8(0));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SpellItemEnchantmentID) = enchant;
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::IllusionDisplayType) = uint8(0);
         }
     };
 
