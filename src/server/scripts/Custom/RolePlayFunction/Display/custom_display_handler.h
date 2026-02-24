@@ -42,7 +42,7 @@ namespace RoleplayCore
         void operator=(DisplayHandler const&) = delete;
 
         // Public methods
-        void Display(ChatHandler* handler, DisplayType type, uint32 id, uint8 bonus, bool isSecondary);
+        void Display(ChatHandler* handler, DisplayType type, uint32 id, uint32 bonus, bool isSecondary);
 
     private:
         // Hidden constructor for singleton
@@ -56,6 +56,5 @@ namespace RoleplayCore
         static const std::map<DisplayType, EquipmentSlots> m_item_slots;
         static const std::map<InventoryType, DisplayType> m_inv_type_to_disp_type;
         static const std::map<DisplayType, std::vector<DisplayType>> m_display_map; // Use vector instead of list for quick access
-        static const std::array<std::pair<uint32, uint32>, 76> m_valid_appearance_mod_list; // Use array instead of static array
     };
 }
