@@ -279,7 +279,7 @@ struct ArtifactAppearanceLoadInfo
         { .IsSigned = false, .Type = FT_SHORT, .Name = "ArtifactAppearanceSetID" },
         { .IsSigned = false, .Type = FT_BYTE, .Name = "DisplayIndex" },
         { .IsSigned = false, .Type = FT_INT, .Name = "UnlockPlayerConditionID" },
-        { .IsSigned = false, .Type = FT_BYTE, .Name = "ItemAppearanceModifierID" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "ItemAppearanceModifierID" },
         { .IsSigned = true, .Type = FT_INT, .Name = "UiSwatchColor" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "UiModelSaturation" },
         { .IsSigned = false, .Type = FT_FLOAT, .Name = "UiModelOpacity" },
