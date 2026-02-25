@@ -17972,7 +17972,7 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
 
         auto outfitInfoSetter = outfitSetter.ModifyValue(&UF::TransmogOutfitData::OutfitInfo);
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SituationsEnabled), false);
-        SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(0));
+        SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(2));
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Name), equipmentSet ? equipmentSet->SetName : std::string());
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Icon), equipmentSet ? uint32(std::atoi(equipmentSet->SetIcon.c_str())) : uint32(0));
 
@@ -17981,12 +17981,7 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
 
         for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
         {
-            if (equipmentSet->IgnoreMask & (1 << slot))
-                continue;
-
-            if (!equipmentSet->Appearances[slot] && slot != EQUIPMENT_SLOT_MAINHAND && slot != EQUIPMENT_SLOT_OFFHAND)
-                continue;
-
+            // Populate all slots so client outfit data providers never see nil slot/source tables.
             auto slotSetter = AddDynamicUpdateFieldValue(outfitSetter.ModifyValue(&UF::TransmogOutfitData::Slots));
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot).SetValue(int8(slot));
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SlotOption).SetValue(uint8(0));

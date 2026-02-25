@@ -110,16 +110,25 @@ bool ParseOutfitNameAndMiddleFields(WorldPacket& packet, uint8& middleType, uint
     }
 
     size_t middleLength = asciiStart - 2;
-    // CMSG_TRANSMOG_OUTFIT_UPDATE_INFO sends 5 middle bytes while CMSG_TRANSMOG_OUTFIT_NEW sends 6; both are valid.
-    if (middleLength < 4)
+    if (middleLength < 5)
     {
         parseError = Trinity::StringFormat("middle section too short ({} bytes)", middleLength);
         return false;
     }
 
-    middleType = remaining[0];
-    middleFlags = remaining[1];
-    iconFileDataID = ReadLE<uint32>(remaining, 2);
+    if (middleLength >= 6)
+    {
+        middleType = remaining[0];
+        middleFlags = remaining[1];
+        iconFileDataID = ReadLE<uint32>(remaining, 2);
+    }
+    else
+    {
+        // UPDATE_INFO captures use 5 middle bytes: [u8 unknown][u32 iconFileDataID]
+        middleType = remaining[0];
+        middleFlags = 0;
+        iconFileDataID = ReadLE<uint32>(remaining, 1);
+    }
 
     setName.assign(reinterpret_cast<char const*>(remaining.data() + asciiStart), nameLength);
 
@@ -177,8 +186,8 @@ void TransmogOutfitNew::Read()
         ParseSuccess = true;
         ParseError.clear();
 
-        DiagnosticReadTrace = Trinity::StringFormat("playerGuid={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
-            PlayerGuid.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
+        DiagnosticReadTrace = Trinity::StringFormat("playerGuid={} rposAfterGuid={} middleLen={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
+            PlayerGuid.ToString(), rposAfterGuid, (_worldPacket.size() - rposAfterGuid), MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
 
         TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_NEW diag: {}", DiagnosticReadTrace);
     }
@@ -214,8 +223,8 @@ void TransmogOutfitUpdateInfo::Read()
         ParseSuccess = true;
         ParseError.clear();
 
-        DiagnosticReadTrace = Trinity::StringFormat("setId={} playerGuid={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
-            Set.SetID, PlayerGuid.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
+        DiagnosticReadTrace = Trinity::StringFormat("setId={} playerGuid={} rposAfterGuid={} middleLen={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
+            Set.SetID, PlayerGuid.ToString(), rposAfterGuid, (_worldPacket.size() - rposAfterGuid), MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
 
         TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO diag: {}", DiagnosticReadTrace);
     }
