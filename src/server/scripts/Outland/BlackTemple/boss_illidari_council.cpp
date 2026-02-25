@@ -608,7 +608,10 @@ class spell_illidari_council_balance_of_power : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not ABSORB(69) in DBC (41341); disabled handler
+#if 0
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_illidari_council_balance_of_power::Absorb, EFFECT_0);
+#endif
     }
 };
 

@@ -912,8 +912,11 @@ class spell_dk_ghoul_explode : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 47496 EFFECT_0 is WEAPON_DAMAGE(31), EFFECT_1 is INSTAKILL(1) — no SCHOOL_DAMAGE
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_dk_ghoul_explode::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
         OnEffectHitTarget += SpellEffectFn(spell_dk_ghoul_explode::Suicide, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+#endif
     }
 };
 
@@ -1156,7 +1159,10 @@ class spell_dk_obliteration : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 207256 EFFECT_0 aura is ADD_FLAT_MODIFIER_BY_SPELL_LABEL(219), not DUMMY — handler disabled
+#if 0
         AfterEffectProc += AuraEffectProcFn(spell_dk_obliteration::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+#endif
     }
 };
 
@@ -1285,7 +1291,8 @@ class spell_dk_raise_dead : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_dk_raise_dead::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // Midnight 12.0.1: spell 46584 EFFECT_0 is TRIGGER_SPELL(64), not DUMMY(3)
+        OnEffectHitTarget += SpellEffectFn(spell_dk_raise_dead::HandleDummy, EFFECT_0, SPELL_EFFECT_TRIGGER_SPELL);
     }
 };
 
@@ -1319,7 +1326,10 @@ class spell_dk_reaper_of_souls : public SpellScript
     void Register() override
     {
         OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_dk_reaper_of_souls::HandleDefault, EFFECT_1, TARGET_UNIT_TARGET_ENEMY);
+        // Midnight 12.0.1: spell 343294 has no EFFECT_3 (only 2 effects) — handler disabled
+#if 0
         OnEffectLaunch += SpellEffectFn(spell_dk_reaper_of_souls::HandleReaperOfSouls, EFFECT_3, SPELL_EFFECT_TRIGGER_SPELL);
+#endif
     }
 };
 
@@ -1342,7 +1352,8 @@ class spell_dk_rime : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_rime::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // Midnight 12.0.1: spell 59057 EFFECT_0 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_dk_rime::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1391,8 +1402,11 @@ public:
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 343294 EFFECT_1 is TRIGGER_SPELL(64), not PERIODIC_DUMMY aura — handlers disabled
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dk_soul_reaper::HandleOnTick, _auraEffectIndex, SPELL_AURA_PERIODIC_DUMMY);
         AfterEffectRemove += AuraEffectRemoveFn(spell_dk_soul_reaper::RemoveEffect, _auraEffectIndex, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 
 private:
@@ -1503,7 +1517,8 @@ class spell_dk_vampiric_blood : public AuraScript
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_vampiric_blood::CalculateAmount, EFFECT_1, SPELL_AURA_MOD_INCREASE_HEALTH_2);
+        // Midnight 12.0.1: spell 55233 EFFECT_1 aura changed from MOD_INCREASE_HEALTH_2(250) to MOD_INCREASE_HEALTH(34)
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_vampiric_blood::CalculateAmount, EFFECT_1, SPELL_AURA_MOD_INCREASE_HEALTH);
     }
 };
 
@@ -1631,7 +1646,8 @@ class aura_dk_outbreak_periodic : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(aura_dk_outbreak_periodic::HandleDummyTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        // Midnight 12.0.1: spell 196782 EFFECT_0 aura is DUMMY(4), not PERIODIC_DUMMY(226)
+        OnEffectPeriodic += AuraEffectPeriodicFn(aura_dk_outbreak_periodic::HandleDummyTick, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1687,7 +1703,8 @@ class spell_dk_scourge_strike : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_dk_scourge_strike::HandleOnHit, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // Midnight 12.0.1: spell 55090 EFFECT_0 is SCHOOL_DAMAGE(2), not DUMMY(3)
+        OnEffectHitTarget += SpellEffectFn(spell_dk_scourge_strike::HandleOnHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 

@@ -3434,8 +3434,11 @@ class spell_knockback_charge_enhanced_training : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_1 does not exist in DBC (320735); only 1 effect; disabled handlers
+#if 0
         OnEffectLaunchTarget += SpellEffectFn(spell_knockback_charge_enhanced_training::HandleLaunch, EFFECT_1, SPELL_EFFECT_CREATE_PRIVATE_CONVERSATION);
         OnEffectHitTarget += SpellEffectFn(spell_knockback_charge_enhanced_training::HandleEffect, EFFECT_1, SPELL_EFFECT_CREATE_PRIVATE_CONVERSATION);
+#endif
     }
 };
 

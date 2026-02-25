@@ -3241,7 +3241,10 @@ class spell_dh_soul_cleave_damage : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 228478 EFFECT_1 is DUMMY(3), not WEAPON_PERCENT_DAMAGE(31) — handler disabled
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_dh_soul_cleave_damage::HandleDamage, EFFECT_1, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE);
+#endif
     }
 };
 
@@ -4039,7 +4042,8 @@ class spell_dh_desperate_instincts : public AuraScript
 
     void Register()
     {
-        OnEffectProc += AuraEffectProcFn(spell_dh_desperate_instincts::OnProc, EFFECT_0, SPELL_AURA_TRIGGER_SPELL_ON_HEALTH_PCT);
+        // Midnight 12.0.1: spell 205411 EFFECT_0 aura is DUMMY(4), not TRIGGER_SPELL_ON_HEALTH_PCT(468)
+        OnEffectProc += AuraEffectProcFn(spell_dh_desperate_instincts::OnProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -4302,7 +4306,10 @@ class spell_dh_fel_devastation_damage : public AuraScript
 
     void Register()
     {
+        // Midnight 12.0.1: spell 212105 EFFECT_0 is SCHOOL_DAMAGE(2), not an aura — handler disabled
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_dh_fel_devastation_damage::PeriodicTick, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+#endif
     }
 };
 

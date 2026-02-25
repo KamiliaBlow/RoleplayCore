@@ -422,7 +422,8 @@ class spell_pal_blinding_light : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_blinding_light::HandleDummy, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        // Midnight 12.0.1: spell 115750 EFFECT_0 is SPELL_EFFECT_DUMMY(3), not APPLY_AURA(6)
+        OnEffectHitTarget += SpellEffectFn(spell_pal_blinding_light::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -912,7 +913,8 @@ class spell_pal_grand_crusader : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_pal_grand_crusader::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_pal_grand_crusader::HandleEffectProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // Midnight 12.0.1: spell 85043 EFFECT_0 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        OnEffectProc += AuraEffectProcFn(spell_pal_grand_crusader::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1205,7 +1207,10 @@ class spell_pal_holy_prism_selector : public SpellScript
         else if (m_scriptSpellId == SPELL_PALADIN_HOLY_PRISM_TARGET_ALLY)
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_holy_prism_selector::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
 
+        // Midnight 12.0.1: spell 114871 EFFECT_2 target changed from DEST_AREA_ENTRY(8) — handler disabled
+#if 0
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_holy_prism_selector::ShareTargets, EFFECT_2, TARGET_UNIT_DEST_AREA_ENTRY);
+#endif
 
         OnEffectHitTarget += SpellEffectFn(spell_pal_holy_prism_selector::SaveTargetGuid, EFFECT_0, SPELL_EFFECT_ANY);
         OnEffectHitTarget += SpellEffectFn(spell_pal_holy_prism_selector::HandleScript, EFFECT_2, SPELL_EFFECT_SCRIPT_EFFECT);
@@ -1541,8 +1546,9 @@ class spell_pal_righteous_protector : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_righteous_protector::CheckEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_righteous_protector::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 204074 EFFECT_0 aura is ADD_PCT_MODIFIER(108), not DUMMY(4)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_righteous_protector::CheckEffectProc, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
+        OnEffectProc += AuraEffectProcFn(spell_pal_righteous_protector::HandleEffectProc, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
     }
 
     Optional<SpellPowerCost> _baseHolyPowerCost;
@@ -1866,8 +1872,9 @@ class spell_pal_t30_2p_protection_bonus_heal : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_t30_2p_protection_bonus_heal::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_t30_2p_protection_bonus_heal::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 410530 EFFECT_0 aura is PROC_TRIGGER_SPELL(42), not DUMMY(4)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_t30_2p_protection_bonus_heal::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        OnEffectProc += AuraEffectProcFn(spell_pal_t30_2p_protection_bonus_heal::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -1938,7 +1945,10 @@ class spell_pal_holy_shield : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_pal_holy_shield::CheckProc);
+        // Midnight 12.0.1: spell 152261 EFFECT_2 aura changed from SCHOOL_ABSORB(69) to ALLOW_BLOCKING_SPELLS(528) — handler disabled
+#if 0
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_holy_shield::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB);
+#endif
     }
 };
 

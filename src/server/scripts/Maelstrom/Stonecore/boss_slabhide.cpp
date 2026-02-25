@@ -475,7 +475,8 @@ public:
 
         void Register() override
         {
-            OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_stalactite_mod_dest_height_SpellScript::ModDestHeight, EFFECT_0, TARGET_DEST_CASTER);
+            // Midnight 12.0.1: DBC target is 72 (TARGET_DEST_CASTER_RANDOM) not 18 (TARGET_DEST_CASTER) for 80643
+            OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_stalactite_mod_dest_height_SpellScript::ModDestHeight, EFFECT_0, TARGET_DEST_CASTER_RANDOM);
         }
     };
 

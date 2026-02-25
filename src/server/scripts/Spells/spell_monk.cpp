@@ -1899,7 +1899,10 @@ public:
         void Register() override
         {
             OnPrepare += SpellOnPrepareFn(spell_monk_vivify_SpellScript::OnPrepareFunc);
+            // Midnight 12.0.1: spell 116670 has no EFFECT_1 (only 1 effect) — handler disabled
+#if 0
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_monk_vivify_SpellScript::FilterRenewingMist, EFFECT_1, TARGET_UNIT_DEST_AREA_ALLY);
+#endif
             AfterCast += SpellCastFn(spell_monk_vivify_SpellScript::LifeCycles);
         }
     };
@@ -2047,7 +2050,10 @@ public:
 
         void Register() override
         {
+            // Midnight 12.0.1: spell 124081 has no EFFECT_1 (only 1 effect) — handler disabled
+#if 0
             OnEffectHitTarget += SpellEffectFn(spell_monk_zen_pulse_SpellScript::OnHit, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+#endif
         }
     };
 
@@ -2148,7 +2154,10 @@ class spell_monk_renewing_mist_hot : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 115151 EFFECT_0 has no aura (Effect=DUMMY) — handler disabled
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_monk_renewing_mist_hot::HandlePeriodicHeal, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
+#endif
         //DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_monk_renewing_mist_hot::CalcAmount, EFFECT_0, SPELL_AURA_PERIODIC_HEAL);
     }
 };

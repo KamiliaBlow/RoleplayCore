@@ -153,7 +153,10 @@ class spell_torghast_dimensional_blade : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_1 does not exist in DBC (321706); only 1 effect (INSTAKILL); disabled handler
+#if 0
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_torghast_dimensional_blade::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
+#endif
     }
 };
 

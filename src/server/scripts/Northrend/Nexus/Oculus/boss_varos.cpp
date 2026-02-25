@@ -286,7 +286,8 @@ class spell_varos_energize_core_area_enemy : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_enemy::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+        // Midnight 12.0.1: DBC target is 54 (TARGET_UNIT_CONE_180_DEG_ENEMY) not 15 (TARGET_UNIT_SRC_AREA_ENEMY) for 50785/59372
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_enemy::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_180_DEG_ENEMY);
     }
 };
 
@@ -319,7 +320,8 @@ class spell_varos_energize_core_area_entry : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_entry::FilterTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ENTRY);
+        // Midnight 12.0.1: DBC target is 54 (TARGET_UNIT_CONE_180_DEG_ENEMY) not 7 (TARGET_UNIT_SRC_AREA_ENTRY) for 54069/56251/61407/62136
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_varos_energize_core_area_entry::FilterTargets, EFFECT_0, TARGET_UNIT_CONE_180_DEG_ENEMY);
     }
 };
 

@@ -124,7 +124,10 @@ class spell_fixate : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_2 does not exist in DBC (40414); disabled handler
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_fixate::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_SCRIPT_EFFECT);
+#endif
     }
 };
 

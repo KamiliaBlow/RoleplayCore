@@ -521,7 +521,10 @@ class spell_sappy_burst : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_2 does not exist in DBC (375591); disabled handler
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_sappy_burst::HandleHitTarget, EFFECT_2, SPELL_EFFECT_SCRIPT_EFFECT);
+#endif
     }
 };
 

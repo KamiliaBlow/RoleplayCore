@@ -959,7 +959,8 @@ class spell_item_dire_brew : public AuraScript
 
     void Register() override
     {
-        AfterEffectApply += AuraEffectApplyFn(spell_item_dire_brew::AfterApply, EFFECT_0, SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: spell 51010 TRANSFORM aura moved from EFFECT_0 to EFFECT_1
+        AfterEffectApply += AuraEffectApplyFn(spell_item_dire_brew::AfterApply, EFFECT_1, SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -984,7 +985,8 @@ class spell_item_discerning_eye_beast_dummy : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_item_discerning_eye_beast_dummy::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 59915 EFFECT_0 aura is PROC_TRIGGER_SPELL(42), not DUMMY(4)
+        OnEffectProc += AuraEffectProcFn(spell_item_discerning_eye_beast_dummy::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -4235,7 +4237,10 @@ class spell_item_eggnog : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 21149 has no EFFECT_2 (only 2 effects) — handler disabled
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_item_eggnog::HandleScript, EFFECT_2, SPELL_EFFECT_INEBRIATE);
+#endif
     }
 };
 

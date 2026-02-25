@@ -65,8 +65,11 @@ class spell_af_skyriding : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_2 does not exist in DBC (430747); only EFFECT_0 exists; disabled handlers
+#if 0
         OnEffectApply += AuraEffectApplyFn(spell_af_skyriding::OnApply, EFFECT_2, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
         OnEffectRemove += AuraEffectRemoveFn(spell_af_skyriding::OnRemove, EFFECT_2, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 };
 
@@ -137,9 +140,11 @@ class spell_af_energy : public AuraScript
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_af_energy::OnApply, EFFECT_0, SPELL_AURA_ENABLE_ALT_POWER, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not ENABLE_ALT_POWER(346) in DBC (372771)
+        OnEffectApply += AuraEffectApplyFn(spell_af_energy::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
         OnEffectUpdatePeriodic += AuraEffectUpdatePeriodicFn(spell_af_energy::OnPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
-        OnEffectRemove += AuraEffectRemoveFn(spell_af_energy::OnRemove, EFFECT_0, SPELL_AURA_ENABLE_ALT_POWER, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not ENABLE_ALT_POWER(346) in DBC (372771)
+        OnEffectRemove += AuraEffectRemoveFn(spell_af_energy::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 
 private:
@@ -176,7 +181,10 @@ class spell_af_skyward_ascent : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 is APPLY_AURA(6) not DUMMY(3) in DBC (386451); disabled handler
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_af_skyward_ascent::HandleHitTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 
@@ -200,7 +208,10 @@ class spell_af_surge_forward : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 is APPLY_AURA(6) not DUMMY(3) in DBC (386449); disabled handler
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_af_surge_forward::HandleHitTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 

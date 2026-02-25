@@ -164,7 +164,10 @@ class spell_commander_sarannis_arcane_devastation : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_2 does not exist in DBC (34799); only 1 effect; disabled handler
+#if 0
         AfterEffectApply += AuraEffectApplyFn(spell_commander_sarannis_arcane_devastation::AfterApply, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 };
 

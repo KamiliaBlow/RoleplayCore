@@ -533,7 +533,8 @@ class spell_barreled_control_aura : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_barreled_control_aura::PeriodicTick, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not PERIODIC_TRIGGER_SPELL(23) in DBC (50278)
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_barreled_control_aura::PeriodicTick, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 

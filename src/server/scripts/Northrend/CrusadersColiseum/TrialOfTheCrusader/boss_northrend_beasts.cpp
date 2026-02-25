@@ -1323,7 +1323,8 @@ class spell_icehowl_massive_crash : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_icehowl_massive_crash::HandleSpeed, EFFECT_2, SPELL_AURA_MOD_STUN, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: MOD_STUN is at EFFECT_0 not EFFECT_2 in DBC (66683)
+        AfterEffectRemove += AuraEffectRemoveFn(spell_icehowl_massive_crash::HandleSpeed, EFFECT_0, SPELL_AURA_MOD_STUN, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

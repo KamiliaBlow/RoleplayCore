@@ -455,7 +455,10 @@ class spell_apothecary_perfume_spill : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 is CREATE_AREATRIGGER not an aura in DBC (68798); disabled handler
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_apothecary_perfume_spill::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+#endif
     }
 };
 
@@ -469,7 +472,10 @@ class spell_apothecary_cologne_spill : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 is CREATE_AREATRIGGER not an aura in DBC (68614); disabled handler
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_apothecary_cologne_spill::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+#endif
     }
 };
 

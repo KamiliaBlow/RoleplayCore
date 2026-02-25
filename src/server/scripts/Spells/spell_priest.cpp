@@ -2152,8 +2152,9 @@ class spell_pri_guardian_spirit : public AuraScript
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_1);
+        // Midnight 12.0.1: spell 47788 absorb moved from EFFECT_1/SCHOOL_ABSORB(69) to EFFECT_2/SCHOOL_ABSORB_OVERKILL(316)
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB_OVERKILL);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_2);
     }
 };
 
@@ -2324,7 +2325,10 @@ class spell_pri_halo_shadow : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 120644 has no EFFECT_6 (only 2 effects) — handler disabled
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_pri_halo_shadow::HandleHitTarget, EFFECT_6, SPELL_EFFECT_ENERGIZE);
+#endif
     }
 };
 
@@ -2903,7 +2907,8 @@ class spell_pri_mind_devourer_buff_aura : public AuraScript
 
     void Register() override
     {
-        DoEffectCalcDamageAndHealing += AuraEffectCalcDamageFn(spell_pri_mind_devourer_buff_aura::CalculateDamage, EFFECT_1, SPELL_AURA_PERIODIC_LEECH);
+        // Midnight 12.0.1: spell 335467 PERIODIC_LEECH(53) moved from EFFECT_1 to EFFECT_2
+        DoEffectCalcDamageAndHealing += AuraEffectCalcDamageFn(spell_pri_mind_devourer_buff_aura::CalculateDamage, EFFECT_2, SPELL_AURA_PERIODIC_LEECH);
     }
 
 public:
@@ -5121,7 +5126,8 @@ class spell_pri_vampiric_embrace : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_pri_vampiric_embrace::CheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_pri_vampiric_embrace::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 15286 EFFECT_0 aura is PERIODIC_DUMMY(226), not DUMMY(4)
+        OnEffectProc += AuraEffectProcFn(spell_pri_vampiric_embrace::HandleEffectProc, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
     }
 };
 
@@ -5135,7 +5141,8 @@ class spell_pri_vampiric_embrace_target : public SpellScript
 
     void Register() override
     {
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_vampiric_embrace_target::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_PARTY);
+        // Midnight 12.0.1: spell 15290 EFFECT_0 target is CASTER_AREA_RAID(56), not CASTER_AREA_PARTY(20)
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pri_vampiric_embrace_target::FilterTargets, EFFECT_0, TARGET_UNIT_CASTER_AREA_RAID);
     }
 };
 
@@ -5479,7 +5486,10 @@ class spell_pri_penance_620_aura : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 186723 EFFECT_0 has no aura (Effect=10, Aura=0) — handler disabled
+#if 0
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_penance_620_aura::HandleEffectCalcAmount, EFFECT_0, SPELL_EFFECT_HEAL);
+#endif
     }
 };
 

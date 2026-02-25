@@ -673,8 +673,11 @@ class spell_evo_scouring_flame : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 357209 EFFECT_3 is APPLY_AURA(6), not DISPEL(38) — handlers disabled
+#if 0
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_evo_scouring_flame::HandleScouringFlame, EFFECT_3, TARGET_UNIT_CONE_CASTER_TO_DEST_ENEMY);
         OnEffectHitTarget += SpellEffectFn(spell_evo_scouring_flame::CalcDispelCount, EFFECT_3, SPELL_EFFECT_DISPEL);
+#endif
     }
 };
 

@@ -642,7 +642,8 @@ class spell_aqusirr_grasp_from_the_depths_damage : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_aqusirr_grasp_from_the_depths_damage::OnRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: EFFECT_1 aura is PERIODIC_DAMAGE(3) not DUMMY(4) in DBC (264526)
+        AfterEffectRemove += AuraEffectRemoveFn(spell_aqusirr_grasp_from_the_depths_damage::OnRemove, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

@@ -1827,7 +1827,10 @@ class spell_halion_summon_exit_portals : public SpellScriptLoader
             void Register() override
             {
                 OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_halion_summon_exit_portals_SpellScript::SetDest0, EFFECT_0, TARGET_DEST_CASTER);
+                // Midnight 12.0.1: EFFECT_1 does not exist in DBC (74805); only 1 effect; disabled handler
+#if 0
                 OnDestinationTargetSelect += SpellDestinationTargetSelectFn(spell_halion_summon_exit_portals_SpellScript::SetDest1, EFFECT_1, TARGET_DEST_CASTER);
+#endif
             }
         };
 

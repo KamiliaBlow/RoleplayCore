@@ -375,7 +375,8 @@ class spell_mage_blazing_barrier : public AuraScript
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_blazing_barrier::CalculateAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
-        OnEffectProc += AuraEffectProcFn(spell_mage_blazing_barrier::HandleProc, EFFECT_1, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // Midnight 12.0.1: spell 235313 EFFECT_1 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        OnEffectProc += AuraEffectProcFn(spell_mage_blazing_barrier::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
     }
 };
 
@@ -488,7 +489,8 @@ class spell_mage_cauterize_AuraScript : public AuraScript
 
     void Register() override
     {
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_mage_cauterize_AuraScript::HandleAbsorb, EFFECT_0);
+        // Midnight 12.0.1: spell 86949 EFFECT_0 aura changed from SCHOOL_ABSORB(69) to SCHOOL_ABSORB_OVERKILL(316)
+        OnEffectAbsorb += AuraEffectAbsorbOverkillFn(spell_mage_cauterize_AuraScript::HandleAbsorb, EFFECT_0);
     }
 };
 
@@ -655,7 +657,8 @@ class spell_mage_ethereal_blink : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_mage_ethereal_blink::HandleProc, EFFECT_1, SPELL_EFFECT_APPLY_AURA);
+        // Midnight 12.0.1: spell 410939 EFFECT_1 aura is DUMMY(4), not value 6
+        OnEffectProc += AuraEffectProcFn(spell_mage_ethereal_blink::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
     }
 };
 
@@ -758,7 +761,10 @@ class spell_mage_fiery_rush_aura : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 190319 EFFECT_2 aura is ADD_PCT_MODIFIER(108), not PERIODIC_DUMMY(226) — handler disabled
+#if 0
         AfterEffectRemove += AuraEffectRemoveFn(spell_mage_fiery_rush_aura::AfterRemove, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 };
 
@@ -869,7 +875,10 @@ class spell_mage_flame_accelerant : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 453282 has no DBC effect data — handler disabled
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_flame_accelerant::HandlePeriodicTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+#endif
     }
 };
 
@@ -891,7 +900,8 @@ class spell_mage_flame_on : public AuraScript
 
    void Register() override
    {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_flame_on::CalculateAmount, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        // Midnight 12.0.1: spell 205029 EFFECT_0 aura is MOD_MAX_CHARGES(411), not MOD_GLOBAL_COOLDOWN(6)
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_flame_on::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_MAX_CHARGES);
    }
 };
 
@@ -1010,7 +1020,8 @@ class spell_mage_flurry_damage : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_mage_flurry_damage::HandleDamage, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+        // Midnight 12.0.1: spell 228354 has no EFFECT_1 (only 1 effect); EFFECT_0 is SCHOOL_DAMAGE
+        OnEffectHitTarget += SpellEffectFn(spell_mage_flurry_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -1424,7 +1435,10 @@ class spell_mage_improved_combustion : public AuraScript
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_mage_improved_combustion::CalcAmount, EFFECT_1, SPELL_AURA_MOD_RATING);
+        // Midnight 12.0.1: spell 190319 EFFECT_2 aura is ADD_PCT_MODIFIER(108), not PERIODIC_DUMMY(226) — handler disabled
+#if 0
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_improved_combustion::UpdatePeriodic, EFFECT_2, SPELL_AURA_PERIODIC_DUMMY);
+#endif
     }
 };
 
@@ -1561,7 +1575,10 @@ class spell_mage_living_bomb_periodic : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 217694 has no EFFECT_2 (only 2 effects) — handler disabled
+#if 0
         AfterEffectRemove += AuraEffectRemoveFn(spell_mage_living_bomb_periodic::AfterRemove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 };
 
@@ -1847,8 +1864,9 @@ class spell_mage_ray_of_frost_aura : public AuraScript
 
     void Register() override
     {
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_ray_of_frost_aura::HandleEffectPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE);
-        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_ray_of_frost_aura::OnRemove, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: spell 205021 PERIODIC_DAMAGE moved from EFFECT_1 to EFFECT_0
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_mage_ray_of_frost_aura::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_mage_ray_of_frost_aura::OnRemove, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

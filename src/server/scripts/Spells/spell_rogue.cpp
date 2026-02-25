@@ -188,7 +188,10 @@ class spell_rog_acrobatic_strikes : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 455143 has no DBC effect data — handler disabled
+#if 0
         OnEffectProc += AuraEffectProcFn(spell_rog_acrobatic_strikes::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+#endif
     }
 };
 
@@ -313,8 +316,9 @@ class spell_rog_blade_flurry : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_rog_blade_flurry::CheckProc);
+        // Midnight 12.0.1: spell 13877 EFFECT_0 aura is now DUMMY(4)
         if (m_scriptSpellId == SPELL_ROGUE_BLADE_FLURRY)
-            OnEffectProc += AuraEffectProcFn(spell_rog_blade_flurry::HandleProc, EFFECT_0, SPELL_AURA_MOD_POWER_REGEN_PERCENT);
+            OnEffectProc += AuraEffectProcFn(spell_rog_blade_flurry::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
         else
             OnEffectProc += AuraEffectProcFn(spell_rog_blade_flurry::HandleProc, EFFECT_0, SPELL_AURA_MOD_MELEE_HASTE);
     }
@@ -440,8 +444,9 @@ class spell_rog_deepening_shadows : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_deepening_shadows::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_rog_deepening_shadows::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 185314 EFFECT_0 aura is LINKED_2(285), not DUMMY(4)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_deepening_shadows::CheckProc, EFFECT_0, SPELL_AURA_LINKED_2);
+        OnEffectProc += AuraEffectProcFn(spell_rog_deepening_shadows::HandleProc, EFFECT_0, SPELL_AURA_LINKED_2);
     }
 };
 
@@ -541,7 +546,8 @@ class spell_rog_grand_melee : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_rog_grand_melee::HandleCheckProc);
-        OnEffectProc += AuraEffectProcFn(spell_rog_grand_melee::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 193358 EFFECT_0 aura is ADD_PCT_MODIFIER(108), not DUMMY(4)
+        OnEffectProc += AuraEffectProcFn(spell_rog_grand_melee::HandleProc, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER);
     }
 };
 
@@ -775,8 +781,11 @@ class spell_rog_killing_spree : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 51690 EFFECT_1 is APPLY_AURA/MOD_DECREASE_SPEED, not DUMMY; target is not area — handlers disabled
+#if 0
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_rog_killing_spree::FilterTargets, EFFECT_1, TARGET_UNIT_DEST_AREA_ENEMY);
         OnEffectHitTarget += SpellEffectFn(spell_rog_killing_spree::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 
@@ -790,7 +799,8 @@ class spell_rog_kingsbane : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_kingsbane::CheckProc, EFFECT_4, SPELL_AURA_PROC_TRIGGER_SPELL);;
+        // Midnight 12.0.1: spell 385627 EFFECT_4 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_rog_kingsbane::CheckProc, EFFECT_4, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1350,7 +1360,10 @@ class spell_rog_sinister_strike : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 193315 has no EFFECT_2 (only 2 effects) — handler disabled
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_rog_sinister_strike::HandleDummy, EFFECT_2, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 
@@ -1635,7 +1648,8 @@ class spell_rog_stealth_with_subterfuge : public AuraScript
 
     void Register()
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_rog_stealth_with_subterfuge::OnRemove, EFFECT_0, SPELL_AURA_MOD_SHAPESHIFT, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: spell 115191 EFFECT_0 aura is DUMMY(4), not MOD_SHAPESHIFT(36)
+        AfterEffectRemove += AuraEffectRemoveFn(spell_rog_stealth_with_subterfuge::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

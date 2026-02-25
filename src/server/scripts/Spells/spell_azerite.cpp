@@ -46,7 +46,8 @@ class spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell : public AuraS
 
     void Register() override
     {
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_RATING);
+        // Midnight 12.0.1: spell 272893 EFFECT_0 aura is MOD_STAT(29), not MOD_RATING(189)
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_STAT);
     }
 };
 
@@ -67,7 +68,8 @@ class spell_item_azerite_fortification : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_item_azerite_fortification::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // Midnight 12.0.1: spell 277253 EFFECT_0 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_item_azerite_fortification::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 

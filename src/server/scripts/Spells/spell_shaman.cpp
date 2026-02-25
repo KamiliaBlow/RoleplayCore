@@ -407,8 +407,11 @@ class spell_sha_ascendance_restoration : public AuraScript
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_sha_ascendance_restoration::CheckProc);
+        // Midnight 12.0.1: spell 114052 has only 4 effects (0-3), EFFECT_6/8 don't exist — handlers disabled
+#if 0
         OnEffectProc += AuraEffectProcFn(spell_sha_ascendance_restoration::OnProcHeal, EFFECT_8, SPELL_AURA_DUMMY);
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_sha_ascendance_restoration::HandleEffectPeriodic, EFFECT_6, SPELL_AURA_PERIODIC_DUMMY);
+#endif
     }
 
 private:
@@ -430,7 +433,8 @@ class spell_sha_ashen_catalyst : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_sha_ashen_catalyst::ReduceLavaLashCooldown, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        // Midnight 12.0.1: spell 390370 EFFECT_0 aura is DUMMY(4), not PROC_TRIGGER_SPELL(42)
+        OnEffectProc += AuraEffectProcFn(spell_sha_ashen_catalyst::ReduceLavaLashCooldown, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -464,7 +468,10 @@ class spell_sha_chain_lightning_crash_lightning : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 188443 has no EFFECT_2 (only 2 effects) — handler disabled
+#if 0
         OnEffectLaunch += SpellEffectFn(spell_sha_chain_lightning_crash_lightning::HandleCooldownReduction, EFFECT_2, SPELL_EFFECT_DUMMY);
+#endif
         OnEffectLaunch += SpellEffectFn(spell_sha_chain_lightning_crash_lightning::HandleDamageBuff, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
@@ -1454,7 +1461,10 @@ class spell_sha_ice_strike : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 342240 has no EFFECT_3 (only 3 effects) — handler disabled
+#if 0
         OnEffectHit += SpellEffectFn(spell_sha_ice_strike::EnergizeMaelstrom, EFFECT_3, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 
@@ -2340,7 +2350,10 @@ class spell_sha_molten_thunder_sundering : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 197214 has no EFFECT_3 (only 3 effects) — handler disabled
+#if 0
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_sha_molten_thunder_sundering::RemoveIncapacitateEffect, EFFECT_3, TARGET_UNIT_RECT_CASTER_ENEMY);
+#endif
         AfterCast += SpellCastFn(spell_sha_molten_thunder_sundering::RollReset);
     }
 };
@@ -2750,7 +2763,10 @@ class spell_sha_stormweaver : public SpellScript
     void Register() override
     {
         OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_sha_stormweaver::PreventAffectingHealingSpells, EFFECT_2, TARGET_UNIT_CASTER);
+        // Midnight 12.0.1: spell 187881 has no EFFECT_4 (only 3 effects) — handler disabled
+#if 0
         OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_sha_stormweaver::PreventAffectingHealingSpells, EFFECT_4, TARGET_UNIT_CASTER);
+#endif
     }
 };
 
@@ -3258,8 +3274,11 @@ class spell_sha_voltaic_blaze : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 470057 has no DBC effect data — handlers disabled
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_sha_voltaic_blaze::ApplyFlameShock, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
         OnEffectHitTarget += SpellEffectFn(spell_sha_voltaic_blaze::EnergizeMaelstrom, EFFECT_1, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 

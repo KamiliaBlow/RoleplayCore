@@ -1027,7 +1027,10 @@ class spell_jaws_of_death_claw_swipe_pct_damage : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_0 is Effect 165 not SCHOOL_DAMAGE(2) in DBC (60864); disabled handler
+#if 0
         OnEffectLaunchTarget += SpellEffectFn(spell_jaws_of_death_claw_swipe_pct_damage::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+#endif
     }
 };
 
