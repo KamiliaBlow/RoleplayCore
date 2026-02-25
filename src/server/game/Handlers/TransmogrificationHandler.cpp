@@ -17,13 +17,108 @@
 
 #include "WorldSession.h"
 #include "CollectionMgr.h"
+#include "ConditionMgr.h"
 #include "DB2Stores.h"
 #include "Item.h"
 #include "Log.h"
 #include "NPCPackets.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "SpellMgr.h"
 #include "TransmogrificationPackets.h"
+
+
+namespace
+{
+void LogTransmogOutfitOpcodeDebug(WorldSession const* session, char const* opcodeName, size_t payloadSize, std::string const& payloadPreviewHex)
+{
+    TC_LOG_DEBUG("network.opcode.transmog", "{} [{}] size={} preview(<=128B)={}", opcodeName, session->GetPlayerInfo(), payloadSize, payloadPreviewHex);
+}
+
+bool ValidateTransmogOutfitPlayerGuid(WorldSession* session, ObjectGuid const& playerGuid, char const* opcodeName)
+{
+    if (!playerGuid || playerGuid == session->GetPlayer()->GetGUID())
+        return true;
+
+    TC_LOG_ERROR("network.opcode.transmog", "{} rejected [{}]: packet player guid {} does not match session player guid {}",
+        opcodeName, session->GetPlayerInfo(), playerGuid.ToString(), session->GetPlayer()->GetGUID().ToString());
+    return false;
+}
+
+bool ValidateTransmogOutfitSet(WorldSession* session, EquipmentSetInfo::EquipmentSetData& set)
+{
+    if (set.SetID >= MAX_EQUIPMENT_SET_INDEX)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "Transmog outfit rejected [{}]: invalid SetID {}", session->GetPlayerInfo(), set.SetID);
+        return false;
+    }
+
+    set.Type = EquipmentSetInfo::TRANSMOG;
+
+    for (uint8 i = 0; i < EQUIPMENT_SLOT_END; ++i)
+    {
+        set.Pieces[i].Clear();
+
+        if (set.IgnoreMask & (1 << i))
+        {
+            set.Appearances[i] = 0;
+            continue;
+        }
+
+        if (set.Appearances[i])
+        {
+            if (!sItemModifiedAppearanceStore.LookupEntry(set.Appearances[i]))
+            {
+                TC_LOG_ERROR("network.opcode.transmog", "Transmog outfit rejected [{}]: invalid appearance {} in slot {}", session->GetPlayerInfo(), set.Appearances[i], i);
+                return false;
+            }
+
+            auto [hasAppearance, isTemporary] = session->GetCollectionMgr()->HasItemAppearance(set.Appearances[i]);
+            if (!hasAppearance)
+            {
+                TC_LOG_ERROR("network.opcode.transmog", "Transmog outfit rejected [{}]: uncollected appearance {} in slot {}", session->GetPlayerInfo(), set.Appearances[i], i);
+                return false;
+            }
+        }
+        else
+            set.IgnoreMask |= (1 << i);
+    }
+
+    set.IgnoreMask &= 0x7FFFF;
+
+    auto validateIllusion = [session](uint32 enchantId) -> bool
+    {
+        SpellItemEnchantmentEntry const* illusion = sSpellItemEnchantmentStore.LookupEntry(enchantId);
+        if (!illusion)
+            return false;
+
+        if (!illusion->ItemVisual || !illusion->GetFlags().HasFlag(SpellItemEnchantmentFlags::AllowTransmog))
+            return false;
+
+        if (!ConditionMgr::IsPlayerMeetingCondition(session->GetPlayer(), illusion->TransmogUseConditionID))
+            return false;
+
+        if (illusion->ScalingClassRestricted > 0 && uint8(illusion->ScalingClassRestricted) != session->GetPlayer()->GetClass())
+            return false;
+
+        return true;
+    };
+
+    if (set.Enchants[0] && !validateIllusion(set.Enchants[0]))
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "Transmog outfit rejected [{}]: invalid main-hand enchant {}", session->GetPlayerInfo(), set.Enchants[0]);
+        return false;
+    }
+
+    if (set.Enchants[1] && !validateIllusion(set.Enchants[1]))
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "Transmog outfit rejected [{}]: invalid off-hand enchant {}", session->GetPlayerInfo(), set.Enchants[1]);
+        return false;
+    }
+
+    return true;
+}
+}
 
 void WorldSession::HandleTransmogrifyItems(WorldPackets::Transmogrification::TransmogrifyItems& transmogrifyItems)
 {
@@ -342,6 +437,144 @@ void WorldSession::HandleTransmogrifyItems(WorldPackets::Transmogrification::Tra
             }
         }
     }
+}
+
+
+void WorldSession::HandleTransmogOutfitNew(WorldPackets::Transmogrification::TransmogOutfitNew& transmogOutfitNew)
+{
+    LogTransmogOutfitOpcodeDebug(this, "CMSG_TRANSMOG_OUTFIT_NEW", transmogOutfitNew.PayloadSize, transmogOutfitNew.PayloadPreviewHex);
+
+    if (!transmogOutfitNew.ParseSuccess)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_NEW parse failed [{}]: {}", GetPlayerInfo(), transmogOutfitNew.ParseError);
+        TC_LOG_DEBUG("network.opcode.transmog", "{}", transmogOutfitNew.DiagnosticReadTrace);
+        return;
+    }
+
+    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitNew.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_NEW"))
+        return;
+
+    EquipmentSetInfo::EquipmentSetData set = transmogOutfitNew.Set;
+    if (!ValidateTransmogOutfitSet(this, set))
+        return;
+
+    GetPlayer()->SetEquipmentSet(set);
+
+    if (EquipmentSetInfo::EquipmentSetData const* savedSet = GetPlayer()->GetTransmogOutfitBySetID(set.SetID))
+        set.Guid = savedSet->Guid;
+
+    WorldPackets::Transmogrification::TransmogOutfitNewEntryAdded response;
+    response.SetID = set.SetID;
+    response.Guid = set.Guid;
+    SendPacket(response.Write());
+}
+
+void WorldSession::HandleTransmogOutfitUpdateInfo(WorldPackets::Transmogrification::TransmogOutfitUpdateInfo& transmogOutfitUpdateInfo)
+{
+    LogTransmogOutfitOpcodeDebug(this, "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO", transmogOutfitUpdateInfo.PayloadSize, transmogOutfitUpdateInfo.PayloadPreviewHex);
+
+    if (!transmogOutfitUpdateInfo.ParseSuccess)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO parse failed [{}]: {}", GetPlayerInfo(), transmogOutfitUpdateInfo.ParseError);
+        TC_LOG_DEBUG("network.opcode.transmog", "{}", transmogOutfitUpdateInfo.DiagnosticReadTrace);
+        return;
+    }
+
+    EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateInfo.Set.SetID);
+    if (!existingSet || existingSet->Type != EquipmentSetInfo::TRANSMOG)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO rejected [{}]: unknown transmog set id {}", GetPlayerInfo(), transmogOutfitUpdateInfo.Set.SetID);
+        return;
+    }
+
+    EquipmentSetInfo::EquipmentSetData updatedSet = *existingSet;
+    updatedSet.SetID = transmogOutfitUpdateInfo.Set.SetID;
+    updatedSet.SetName = transmogOutfitUpdateInfo.Set.SetName;
+    updatedSet.SetIcon = transmogOutfitUpdateInfo.Set.SetIcon;
+    updatedSet.IgnoreMask = transmogOutfitUpdateInfo.Set.IgnoreMask;
+
+    if (!ValidateTransmogOutfitSet(this, updatedSet))
+        return;
+
+    GetPlayer()->SetEquipmentSet(updatedSet);
+
+    WorldPackets::Transmogrification::TransmogOutfitInfoUpdated response;
+    response.SetID = updatedSet.SetID;
+    response.Guid = updatedSet.Guid;
+    SendPacket(response.Write());
+}
+
+void WorldSession::HandleTransmogOutfitUpdateSlots(WorldPackets::Transmogrification::TransmogOutfitUpdateSlots& transmogOutfitUpdateSlots)
+{
+    LogTransmogOutfitOpcodeDebug(this, "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS", transmogOutfitUpdateSlots.PayloadSize, transmogOutfitUpdateSlots.PayloadPreviewHex);
+
+    if (!transmogOutfitUpdateSlots.ParseSuccess)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS parse failed [{}]: {}", GetPlayerInfo(), transmogOutfitUpdateSlots.ParseError);
+        TC_LOG_DEBUG("network.opcode.transmog", "{}", transmogOutfitUpdateSlots.DiagnosticReadTrace);
+        return;
+    }
+
+    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateSlots.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS"))
+        return;
+
+    EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateSlots.Set.SetID);
+    if (!existingSet || existingSet->Type != EquipmentSetInfo::TRANSMOG)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS rejected [{}]: unknown transmog set id {}", GetPlayerInfo(), transmogOutfitUpdateSlots.Set.SetID);
+        return;
+    }
+
+    EquipmentSetInfo::EquipmentSetData updatedSet = *existingSet;
+    updatedSet.SetID = transmogOutfitUpdateSlots.Set.SetID;
+    updatedSet.IgnoreMask = transmogOutfitUpdateSlots.Set.IgnoreMask;
+    updatedSet.Appearances = transmogOutfitUpdateSlots.Set.Appearances;
+
+    if (!ValidateTransmogOutfitSet(this, updatedSet))
+        return;
+
+    GetPlayer()->SetEquipmentSet(updatedSet);
+
+    WorldPackets::Transmogrification::TransmogOutfitSlotsUpdated response;
+    response.SetID = updatedSet.SetID;
+    response.Guid = updatedSet.Guid;
+    SendPacket(response.Write());
+}
+
+void WorldSession::HandleTransmogOutfitUpdateSituations(WorldPackets::Transmogrification::TransmogOutfitUpdateSituations& transmogOutfitUpdateSituations)
+{
+    LogTransmogOutfitOpcodeDebug(this, "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS", transmogOutfitUpdateSituations.PayloadSize, transmogOutfitUpdateSituations.PayloadPreviewHex);
+
+    if (!transmogOutfitUpdateSituations.ParseSuccess)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS parse failed [{}]: {}", GetPlayerInfo(), transmogOutfitUpdateSituations.ParseError);
+        TC_LOG_DEBUG("network.opcode.transmog", "{}", transmogOutfitUpdateSituations.DiagnosticReadTrace);
+        return;
+    }
+
+    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateSituations.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS"))
+        return;
+
+    EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateSituations.SetID);
+    if (!existingSet || existingSet->Type != EquipmentSetInfo::TRANSMOG)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS rejected [{}]: unknown transmog set id {}", GetPlayerInfo(), transmogOutfitUpdateSituations.SetID);
+        return;
+    }
+
+    TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS [{}]: setId={} situations={} (stored as no-op; TODO implement situation persistence)",
+        GetPlayerInfo(), transmogOutfitUpdateSituations.SetID, transmogOutfitUpdateSituations.Situations.size());
+
+    for (WorldPackets::Transmogrification::TransmogOutfitSituationEntry const& situation : transmogOutfitUpdateSituations.Situations)
+    {
+        TC_LOG_DEBUG("network.opcode.transmog", "  situation={} spec={} loadout={} equipmentSet={}",
+            situation.SituationID, situation.SpecID, situation.LoadoutID, situation.EquipmentSetID);
+    }
+
+    WorldPackets::Transmogrification::TransmogOutfitSituationsUpdated response;
+    response.SetID = transmogOutfitUpdateSituations.SetID;
+    response.Guid = existingSet->Guid;
+    SendPacket(response.Write());
 }
 
 void WorldSession::SendOpenTransmogrifier(ObjectGuid const& guid)
