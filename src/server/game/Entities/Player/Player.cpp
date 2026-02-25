@@ -17966,19 +17966,29 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
     for (uint32 existingOutfitId : existingOutfitIds)
         RemoveMapUpdateFieldValue(activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogOutfits), existingOutfitId);
 
+<<<<<<< ours
+=======
+    uint32 transmogSetCount = 0;
+
+>>>>>>> theirs
     auto fillOutfitData = [this](auto&& outfitSetter, EquipmentSetInfo::EquipmentSetData const* equipmentSet)
     {
         SetUpdateFieldValue(outfitSetter.ModifyValue(&UF::TransmogOutfitData::Flags), uint32(0));
 
         auto outfitInfoSetter = outfitSetter.ModifyValue(&UF::TransmogOutfitData::OutfitInfo);
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SituationsEnabled), false);
+<<<<<<< ours
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(1));  // TransmogOutfitSetType::Outfit
+=======
+        SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(1));
+>>>>>>> theirs
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Name), equipmentSet ? equipmentSet->SetName : std::string());
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Icon), equipmentSet ? uint32(std::atoi(equipmentSet->SetIcon.c_str())) : uint32(0));
 
         if (!equipmentSet)
             return;
 
+<<<<<<< ours
         // TransmogOutfitSlot -> EquipmentSlot mapping table.
         // Client expects TransmogOutfitSlot values (0-14) in the Slot field,
         // NOT raw EQUIPMENT_SLOT indices (0-18).
@@ -18018,6 +18028,22 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
             if (mapping.equipSlot == EQUIPMENT_SLOT_MAINHAND)
                 enchant = equipmentSet->Enchants[0] > 0 ? uint32(equipmentSet->Enchants[0]) : 0;
             else if (mapping.equipSlot == EQUIPMENT_SLOT_OFFHAND)
+=======
+        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        {
+            // Populate all slots so client outfit data providers never see nil slot/source tables.
+            auto slotSetter = AddDynamicUpdateFieldValue(outfitSetter.ModifyValue(&UF::TransmogOutfitData::Slots));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot).SetValue(int8(slot));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SlotOption).SetValue(uint8(0));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::ItemModifiedAppearanceID).SetValue(equipmentSet->Appearances[slot] > 0 ? uint32(equipmentSet->Appearances[slot]) : 0);
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::AppearanceDisplayType).SetValue(uint8(0));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Flags).SetValue(uint32(0));
+
+            uint32 enchant = 0;
+            if (slot == EQUIPMENT_SLOT_MAINHAND)
+                enchant = equipmentSet->Enchants[0] > 0 ? uint32(equipmentSet->Enchants[0]) : 0;
+            else if (slot == EQUIPMENT_SLOT_OFFHAND)
+>>>>>>> theirs
                 enchant = equipmentSet->Enchants[1] > 0 ? uint32(equipmentSet->Enchants[1]) : 0;
 
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SpellItemEnchantmentID).SetValue(enchant);
@@ -18033,10 +18059,21 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
         if (equipmentSet.Data.Type != EquipmentSetInfo::TRANSMOG)
             continue;
 
+<<<<<<< ours
+=======
+        ++transmogSetCount;
+
+>>>>>>> theirs
         auto transmogOutfitSetter = activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogOutfits, equipmentSet.Data.SetID);
         SetUpdateFieldValue(transmogOutfitSetter.ModifyValue(&UF::TransmogOutfitData::Id), equipmentSet.Data.SetID);
         fillOutfitData(transmogOutfitSetter, &equipmentSet.Data);
 
+<<<<<<< ours
+=======
+        TC_LOG_DEBUG("entities.player", "_SyncTransmogOutfitsToActivePlayerData [{}]: setId={} guid={} name='{}' icon='{}'",
+            GetGUID().ToString(), equipmentSet.Data.SetID, equipmentSet.Data.Guid, equipmentSet.Data.SetName, equipmentSet.Data.SetIcon);
+
+>>>>>>> theirs
         if (!firstOutfitId)
         {
             firstOutfitId = equipmentSet.Data.SetID;
@@ -18044,6 +18081,12 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
         }
     }
 
+<<<<<<< ours
+=======
+    TC_LOG_DEBUG("entities.player", "_SyncTransmogOutfitsToActivePlayerData [{}]: transmogSetCount={} mapSize={} firstOutfitId={}",
+        GetGUID().ToString(), transmogSetCount, m_activePlayerData->TransmogOutfits.size(), firstOutfitId);
+
+>>>>>>> theirs
     auto transmogMetadataSetter = activePlayerData.ModifyValue(&UF::ActivePlayerData::TransmogMetadata);
     SetUpdateFieldValue(transmogMetadataSetter.ModifyValue(&UF::TransmogOutfitMetadata::Locked), false);
     SetUpdateFieldValue(transmogMetadataSetter.ModifyValue(&UF::TransmogOutfitMetadata::TransmogOutfitID), firstOutfitId);
@@ -28592,6 +28635,23 @@ EquipmentSetInfo::EquipmentSetData const* Player::GetEquipmentSetData(uint64 id)
     return &itr->second.Data;
 }
 
+<<<<<<< ours
+=======
+EquipmentSetInfo::EquipmentSetData const* Player::GetTransmogOutfitBySetID(uint32 setID) const
+{
+    for (EquipmentSetContainer::value_type const& outfit : _equipmentSets)
+    {
+        if (outfit.second.State == EQUIPMENT_SET_DELETED)
+            continue;
+
+        if (outfit.second.Data.Type == EquipmentSetInfo::TRANSMOG && outfit.second.Data.SetID == setID)
+            return &outfit.second.Data;
+    }
+
+    return nullptr;
+}
+
+>>>>>>> theirs
 void Player::DeleteEquipmentSet(uint64 id)
 {
     for (EquipmentSetContainer::iterator itr = _equipmentSets.begin(); itr != _equipmentSets.end();)
