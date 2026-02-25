@@ -9569,7 +9569,7 @@ uint32 Player::GetFreeInventorySlotCount(EnumFlag<ItemSearchLocation> location /
     if (location.HasFlag(ItemSearchLocation::Inventory))
     {
         uint8 inventoryEnd = INVENTORY_SLOT_ITEM_START + GetInventorySlotCount();
-        for (uint8 i = INVENTORY_SLOT_ITEM_START; i < inventoryEnd; ++i)
+        for (uint8 i = INVENTORY_SLOT_BAG_START; i < inventoryEnd; ++i)
             if (!GetItemByPos(INVENTORY_SLOT_BAG_0, i))
                 ++freeSlotCount;
 
@@ -11373,7 +11373,7 @@ InventoryResult Player::CanBankItem(uint8 bag, uint8 slot, ItemPosCountVec& dest
     // in specific slot
     if (bag != NULL_BAG && slot != NULL_SLOT)
     {
-        if (bag == INVENTORY_SLOT_BAG_0 && slot >= BANK_SLOT_BAG_START && slot < BANK_SLOT_BAG_END)
+        if (slot >= BANK_SLOT_BAG_START && slot < BANK_SLOT_BAG_END)
         {
             if (!pItem->IsBag())
                 return EQUIP_ERR_WRONG_SLOT;
@@ -28570,6 +28570,20 @@ EquipmentSetInfo::EquipmentSetData const* Player::GetEquipmentSetData(uint64 id)
         return nullptr;
 
     return &itr->second.Data;
+}
+
+EquipmentSetInfo::EquipmentSetData const* Player::GetTransmogOutfitBySetID(uint32 setID) const
+{
+    for (EquipmentSetContainer::value_type const& outfit : _equipmentSets)
+    {
+        if (outfit.second.State == EQUIPMENT_SET_DELETED)
+            continue;
+
+        if (outfit.second.Data.Type == EquipmentSetInfo::TRANSMOG && outfit.second.Data.SetID == setID)
+            return &outfit.second.Data;
+    }
+
+    return nullptr;
 }
 
 void Player::DeleteEquipmentSet(uint64 id)
