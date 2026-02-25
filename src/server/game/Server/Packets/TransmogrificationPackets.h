@@ -52,13 +52,20 @@ namespace WorldPackets
             bool CurrentSpecOnly = false;
         };
 
-
         struct TransmogOutfitSituationEntry
         {
             uint32 SituationID = 0;
             uint32 SpecID = 0;
             uint32 LoadoutID = 0;
             uint32 EquipmentSetID = 0;
+        };
+
+        struct TransmogOutfitSlotEntry
+        {
+            uint32 AppearanceID = 0;
+            uint32 Unknown1 = 0;
+            uint32 SlotFlags = 0;
+            uint32 Unknown2 = 0;
         };
 
         class TransmogOutfitNew final : public ClientPacket
@@ -99,6 +106,7 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
+            std::vector<TransmogOutfitSlotEntry> Slots;
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;
@@ -121,6 +129,50 @@ namespace WorldPackets
             std::string DiagnosticReadTrace;
             size_t PayloadSize = 0;
             std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitInfoUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitInfoUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_INFO_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitNewEntryAdded final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitNewEntryAdded() : ServerPacket(SMSG_TRANSMOG_OUTFIT_NEW_ENTRY_ADDED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitSituationsUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitSituationsUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_SITUATIONS_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitSlotsUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitSlotsUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_SLOTS_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
         };
 
         class AccountTransmogUpdate final : public ServerPacket
