@@ -52,10 +52,6 @@ namespace WorldPackets
             bool CurrentSpecOnly = false;
         };
 
-<<<<<<< ours
-
-=======
->>>>>>> theirs
         struct TransmogOutfitSituationEntry
         {
             uint32 SituationID = 0;
@@ -64,8 +60,6 @@ namespace WorldPackets
             uint32 EquipmentSetID = 0;
         };
 
-<<<<<<< ours
-=======
         struct TransmogOutfitSlotEntry
         {
             uint32 AppearanceID = 0;
@@ -76,7 +70,6 @@ namespace WorldPackets
             uint8 GetSlotIndex() const { return uint8(RawSlotField >> 24); }
         };
 
->>>>>>> theirs
         class TransmogOutfitNew final : public ClientPacket
         {
         public:
@@ -85,10 +78,6 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-<<<<<<< ours
-            bool ParseSuccess = true;
-            std::string ParseError;
-=======
             ObjectGuid PlayerGuid;
             uint8 MiddleType = 0;
             uint8 MiddleFlags = 0;
@@ -96,7 +85,6 @@ namespace WorldPackets
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;
->>>>>>> theirs
             size_t PayloadSize = 0;
             std::string PayloadPreviewHex;
         };
@@ -109,10 +97,6 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-<<<<<<< ours
-            bool ParseSuccess = true;
-            std::string ParseError;
-=======
             ObjectGuid PlayerGuid;
             uint8 MiddleType = 0;
             uint8 MiddleFlags = 0;
@@ -120,7 +104,6 @@ namespace WorldPackets
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;
->>>>>>> theirs
             size_t PayloadSize = 0;
             std::string PayloadPreviewHex;
         };
@@ -133,16 +116,11 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-<<<<<<< ours
-            bool ParseSuccess = true;
-            std::string ParseError;
-=======
             ObjectGuid PlayerGuid;
             std::vector<TransmogOutfitSlotEntry> Slots;
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;
->>>>>>> theirs
             size_t PayloadSize = 0;
             std::string PayloadPreviewHex;
         };
@@ -154,25 +132,16 @@ namespace WorldPackets
 
             void Read() override;
 
-<<<<<<< ours
-            uint64 Guid = 0;
-=======
             ObjectGuid PlayerGuid;
->>>>>>> theirs
             uint32 SetID = 0;
             std::vector<TransmogOutfitSituationEntry> Situations;
             bool ParseSuccess = true;
             std::string ParseError;
-<<<<<<< ours
-=======
             std::string DiagnosticReadTrace;
->>>>>>> theirs
             size_t PayloadSize = 0;
             std::string PayloadPreviewHex;
         };
 
-<<<<<<< ours
-=======
         class TransmogOutfitInfoUpdated final : public ServerPacket
         {
         public:
@@ -217,7 +186,6 @@ namespace WorldPackets
             uint32 SetID = 0;
         };
 
->>>>>>> theirs
         class AccountTransmogUpdate final : public ServerPacket
         {
         public:
