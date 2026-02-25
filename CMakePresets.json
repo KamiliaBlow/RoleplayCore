@@ -1,0 +1,45 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "x64-Debug",
+            "displayName": "x64 Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/x64-Debug",
+            "installDir": "${sourceDir}/out/install/x64-Debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "SCRIPTS": "static",
+                "ELUNA": "ON",
+                "TOOLS": "ON",
+                "SERVERS": "ON"
+            }
+        },
+        {
+            "name": "x64-RelWithDebInfo",
+            "displayName": "x64 RelWithDebInfo",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/x64-RelWithDebInfo",
+            "installDir": "${sourceDir}/out/install/x64-RelWithDebInfo",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "SCRIPTS": "static",
+                "ELUNA": "ON",
+                "TOOLS": "ON",
+                "SERVERS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "x64-Debug",
+            "configurePreset": "x64-Debug"
+        },
+        {
+            "name": "x64-RelWithDebInfo",
+            "configurePreset": "x64-RelWithDebInfo"
+        }
+    ]
+}
