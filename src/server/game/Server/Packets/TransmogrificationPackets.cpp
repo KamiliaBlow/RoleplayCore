@@ -120,6 +120,32 @@ void TransmogOutfitUpdateInfo::Read()
     }
 }
 
+// TransmogOutfitSlot (client enum 0-14) -> EQUIPMENT_SLOT (server 0-18) mapping.
+// From TransmogOutfitConstantsDocumentation.lua
+static uint8 TransmogOutfitSlotToEquipSlot(uint8 transmogSlot)
+{
+    static constexpr uint8 map[] = {
+         0, // Head(0)            -> EQUIPMENT_SLOT_HEAD(0)
+         2, // ShoulderRight(1)   -> EQUIPMENT_SLOT_SHOULDERS(2)
+         2, // ShoulderLeft(2)    -> EQUIPMENT_SLOT_SHOULDERS(2)
+        14, // Back(3)            -> EQUIPMENT_SLOT_BACK(14)
+         4, // Chest(4)           -> EQUIPMENT_SLOT_CHEST(4)
+        18, // Tabard(5)          -> EQUIPMENT_SLOT_TABARD(18)
+         3, // Body(6)            -> EQUIPMENT_SLOT_BODY(3)
+         8, // Wrist(7)           -> EQUIPMENT_SLOT_WRISTS(8)
+         9, // Hand(8)            -> EQUIPMENT_SLOT_HANDS(9)
+         5, // Waist(9)           -> EQUIPMENT_SLOT_WAIST(5)
+         6, // Legs(10)           -> EQUIPMENT_SLOT_LEGS(6)
+         7, // Feet(11)           -> EQUIPMENT_SLOT_FEET(7)
+        15, // WeaponMainHand(12) -> EQUIPMENT_SLOT_MAINHAND(15)
+        16, // WeaponOffHand(13)  -> EQUIPMENT_SLOT_OFFHAND(16)
+        17, // WeaponRanged(14)   -> EQUIPMENT_SLOT_RANGED(17)
+    };
+    if (transmogSlot < std::size(map))
+        return map[transmogSlot];
+    return transmogSlot;
+}
+
 void TransmogOutfitUpdateSlots::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);

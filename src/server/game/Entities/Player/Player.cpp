@@ -17972,32 +17972,52 @@ void Player::_SyncTransmogOutfitsToActivePlayerData()
 
         auto outfitInfoSetter = outfitSetter.ModifyValue(&UF::TransmogOutfitData::OutfitInfo);
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SituationsEnabled), false);
-        SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(0));
+        SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::SetType), uint8(1));  // TransmogOutfitSetType::Outfit
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Name), equipmentSet ? equipmentSet->SetName : std::string());
         SetUpdateFieldValue(outfitInfoSetter.ModifyValue(&UF::TransmogOutfitDataInfo::Icon), equipmentSet ? uint32(std::atoi(equipmentSet->SetIcon.c_str())) : uint32(0));
 
         if (!equipmentSet)
             return;
 
-        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
-        {
-            if (equipmentSet->IgnoreMask & (1 << slot))
-                continue;
+        // TransmogOutfitSlot -> EquipmentSlot mapping table.
+        // Client expects TransmogOutfitSlot values (0-14) in the Slot field,
+        // NOT raw EQUIPMENT_SLOT indices (0-18).
+        // From TransmogOutfitConstantsDocumentation.lua
+        struct TransmogSlotMapping { int8 transmogSlot; uint8 equipSlot; };
+        static constexpr TransmogSlotMapping slotMap[] = {
+            {  0,  0 }, // Head            -> EQUIPMENT_SLOT_HEAD
+            {  1,  2 }, // ShoulderRight   -> EQUIPMENT_SLOT_SHOULDERS
+            {  2,  2 }, // ShoulderLeft    -> EQUIPMENT_SLOT_SHOULDERS (same source)
+            {  3, 14 }, // Back            -> EQUIPMENT_SLOT_BACK
+            {  4,  4 }, // Chest           -> EQUIPMENT_SLOT_CHEST
+            {  5, 18 }, // Tabard          -> EQUIPMENT_SLOT_TABARD
+            {  6,  3 }, // Body (Shirt)    -> EQUIPMENT_SLOT_BODY
+            {  7,  8 }, // Wrist           -> EQUIPMENT_SLOT_WRISTS
+            {  8,  9 }, // Hand            -> EQUIPMENT_SLOT_HANDS
+            {  9,  5 }, // Waist           -> EQUIPMENT_SLOT_WAIST
+            { 10,  6 }, // Legs            -> EQUIPMENT_SLOT_LEGS
+            { 11,  7 }, // Feet            -> EQUIPMENT_SLOT_FEET
+            { 12, 15 }, // WeaponMainHand  -> EQUIPMENT_SLOT_MAINHAND
+            { 13, 16 }, // WeaponOffHand   -> EQUIPMENT_SLOT_OFFHAND
+            { 14, 17 }, // WeaponRanged    -> EQUIPMENT_SLOT_RANGED
+        };
 
-            if (!equipmentSet->Appearances[slot] && slot != EQUIPMENT_SLOT_MAINHAND && slot != EQUIPMENT_SLOT_OFFHAND)
-                continue;
+        for (auto const& mapping : slotMap)
+        {
+            uint32 imaID = (mapping.equipSlot < EQUIPMENT_SLOT_END && equipmentSet->Appearances[mapping.equipSlot] > 0)
+                ? uint32(equipmentSet->Appearances[mapping.equipSlot]) : 0;
 
             auto slotSetter = AddDynamicUpdateFieldValue(outfitSetter.ModifyValue(&UF::TransmogOutfitData::Slots));
-            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot).SetValue(int8(slot));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Slot).SetValue(mapping.transmogSlot);
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SlotOption).SetValue(uint8(0));
-            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::ItemModifiedAppearanceID).SetValue(equipmentSet->Appearances[slot] > 0 ? uint32(equipmentSet->Appearances[slot]) : 0);
-            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::AppearanceDisplayType).SetValue(uint8(0));
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::ItemModifiedAppearanceID).SetValue(imaID);
+            slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::AppearanceDisplayType).SetValue(imaID > 0 ? uint8(1) : uint8(0));  // 0=Unassigned, 1=Assigned
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::Flags).SetValue(uint32(0));
 
             uint32 enchant = 0;
-            if (slot == EQUIPMENT_SLOT_MAINHAND)
+            if (mapping.equipSlot == EQUIPMENT_SLOT_MAINHAND)
                 enchant = equipmentSet->Enchants[0] > 0 ? uint32(equipmentSet->Enchants[0]) : 0;
-            else if (slot == EQUIPMENT_SLOT_OFFHAND)
+            else if (mapping.equipSlot == EQUIPMENT_SLOT_OFFHAND)
                 enchant = equipmentSet->Enchants[1] > 0 ? uint32(equipmentSet->Enchants[1]) : 0;
 
             slotSetter.ModifyValue(&UF::TransmogOutfitSlotData::SpellItemEnchantmentID).SetValue(enchant);
