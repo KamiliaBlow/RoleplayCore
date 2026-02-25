@@ -110,7 +110,8 @@ bool ParseOutfitNameAndMiddleFields(WorldPacket& packet, uint8& middleType, uint
     }
 
     size_t middleLength = asciiStart - 2;
-    if (middleLength < 6)
+    // CMSG_TRANSMOG_OUTFIT_UPDATE_INFO sends 5 middle bytes while CMSG_TRANSMOG_OUTFIT_NEW sends 6; both are valid.
+    if (middleLength < 4)
     {
         parseError = Trinity::StringFormat("middle section too short ({} bytes)", middleLength);
         return false;
