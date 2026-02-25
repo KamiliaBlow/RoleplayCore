@@ -20,6 +20,7 @@
 #include "PacketOperators.h"
 #include "Util.h"
 #include <algorithm>
+#include <cctype>
 #include <span>
 #include <sstream>
 
@@ -66,6 +67,65 @@ std::string BuildDiagnosticReadTrace(char const* opcodeName, WorldPacket const& 
     return trace.str();
 }
 
+
+
+bool ParseOutfitNameAndMiddleFields(WorldPacket& packet, uint8& middleType, uint8& middleFlags, uint32& iconFileDataID, std::string& setName, std::string& parseError)
+{
+    std::span<uint8 const> remaining(packet.data() + packet.rpos(), packet.size() - packet.rpos());
+
+    if (remaining.size() < 8)
+    {
+        parseError = "payload too short for middle fields + name trailer";
+        return false;
+    }
+
+    size_t asciiStart = remaining.size();
+    while (asciiStart > 0)
+    {
+        uint8 byte = remaining[asciiStart - 1];
+        if (byte < 0x20 || byte > 0x7E)
+            break;
+
+        --asciiStart;
+    }
+
+    size_t nameLength = remaining.size() - asciiStart;
+    if (nameLength == 0)
+    {
+        parseError = "no trailing printable outfit name found";
+        return false;
+    }
+
+    if (asciiStart < 2)
+    {
+        parseError = "missing name length/alignment bytes before trailing name";
+        return false;
+    }
+
+    uint8 nameLengthByte = remaining[asciiStart - 2];
+    if (nameLengthByte != nameLength)
+    {
+        parseError = Trinity::StringFormat("name length mismatch (lenByte={} trailingAsciiLen={})", nameLengthByte, nameLength);
+        return false;
+    }
+
+    size_t middleLength = asciiStart - 2;
+    if (middleLength < 6)
+    {
+        parseError = Trinity::StringFormat("middle section too short ({} bytes)", middleLength);
+        return false;
+    }
+
+    middleType = remaining[0];
+    middleFlags = remaining[1];
+    iconFileDataID = ReadLE<uint32>(remaining, 2);
+
+    setName.assign(reinterpret_cast<char const*>(remaining.data() + asciiStart), nameLength);
+
+    packet.rfinish();
+    return true;
+}
+
 void AssignSlotAppearance(EquipmentSetInfo::EquipmentSetData& set, uint32 slotIndex, int32 appearanceID)
 {
     // Captures show this field is a direct equipment slot index (e.g. 15, 16), not a bitmask.
@@ -98,56 +158,73 @@ void TransmogOutfitNew::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
 
-    ParseSuccess = false;
     Set.Type = EquipmentSetInfo::TRANSMOG;
+    ParseSuccess = false;
 
     try
     {
         _worldPacket >> PlayerGuid;
 
         std::size_t rposAfterGuid = _worldPacket.rpos();
+        if (!ParseOutfitNameAndMiddleFields(_worldPacket, MiddleType, MiddleFlags, IconFileDataID, Set.SetName, ParseError))
+        {
+            DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_NEW", _worldPacket);
+            return;
+        }
 
-        std::span<uint8 const> payload(_worldPacket.data(), _worldPacket.size());
-        uint8 b8 = payload.size() > 8 ? payload[8] : 0;
-        uint8 b9 = payload.size() > 9 ? payload[9] : 0;
-        uint8 b10 = payload.size() > 10 ? payload[10] : 0;
-        uint8 b11 = payload.size() > 11 ? payload[11] : 0;
-        uint8 b12 = payload.size() > 12 ? payload[12] : 0;
-        uint8 b13 = payload.size() > 13 ? payload[13] : 0;
+        Set.SetIcon = std::to_string(IconFileDataID);
+        ParseSuccess = true;
+        ParseError.clear();
 
-        uint16 u16_8 = payload.size() >= 10 ? ReadLE<uint16>(payload, 8) : 0;
-        uint32 u32_10 = payload.size() >= 14 ? ReadLE<uint32>(payload, 10) : 0;
-        uint32 u32_8 = payload.size() >= 12 ? ReadLE<uint32>(payload, 8) : 0;
-        uint16 u16_12 = payload.size() >= 14 ? ReadLE<uint16>(payload, 12) : 0;
+        DiagnosticReadTrace = Trinity::StringFormat("playerGuid={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
+            PlayerGuid.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
 
-        uint32 nameLength = _worldPacket.ReadBits(8);
-        _worldPacket.FlushBits();
-        Set.SetName = _worldPacket.ReadString(nameLength, false);
-
-        TC_LOG_ERROR("network", "CMSG_TRANSMOG_OUTFIT_NEW diag: playerGuid={} rposAfterGuid={} raw[8..13]=[{}, {}, {}, {}, {}, {}] as(u16+u32)=[{}, {}] as(u32+u16)=[{}, {}] nameLen={} name='{}' payloadSize={} payloadHex={}",
-            PlayerGuid.ToString(), rposAfterGuid, b8, b9, b10, b11, b12, b13, u16_8, u32_10, u32_8, u16_12, nameLength, Set.SetName, PayloadSize, PayloadPreviewHex);
-
-        ParseError = "structured diagnostic parser active: NEW middle fields unresolved";
-        std::ostringstream trace;
-        trace << "playerGuid=" << PlayerGuid.ToString() << " name='" << Set.SetName << "'";
-        DiagnosticReadTrace = trace.str();
+        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_NEW diag: {}", DiagnosticReadTrace);
     }
     catch (std::exception const& ex)
     {
+        ParseSuccess = false;
         ParseError = ex.what();
         DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_NEW", _worldPacket);
+        _worldPacket.rfinish();
     }
-
-    _worldPacket.rfinish();
 }
 
 void TransmogOutfitUpdateInfo::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
-    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_INFO", _worldPacket);
+
     ParseSuccess = false;
-    ParseError = "diagnostic parser active: transmog outfit UPDATE_INFO layout still unknown";
-    _worldPacket.rfinish();
+    Set.Type = EquipmentSetInfo::TRANSMOG;
+
+    try
+    {
+        _worldPacket >> Set.SetID;
+        _worldPacket >> PlayerGuid;
+
+        std::size_t rposAfterGuid = _worldPacket.rpos();
+        if (!ParseOutfitNameAndMiddleFields(_worldPacket, MiddleType, MiddleFlags, IconFileDataID, Set.SetName, ParseError))
+        {
+            DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_INFO", _worldPacket);
+            return;
+        }
+
+        Set.SetIcon = std::to_string(IconFileDataID);
+        ParseSuccess = true;
+        ParseError.clear();
+
+        DiagnosticReadTrace = Trinity::StringFormat("setId={} playerGuid={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
+            Set.SetID, PlayerGuid.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
+
+        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO diag: {}", DiagnosticReadTrace);
+    }
+    catch (std::exception const& ex)
+    {
+        ParseSuccess = false;
+        ParseError = ex.what();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_INFO", _worldPacket);
+        _worldPacket.rfinish();
+    }
 }
 
 void TransmogOutfitUpdateSlots::Read()
@@ -178,14 +255,15 @@ void TransmogOutfitUpdateSlots::Read()
         for (TransmogOutfitSlotEntry& slot : Slots)
         {
             _worldPacket >> slot.AppearanceID;
-            _worldPacket >> slot.Unknown1;
-            _worldPacket >> slot.SlotFlags;
-            _worldPacket >> slot.Unknown2;
+            _worldPacket >> slot.RawSlotField;
+            _worldPacket >> slot.Reserved1;
+            _worldPacket >> slot.Reserved2;
 
-            AssignSlotAppearance(Set, slot.SlotFlags, int32(slot.AppearanceID));
+            uint8 slotIndex = slot.GetSlotIndex();
+            AssignSlotAppearance(Set, slotIndex, int32(slot.AppearanceID));
 
-            TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS slot entry: appearance={} unknown1={} slotIndex={} unknown2={}",
-                slot.AppearanceID, slot.Unknown1, slot.SlotFlags, slot.Unknown2);
+            TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS slot entry: appearance={} rawSlotField=0x{:X} slotIndex={} reserved1={} reserved2={}",
+                slot.AppearanceID, slot.RawSlotField, slotIndex, slot.Reserved1, slot.Reserved2);
         }
 
         for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)

@@ -63,9 +63,11 @@ namespace WorldPackets
         struct TransmogOutfitSlotEntry
         {
             uint32 AppearanceID = 0;
-            uint32 Unknown1 = 0;
-            uint32 SlotFlags = 0;
-            uint32 Unknown2 = 0;
+            uint32 RawSlotField = 0;
+            uint32 Reserved1 = 0;
+            uint32 Reserved2 = 0;
+
+            uint8 GetSlotIndex() const { return uint8(RawSlotField >> 24); }
         };
 
         class TransmogOutfitNew final : public ClientPacket
@@ -77,6 +79,9 @@ namespace WorldPackets
 
             EquipmentSetInfo::EquipmentSetData Set;
             ObjectGuid PlayerGuid;
+            uint8 MiddleType = 0;
+            uint8 MiddleFlags = 0;
+            uint32 IconFileDataID = 0;
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;
@@ -92,6 +97,10 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
+            ObjectGuid PlayerGuid;
+            uint8 MiddleType = 0;
+            uint8 MiddleFlags = 0;
+            uint32 IconFileDataID = 0;
             bool ParseSuccess = true;
             std::string ParseError;
             std::string DiagnosticReadTrace;

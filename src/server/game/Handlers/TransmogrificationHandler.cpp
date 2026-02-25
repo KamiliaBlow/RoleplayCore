@@ -45,6 +45,15 @@ bool ValidateTransmogOutfitPlayerGuid(WorldSession* session, ObjectGuid const& p
     return false;
 }
 
+uint32 FindNextAvailableTransmogSetID(Player const* player)
+{
+    for (uint32 setId = 0; setId < MAX_EQUIPMENT_SET_INDEX; ++setId)
+        if (!player->GetTransmogOutfitBySetID(setId))
+            return setId;
+
+    return MAX_EQUIPMENT_SET_INDEX;
+}
+
 bool ValidateTransmogOutfitSet(WorldSession* session, EquipmentSetInfo::EquipmentSetData& set)
 {
     if (set.SetID >= MAX_EQUIPMENT_SET_INDEX)
@@ -455,6 +464,13 @@ void WorldSession::HandleTransmogOutfitNew(WorldPackets::Transmogrification::Tra
         return;
 
     EquipmentSetInfo::EquipmentSetData set = transmogOutfitNew.Set;
+    set.SetID = FindNextAvailableTransmogSetID(GetPlayer());
+    if (set.SetID >= MAX_EQUIPMENT_SET_INDEX)
+    {
+        TC_LOG_ERROR("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_NEW rejected [{}]: no free transmog outfit slots", GetPlayerInfo());
+        return;
+    }
+
     if (!ValidateTransmogOutfitSet(this, set))
         return;
 
@@ -479,6 +495,9 @@ void WorldSession::HandleTransmogOutfitUpdateInfo(WorldPackets::Transmogrificati
         TC_LOG_DEBUG("network.opcode.transmog", "{}", transmogOutfitUpdateInfo.DiagnosticReadTrace);
         return;
     }
+
+    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateInfo.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO"))
+        return;
 
     EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateInfo.Set.SetID);
     if (!existingSet || existingSet->Type != EquipmentSetInfo::TRANSMOG)
