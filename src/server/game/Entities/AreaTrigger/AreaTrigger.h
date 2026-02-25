@@ -121,8 +121,11 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
 
     public:
         static AreaTrigger* CreateAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Position const& pos, int32 duration, Unit* caster, Unit* target, SpellCastVisual spellVisual = { 0, 0 }, SpellInfo const* spellInfo = nullptr, Spell* spell = nullptr, AuraEffect const* aurEff = nullptr);
+        static AreaTrigger* CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration = -1);
         static ObjectGuid CreateNewMovementForceId(Map* map, uint32 areaTriggerId);
         bool LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, bool allowDuplicate);
+
+        void InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
 
         void Update(uint32 diff) override;
         void Remove();
@@ -205,6 +208,9 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
         void HandleUnitExit(Unit* unit);
 
         UF::UpdateField<UF::AreaTriggerData, int32(WowCS::EntityFragment::CGObject), TYPEID_AREATRIGGER> m_areaTriggerData;
+
+        // Housing entity fragment (optional - only set on housing plot AreaTriggers)
+        UF::OptionalUpdateField<UF::HousingPlotAreaTriggerData, int32(WowCS::EntityFragment::FHousingPlotAreaTrigger_C), 0> m_housingPlotAreaTriggerData;
 
     protected:
         void _UpdateDuration(int32 newDuration);

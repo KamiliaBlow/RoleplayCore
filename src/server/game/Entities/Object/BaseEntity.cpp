@@ -21,6 +21,7 @@
 #include "Errors.h"
 #include "GameTime.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "MovementPackets.h"
 #include "Player.h"
 #include "SmoothPhasing.h"
@@ -442,14 +443,16 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
     //if (flags.Decor)
     //    data << ObjectGuid(RoomGUID);
 
-    //if (flags.MeshObject)
-    //{
-    //    data << ObjectGuid(AttachParentGUID);
-    //    data << TaggedPosition<Position::XYZ>(PositionLocalSpace);
-    //    data << QuaternionData(RotationLocalSpace);
-    //    data << float(ScaleLocalSpace);
-    //    data << uint8(AttachmentFlags);
-    //}
+    if (flags.MeshObject)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetAttachParentGUID();
+        data << TaggedPosition<Position::XYZ>(meshObj->GetPositionX(), meshObj->GetPositionY(), meshObj->GetPositionZ());
+        QuaternionData const& rot = meshObj->GetLocalRotation();
+        data << rot.x << rot.y << rot.z << rot.w;
+        data << meshObj->GetLocalScale();
+        data << meshObj->GetAttachmentFlags();
+    }
 
     if (!PauseTimes.empty())
         data.append(PauseTimes.data(), PauseTimes.size());

@@ -456,6 +456,23 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         UF::UpdateField<UF::GameObjectData, int32(WowCS::EntityFragment::CGObject), TYPEID_GAMEOBJECT> m_gameObjectData;
 
+        // Housing entity fragment (optional - only set on cornerstone GameObjects)
+        UF::OptionalUpdateField<UF::HousingCornerstoneData, int32(WowCS::EntityFragment::FJamHousingCornerstone_C), 0> m_housingCornerstoneData;
+        void InitHousingCornerstoneData(uint64 cost, int32 plotIndex);
+
+        // Housing decor entity fragment (optional - only set on decor item GameObjects)
+        void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid,
+            uint8 flags, ObjectGuid attachParent = ObjectGuid::Empty);
+
+        // Housing fixture entity fragment (optional - only set on house structure GameObjects)
+        // Sniff-verified: retail sends MeshObjects (type 14) for fixtures, but we attach the
+        // entity fragment to a GO as a workaround until MeshObject spawning is implemented.
+        // ExteriorComponentID: primary rendering key from ExteriorComponent.db2 (e.g. 141 = Stucco Base)
+        // HouseExteriorWmoDataID: housing theme (e.g. 9 = Human/Generic)
+        // ExteriorComponentType: 9=Base, 10=Roof, 11=Door, 12=Window, 13=RoofDetail, 14=RoofWindow, 15=Tower, 16=Chimney
+        void InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComponentID, int32 houseExteriorWmoDataID,
+            uint8 exteriorComponentType = 9, uint8 houseSize = 2, int32 exteriorComponentHookID = -1);
+
         TeamId GetControllingTeam() const;
 
     protected:

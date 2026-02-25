@@ -80,6 +80,7 @@ class CinematicMgr;
 class Creature;
 class DynamicObject;
 class Garrison;
+class Housing;
 class Group;
 class Guild;
 class Item;
@@ -974,6 +975,11 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_DATA_ELEMENTS,
     PLAYER_LOGIN_QUERY_LOAD_DATA_FLAGS,
     PLAYER_LOGIN_QUERY_LOAD_BANK_TAB_SETTINGS,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_DECOR,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -2881,6 +2887,15 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void DeleteGarrison();
         Garrison* GetGarrison() const { return _garrison.get(); }
 
+        void CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex);
+        void DeleteHousing(ObjectGuid neighborhoodGuid);
+        Housing* GetHousing() const;
+        Housing* GetHousingForNeighborhood(ObjectGuid neighborhoodGuid) const;
+        std::vector<Housing const*> GetAllHousings() const;
+        void SetHousingEditorModeUpdateField(uint8 mode);
+        void UpdateHousingMapId(ObjectGuid houseGuid, int32 mapId);
+        void UpdateInitiativeFavor(uint32 favor);
+
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
         void SetAdvancedCombatLogging(bool enabled) { _advancedCombatLoggingEnabled = enabled; }
 
@@ -3043,6 +3058,9 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         UF::UpdateField<UF::PlayerData, int32(WowCS::EntityFragment::CGObject), TYPEID_PLAYER> m_playerData;
         UF::UpdateField<UF::ActivePlayerData, int32(WowCS::EntityFragment::CGObject), TYPEID_ACTIVE_PLAYER> m_activePlayerData;
+
+        // Housing entity fragment (optional - only set when player has housing data)
+        UF::OptionalUpdateField<UF::PlayerHouseInfoComponentData, int32(WowCS::EntityFragment::PlayerHouseInfoComponent_C), 0> m_playerHouseInfoComponentData;
 
         void SetAreaSpiritHealer(Creature* creature);
         ObjectGuid const& GetSpiritHealerGUID() const { return _areaSpiritHealerGUID; }
@@ -3392,6 +3410,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         uint32 _lastTargetedGO;
 
         std::unique_ptr<Garrison> _garrison;
+        std::vector<std::unique_ptr<Housing>> _housings;
 
         bool _advancedCombatLoggingEnabled;
 

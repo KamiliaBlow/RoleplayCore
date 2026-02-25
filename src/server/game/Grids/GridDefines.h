@@ -32,6 +32,7 @@ class Player;
 class AreaTrigger;
 class SceneObject;
 class Conversation;
+class MeshObject;
 
 #define MAX_NUMBER_OF_CELLS     8
 
@@ -70,6 +71,7 @@ typedef GridRefManager<Player>          PlayerMapType;
 typedef GridRefManager<AreaTrigger>     AreaTriggerMapType;
 typedef GridRefManager<SceneObject>     SceneObjectMapType;
 typedef GridRefManager<Conversation>    ConversationMapType;
+typedef GridRefManager<MeshObject>      MeshObjectMapType;
 
 enum GridMapTypeMask
 {
@@ -81,14 +83,15 @@ enum GridMapTypeMask
     GRID_MAP_TYPE_MASK_AREATRIGGER      = 0x20,
     GRID_MAP_TYPE_MASK_SCENEOBJECT      = 0x40,
     GRID_MAP_TYPE_MASK_CONVERSATION     = 0x80,
+    GRID_MAP_TYPE_MASK_MESHOBJECT       = 0x100,
     GRID_MAP_TYPE_MASK_ALL              = 0xFF
 };
 
 // Creature used instead pet to simplify *::Visit templates (not required duplicate code for Creature->Pet case)
-extern template struct TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation>;
+extern template struct TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation, MeshObject>;
 extern template struct TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/>;
 
-typedef TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation> GridTypeMapContainer;
+typedef TypeListContainer<GridRefManagerContainer, GameObject, Creature/*except pets*/, DynamicObject, Corpse/*Bones*/, AreaTrigger, SceneObject, Conversation, MeshObject> GridTypeMapContainer;
 typedef TypeListContainer<GridRefManagerContainer, Player, Creature/*pets*/, Corpse/*resurrectable*/, DynamicObject/*farsight target*/> WorldTypeMapContainer;
 
 extern template class Grid<WorldTypeMapContainer, GridTypeMapContainer>;

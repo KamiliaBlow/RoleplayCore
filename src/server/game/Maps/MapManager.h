@@ -33,6 +33,7 @@ class Battleground;
 class BattlegroundMap;
 class GarrisonMap;
 class Group;
+class HousingMap;
 class InstanceLock;
 class InstanceMap;
 class Map;
@@ -144,6 +145,7 @@ class TC_GAME_API MapManager
             Optional<uint32> lfgDungeonsId);
         BattlegroundMap* CreateBattleground(uint32 mapId, uint32 instanceId, Battleground* bg);
         GarrisonMap* CreateGarrison(uint32 mapId, uint32 instanceId, Player* owner);
+        HousingMap* CreateHousing(uint32 mapId, uint32 instanceId, uint32 neighborhoodId);
 
         bool DestroyMap(Map* map);
 

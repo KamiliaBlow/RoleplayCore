@@ -37,6 +37,7 @@
 #include "InstanceScenario.h"
 #include "InstanceScript.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "MMapManager.h"
 #include "MapManager.h"
 #include "MapUtils.h"
@@ -2866,6 +2867,7 @@ template TC_GAME_API bool Map::AddToMap(DynamicObject*);
 template TC_GAME_API bool Map::AddToMap(AreaTrigger*);
 template TC_GAME_API bool Map::AddToMap(SceneObject*);
 template TC_GAME_API bool Map::AddToMap(Conversation*);
+template TC_GAME_API bool Map::AddToMap(MeshObject*);
 
 template TC_GAME_API void Map::RemoveFromMap(Corpse*, bool);
 template TC_GAME_API void Map::RemoveFromMap(Creature*, bool);
@@ -2874,6 +2876,7 @@ template TC_GAME_API void Map::RemoveFromMap(DynamicObject*, bool);
 template TC_GAME_API void Map::RemoveFromMap(AreaTrigger*, bool);
 template TC_GAME_API void Map::RemoveFromMap(SceneObject*, bool);
 template TC_GAME_API void Map::RemoveFromMap(Conversation*, bool);
+template TC_GAME_API void Map::RemoveFromMap(MeshObject*, bool);
 
 /* ******* Dungeon Instance Maps ******* */
 
@@ -3587,6 +3590,11 @@ Conversation* Map::GetConversation(ObjectGuid const& guid)
     return _objectsStore.Find<Conversation>(guid);
 }
 
+MeshObject* Map::GetMeshObject(ObjectGuid const& guid)
+{
+    return _objectsStore.Find<MeshObject>(guid);
+}
+
 Player* Map::GetPlayer(ObjectGuid const& guid)
 {
     return ObjectAccessor::GetPlayer(this, guid);
@@ -4167,4 +4175,4 @@ std::string InstanceMap::GetDebugInfo() const
     return sstr.str();
 }
 
-template struct TC_GAME_API TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
+template struct TC_GAME_API TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject>;

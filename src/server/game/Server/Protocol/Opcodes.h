@@ -1641,6 +1641,7 @@ enum OpcodeServer : uint32
     SMSG_HOTFIX_MESSAGE                                             = 0x460002,
     SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE                               = 0x500000,
     SMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION_RESPONSE                 = 0x500001,
+    SMSG_HOUSE_INTERIOR_ENTER_HOUSE                                 = 0x2F0000,
     SMSG_HOUSING_DECOR_ADD_TO_HOUSE_CHEST_RESPONSE                  = 0x510007,
     SMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_RESPONSE                 = 0x510005,
     SMSG_HOUSING_DECOR_LOCK_RESPONSE                                = 0x510004,

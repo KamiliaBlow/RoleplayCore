@@ -49,6 +49,7 @@ class GameObject;
 class InstanceScript;
 class Item;
 class Map;
+class MeshObject;
 class Object;
 class Player;
 class Scenario;
@@ -167,7 +168,18 @@ class TC_GAME_API Object : public BaseEntity
         static Conversation* ToConversation(Object* o) { return o && o->IsConversation() ? reinterpret_cast<Conversation*>(o) : nullptr; }
         static Conversation const* ToConversation(Object const* o) { return o && o->IsConversation() ? reinterpret_cast<Conversation const*>(o) : nullptr; }
 
+        MeshObject* ToMeshObject() { return IsMeshObject() ? reinterpret_cast<MeshObject*>(this) : nullptr; }
+        MeshObject const* ToMeshObject() const { return IsMeshObject() ? reinterpret_cast<MeshObject const*>(this) : nullptr; }
+        static MeshObject* ToMeshObject(Object* o) { return o && o->IsMeshObject() ? reinterpret_cast<MeshObject*>(o) : nullptr; }
+        static MeshObject const* ToMeshObject(Object const* o) { return o && o->IsMeshObject() ? reinterpret_cast<MeshObject const*>(o) : nullptr; }
+
         UF::UpdateField<UF::ObjectData, int32(WowCS::EntityFragment::CGObject), TYPEID_OBJECT> m_objectData;
+
+        // Housing entity fragments (optional - only set on housing entities)
+        UF::OptionalUpdateField<UF::HousingDecorData, int32(WowCS::EntityFragment::FHousingDecor_C), 0> m_housingDecorData;
+        UF::OptionalUpdateField<UF::HousingRoomData, int32(WowCS::EntityFragment::FHousingRoom_C), 0> m_housingRoomData;
+        UF::OptionalUpdateField<UF::HousingRoomComponentMeshData, int32(WowCS::EntityFragment::FHousingRoomComponentMesh_C), 0> m_housingRoomComponentMeshData;
+        UF::OptionalUpdateField<UF::HousingFixtureData, int32(WowCS::EntityFragment::FHousingFixture_C), 0> m_housingFixtureData;
 
         std::string GetDebugInfo() const override;
 

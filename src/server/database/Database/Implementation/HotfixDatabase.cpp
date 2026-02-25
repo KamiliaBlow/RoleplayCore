@@ -612,6 +612,33 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_CURVE_POINT, "SELECT MAX(ID) + 1 FROM curve_point", CONNECTION_SYNCH);
 
+    // DataTagXHouseDecorRecord.db2
+    PrepareStatement(HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD, "SELECT ID, DataTagID, HouseDecorID FROM data_tag_x_house_decor_record"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DATA_TAG_X_HOUSE_DECOR_RECORD, "SELECT MAX(ID) + 1 FROM data_tag_x_house_decor_record", CONNECTION_SYNCH);
+
+    // DecorCategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_CATEGORY, "SELECT Name, ID, IconFileDataID, DisplayIndex FROM decor_category"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_CATEGORY, "SELECT MAX(ID) + 1 FROM decor_category", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_DECOR_CATEGORY, "SELECT ID, Name_lang FROM decor_category_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // DecorDyeSlot.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_DYE_SLOT, "SELECT ID, SlotIndex, HouseDecorID, DyeChannelType, DefaultDyeRecordID FROM decor_dye_slot"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_DYE_SLOT, "SELECT MAX(ID) + 1 FROM decor_dye_slot", CONNECTION_SYNCH);
+
+    // DecorSubcategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT Name, ID, IconFileDataID, DecorCategoryID, DisplayIndex FROM decor_subcategory"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT MAX(ID) + 1 FROM decor_subcategory", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_DECOR_SUBCATEGORY, "SELECT ID, Name_lang FROM decor_subcategory_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // DecorXDecorSubcategory.db2
+    PrepareStatement(HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY, "SELECT ID, DecorSubcategoryID, HouseDecorID FROM decor_x_decor_subcategory"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_DECOR_X_DECOR_SUBCATEGORY, "SELECT MAX(ID) + 1 FROM decor_x_decor_subcategory", CONNECTION_SYNCH);
+
     // DestructibleModelData.db2
     PrepareStatement(HOTFIX_SEL_DESTRUCTIBLE_MODEL_DATA, "SELECT ID, State0ImpactEffectDoodadSet, State0AmbientDoodadSet, State1Wmo, "
         "State1DestructionDoodadSet, State1ImpactEffectDoodadSet, State1AmbientDoodadSet, State2Wmo, State2DestructionDoodadSet, "
@@ -672,6 +699,44 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         "PlayerManaMod, PlayerPrimaryStatMod, PlayerSecondaryStatMod, ArmorConstantMod, CreatureSpellDamageMod FROM expected_stat_mod"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXPECTED_STAT_MOD, "SELECT MAX(ID) + 1 FROM expected_stat_mod", CONNECTION_SYNCH);
+
+    // ExteriorComponent.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT, "SELECT Name, PositionX, PositionY, PositionZ, ID, Type, FileDataID, ConditionID, HookID, "
+        "Flags, Slot, SortOrder, ComponentGroupID, UiTextureKitID, ExteriorComponentTypeID FROM exterior_component"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT, "SELECT MAX(ID) + 1 FROM exterior_component", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT, "SELECT ID, Name_lang FROM exterior_component_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // ExteriorComponentExitPoint.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_EXIT_POINT, "SELECT PositionX, PositionY, PositionZ, RotationX, RotationY, RotationZ, ID, "
+        "ExteriorComponentID FROM exterior_component_exit_point WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_EXIT_POINT, "SELECT MAX(ID) + 1 FROM exterior_component_exit_point", CONNECTION_SYNCH);
+
+    // ExteriorComponentGroup.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_GROUP, "SELECT PositionX, PositionY, PositionZ, ID, ExteriorComponentID"
+        " FROM exterior_component_group WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_GROUP, "SELECT MAX(ID) + 1 FROM exterior_component_group", CONNECTION_SYNCH);
+
+    // ExteriorComponentGroupXHook.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_GROUP_X_HOOK, "SELECT ID, ExteriorComponentGroupID, ExteriorComponentHookID"
+        " FROM exterior_component_group_x_hook WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_GROUP_X_HOOK, "SELECT MAX(ID) + 1 FROM exterior_component_group_x_hook", CONNECTION_SYNCH);
+
+    // ExteriorComponentHook.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_HOOK, "SELECT PositionX, PositionY, PositionZ, RotationX, RotationY, RotationZ, ID, "
+        "ExteriorComponentTypeID, ExteriorComponentID FROM exterior_component_hook WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_HOOK, "SELECT MAX(ID) + 1 FROM exterior_component_hook", CONNECTION_SYNCH);
+
+    // ExteriorComponentType.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_TYPE, "SELECT Name, ID, Flags FROM exterior_component_type"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_TYPE, "SELECT MAX(ID) + 1 FROM exterior_component_type", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_TYPE, "SELECT ID, Name_lang FROM exterior_component_type_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // ExteriorComponentXGroup.db2
+    PrepareStatement(HOTFIX_SEL_EXTERIOR_COMPONENT_X_GROUP, "SELECT ID, ExteriorComponentID, ExteriorComponentGroupID"
+        " FROM exterior_component_x_group WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_EXTERIOR_COMPONENT_X_GROUP, "SELECT MAX(ID) + 1 FROM exterior_component_x_group", CONNECTION_SYNCH);
 
     // Faction.db2
     PrepareStatement(HOTFIX_SEL_FACTION, "SELECT ID, ReputationRaceMask1, ReputationRaceMask2, ReputationRaceMask3, ReputationRaceMask4, Name, "
@@ -889,6 +954,59 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOLIDAYS, "SELECT MAX(ID) + 1 FROM holidays", CONNECTION_SYNCH);
 
+    // House.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE, "SELECT ID, InternalName, HouseTypeID, MapID, Flags FROM house"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE, "SELECT MAX(ID) + 1 FROM house", CONNECTION_SYNCH);
+
+    // HouseDecor.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_DECOR, "SELECT Name, InitialRotationX, InitialRotationY, InitialRotationZ, ID, Field_003, GameObjectID, Flags, "
+        "Type, ModelType, ModelFileDataID, ThumbnailFileDataID, WeightCost, ItemID, InitialScale, "
+        "FirstAcquisitionBonus, OrderIndex, Size, StartingQuantity, UiModelSceneID FROM house_decor"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT MAX(ID) + 1 FROM house_decor", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_DECOR, "SELECT ID, Name_lang FROM house_decor_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // HouseDecorMaterial.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_DECOR_MATERIAL, "SELECT ID, MaterialGUID, HouseDecorID, MaterialIndex, DefaultDyeID, AllowedDyeMask"
+        " FROM house_decor_material WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_DECOR_MATERIAL, "SELECT MAX(ID) + 1 FROM house_decor_material", CONNECTION_SYNCH);
+
+    // HouseDecorThemeSet.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_DECOR_THEME_SET, "SELECT ID, Name, ThemeID, IconFileDataID FROM house_decor_theme_set"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_DECOR_THEME_SET, "SELECT MAX(ID) + 1 FROM house_decor_theme_set", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_DECOR_THEME_SET, "SELECT ID, Name_lang FROM house_decor_theme_set_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // HouseExteriorWmoData.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT Name, ID, Flags FROM house_exterior_wmo_data"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT MAX(ID) + 1 FROM house_exterior_wmo_data", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_EXTERIOR_WMO_DATA, "SELECT ID, Name_lang FROM house_exterior_wmo_data_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // HouseLevelData.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_LEVEL_DATA, "SELECT ID, Level, QuestID FROM house_level_data"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_LEVEL_DATA, "SELECT MAX(ID) + 1 FROM house_level_data", CONNECTION_SYNCH);
+
+    // HouseLevelRewardInfo.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_LEVEL_REWARD_INFO, "SELECT Name, Description, ID, HouseLevelID, RewardType, RewardValue"
+        " FROM house_level_reward_info WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_LEVEL_REWARD_INFO, "SELECT MAX(ID) + 1 FROM house_level_reward_info", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_LEVEL_REWARD_INFO, "SELECT ID, Name_lang, Description_lang FROM house_level_reward_info_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // HouseRoom.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_ROOM, "SELECT ID, Name, Size, Flags, Field_002, RoomWmoDataID, UiTextureAtlasElementID, WeightCost"
+        " FROM house_room WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_ROOM, "SELECT MAX(ID) + 1 FROM house_room", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_ROOM, "SELECT ID, Name_lang FROM house_room_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // HouseTheme.db2
+    PrepareStatement(HOTFIX_SEL_HOUSE_THEME, "SELECT Name, ID, IconFileDataID, CategoryID FROM house_theme"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_HOUSE_THEME, "SELECT MAX(ID) + 1 FROM house_theme", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_HOUSE_THEME, "SELECT ID, Name_lang FROM house_theme_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
     // ImportPriceArmor.db2
     PrepareStatement(HOTFIX_SEL_IMPORT_PRICE_ARMOR, "SELECT ID, ClothModifier, LeatherModifier, ChainModifier, PlateModifier FROM import_price_armor"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
@@ -905,6 +1023,36 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     // ImportPriceWeapon.db2
     PrepareStatement(HOTFIX_SEL_IMPORT_PRICE_WEAPON, "SELECT ID, Data FROM import_price_weapon WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_IMPORT_PRICE_WEAPON, "SELECT MAX(ID) + 1 FROM import_price_weapon", CONNECTION_SYNCH);
+
+    // InitiativeCycle.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_CYCLE, "SELECT ID, InitiativeID, CycleIndex, StartDay, Duration, Flags FROM initiative_cycle WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_CYCLE, "SELECT MAX(ID) + 1 FROM initiative_cycle", CONNECTION_SYNCH);
+
+    // InitiativeCyclePriority.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_CYCLE_PRIORITY, "SELECT ID, Priority, Weight, Flags, InitiativeCycleID FROM initiative_cycle_priority WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_CYCLE_PRIORITY, "SELECT MAX(ID) + 1 FROM initiative_cycle_priority", CONNECTION_SYNCH);
+
+    // InitiativeMilestone.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_MILESTONE, "SELECT ID, MilestoneIndex, ProgressRequired, Flags, InitiativeCycleID FROM initiative_milestone WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_MILESTONE, "SELECT MAX(ID) + 1 FROM initiative_milestone", CONNECTION_SYNCH);
+
+    // InitiativeReward.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_REWARD, "SELECT RewardData, Name, Description, ID, RewardType, RewardAmount, CurrencyID, ItemID, Flags FROM initiative_reward WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_REWARD, "SELECT MAX(ID) + 1 FROM initiative_reward", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_INITIATIVE_REWARD, "SELECT ID, Name_lang, Description_lang FROM initiative_reward_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // InitiativeRewardXMilestone.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_REWARD_X_MILESTONE, "SELECT ID, InitiativeRewardID, InitiativeMilestoneID FROM initiative_reward_x_milestone WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_REWARD_X_MILESTONE, "SELECT MAX(ID) + 1 FROM initiative_reward_x_milestone", CONNECTION_SYNCH);
+
+    // InitiativeTask.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_TASK, "SELECT Name, Description, ID, TaskType, TargetCount, CriteriaTreeID, SortOrder, Flags, UiTextureKitID FROM initiative_task WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_TASK, "SELECT MAX(ID) + 1 FROM initiative_task", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_INITIATIVE_TASK, "SELECT ID, Name_lang, Description_lang FROM initiative_task_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // InitiativeXTask.db2
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_X_TASK, "SELECT ID, InitiativeTaskID, SortOrder, NeighborhoodInitiativeID FROM initiative_x_task WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_X_TASK, "SELECT MAX(ID) + 1 FROM initiative_x_task", CONNECTION_SYNCH);
 
     // Item.db2
     PrepareStatement(HOTFIX_SEL_ITEM, "SELECT ID, ClassID, SubclassID, Material, InventoryType, SheatheType, SoundOverrideSubclassID, IconFileDataID, "
@@ -1396,6 +1544,36 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     // NPCSounds.db2
     PrepareStatement(HOTFIX_SEL_NPC_SOUNDS, "SELECT ID, hello, goodbye, pissed, ack FROM npc_sounds WHERE (`VerifiedBuild` > 0) = ? ORDER BY ID DESC", CONNECTION_SYNCH);
 
+    // NeighborhoodInitiative.db2
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT Name, Description, ID, InitiativeType, Duration, RequiredParticipants, "
+        "RewardCurrencyID FROM neighborhood_initiative"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT MAX(ID) + 1 FROM neighborhood_initiative", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_INITIATIVE, "SELECT ID, Name_lang, Description_lang FROM neighborhood_initiative_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+
+    // NeighborhoodMap.db2
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT PositionX, PositionY, PositionZ, ID, MapID, Radius, PlotCount, FactionRestriction"
+        " FROM neighborhood_map WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_MAP, "SELECT MAX(ID) + 1 FROM neighborhood_map", CONNECTION_SYNCH);
+
+    // NeighborhoodNameGen.db2
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_NAME_GEN, "SELECT ID, Prefix, Suffix, FullName, NeighborhoodMapID"
+        " FROM neighborhood_name_gen WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_NAME_GEN, "SELECT MAX(ID) + 1 FROM neighborhood_name_gen", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_NEIGHBORHOOD_NAME_GEN, "SELECT ID, Prefix_lang, Suffix_lang, FullName_lang FROM neighborhood_name_gen_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
+    // NeighborhoodPlot.db2
+    PrepareStatement(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT Cost, Name, "
+        "HousePositionX, HousePositionY, HousePositionZ, HouseRotationX, HouseRotationY, HouseRotationZ, "
+        "CornerstonePositionX, CornerstonePositionY, CornerstonePositionZ, "
+        "CornerstoneRotationX, CornerstoneRotationY, CornerstoneRotationZ, "
+        "TeleportPositionX, TeleportPositionY, TeleportPositionZ, "
+        "ID, NeighborhoodMapID, Field_010, CornerstoneGameObjectID, "
+        "PlotIndex, WorldState, PlotGameObjectID, TeleportFacing, Field_016"
+        " FROM neighborhood_plot WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_NEIGHBORHOOD_PLOT, "SELECT MAX(ID) + 1 FROM neighborhood_plot", CONNECTION_SYNCH);
+
     // NumTalentsAtLevel.db2
     PrepareStatement(HOTFIX_SEL_NUM_TALENTS_AT_LEVEL, "SELECT ID, NumTalents, NumTalentsDeathKnight, NumTalentsDemonHunter, Unknown1115"
         " FROM num_talents_at_level WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
@@ -1622,6 +1800,21 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PrepareStatement(HOTFIX_SEL_REWARD_PACK_X_ITEM, "SELECT ID, ItemID, ItemQuantity, RewardPackID FROM reward_pack_x_item"
         " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_REWARD_PACK_X_ITEM, "SELECT MAX(ID) + 1 FROM reward_pack_x_item", CONNECTION_SYNCH);
+
+    // RoomComponent.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT, "SELECT OffsetPosX, OffsetPosY, OffsetPosZ, OffsetRotX, OffsetRotY, OffsetRotZ, ID, RoomWmoDataID, "
+        "ModelFileDataID, Type, MeshStyleFilterID, ConnectionType, Flags FROM room_component WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT, "SELECT MAX(ID) + 1 FROM room_component", CONNECTION_SYNCH);
+
+    // RoomComponentOption.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT_OPTION, "SELECT ID, Type, SubType, ModelFileDataID, RoomComponentID, MeshStyleFilterID, HouseThemeID, Flags"
+        " FROM room_component_option WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_OPTION, "SELECT MAX(ID) + 1 FROM room_component_option", CONNECTION_SYNCH);
+
+    // RoomWmoData.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT ID, BoundingBoxMinX, BoundingBoxMinY, BoundingBoxMinZ, BoundingBoxMaxX, BoundingBoxMaxY, "
+        "BoundingBoxMaxZ, Height FROM room_wmo_data WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT MAX(ID) + 1 FROM room_wmo_data", CONNECTION_SYNCH);
 
     // Scenario.db2
     PrepareStatement(HOTFIX_SEL_SCENARIO, "SELECT ID, Name, AreaTableID, Type, Flags, UiTextureKitID FROM scenario WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);

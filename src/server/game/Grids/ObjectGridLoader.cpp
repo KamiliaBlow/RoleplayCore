@@ -27,6 +27,7 @@
 #include "GameObject.h"
 #include "GameTime.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
@@ -273,6 +274,7 @@ template void ObjectGridUnloader::Visit(DynamicObjectMapType &);
 template void ObjectGridUnloader::Visit(AreaTriggerMapType&);
 template void ObjectGridUnloader::Visit(SceneObjectMapType&);
 template void ObjectGridUnloader::Visit(ConversationMapType&);
+template void ObjectGridUnloader::Visit(MeshObjectMapType&);
 
 template void ObjectGridCleaner::Visit(CreatureMapType &);
 template void ObjectGridCleaner::Visit<GameObject>(GameObjectMapType &);
@@ -281,3 +283,4 @@ template void ObjectGridCleaner::Visit<Corpse>(CorpseMapType &);
 template void ObjectGridCleaner::Visit<AreaTrigger>(AreaTriggerMapType &);
 template void ObjectGridCleaner::Visit<SceneObject>(SceneObjectMapType &);
 template void ObjectGridCleaner::Visit<Conversation>(ConversationMapType &);
+template void ObjectGridCleaner::Visit<MeshObject>(MeshObjectMapType&);

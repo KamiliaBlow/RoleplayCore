@@ -67,6 +67,7 @@ class TC_GAME_API ObjectGridLoader : public ObjectGridLoaderBase
         void Visit(DynamicObjectMapType&) const { }
         void Visit(SceneObjectMapType&) const { }
         void Visit(ConversationMapType&) const { }
+        void Visit(MeshObjectMapType&) const { }
 
         void LoadN();
 };
@@ -85,6 +86,7 @@ class TC_GAME_API PersonalPhaseGridLoader : public ObjectGridLoaderBase
         void Visit(DynamicObjectMapType&) const { }
         void Visit(SceneObjectMapType&) const { }
         void Visit(ConversationMapType&) const { }
+        void Visit(MeshObjectMapType&) const { }
 
         void Load(uint32 phaseId);
 

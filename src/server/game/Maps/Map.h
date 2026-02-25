@@ -63,6 +63,7 @@ class InstanceLock;
 class InstanceMap;
 class InstanceScript;
 class InstanceScenario;
+class MeshObject;
 class Object;
 class PhaseShift;
 class Player;
@@ -225,8 +226,8 @@ struct MapStoredObjectsUnorderedMap
     }
 };
 
-extern template struct TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
-typedef TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation> MapStoredObjectTypesContainer;
+extern template struct TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject>;
+typedef TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject> MapStoredObjectTypesContainer;
 
 class TC_GAME_API Map : public GridRefManager<NGridType>
 {
@@ -442,6 +443,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         Creature* GetCreature(ObjectGuid const& guid);
         DynamicObject* GetDynamicObject(ObjectGuid const& guid);
         GameObject* GetGameObject(ObjectGuid const& guid);
+        MeshObject* GetMeshObject(ObjectGuid const& guid);
         Pet* GetPet(ObjectGuid const& guid);
         Transport* GetTransport(ObjectGuid const& guid);
         Creature* GetCreatureBySpawnId(ObjectGuid::LowType spawnId) const;

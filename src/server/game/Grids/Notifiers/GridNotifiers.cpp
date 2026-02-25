@@ -334,3 +334,4 @@ template void ObjectUpdater::Visit<DynamicObject>(DynamicObjectMapType&);
 template void ObjectUpdater::Visit<AreaTrigger>(AreaTriggerMapType &);
 template void ObjectUpdater::Visit<SceneObject>(SceneObjectMapType &);
 template void ObjectUpdater::Visit<Conversation>(ConversationMapType &);
+template void ObjectUpdater::Visit<MeshObject>(MeshObjectMapType&);
