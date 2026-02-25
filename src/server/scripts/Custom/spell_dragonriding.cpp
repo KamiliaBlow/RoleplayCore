@@ -140,11 +140,11 @@ class spell_af_energy : public AuraScript
 
     void Register() override
     {
-        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not ENABLE_ALT_POWER(346) in DBC (372771)
-        OnEffectApply += AuraEffectApplyFn(spell_af_energy::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: 372771 EFFECT_0 is DUMMY(4), 372773 EFFECT_0 is ENABLE_ALT_POWER(346); use ANY
+        OnEffectApply += AuraEffectApplyFn(spell_af_energy::OnApply, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
         OnEffectUpdatePeriodic += AuraEffectUpdatePeriodicFn(spell_af_energy::OnPeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
-        // Midnight 12.0.1: EFFECT_0 aura is DUMMY(4) not ENABLE_ALT_POWER(346) in DBC (372771)
-        OnEffectRemove += AuraEffectRemoveFn(spell_af_energy::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: 372771 EFFECT_0 is DUMMY(4), 372773 EFFECT_0 is ENABLE_ALT_POWER(346); use ANY
+        OnEffectRemove += AuraEffectRemoveFn(spell_af_energy::OnRemove, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
     }
 
 private:

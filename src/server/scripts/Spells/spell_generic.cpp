@@ -859,8 +859,10 @@ class spell_gen_clone : public SpellScript
         else
         {
             // Midnight 12.0.1: multiple clone spells have different effect types at EFFECT_1/2, use ANY
+            // spell 126240 has only 2 effects (no EFFECT_2), use EFFECT_ALL to match available effects
             OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_1, SPELL_EFFECT_ANY);
-            OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_ANY);
+            if (m_scriptSpellId != 126240)
+                OnEffectHitTarget += SpellEffectFn(spell_gen_clone::HandleScriptEffect, EFFECT_2, SPELL_EFFECT_ANY);
         }
     }
 };
@@ -987,9 +989,9 @@ class spell_gen_clone_weapon_aura : public AuraScript
 
     void Register() override
     {
-        // Midnight 12.0.1: spells 41054/69893 EFFECT_0 aura is MOD_DISARM(67), not PERIODIC_DUMMY(226)
-        OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
-        OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_MOD_DISARM, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        // Midnight 12.0.1: 41054/69893 EFFECT_0 is MOD_DISARM(67), 45205/57594/63418/69896 is PERIODIC_DUMMY(226); use ANY
+        OnEffectApply += AuraEffectApplyFn(spell_gen_clone_weapon_aura::OnApply, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnEffectRemove += AuraEffectRemoveFn(spell_gen_clone_weapon_aura::OnRemove, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
     }
 
     uint32 prevItem = 0;
@@ -1568,8 +1570,8 @@ class spell_gen_feast : public SpellScript
 
     void Register() override
     {
-        // Midnight 12.0.1: spell 66477 EFFECT_0 is TRIGGER_SPELL(64), not SCRIPT_EFFECT(77)
-        OnEffectHitTarget += SpellEffectFn(spell_gen_feast::HandleScript, EFFECT_0, SPELL_EFFECT_TRIGGER_SPELL);
+        // Midnight 12.0.1: 57337/57397/58466/58475 EFFECT_0 is SCRIPT_EFFECT(77), 66477 is TRIGGER_SPELL(64); use ANY
+        OnEffectHitTarget += SpellEffectFn(spell_gen_feast::HandleScript, EFFECT_0, SPELL_EFFECT_ANY);
     }
 };
 
@@ -1614,9 +1616,10 @@ class spell_gen_feign_death_all_flags : public AuraScript
 
     void Register() override
     {
-        // Midnight 12.0.1: feign death spells have various aura types (UNTRACKABLE, FEIGN_DEATH, etc.), use ANY
-        OnEffectApply += AuraEffectApplyFn(spell_gen_feign_death_all_flags::HandleEffectApply, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_gen_feign_death_all_flags::OnRemove, EFFECT_0, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+        // Midnight 12.0.1: spell 265448 EFFECT_0 is CREATE_AREATRIGGER(46) not aura; most feign spells have aura at EFFECT_0
+        // Use EFFECT_ALL to match any effect with an aura
+        OnEffectApply += AuraEffectApplyFn(spell_gen_feign_death_all_flags::HandleEffectApply, EFFECT_ALL, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_gen_feign_death_all_flags::OnRemove, EFFECT_ALL, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

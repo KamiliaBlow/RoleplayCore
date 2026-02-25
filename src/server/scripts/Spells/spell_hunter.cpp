@@ -1680,8 +1680,8 @@ class spell_hun_kill_command : public SpellScript
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_hun_kill_command::CheckCastMeet);
-        // Midnight 12.0.1: spell 259489 EFFECT_1 is ENERGIZE(30), not DUMMY(3)
-        OnEffectHit += SpellEffectFn(spell_hun_kill_command::HandleDummy, EFFECT_1, SPELL_EFFECT_ENERGIZE);
+        // Midnight 12.0.1: spell 34026 EFFECT_1 is DUMMY(3), spell 259489 is ENERGIZE(30); use ANY
+        OnEffectHit += SpellEffectFn(spell_hun_kill_command::HandleDummy, EFFECT_1, SPELL_EFFECT_ANY);
     }
 };
 

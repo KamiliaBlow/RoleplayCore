@@ -2154,7 +2154,7 @@ class spell_pri_guardian_spirit : public AuraScript
     {
         // Midnight 12.0.1: spell 47788 absorb moved from EFFECT_1/SCHOOL_ABSORB(69) to EFFECT_2/SCHOOL_ABSORB_OVERKILL(316)
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_2, SPELL_AURA_SCHOOL_ABSORB_OVERKILL);
-        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_2);
+        OnEffectAbsorb += AuraEffectAbsorbOverkillFn(spell_pri_guardian_spirit::Absorb, EFFECT_2);
     }
 };
 

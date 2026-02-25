@@ -46,8 +46,8 @@ class spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell : public AuraS
 
     void Register() override
     {
-        // Midnight 12.0.1: spell 272893 EFFECT_0 aura is MOD_STAT(29), not MOD_RATING(189)
-        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell::CalculateAmount, EFFECT_0, SPELL_AURA_MOD_STAT);
+        // Midnight 12.0.1: 272893 EFFECT_0 is MOD_STAT(29), 280409/280412/etc is MOD_RATING(189); use ANY
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_azerite_gen_aura_calc_from_2nd_effect_triggered_spell::CalculateAmount, EFFECT_0, SPELL_AURA_ANY);
     }
 };
 

@@ -557,7 +557,10 @@ class spell_warl_chaotic_energies : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: spell 77220 has only EFFECT_0/DUMMY, no EFFECT_2/absorb
+#if 0
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_warl_chaotic_energies::HandleAbsorb, EFFECT_2);
+#endif
     }
 };
 
@@ -826,6 +829,8 @@ class spell_warl_devour_magic : public SpellScript
 };
 
 // 603 - Doom
+// Midnight 12.0.1: EFFECT_0 aura is now DUMMY(4), not PERIODIC_DAMAGE(3) — no periodic hook possible
+#if 0
 class spell_warl_doom : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -844,6 +849,7 @@ class spell_warl_doom : public AuraScript
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_doom::HandleEffectPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
     }
 };
+#endif
 
 // 198590 - Drain Soul
 class spell_warl_drain_soul : public AuraScript
@@ -952,9 +958,10 @@ class spell_warl_health_funnel : public AuraScript
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_warl_health_funnel::HandleEffectApply, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectRemove += AuraEffectRemoveFn(spell_warl_health_funnel::HandleEffectRemove, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_health_funnel::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        // Midnight 12.0.1: EFFECT_0 aura hotfixed from PERIODIC_DUMMY(226) to OBS_MOD_HEALTH(20)
+        OnEffectApply += AuraEffectApplyFn(spell_warl_health_funnel::HandleEffectApply, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH, AURA_EFFECT_HANDLE_REAL);
+        OnEffectRemove += AuraEffectRemoveFn(spell_warl_health_funnel::HandleEffectRemove, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_warl_health_funnel::HandlePeriodic, EFFECT_0, SPELL_AURA_OBS_MOD_HEALTH);
     }
 };
 
@@ -1351,7 +1358,8 @@ class spell_warl_seed_of_corruption_generic : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_warl_seed_of_corruption_generic::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 32863 has only EFFECT_0 with PERIODIC_DAMAGE(3), no EFFECT_1/DUMMY
+        OnEffectProc += AuraEffectProcFn(spell_warl_seed_of_corruption_generic::HandleProc, EFFECT_0, SPELL_AURA_PERIODIC_DAMAGE);
     }
 };
 
@@ -1759,7 +1767,8 @@ class spell_warl_summon_sayaad : public SpellScript
 
     void Register() override
     {
-        OnEffectHit += SpellEffectFn(spell_warl_summon_sayaad::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+        // Midnight 12.0.1: EFFECT_0 is SUMMON_PET(56), not DUMMY(3)
+        OnEffectHit += SpellEffectFn(spell_warl_summon_sayaad::HandleDummy, EFFECT_0, SPELL_EFFECT_SUMMON_PET);
     }
 };
 
@@ -1820,8 +1829,12 @@ class spell_warl_unstable_affliction : public AuraScript
 
     void Register() override
     {
+        // Midnight 12.0.1: DB binds old spell IDs (30108/34438/34439/35183) which lack apply-aura effects
+        // and have no EFFECT_1/PERIODIC_DAMAGE. Script is designed for 316099 which is not in DB yet.
+#if 0
         AfterDispel += AuraDispelFn(spell_warl_unstable_affliction::HandleDispel);
         OnEffectRemove += AuraEffectRemoveFn(spell_warl_unstable_affliction::HandleRemove, EFFECT_1, SPELL_AURA_PERIODIC_DAMAGE, AURA_EFFECT_HANDLE_REAL);
+#endif
     }
 };
 
@@ -2179,7 +2192,8 @@ class spell_warlock_summon_darkglare : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warlock_summon_darkglare::HandleOnHitTarget, EFFECT_1, SPELL_EFFECT_SCRIPT_EFFECT);
+        // Midnight 12.0.1: EFFECT_1 is DUMMY(3), not SCRIPT_EFFECT(77)
+        OnEffectHitTarget += SpellEffectFn(spell_warlock_summon_darkglare::HandleOnHitTarget, EFFECT_1, SPELL_EFFECT_DUMMY);
     }
 };
 
@@ -2833,6 +2847,8 @@ public:
 };
 
 // 603 - Doom
+// Midnight 12.0.1: EFFECT_0 aura is now DUMMY(4), not PERIODIC_DAMAGE(3) — no periodic hook possible
+#if 0
 class spell_warlock_doom : public SpellScriptLoader
 {
 public:
@@ -2866,6 +2882,7 @@ public:
         return new spell_warlock_doom_AuraScript();
     }
 };
+#endif
 
 // 6353 - Soul Fire
 class spell_warlock_soul_fire : public SpellScriptLoader
@@ -3371,7 +3388,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_demonic_circle_summon);
     RegisterSpellScript(spell_warl_demonic_circle_teleport);
     RegisterSpellScript(spell_warl_devour_magic);
-    RegisterSpellScript(spell_warl_doom);
+    //RegisterSpellScript(spell_warl_doom); // Midnight 12.0.1: disabled, EFFECT_0 is DUMMY not PERIODIC_DAMAGE
     RegisterSpellScript(spell_warl_drain_soul);
     RegisterSpellScript(spell_warl_haunt);
     RegisterSpellScript(spell_warl_health_funnel);
@@ -3426,7 +3443,7 @@ void AddSC_warlock_spell_scripts()
     new spell_warlock_demonbolt_new();
     new spell_warl_demonic_calling();
     new spell_warl_implosion();
-    new spell_warlock_doom();
+    //new spell_warlock_doom(); // Midnight 12.0.1: disabled, EFFECT_0 is DUMMY not PERIODIC_DAMAGE
     new spell_warlock_soul_fire();
     new spell_warl_soul_conduit();
     RegisterSpellScript(spell_warr_shadowbolt_affliction);

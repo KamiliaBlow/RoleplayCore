@@ -320,7 +320,10 @@ class spell_warr_avatar : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_5 is APPLY_AURA/229, not SCRIPT_EFFECT(77)
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_warr_avatar::HandleRemoveImpairingAuras, EFFECT_5, SPELL_EFFECT_SCRIPT_EFFECT);
+#endif
     }
 };
 
@@ -458,7 +461,8 @@ class spell_warr_bloodthirst : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_bloodthirst::CastHeal, EFFECT_0, SPELL_EFFECT_APPLY_AURA);
+        // Midnight 12.0.1: spell 335096 EFFECT_0 is SCHOOL_DAMAGE(2), 215568 is APPLY_AURA; use ANY
+        OnEffectHitTarget += SpellEffectFn(spell_warr_bloodthirst::CastHeal, EFFECT_0, SPELL_EFFECT_ANY);
         OnHit += SpellHitFn(spell_warr_bloodthirst::HandleOnHit);
     }
 };
@@ -824,7 +828,10 @@ class spell_warr_enrage_proc : public AuraScript
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_enrage_proc::CheckRampageProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: spell 184361 has only EFFECT_0, no EFFECT_1
+#if 0
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_warr_enrage_proc::CheckBloodthirstProc, EFFECT_1, SPELL_AURA_DUMMY);
+#endif
         OnProc += AuraProcFn(spell_warr_enrage_proc::HandleProc);
     }
 };
@@ -1723,7 +1730,8 @@ class spell_warr_sudden_death : public AuraScript
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_warr_sudden_death::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        // Midnight 12.0.1: EFFECT_0 aura is PROC_TRIGGER_SPELL_WITH_VALUE(262), not DUMMY(4)
+        OnEffectProc += AuraEffectProcFn(spell_warr_sudden_death::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL_WITH_VALUE);
     }
 };
 
@@ -2320,7 +2328,10 @@ class spell_warr_ignore_pain : public SpellScript
 
     void Register() override
     {
+        // Midnight 12.0.1: EFFECT_1 is APPLY_AURA/DUMMY, not SPELL_EFFECT_DUMMY
+#if 0
         OnEffectHitTarget += SpellEffectFn(spell_warr_ignore_pain::HandleDummy, EFFECT_1, SPELL_EFFECT_DUMMY);
+#endif
     }
 };
 
@@ -2446,7 +2457,10 @@ public:
 
         void Register()
         {
+            // Midnight 12.0.1: 64380 EFFECT_0 is APPLY_AURA(6), 65941 is SCRIPT_EFFECT(77) — no SCHOOL_DAMAGE
+#if 0
             OnEffectHitTarget += SpellEffectFn(spell_warr_shattering_throw_SpellScript::HandleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+#endif
         }
     };
 
@@ -2743,7 +2757,8 @@ class spell_warr_cleave_dmg : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_warr_cleave_dmg::HandleOnHitTarget, EFFECT_0, SPELL_EFFECT_TRIGGER_SPELL);
+        // Midnight 12.0.1: EFFECT_0 is SCHOOL_DAMAGE(2), not TRIGGER_SPELL(64)
+        OnEffectHitTarget += SpellEffectFn(spell_warr_cleave_dmg::HandleOnHitTarget, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
