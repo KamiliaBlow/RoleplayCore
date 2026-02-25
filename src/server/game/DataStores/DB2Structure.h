@@ -221,7 +221,7 @@ struct ArtifactAppearanceEntry
     uint16 ArtifactAppearanceSetID;
     uint8 DisplayIndex;
     uint32 UnlockPlayerConditionID;
-    uint8 ItemAppearanceModifierID;
+    uint32 ItemAppearanceModifierID;
     int32 UiSwatchColor;
     float UiModelSaturation;
     float UiModelOpacity;
