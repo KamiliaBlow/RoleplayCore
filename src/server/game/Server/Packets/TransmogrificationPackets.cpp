@@ -20,8 +20,8 @@
 #include "PacketOperators.h"
 #include "Util.h"
 #include <algorithm>
-#include <sstream>
 #include <span>
+#include <sstream>
 
 namespace WorldPackets::Transmogrification
 {
@@ -65,6 +65,15 @@ std::string BuildDiagnosticReadTrace(char const* opcodeName, WorldPacket const& 
 
     return trace.str();
 }
+
+void AssignSlotsFromFlags(EquipmentSetInfo::EquipmentSetData& set, uint32 slotFlags, int32 appearanceID)
+{
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        if (slotFlags & (1u << slot))
+            set.Appearances[slot] = appearanceID;
+    }
+}
 }
 
 ByteBuffer& operator>>(ByteBuffer& data, TransmogrifyItem& transmogItem)
@@ -87,13 +96,48 @@ void TransmogrifyItems::Read()
     _worldPacket >> Bits<1>(CurrentSpecOnly);
 }
 
-
 void TransmogOutfitNew::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
-    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_NEW", _worldPacket);
+
     ParseSuccess = false;
-    ParseError = "diagnostic parser active: transmog outfit NEW layout still unknown";
+    Set.Type = EquipmentSetInfo::TRANSMOG;
+
+    try
+    {
+        _worldPacket >> Set.Guid;
+
+        std::span<uint8 const> payload(_worldPacket.data(), _worldPacket.size());
+        uint8 b8 = payload.size() > 8 ? payload[8] : 0;
+        uint8 b9 = payload.size() > 9 ? payload[9] : 0;
+        uint8 b10 = payload.size() > 10 ? payload[10] : 0;
+        uint8 b11 = payload.size() > 11 ? payload[11] : 0;
+        uint8 b12 = payload.size() > 12 ? payload[12] : 0;
+        uint8 b13 = payload.size() > 13 ? payload[13] : 0;
+
+        uint16 u16_8 = payload.size() >= 10 ? ReadLE<uint16>(payload, 8) : 0;
+        uint32 u32_10 = payload.size() >= 14 ? ReadLE<uint32>(payload, 10) : 0;
+        uint32 u32_8 = payload.size() >= 12 ? ReadLE<uint32>(payload, 8) : 0;
+        uint16 u16_12 = payload.size() >= 14 ? ReadLE<uint16>(payload, 12) : 0;
+
+        uint32 nameLength = _worldPacket.ReadBits(8);
+        _worldPacket.FlushBits();
+        Set.SetName = _worldPacket.ReadString(nameLength, false);
+
+        TC_LOG_ERROR("network", "CMSG_TRANSMOG_OUTFIT_NEW diag: guid={} raw[8..13]=[{}, {}, {}, {}, {}, {}] as(u16+u32)=[{}, {}] as(u32+u16)=[{}, {}] nameLen={} name='{}' payloadSize={} payloadHex={}",
+            Set.Guid, b8, b9, b10, b11, b12, b13, u16_8, u32_10, u32_8, u16_12, nameLength, Set.SetName, PayloadSize, PayloadPreviewHex);
+
+        ParseError = "structured diagnostic parser active: NEW middle fields unresolved";
+        std::ostringstream trace;
+        trace << "guid=" << Set.Guid << " name='" << Set.SetName << "'";
+        DiagnosticReadTrace = trace.str();
+    }
+    catch (std::exception const& ex)
+    {
+        ParseError = ex.what();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_NEW", _worldPacket);
+    }
+
     _worldPacket.rfinish();
 }
 
@@ -109,19 +153,112 @@ void TransmogOutfitUpdateInfo::Read()
 void TransmogOutfitUpdateSlots::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
-    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS", _worldPacket);
-    ParseSuccess = false;
-    ParseError = "diagnostic parser active: transmog outfit UPDATE_SLOTS layout still unknown";
+
+    try
+    {
+        _worldPacket >> Set.SetID;
+
+        uint32 slotCount = 0;
+        _worldPacket >> slotCount;
+        _worldPacket >> Set.Guid;
+
+        Slots.resize(slotCount);
+
+        Set.Type = EquipmentSetInfo::TRANSMOG;
+        Set.IgnoreMask = 0;
+
+        for (TransmogOutfitSlotEntry& slot : Slots)
+        {
+            _worldPacket >> slot.AppearanceID;
+            _worldPacket >> slot.Unknown1;
+            _worldPacket >> slot.SlotFlags;
+            _worldPacket >> slot.Unknown2;
+
+            AssignSlotsFromFlags(Set, slot.SlotFlags, int32(slot.AppearanceID));
+
+            TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS slot entry: appearance={} unknown1={} slotFlags=0x{:X} unknown2={}",
+                slot.AppearanceID, slot.Unknown1, slot.SlotFlags, slot.Unknown2);
+        }
+
+        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+            if (!Set.Appearances[slot])
+                Set.IgnoreMask |= (1u << slot);
+
+        ParseSuccess = true;
+        ParseError.clear();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS", _worldPacket);
+    }
+    catch (std::exception const& ex)
+    {
+        ParseSuccess = false;
+        ParseError = ex.what();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS", _worldPacket);
+    }
+
     _worldPacket.rfinish();
 }
 
 void TransmogOutfitUpdateSituations::Read()
 {
     CapturePayloadDebugInfo(_worldPacket, PayloadSize, PayloadPreviewHex);
-    DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS", _worldPacket);
-    ParseSuccess = false;
-    ParseError = "diagnostic parser active: transmog outfit UPDATE_SITUATIONS layout still unknown";
+
+    try
+    {
+        _worldPacket >> SetID;
+        _worldPacket >> Guid;
+
+        uint32 count = 0;
+        _worldPacket >> count;
+
+        Situations.resize(count);
+        for (TransmogOutfitSituationEntry& entry : Situations)
+        {
+            _worldPacket >> entry.SituationID;
+            _worldPacket >> entry.SpecID;
+            _worldPacket >> entry.LoadoutID;
+            _worldPacket >> entry.EquipmentSetID;
+        }
+
+        ParseSuccess = true;
+        ParseError.clear();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS", _worldPacket);
+    }
+    catch (std::exception const& ex)
+    {
+        ParseSuccess = false;
+        ParseError = ex.what();
+        DiagnosticReadTrace = BuildDiagnosticReadTrace("CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS", _worldPacket);
+    }
+
     _worldPacket.rfinish();
+}
+
+WorldPacket const* TransmogOutfitInfoUpdated::Write()
+{
+    _worldPacket << uint32(SetID);
+    _worldPacket << uint64(Guid);
+    return &_worldPacket;
+}
+
+WorldPacket const* TransmogOutfitNewEntryAdded::Write()
+{
+    _worldPacket << uint32(SetID);
+    _worldPacket << uint64(Guid);
+    return &_worldPacket;
+}
+
+WorldPacket const* TransmogOutfitSituationsUpdated::Write()
+{
+    _worldPacket << uint32(SetID);
+    _worldPacket << uint64(Guid);
+    return &_worldPacket;
+}
+
+WorldPacket const* TransmogOutfitSlotsUpdated::Write()
+{
+    _worldPacket << uint32(SetID);
+    _worldPacket << uint64(Guid);
+    return &_worldPacket;
 }
 
 WorldPacket const* AccountTransmogUpdate::Write()
