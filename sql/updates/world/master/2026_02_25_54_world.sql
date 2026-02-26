@@ -11,12 +11,12 @@
 DELETE FROM npc_vendor WHERE entry IN (54943, 500511, 500537, 500542);
 
 -- ---------------------------------------------------------------------------
--- 6D-2: Delete vendor entries with non-existent items
--- 244 rows across 60 vendors reference items that don't exist
--- Items are stored in hotfixes.item (DB2 data), type=1 means item
+-- 6D-2: DISABLED — hotfixes.item only contains hotfix overrides, NOT all game
+-- items. Most items exist only in DB2 client files with no hotfixes row.
+-- This query wiped nearly all vendor data when originally run.
 -- ---------------------------------------------------------------------------
-DELETE FROM npc_vendor
-WHERE type = 1 AND item NOT IN (SELECT ID FROM hotfixes.item);
+-- DELETE FROM npc_vendor
+-- WHERE type = 1 AND item NOT IN (SELECT ID FROM hotfixes.item);
 
 -- ---------------------------------------------------------------------------
 -- 6D-3: Delete vendor entries with invalid ExtendedCost values
