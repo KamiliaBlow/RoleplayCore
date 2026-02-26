@@ -122,7 +122,7 @@ void TransmogOutfitNew::Read()
 
     try
     {
-        _worldPacket >> PlayerGuid;
+        _worldPacket >> Npc;
 
         std::size_t rposAfterGuid = _worldPacket.rpos();
         std::span<uint8 const> remaining(_worldPacket.data() + rposAfterGuid, _worldPacket.size() - rposAfterGuid);
@@ -176,8 +176,8 @@ void TransmogOutfitNew::Read()
         ParseSuccess = true;
         ParseError.clear();
 
-        DiagnosticReadTrace = Trinity::StringFormat("playerGuid={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
-            PlayerGuid.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
+        DiagnosticReadTrace = Trinity::StringFormat("npc={} rposAfterGuid={} middleType={} middleFlags={} iconFileDataId={} name='{}'",
+            Npc.ToString(), rposAfterGuid, MiddleType, MiddleFlags, IconFileDataID, Set.SetName);
 
         TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_NEW diag: {}", DiagnosticReadTrace);
     }
@@ -201,7 +201,7 @@ void TransmogOutfitUpdateInfo::Read()
     try
     {
         _worldPacket >> Set.SetID;
-        _worldPacket >> PlayerGuid;
+        _worldPacket >> Npc;
 
         std::size_t rposAfterGuid = _worldPacket.rpos();
         std::span<uint8 const> remaining(_worldPacket.data() + rposAfterGuid, _worldPacket.size() - rposAfterGuid);
@@ -255,8 +255,8 @@ void TransmogOutfitUpdateInfo::Read()
         ParseSuccess = true;
         ParseError.clear();
 
-        DiagnosticReadTrace = Trinity::StringFormat("setId={} playerGuid={} rposAfterGuid={} middleType={} iconFileDataId={} name='{}'",
-            Set.SetID, PlayerGuid.ToString(), rposAfterGuid, MiddleType, IconFileDataID, Set.SetName);
+        DiagnosticReadTrace = Trinity::StringFormat("setId={} npc={} rposAfterGuid={} middleType={} iconFileDataId={} name='{}'",
+            Set.SetID, Npc.ToString(), rposAfterGuid, MiddleType, IconFileDataID, Set.SetName);
 
         TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO diag: {}", DiagnosticReadTrace);
     }
@@ -282,7 +282,7 @@ void TransmogOutfitUpdateSlots::Read()
 
         uint32 slotCount = 0;
         _worldPacket >> slotCount;
-        _worldPacket >> PlayerGuid;
+        _worldPacket >> Npc;
 
         std::size_t rposAfterGuid = _worldPacket.rpos();
 
@@ -306,8 +306,8 @@ void TransmogOutfitUpdateSlots::Read()
         Set.Type = EquipmentSetInfo::TRANSMOG;
         Set.IgnoreMask = 0;
 
-        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS diag: setId={} slotCount={} playerGuid={} rposAfterGuid={} bytesBeforeSlots={}",
-            Set.SetID, slotCount, PlayerGuid.ToString(), rposAfterGuid, bytesBeforeSlots);
+        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS diag: setId={} slotCount={} npc={} rposAfterGuid={} bytesBeforeSlots={}",
+            Set.SetID, slotCount, Npc.ToString(), rposAfterGuid, bytesBeforeSlots);
 
         for (TransmogOutfitSlotEntry& slot : Slots)
         {
@@ -352,15 +352,15 @@ void TransmogOutfitUpdateSituations::Read()
     try
     {
         _worldPacket >> SetID;
-        _worldPacket >> PlayerGuid;
+        _worldPacket >> Npc;
 
         std::size_t rposAfterGuid = _worldPacket.rpos();
 
         uint32 count = 0;
         _worldPacket >> count;
 
-        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS diag: setId={} playerGuid={} rposAfterGuid={} count={}",
-            SetID, PlayerGuid.ToString(), rposAfterGuid, count);
+        TC_LOG_DEBUG("network.opcode.transmog", "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS diag: setId={} npc={} rposAfterGuid={} count={}",
+            SetID, Npc.ToString(), rposAfterGuid, count);
 
         Situations.resize(count);
         for (TransmogOutfitSituationEntry& entry : Situations)

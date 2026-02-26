@@ -35,14 +35,17 @@ void LogTransmogOutfitOpcodeDebug(WorldSession const* session, char const* opcod
     TC_LOG_DEBUG("network.opcode.transmog", "{} [{}] size={} preview(<=128B)={}", opcodeName, session->GetPlayerInfo(), payloadSize, payloadPreviewHex);
 }
 
-bool ValidateTransmogOutfitPlayerGuid(WorldSession* session, ObjectGuid const& playerGuid, char const* opcodeName)
+bool ValidateTransmogOutfitNpc(WorldSession* session, ObjectGuid const& npcGuid, char const* opcodeName)
 {
-    if (!playerGuid || playerGuid == session->GetPlayer()->GetGUID())
-        return true;
-
-    TC_LOG_ERROR("network.opcode.transmog", "{} rejected [{}]: packet player guid {} does not match session player guid {}",
-        opcodeName, session->GetPlayerInfo(), playerGuid.ToString(), session->GetPlayer()->GetGUID().ToString());
-    return false;
+    // The client sends the transmogrifier NPC GUID, just like CMSG_TRANSMOGRIFY_ITEMS.
+    // Validate the player can interact with this NPC.
+    if (!session->GetPlayer()->GetNPCIfCanInteractWith(npcGuid, UNIT_NPC_FLAG_TRANSMOGRIFIER, UNIT_NPC_FLAG_2_NONE))
+    {
+        TC_LOG_DEBUG("network.opcode.transmog", "{} rejected [{}]: NPC {} not found or player can't interact with it",
+            opcodeName, session->GetPlayerInfo(), npcGuid.ToString());
+        return false;
+    }
+    return true;
 }
 
 uint32 FindNextAvailableTransmogSetID(Player const* player)
@@ -460,7 +463,7 @@ void WorldSession::HandleTransmogOutfitNew(WorldPackets::Transmogrification::Tra
         return;
     }
 
-    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitNew.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_NEW"))
+    if (!ValidateTransmogOutfitNpc(this, transmogOutfitNew.Npc, "CMSG_TRANSMOG_OUTFIT_NEW"))
         return;
 
     EquipmentSetInfo::EquipmentSetData set = transmogOutfitNew.Set;
@@ -496,7 +499,7 @@ void WorldSession::HandleTransmogOutfitUpdateInfo(WorldPackets::Transmogrificati
         return;
     }
 
-    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateInfo.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO"))
+    if (!ValidateTransmogOutfitNpc(this, transmogOutfitUpdateInfo.Npc, "CMSG_TRANSMOG_OUTFIT_UPDATE_INFO"))
         return;
 
     EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateInfo.Set.SetID);
@@ -534,7 +537,7 @@ void WorldSession::HandleTransmogOutfitUpdateSlots(WorldPackets::Transmogrificat
         return;
     }
 
-    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateSlots.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS"))
+    if (!ValidateTransmogOutfitNpc(this, transmogOutfitUpdateSlots.Npc, "CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS"))
         return;
 
     EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateSlots.Set.SetID);
@@ -571,7 +574,7 @@ void WorldSession::HandleTransmogOutfitUpdateSituations(WorldPackets::Transmogri
         return;
     }
 
-    if (!ValidateTransmogOutfitPlayerGuid(this, transmogOutfitUpdateSituations.PlayerGuid, "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS"))
+    if (!ValidateTransmogOutfitNpc(this, transmogOutfitUpdateSituations.Npc, "CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS"))
         return;
 
     EquipmentSetInfo::EquipmentSetData const* existingSet = GetPlayer()->GetTransmogOutfitBySetID(transmogOutfitUpdateSituations.SetID);

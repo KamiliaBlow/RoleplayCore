@@ -78,7 +78,7 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-            ObjectGuid PlayerGuid;
+            ObjectGuid Npc;
             uint8 MiddleType = 0;
             uint8 MiddleFlags = 0;
             uint32 IconFileDataID = 0;
@@ -97,7 +97,7 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-            ObjectGuid PlayerGuid;
+            ObjectGuid Npc;
             uint8 MiddleType = 0;
             uint8 MiddleFlags = 0;
             uint32 IconFileDataID = 0;
@@ -116,7 +116,7 @@ namespace WorldPackets
             void Read() override;
 
             EquipmentSetInfo::EquipmentSetData Set;
-            ObjectGuid PlayerGuid;
+            ObjectGuid Npc;
             std::vector<TransmogOutfitSlotEntry> Slots;
             bool ParseSuccess = true;
             std::string ParseError;
@@ -132,7 +132,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            ObjectGuid PlayerGuid;
+            ObjectGuid Npc;
             uint32 SetID = 0;
             std::vector<TransmogOutfitSituationEntry> Situations;
             bool ParseSuccess = true;
