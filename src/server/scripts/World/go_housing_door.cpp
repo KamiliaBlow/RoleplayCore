@@ -28,15 +28,22 @@
 #include "Player.h"
 #include "SocialMgr.h"
 
-enum
+namespace
 {
-    HOUSING_DOOR_ENTRY = 602702
-};
+    constexpr uint32 HOUSING_DOOR_ENTRY    = 602702;
+    constexpr uint32 HOUSE_INTERIOR_MAP_ID = 2783;     // "Home Interior" — InstanceType 7 (MAP_HOUSE_INTERIOR)
+
+    // Interior spawn position from NeighborhoodMap ID=7 (sniff-confirmed)
+    constexpr float INTERIOR_SPAWN_X = -1000.0f;
+    constexpr float INTERIOR_SPAWN_Y = -1000.0f;
+    constexpr float INTERIOR_SPAWN_Z = 0.1f;
+    constexpr float INTERIOR_SPAWN_O = 0.0f;
+}
 
 // Script for the housing front door GO (entry 602702).
-// When a player clicks the door, teleport them to the house interior
-// using the TeleportPosition from the NeighborhoodPlot DB2 data.
-// The interior is a WMO interior within the same neighborhood map.
+// When a player clicks the door, teleport them to the house interior map (MapID 2783).
+// The interior is a separate instanced map per player (MAP_HOUSE_INTERIOR = 7),
+// NOT a position within the neighborhood map.
 class go_housing_door : public GameObjectScript
 {
 public:
@@ -64,7 +71,7 @@ public:
                 return true;
             }
 
-            // Get the plot's teleport position from DB2 data
+            // Get the plot's data from DB2
             Neighborhood* neighborhood = housingMap->GetNeighborhood();
             if (!neighborhood)
                 return true;
@@ -89,16 +96,6 @@ public:
                 return true;
             }
 
-            // Validate teleport position is non-zero
-            if (plotData->TeleportPosition[0] == 0.0f &&
-                plotData->TeleportPosition[1] == 0.0f &&
-                plotData->TeleportPosition[2] == 0.0f)
-            {
-                TC_LOG_ERROR("housing", "go_housing_door: TeleportPosition is (0,0,0) for plot {} - "
-                    "DB2 data may not be populated", plotIndex);
-                return true;
-            }
-
             // Check visitor access permissions if this isn't the player's own plot
             Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(plotIndex));
             if (plotInfo && plotInfo->OwnerGuid != player->GetGUID())
@@ -120,41 +117,16 @@ public:
             // Animate the door
             me->UseDoorOrButton();
 
-            Housing* housing = player->GetHousing();
+            // Teleport player to the house interior map (Map 2783).
+            // This triggers a full map transfer with loading screen, just like entering a dungeon.
+            // The HouseInteriorMap::AddPlayerToMap() callback will send
+            // SMSG_HOUSE_INTERIOR_ENTER_HOUSE and set the interior state.
+            player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
+                INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
 
-            // Send SMSG_HOUSE_INTERIOR_ENTER_HOUSE to trigger client interior transition
-            if (housing)
-            {
-                housing->SetInInterior(true);
-
-                WorldPackets::Housing::HouseInteriorEnterHouse enterHouse;
-                enterHouse.HouseGuid = housing->GetHouseGuid();
-                player->SendDirectMessage(enterHouse.Write());
-            }
-
-            // Teleport player to the interior entry point (same map, different position)
-            player->NearTeleportTo(
-                plotData->TeleportPosition[0],
-                plotData->TeleportPosition[1],
-                plotData->TeleportPosition[2],
-                plotData->TeleportFacing);
-
-            // Send house status response to update client context
-            if (housing)
-            {
-                WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
-                statusResponse.HouseGuid = housing->GetHouseGuid();
-                statusResponse.PlotGuid = housing->GetPlotGuid();
-                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
-                statusResponse.Status = 1; // Interior
-                player->SendDirectMessage(statusResponse.Write());
-            }
-
-            TC_LOG_INFO("housing", "go_housing_door: Player {} entered house interior at plot {} "
-                "teleport=({:.1f}, {:.1f}, {:.1f}, {:.2f})",
-                player->GetGUID().ToString(), plotIndex,
-                plotData->TeleportPosition[0], plotData->TeleportPosition[1],
-                plotData->TeleportPosition[2], plotData->TeleportFacing);
+            TC_LOG_INFO("housing", "go_housing_door: Player {} entering house interior map {} from plot {} "
+                "neighborhoodMap={}",
+                player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex, neighborhoodMapId);
 
             return true;
         }

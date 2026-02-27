@@ -28,20 +28,20 @@
 namespace WorldPackets::Housing
 {
     // ============================================================
-    // Shared JAM Structs (verified against IDA 12.0 deserializers)
+    // Shared Structs
     // ============================================================
 
-    // JamCurrentHouseInfo — sub_7FF6F6E0A170 (80 bytes, used by 0x550001, 0x5C0008, 0x5C0009)
-    // Wire order: PackedGUID + PackedGUID + PackedGUID + uint8 + uint32 + uint8(bit7=has_optional) + [optional uint64]
-    struct JamCurrentHouseInfo
+    // HouseInfo — Wire order: PackedGUID HouseGuid + PackedGUID OwnerGuid + PackedGUID NeighborhoodGuid
+    //   + uint8 PlotId + uint32 AccessFlags + Bits<1>(HasMoveOutTime) + [optional Timestamp MoveOutTime]
+    struct HouseInfo
     {
+        ObjectGuid HouseGuid;
         ObjectGuid OwnerGuid;
-        ObjectGuid SecondaryOwnerGuid;
-        ObjectGuid PlotGuid;
-        uint8 Flags = 0;
-        uint32 HouseTypeId = 0;
-        uint8 StatusFlags = 0;     // bit 7 = has optional HouseId
-        Optional<uint64> HouseId;
+        ObjectGuid NeighborhoodGuid;
+        uint8 PlotId = 0;
+        uint32 AccessFlags = 0;
+        bool HasMoveOutTime = false;
+        Timestamp<> MoveOutTime = Timestamp<>(0);
     };
 
     // JamNeighborhoodRosterEntry — sub_7FF6F6E0A460 (48 bytes, used by 0x5C000E, 0x5C000F)
@@ -143,17 +143,14 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid DecorGuid;
-        float PositionX = 0.0f;
-        float PositionY = 0.0f;
-        float PositionZ = 0.0f;
-        float Yaw = 0.0f;          // Euler angle (radians), NOT quaternion
-        float Pitch = 0.0f;
-        float Roll = 0.0f;
+        TaggedPosition<Position::XYZ> Position;
+        TaggedPosition<Position::XYZ> Rotation;
         float Scale = 1.0f;
-        ObjectGuid RoomGuid;
         ObjectGuid AttachParentGuid;
-        ObjectGuid FixtureGuid;
-        uint32 DecorRecID = 0;
+        ObjectGuid RoomGuid;
+        uint8 Field_61 = 0;
+        uint8 Field_62 = 0;
+        int32 Field_63 = -1;
     };
 
     class HousingDecorMove final : public ClientPacket
@@ -164,20 +161,16 @@ namespace WorldPackets::Housing
         void Read() override;
 
         ObjectGuid DecorGuid;
-        float PositionX = 0.0f;
-        float PositionY = 0.0f;
-        float PositionZ = 0.0f;
-        float RotationX = 0.0f;
-        float RotationY = 0.0f;
-        float RotationZ = 0.0f;
-        float RotationW = 1.0f;
-        ObjectGuid RoomGuid;
-        ObjectGuid FixtureGuid;
+        TaggedPosition<Position::XYZ> Position;
+        TaggedPosition<Position::XYZ> Rotation;
+        float Scale = 1.0f;
         ObjectGuid AttachParentGuid;
-        uint32 DecorRecID = 0;
-        bool AttachToParent = false;
-        uint8 Flags = 0;
+        ObjectGuid RoomGuid;
+        ObjectGuid Field_70;
+        int32 Field_80 = 0;
+        uint8 Field_85 = 0;
         uint8 Field_86 = 0;
+        bool IsBasicMove = false;
     };
 
     class HousingDecorRemove final : public ClientPacket
@@ -199,7 +192,6 @@ namespace WorldPackets::Housing
 
         ObjectGuid DecorGuid;
         bool Locked = false;
-        bool AnchorLocked = false;
     };
 
     class HousingDecorSetDyeSlots final : public ClientPacket
@@ -252,6 +244,27 @@ namespace WorldPackets::Housing
 
         uint32 DeferredDecorID = 0;
         uint32 RedemptionToken = 0;
+    };
+
+    class HousingDecorStartPlacingNewDecor final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorStartPlacingNewDecor(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR, std::move(packet)) { }
+
+        void Read() override;
+
+        uint32 CatalogEntryID = 0;
+        uint32 Field_4 = 0;
+    };
+
+    class HousingDecorCatalogCreateSearcher final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorCatalogCreateSearcher(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER, std::move(packet)) { }
+
+        void Read() override;
+
+        ObjectGuid Owner;
     };
 
     // ============================================================
@@ -630,6 +643,17 @@ namespace WorldPackets::Housing
         void Read() override { }
     };
 
+    class HousingRequestEditorAvailability final : public ClientPacket
+    {
+    public:
+        explicit HousingRequestEditorAvailability(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_REQUEST_EDITOR_AVAILABILITY, std::move(packet)) { }
+
+        void Read() override;
+
+        uint8 Field_0 = 0;
+        ObjectGuid HouseGuid;
+    };
+
     class HousingGetPlayerPermissions final : public ClientPacket
     {
     public:
@@ -737,8 +761,8 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
 
         ObjectGuid NeighborhoodGuid;
-        bool Allow = false;
-        std::string Name;
+        bool Result = true;
+        std::string NeighborhoodName;
     };
 
     class InvalidateNeighborhoodName final : public ServerPacket
@@ -784,15 +808,13 @@ namespace WorldPackets::Housing
         HousingDecorSetEditModeResponse() : ServerPacket(SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
 
-        // IDA+sniff-verified wire format (29 bytes entering with 1 decor, 20 bytes exiting):
-        //   PackedGUID HouseGuid + PackedGUID HouseGuid2 + uint32 DecorCount + uint8 Result
-        //   + DecorCount × PackedGUID DecorGUIDs
-        // Client enter/exit decision: searches DecorGUIDs for an internal GUID.
-        // If found → enter edit mode. If not found (or empty) → exit edit mode.
+        // Wire format (verified against working implementation):
+        //   PackedGUID HouseGuid + PackedGUID BNetAccountGuid
+        //   + uint32 AllowedEditor.size() + uint8 Result + [PackedGUID AllowedEditors...]
         ObjectGuid HouseGuid;
-        ObjectGuid HouseGuid2;
-        std::vector<ObjectGuid> DecorGuids;
+        ObjectGuid BNetAccountGuid;
         uint8 Result = 0;
+        std::vector<ObjectGuid> AllowedEditor;
     };
 
     class HousingDecorMoveResponse final : public ServerPacket
@@ -800,8 +822,12 @@ namespace WorldPackets::Housing
     public:
         HousingDecorMoveResponse() : ServerPacket(SMSG_HOUSING_DECOR_MOVE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        // Wire format: PackedGUID PlayerGUID + uint32 Field_09 + PackedGUID DecorGUID + uint8 Result + uint8 Field_26
+        ObjectGuid PlayerGuid;
+        uint32 Field_09 = 0;
         ObjectGuid DecorGuid;
+        uint8 Result = 0;
+        uint8 Field_26 = 0;
     };
 
     class HousingDecorPlaceResponse final : public ServerPacket
@@ -809,11 +835,11 @@ namespace WorldPackets::Housing
     public:
         HousingDecorPlaceResponse() : ServerPacket(SMSG_HOUSING_DECOR_PLACE_RESPONSE) { }
         WorldPacket const* Write() override;
-        // Sniff-verified wire format (26 bytes): PackedGUID PlayerGuid + uint32 Result + PackedGUID DecorGuid + uint8 Status
+        // Wire format: PackedGUID PlayerGuid + uint32 Field_09 + PackedGUID DecorGuid + uint8 Result
         ObjectGuid PlayerGuid;
-        uint32 Result = 0;
+        uint32 Field_09 = 0;
         ObjectGuid DecorGuid;
-        uint8 Status = 0;
+        uint8 Result = 0;
     };
 
     class HousingDecorRemoveResponse final : public ServerPacket
@@ -821,8 +847,10 @@ namespace WorldPackets::Housing
     public:
         HousingDecorRemoveResponse() : ServerPacket(SMSG_HOUSING_DECOR_REMOVE_RESPONSE) { }
         WorldPacket const* Write() override;
-        // Sniff-verified wire format (19 bytes): PackedGUID DecorGuid + 7 zero bytes on success
+        // Wire format: PackedGUID DecorGUID + PackedGUID UnkGUID + uint32 Field_13 + uint8 Result
         ObjectGuid DecorGuid;
+        ObjectGuid UnkGUID;
+        uint32 Field_13 = 0;
         uint8 Result = 0;
     };
 
@@ -831,11 +859,14 @@ namespace WorldPackets::Housing
     public:
         HousingDecorLockResponse() : ServerPacket(SMSG_HOUSING_DECOR_LOCK_RESPONSE) { }
         WorldPacket const* Write() override;
-        // Sniff-verified wire format (27 bytes): PackedGUID DecorGuid + PackedGUID PlayerGuid + uint8 LockState
-        // LockState: 0xC0 = lock acquired, 0x40 = lock released
+        // Wire format: PackedGUID DecorGUID + PackedGUID PlayerGUID + uint32 Field_16
+        //   + uint8 Result + Bits<1> Locked + Bits<1> Field_17 + FlushBits
         ObjectGuid DecorGuid;
         ObjectGuid PlayerGuid;
-        uint8 LockState = 0;
+        uint32 Field_16 = 0;
+        uint8 Result = 0;
+        bool Locked = false;
+        bool Field_17 = true;
     };
 
     class HousingDecorDeleteFromStorageResponse final : public ServerPacket
@@ -877,8 +908,9 @@ namespace WorldPackets::Housing
     public:
         HousingDecorSystemSetDyeSlotsResponse() : ServerPacket(SMSG_HOUSING_DECOR_SYSTEM_SET_DYE_SLOTS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        // Wire format: PackedGUID DecorGUID + uint8 Result
         ObjectGuid DecorGuid;
+        uint8 Result = 0;
     };
 
     class HousingRedeemDeferredDecorResponse final : public ServerPacket
@@ -889,6 +921,25 @@ namespace WorldPackets::Housing
         ObjectGuid DecorGuid;       // Sniff: PackedGUID — the new decor item's GUID (client uses for placement)
         uint8 Result = 0;           // Sniff: uint8 Status (0 = success)
         uint32 SequenceIndex = 0;   // Sniff: uint32 — echoes CMSG RedemptionToken
+    };
+
+    class HousingDecorStartPlacingNewDecorResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorStartPlacingNewDecorResponse() : ServerPacket(SMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR_RESPONSE) { }
+        WorldPacket const* Write() override;
+        ObjectGuid DecorGuid;
+        uint8 Result = 0;
+        uint32 Field_13 = 0;
+    };
+
+    class HousingDecorCatalogCreateSearcherResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorCatalogCreateSearcherResponse() : ServerPacket(SMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER_RESPONSE) { }
+        WorldPacket const* Write() override;
+        ObjectGuid Owner;
+        uint8 Result = 0;
     };
 
     class HousingFirstTimeDecorAcquisition final : public ServerPacket
@@ -1130,10 +1181,9 @@ namespace WorldPackets::Housing
         HousingSvcsGetPlayerHousesInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
 
-        // Wire format (sniff-verified): uint32 Count + uint8 Unknown + JamCurrentHouseInfo per house
-        // JamCurrentHouseInfo fields mapped to: HouseGuid, PlotGuid, NeighborhoodGuid, PlotIndex, HouseType, StatusFlags+Timestamp
-        std::vector<JamCurrentHouseInfo> Houses;
-        uint8 Unknown = 0;
+        // Wire format: uint32 Count + uint8 Result + [FlushBits + HouseInfo per house]
+        std::vector<HouseInfo> Houses;
+        uint8 Result = 0;
     };
 
     class HousingSvcsPlayerViewHousesResponse final : public ServerPacket
@@ -1376,10 +1426,9 @@ namespace WorldPackets::Housing
         HousingGetCurrentHouseInfoResponse() : ServerPacket(SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
 
-        // Wire format (IDA 12.0 verified, 0x550001):
-        // JamCurrentHouseInfo + uint8 ResponseFlags
-        JamCurrentHouseInfo HouseInfo;
-        uint8 ResponseFlags = 0;
+        // Wire format: HouseInfo + uint8 Result
+        HouseInfo House;
+        uint8 Result = 0;
     };
 
     class HousingExportHouseResponse final : public ServerPacket
@@ -1411,6 +1460,27 @@ namespace WorldPackets::Housing
         HousingResetKioskModeResponse() : ServerPacket(SMSG_HOUSING_RESET_KIOSK_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
         uint8 Result = 0;  // IDA 12.0 verified (0x550007): single uint8
+    };
+
+    class HousingEditorAvailabilityResponse final : public ServerPacket
+    {
+    public:
+        HousingEditorAvailabilityResponse() : ServerPacket(SMSG_HOUSING_EDITOR_AVAILABILITY_RESPONSE) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+        uint8 Result = 0;
+        uint8 Field_09 = 0;
+    };
+
+    class HousingUpdateHouseInfo final : public ServerPacket
+    {
+    public:
+        HousingUpdateHouseInfo() : ServerPacket(SMSG_HOUSING_UPDATE_HOUSE_INFO) { }
+        WorldPacket const* Write() override;
+        ObjectGuid HouseGuid;
+        ObjectGuid BnetAccountGuid;
+        ObjectGuid OwnerGuid;
+        uint32 Field_024 = 0;
     };
 
     // ============================================================
@@ -1984,8 +2054,8 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodBuyHouseResponse() : ServerPacket(SMSG_NEIGHBORHOOD_BUY_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        // IDA 12.0 verified (0x5C0008): JamCurrentHouseInfo + uint8 Result
-        Housing::JamCurrentHouseInfo HouseInfo;
+        // Wire format: HouseInfo + uint8 Result
+        Housing::HouseInfo House;
         uint8 Result = 0;
     };
 
@@ -1994,8 +2064,8 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodMoveHouseResponse() : ServerPacket(SMSG_NEIGHBORHOOD_MOVE_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        // IDA 12.0 verified (0x5C0009): JamCurrentHouseInfo + PackedGUID + uint8 Result
-        Housing::JamCurrentHouseInfo HouseInfo;
+        // Wire format: HouseInfo + PackedGUID + uint8 Result
+        Housing::HouseInfo House;
         ObjectGuid MoveTransactionGuid;
         uint8 Result = 0;
     };

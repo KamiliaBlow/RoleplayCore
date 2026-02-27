@@ -25,6 +25,8 @@
 #include "DB2Stores.h"
 #include "GarrisonMap.h"
 #include "Group.h"
+#include "HouseInteriorMap.h"
+#include "Housing.h"
 #include "HousingMap.h"
 #include "HousingMgr.h"
 #include "InstanceLockMgr.h"
@@ -177,6 +179,40 @@ HousingMap* MapManager::CreateHousing(uint32 mapId, uint32 instanceId, uint32 ne
     return map;
 }
 
+HouseInteriorMap* MapManager::CreateHouseInterior(uint32 mapId, uint32 instanceId, Player* owner)
+{
+    HouseInteriorMap* map = new HouseInteriorMap(mapId, i_gridCleanUpDelay, instanceId, owner->GetGUID());
+    map->InitSpawnGroupState();
+
+    // Store the source neighborhood info for exit teleport.
+    // The player is currently on a neighborhood map (world map ID like 2735/2736)
+    // and we need to remember it so we can send them back when they leave.
+    if (Housing* housing = owner->GetHousing())
+    {
+        uint32 sourceWorldMapId = 0;
+
+        // Best approach: the player is currently on the neighborhood map
+        if (owner->GetMap() && owner->GetMap()->GetEntry()->IsNeighborhood())
+            sourceWorldMapId = owner->GetMapId();
+
+        // Fallback: resolve from the neighborhood GUID
+        if (sourceWorldMapId == 0)
+        {
+            uint32 neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(owner->GetMapId());
+            if (neighborhoodMapId)
+                sourceWorldMapId = owner->GetMapId();
+        }
+
+        map->SetSourceNeighborhoodMapId(sourceWorldMapId);
+        map->SetSourcePlotIndex(housing->GetPlotIndex());
+    }
+
+    TC_LOG_DEBUG("housing", "MapManager::CreateHouseInterior: Created interior map {} instanceId {} for owner {}",
+        mapId, instanceId, owner->GetGUID().ToString());
+
+    return map;
+}
+
 /*
 - return the right instance for the object, based on its InstanceId
 - create the instance if it's not created already
@@ -271,6 +307,15 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
         map = FindMap_i(mapId, newInstanceId);
         if (!map)
             map = CreateGarrison(mapId, newInstanceId, player);
+    }
+    else if (entry->IsHouseInterior())
+    {
+        // House interior: per-player instanced map (like garrisons).
+        // Instance ID = player's GUID counter so each player gets their own interior.
+        newInstanceId = player->GetGUID().GetCounter();
+        map = FindMap_i(mapId, newInstanceId);
+        if (!map)
+            map = CreateHouseInterior(mapId, newInstanceId, player);
     }
     else if (entry->IsNeighborhood())
     {

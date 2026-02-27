@@ -52,43 +52,38 @@ void HousingDecorSetEditMode::Read()
 void HousingDecorPlace::Read()
 {
     _worldPacket >> DecorGuid;
-    _worldPacket >> PositionX;
-    _worldPacket >> PositionY;
-    _worldPacket >> PositionZ;
-    _worldPacket >> Yaw;
-    _worldPacket >> Pitch;
-    _worldPacket >> Roll;
+    _worldPacket >> Position;
+    _worldPacket >> Rotation;
     _worldPacket >> Scale;
-    _worldPacket >> RoomGuid;
     _worldPacket >> AttachParentGuid;
-    _worldPacket >> FixtureGuid;
-    _worldPacket >> DecorRecID;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> Field_61;
+    _worldPacket >> Field_62;
+    _worldPacket >> Field_63;
 
-    TC_LOG_INFO("network.opcode", "CMSG_HOUSING_DECOR_PLACE DecorGuid: {} Pos: ({}, {}, {}) Yaw: {} Pitch: {} Roll: {} Scale: {} RoomGuid: {} AttachParent: {} FixtureGuid: {} DecorRecID: {} (pktSize={})",
-        DecorGuid.ToString(), PositionX, PositionY, PositionZ, Yaw, Pitch, Roll, Scale,
-        RoomGuid.ToString(), AttachParentGuid.ToString(), FixtureGuid.ToString(), DecorRecID, _worldPacket.size());
+    TC_LOG_INFO("network.opcode", "CMSG_HOUSING_DECOR_PLACE DecorGuid: {} Pos: ({}, {}, {}) Rot: ({}, {}, {}) Scale: {} AttachParent: {} RoomGuid: {} Field_61: {} Field_62: {} Field_63: {}",
+        DecorGuid.ToString(), Position.Pos.GetPositionX(), Position.Pos.GetPositionY(), Position.Pos.GetPositionZ(),
+        Rotation.Pos.GetPositionX(), Rotation.Pos.GetPositionY(), Rotation.Pos.GetPositionZ(), Scale,
+        AttachParentGuid.ToString(), RoomGuid.ToString(), Field_61, Field_62, Field_63);
 }
 
 void HousingDecorMove::Read()
 {
     _worldPacket >> DecorGuid;
-    _worldPacket >> PositionX;
-    _worldPacket >> PositionY;
-    _worldPacket >> PositionZ;
-    _worldPacket >> RotationX;
-    _worldPacket >> RotationY;
-    _worldPacket >> RotationZ;
-    _worldPacket >> RotationW;
-    _worldPacket >> RoomGuid;
-    _worldPacket >> FixtureGuid;
+    _worldPacket >> Position;
+    _worldPacket >> Rotation;
+    _worldPacket >> Scale;
     _worldPacket >> AttachParentGuid;
-    _worldPacket >> DecorRecID;
-    _worldPacket >> Flags;
+    _worldPacket >> RoomGuid;
+    _worldPacket >> Field_70;
+    _worldPacket >> Field_80;
+    _worldPacket >> Field_85;
     _worldPacket >> Field_86;
-    _worldPacket >> Bits<1>(AttachToParent);
+    _worldPacket >> Bits<1>(IsBasicMove);
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_MOVE DecorGuid: {} Pos: ({}, {}, {}) Flags: {} AttachToParent: {} DecorRecID: {}",
-        DecorGuid.ToString(), PositionX, PositionY, PositionZ, Flags, AttachToParent, DecorRecID);
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_MOVE DecorGuid: {} Pos: ({}, {}, {}) Rot: ({}, {}, {}) Scale: {} IsBasicMove: {}",
+        DecorGuid.ToString(), Position.Pos.GetPositionX(), Position.Pos.GetPositionY(), Position.Pos.GetPositionZ(),
+        Rotation.Pos.GetPositionX(), Rotation.Pos.GetPositionY(), Rotation.Pos.GetPositionZ(), Scale, IsBasicMove);
 }
 
 void HousingDecorRemove::Read()
@@ -102,9 +97,8 @@ void HousingDecorLock::Read()
 {
     _worldPacket >> DecorGuid;
     _worldPacket >> Bits<1>(Locked);
-    _worldPacket >> Bits<1>(AnchorLocked);
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_LOCK DecorGuid: {} Locked: {} AnchorLocked: {}", DecorGuid.ToString(), Locked, AnchorLocked);
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_LOCK DecorGuid: {} Locked: {}", DecorGuid.ToString(), Locked);
 }
 
 void HousingDecorSetDyeSlots::Read()
@@ -148,6 +142,21 @@ void HousingDecorRedeemDeferredDecor::Read()
     _worldPacket >> RedemptionToken;
 
     TC_LOG_INFO("network.opcode", "CMSG_HOUSING_DECOR_REDEEM_DEFERRED DeferredDecorID: {} RedemptionToken: {} (pktSize={})", DeferredDecorID, RedemptionToken, _worldPacket.size());
+}
+
+void HousingDecorStartPlacingNewDecor::Read()
+{
+    _worldPacket >> CatalogEntryID;
+    _worldPacket >> Field_4;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR CatalogEntryID: {} Field_4: {}", CatalogEntryID, Field_4);
+}
+
+void HousingDecorCatalogCreateSearcher::Read()
+{
+    _worldPacket >> Owner;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER Owner: {}", Owner.ToString());
 }
 
 // --- Fixture System ---
@@ -407,6 +416,14 @@ void HousingSvcsGetBnetFriendNeighborhoods::Read()
 // --- Housing Misc ---
 // HousingGetCurrentHouseInfo::Read() and HousingHouseStatus::Read() are empty (inline in header)
 
+void HousingRequestEditorAvailability::Read()
+{
+    _worldPacket >> Field_0;
+    _worldPacket >> HouseGuid;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_REQUEST_EDITOR_AVAILABILITY Field_0: {} HouseGuid: {}", Field_0, HouseGuid.ToString());
+}
+
 void HousingGetPlayerPermissions::Read()
 {
     _worldPacket >> OptionalInit(HouseGuid);
@@ -460,19 +477,16 @@ void GuildGetOthersOwnedHouses::Read()
 
 WorldPacket const* QueryNeighborhoodNameResponse::Write()
 {
-    // Wire format verified against retail 12.0.1 build 65940 (opcode 0x460012)
     _worldPacket << NeighborhoodGuid;
-    _worldPacket << Bits<1>(Allow);
-    _worldPacket.FlushBits();
-
-    if (Allow)
+    _worldPacket << uint8(Result ? 128 : 0);
+    if (Result)
     {
-        _worldPacket << uint8(Name.size());
-        _worldPacket.WriteString(Name);
+        _worldPacket << SizedString::BitsSize<8>(NeighborhoodName);
+        _worldPacket << SizedString::Data(NeighborhoodName);
     }
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_QUERY_NEIGHBORHOOD_NAME_RESPONSE NeighborhoodGuid: {} Allow: {} Name: '{}'",
-        NeighborhoodGuid.ToString(), Allow, Name);
+    TC_LOG_DEBUG("network.opcode", "SMSG_QUERY_NEIGHBORHOOD_NAME_RESPONSE NeighborhoodGuid: {} Result: {} Name: '{}'",
+        NeighborhoodGuid.ToString(), Result, NeighborhoodName);
 
     return &_worldPacket;
 }
@@ -541,50 +555,54 @@ WorldPacket const* HouseInteriorLeaveHouseResponse::Write()
 WorldPacket const* HousingDecorSetEditModeResponse::Write()
 {
     _worldPacket << HouseGuid;
-    _worldPacket << HouseGuid2;
-    _worldPacket << uint32(DecorGuids.size());
+    _worldPacket << BNetAccountGuid;
+    _worldPacket << uint32(AllowedEditor.size());
     _worldPacket << uint8(Result);
-    for (ObjectGuid const& guid : DecorGuids)
+
+    for (ObjectGuid const& guid : AllowedEditor)
         _worldPacket << guid;
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE Result: {} HouseGuid: {} DecorCount: {}",
-        Result, HouseGuid.ToString(), uint32(DecorGuids.size()));
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE Result: {} HouseGuid: {} AllowedEditors: {}",
+        Result, HouseGuid.ToString(), uint32(AllowedEditor.size()));
 
     return &_worldPacket;
 }
 
 WorldPacket const* HousingDecorMoveResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    _worldPacket << PlayerGuid;
+    _worldPacket << uint32(Field_09);
     _worldPacket << DecorGuid;
+    _worldPacket << uint8(Result);
+    _worldPacket << uint8(Field_26);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_MOVE_RESPONSE Result: {} DecorGuid: {}", Result, DecorGuid.ToString());
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_MOVE_RESPONSE Result: {} PlayerGuid: {} DecorGuid: {}",
+        Result, PlayerGuid.ToString(), DecorGuid.ToString());
 
     return &_worldPacket;
 }
 
 WorldPacket const* HousingDecorPlaceResponse::Write()
 {
-    // Sniff-verified wire format (26 bytes): PackedGUID PlayerGuid + uint32 Result + PackedGUID DecorGuid + uint8 Status
+    // Wire format: PackedGUID PlayerGuid + uint32 Field_09 + PackedGUID DecorGuid + uint8 Result
     _worldPacket << PlayerGuid;
-    _worldPacket << uint32(Result);
+    _worldPacket << uint32(Field_09);
     _worldPacket << DecorGuid;
-    _worldPacket << uint8(Status);
+    _worldPacket << uint8(Result);
 
-    TC_LOG_INFO("network.opcode", "SMSG_HOUSING_DECOR_PLACE_RESPONSE PlayerGuid: {} Result: {} DecorGuid: {} Status: {}",
-        PlayerGuid.ToString(), Result, DecorGuid.ToString(), Status);
+    TC_LOG_INFO("network.opcode", "SMSG_HOUSING_DECOR_PLACE_RESPONSE PlayerGuid: {} Result: {} DecorGuid: {} Field_09: {}",
+        PlayerGuid.ToString(), Result, DecorGuid.ToString(), Field_09);
 
     return &_worldPacket;
 }
 
 WorldPacket const* HousingDecorRemoveResponse::Write()
 {
-    // Sniff-verified wire format: PackedGUID DecorGuid + 7 zero bytes on success
-    // Breakdown: DecorGuid + uint8 Result + uint32 unknown(=0) + uint16 unknown(=0)
+    // Wire format: PackedGUID DecorGUID + PackedGUID UnkGUID + uint32 Field_13 + uint8 Result
     _worldPacket << DecorGuid;
+    _worldPacket << UnkGUID;
+    _worldPacket << uint32(Field_13);
     _worldPacket << uint8(Result);
-    _worldPacket << uint32(0);
-    _worldPacket << uint16(0);
 
     TC_LOG_INFO("network.opcode", "SMSG_HOUSING_DECOR_REMOVE_RESPONSE DecorGuid: {} Result: {}",
         DecorGuid.ToString(), Result);
@@ -594,14 +612,18 @@ WorldPacket const* HousingDecorRemoveResponse::Write()
 
 WorldPacket const* HousingDecorLockResponse::Write()
 {
-    // Sniff-verified wire format: PackedGUID DecorGuid + PackedGUID PlayerGuid + uint8 LockState
-    // LockState: 0xC0 = lock acquired, 0x40 = lock released
+    // Wire format: PackedGUID DecorGUID + PackedGUID PlayerGUID + uint32 Field_16
+    //   + uint8 Result + Bits<1> Locked + Bits<1> Field_17 + FlushBits
     _worldPacket << DecorGuid;
     _worldPacket << PlayerGuid;
-    _worldPacket << uint8(LockState);
+    _worldPacket << uint32(Field_16);
+    _worldPacket << uint8(Result);
+    _worldPacket.WriteBit(Locked);
+    _worldPacket.WriteBit(Field_17);
+    _worldPacket.FlushBits();
 
-    TC_LOG_INFO("network.opcode", "SMSG_HOUSING_DECOR_LOCK_RESPONSE DecorGuid: {} PlayerGuid: {} LockState: 0x{:02X}",
-        DecorGuid.ToString(), PlayerGuid.ToString(), LockState);
+    TC_LOG_INFO("network.opcode", "SMSG_HOUSING_DECOR_LOCK_RESPONSE DecorGuid: {} PlayerGuid: {} Result: {} Locked: {}",
+        DecorGuid.ToString(), PlayerGuid.ToString(), Result, Locked);
 
     return &_worldPacket;
 }
@@ -642,8 +664,9 @@ WorldPacket const* HousingDecorAddToHouseChestResponse::Write()
 
 WorldPacket const* HousingDecorSystemSetDyeSlotsResponse::Write()
 {
-    _worldPacket << uint32(Result);
+    // Wire format: PackedGUID DecorGUID + uint8 Result
     _worldPacket << DecorGuid;
+    _worldPacket << uint8(Result);
 
     TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_SET_DYE_SLOTS_RESPONSE Result: {} DecorGuid: {}", Result, DecorGuid.ToString());
 
@@ -668,6 +691,29 @@ WorldPacket const* HousingFirstTimeDecorAcquisition::Write()
     _worldPacket << uint32(DecorEntryID);
 
     TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_FIRST_TIME_DECOR_ACQUISITION DecorEntryID: {}", DecorEntryID);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingDecorStartPlacingNewDecorResponse::Write()
+{
+    _worldPacket << DecorGuid;
+    _worldPacket << uint8(Result);
+    _worldPacket << Field_13;
+
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR_RESPONSE DecorGuid: {} Result: {} Field_13: {}",
+        DecorGuid.ToString(), Result, Field_13);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingDecorCatalogCreateSearcherResponse::Write()
+{
+    _worldPacket << Owner;
+    _worldPacket << uint8(Result);
+
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER_RESPONSE Owner: {} Result: {}",
+        Owner.ToString(), Result);
 
     return &_worldPacket;
 }
@@ -928,16 +974,30 @@ WorldPacket const* HousingSvcsCancelRelinquishHouseResponse::Write()
     return &_worldPacket;
 }
 
-static void WriteJamCurrentHouseInfo(WorldPacket& packet, JamCurrentHouseInfo const& info);
+ByteBuffer& operator<<(ByteBuffer& data, HouseInfo const& houseInfo)
+{
+    data << houseInfo.HouseGuid;
+    data << houseInfo.OwnerGuid;
+    data << houseInfo.NeighborhoodGuid;
+    data << houseInfo.PlotId;
+    data << houseInfo.AccessFlags;
+    data << Bits<1>(houseInfo.HasMoveOutTime);
+    if (houseInfo.HasMoveOutTime)
+        data << houseInfo.MoveOutTime;
+    return data;
+}
 
 WorldPacket const* HousingSvcsGetPlayerHousesInfoResponse::Write()
 {
-    _worldPacket << uint32(Houses.size());
-    _worldPacket << uint8(Unknown);
-    for (auto const& house : Houses)
-        WriteJamCurrentHouseInfo(_worldPacket, house);
+    _worldPacket << Size<uint32>(Houses);
+    _worldPacket << uint8(Result);
+    for (HouseInfo const& houseInfo : Houses)
+    {
+        _worldPacket.FlushBits();
+        _worldPacket << houseInfo;
+    }
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_RESPONSE HouseCount: {} Unknown: {}", Houses.size(), Unknown);
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_RESPONSE HouseCount: {} Result: {}", Houses.size(), Result);
 
     return &_worldPacket;
 }
@@ -1200,22 +1260,6 @@ WorldPacket const* HousingSvcsDeleteAllNeighborhoodInvitesResponse::Write()
 // Housing General SMSG Responses (0x55xxxx)
 // ============================================================
 
-// Helper: Write JamCurrentHouseInfo struct to packet (IDA sub_7FF6F6E0A170)
-static void WriteJamCurrentHouseInfo(WorldPacket& packet, JamCurrentHouseInfo const& info)
-{
-    packet << info.OwnerGuid;
-    packet << info.SecondaryOwnerGuid;
-    packet << info.PlotGuid;
-    packet << uint8(info.Flags);
-    packet << uint32(info.HouseTypeId);
-    uint8 statusFlags = info.StatusFlags;
-    if (info.HouseId)
-        statusFlags |= 0x80;
-    packet << uint8(statusFlags);
-    if (info.HouseId)
-        packet << uint64(*info.HouseId);
-}
-
 // Helper: Write JamNeighborhoodRosterEntry struct to packet (IDA sub_7FF6F6E0A460)
 static void WriteJamNeighborhoodRosterEntry(WorldPacket& packet, JamNeighborhoodRosterEntry const& entry)
 {
@@ -1241,11 +1285,11 @@ WorldPacket const* HousingHouseStatusResponse::Write()
 
 WorldPacket const* HousingGetCurrentHouseInfoResponse::Write()
 {
-    WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
-    _worldPacket << uint8(ResponseFlags);
+    _worldPacket << House;
+    _worldPacket << uint8(Result);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE ResponseFlags: {} HouseTypeId: {}",
-        ResponseFlags, HouseInfo.HouseTypeId);
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE Result: {} HouseGuid: {}",
+        Result, House.HouseGuid.ToString());
 
     return &_worldPacket;
 }
@@ -1281,6 +1325,31 @@ WorldPacket const* HousingResetKioskModeResponse::Write()
     _worldPacket << uint8(Result);
 
     TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_RESET_KIOSK_MODE_RESPONSE Result: {}", Result);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingEditorAvailabilityResponse::Write()
+{
+    _worldPacket << HouseGuid;
+    _worldPacket << uint8(Result);
+    _worldPacket << Field_09;
+
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_EDITOR_AVAILABILITY_RESPONSE HouseGuid: {} Result: {} Field_09: {}",
+        HouseGuid.ToString(), Result, Field_09);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* HousingUpdateHouseInfo::Write()
+{
+    _worldPacket << HouseGuid;
+    _worldPacket << BnetAccountGuid;
+    _worldPacket << OwnerGuid;
+    _worldPacket << Field_024;
+
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_UPDATE_HOUSE_INFO HouseGuid: {} BnetAccountGuid: {} OwnerGuid: {} Field_024: {}",
+        HouseGuid.ToString(), BnetAccountGuid.ToString(), OwnerGuid.ToString(), Field_024);
 
     return &_worldPacket;
 }
@@ -1822,17 +1891,17 @@ WorldPacket const* NeighborhoodRemoveSecondaryOwnerResponse::Write()
 
 WorldPacket const* NeighborhoodBuyHouseResponse::Write()
 {
-    Housing::WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
+    _worldPacket << House;
     _worldPacket << uint8(Result);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_NEIGHBORHOOD_BUY_HOUSE_RESPONSE Result: {} HouseTypeId: {}", Result, HouseInfo.HouseTypeId);
+    TC_LOG_DEBUG("network.opcode", "SMSG_NEIGHBORHOOD_BUY_HOUSE_RESPONSE Result: {} HouseGuid: {}", Result, House.HouseGuid.ToString());
 
     return &_worldPacket;
 }
 
 WorldPacket const* NeighborhoodMoveHouseResponse::Write()
 {
-    Housing::WriteJamCurrentHouseInfo(_worldPacket, HouseInfo);
+    _worldPacket << House;
     _worldPacket << MoveTransactionGuid;
     _worldPacket << uint8(Result);
 

@@ -16,6 +16,7 @@
  */
 
 #include "Neighborhood.h"
+#include "BattlenetAccountMgr.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
 #include "Log.h"
@@ -61,9 +62,10 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
         {
             Field* memberFields = members->Fetch();
 
-            //          0              1     2          3          4
-            // SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId
+            //          0              1     2          3          4           5
+            // SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId, c.account
             // FROM neighborhood_members nm LEFT JOIN character_housing ch ON nm.playerGuid = ch.guid
+            //   LEFT JOIN characters c ON nm.playerGuid = c.guid
             // WHERE nm.neighborhoodGuid = ?
 
             Member member;
@@ -85,6 +87,17 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
                 if (houseId != 0)
                     _plots[member.PlotIndex].HouseGuid = ObjectGuid::Create<HighGuid::Housing>(
                         /*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, houseId);
+
+                // Resolve BNet account GUID from characters.account JOIN (column 5).
+                // The client requires non-zero HouseOwnerBnetAccountGUID on the plot AreaTrigger's
+                // FHousingPlotAreaTrigger_C fragment for IsInsidePlot() validation.
+                uint32 gameAccountId = memberFields[5].GetUInt32();
+                if (gameAccountId != 0)
+                {
+                    uint32 bnetAccountId = Battlenet::AccountMgr::GetIdByGameAccount(gameAccountId);
+                    if (bnetAccountId != 0)
+                        _plots[member.PlotIndex].OwnerBnetGuid = ObjectGuid::Create<HighGuid::BNetAccount>(bnetAccountId);
+                }
             }
         } while (members->NextRow());
     }
@@ -689,8 +702,8 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
     stmt->setUInt64(2, playerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
-    TC_LOG_DEBUG("housing", "Neighborhood::PurchasePlot: Player {} purchased plot {} in neighborhood '{}'",
-        playerGuid.ToString(), plotIndex, _name);
+    TC_LOG_ERROR("housing", "Neighborhood::PurchasePlot: Player {} purchased plot {} in neighborhood '{}' — _plots[{}].PlotIndex={}, _plots[{}].OwnerGuid={}",
+        playerGuid.ToString(), plotIndex, _name, plotIndex, _plots[plotIndex].PlotIndex, plotIndex, _plots[plotIndex].OwnerGuid.ToString());
 
     return HOUSING_RESULT_SUCCESS;
 }

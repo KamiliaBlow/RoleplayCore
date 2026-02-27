@@ -18,6 +18,7 @@
 #include "ScriptMgr.h"
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
+#include "EventProcessor.h"
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingMap.h"
@@ -27,14 +28,7 @@
 #include "ObjectAccessor.h"
 #include "PhasingHandler.h"
 #include "Player.h"
-#include "SpellMgr.h"
 #include "WorldSession.h"
-
-enum HousingPlotSpells
-{
-    SPELL_VISITING_PLOT_AURA    = 1239847,
-    SPELL_OWN_PLOT_AURA         = 1266699
-};
 
 struct at_housing_plot : AreaTriggerAI
 {
@@ -44,6 +38,10 @@ struct at_housing_plot : AreaTriggerAI
     {
         Player* player = unit->ToPlayer();
         if (!player)
+            return;
+
+        HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
+        if (!housingMap)
             return;
 
         ObjectGuid ownerGuid;
@@ -73,23 +71,30 @@ struct at_housing_plot : AreaTriggerAI
             }
         }
 
-        // Cast plot auras if the spells exist in DB2
-        uint32 auraSpell = isOwnPlot ? SPELL_OWN_PLOT_AURA : SPELL_VISITING_PLOT_AURA;
-        if (sSpellMgr->GetSpellInfo(auraSpell, DIFFICULTY_NONE))
-            player->CastSpell(player, auraSpell, true);
+        // Check if this player was already proactively placed on this plot by
+        // HousingMap::AddPlayerToMap (which sends ENTER_PLOT + spell packets early).
+        // If so, skip duplicate ENTER_PLOT and spell packets but still do cosmetic phases.
+        int8 currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+        bool alreadyOnPlot = (currentPlot == static_cast<int8>(plotId));
 
-        // Track which plot the player is on (for HouseStatus queries)
-        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        if (!alreadyOnPlot)
+        {
+            // Track which plot the player is on
             housingMap->SetPlayerCurrentPlot(player->GetGUID(), static_cast<uint8>(plotId));
 
-        // Notify the client that the player has entered a plot
-        WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
-        enterPlot.PlotAreaTriggerGuid = at->GetGUID();
-        player->SendDirectMessage(enterPlot.Write());
+            // Send ENTER_PLOT notification
+            WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
+            enterPlot.PlotAreaTriggerGuid = at->GetGUID();
+            player->SendDirectMessage(enterPlot.Write());
+
+            // Send manual spell packets (spells 1239847, 469226, 1266699 don't exist in DB2)
+            housingMap->SendPlotEnterSpellPackets(player, static_cast<uint8>(plotId));
+        }
 
         // Cosmetic phase shift: when entering own plot, remove 16 cosmetic phases
         // after a ~10 second delay (sniff-verified retail behavior).
         // Only applies to the plot owner, not visitors.
+        // Always schedule even if alreadyOnPlot (AddPlayerToMap doesn't handle phases).
         if (isOwnPlot)
         {
             ObjectGuid playerGuid = player->GetGUID();
@@ -109,9 +114,9 @@ struct at_housing_plot : AreaTriggerAI
             }, Milliseconds(HOUSING_COSMETIC_PHASE_DELAY_MS));
         }
 
-        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} entered plot {} AT {} (own: {}, owner: {})",
+        TC_LOG_DEBUG("housing", "at_housing_plot: Player {} entered plot {} AT {} (own: {}, owner: {}, proactive: {})",
             player->GetGUID().ToString(), plotId, at->GetGUID().ToString(), isOwnPlot,
-            ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
+            ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString(), alreadyOnPlot);
     }
 
     void OnUnitExit(Unit* unit, AreaTriggerExitReason reason) override
@@ -123,20 +128,20 @@ struct at_housing_plot : AreaTriggerAI
         if (!player)
             return;
 
+        HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
+
         ObjectGuid ownerGuid;
         if (at->m_housingPlotAreaTriggerData.has_value())
             ownerGuid = at->m_housingPlotAreaTriggerData->HouseOwnerGUID;
 
         bool isOwnPlot = !ownerGuid.IsEmpty() && player->GetGUID() == ownerGuid;
 
-        // Remove plot auras if they exist
-        if (sSpellMgr->GetSpellInfo(SPELL_OWN_PLOT_AURA, DIFFICULTY_NONE))
-            player->RemoveAurasDueToSpell(SPELL_OWN_PLOT_AURA);
-        if (sSpellMgr->GetSpellInfo(SPELL_VISITING_PLOT_AURA, DIFFICULTY_NONE))
-            player->RemoveAurasDueToSpell(SPELL_VISITING_PLOT_AURA);
+        // Remove plot auras via manual packets (spells don't exist in DB2)
+        if (housingMap)
+            housingMap->SendPlotLeaveAuraRemoval(player);
 
         // Clear plot tracking
-        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        if (housingMap)
             housingMap->ClearPlayerCurrentPlot(player->GetGUID());
 
         // Notify the client that the player has left the plot

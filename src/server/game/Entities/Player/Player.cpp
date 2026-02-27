@@ -18986,7 +18986,10 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         mirrorHouse.MapID = 0; // Will be resolved when entering neighborhood
         mirrorHouse.PlotID = h->GetPlotIndex();
 
-        // Initiative mirror fields ? client reads InitiativeCycleID to display initiative UI
+        TC_LOG_ERROR("housing", "Player::LoadFromDB: PlayerMirrorHouse: HouseGuid={} NeighborhoodGuid={} PlotID={} Level={} MapID={}",
+            h->GetHouseGuid().ToString(), h->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID);
+
+        // Initiative mirror fields - client reads InitiativeCycleID to display initiative UI
         uint64 nhGuid = h->GetNeighborhoodGuid().GetCounter();
         ActiveInitiative* activeInit = sInitiativeManager.GetActiveInitiative(nhGuid);
         if (activeInit)
@@ -25433,8 +25436,9 @@ void Player::SendInitialPacketsAfterAddToMap()
             if (housing)
             {
                 statusResponse.HouseGuid = housing->GetHouseGuid();
-                statusResponse.PlotGuid = housing->GetPlotGuid();
-                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+                // Sniff byte-level: second field has hi byte7=0x78 = BNetAccount, NOT Housing/Neighborhood
+                statusResponse.NeighborhoodGuid = GetSession()->GetBattlenetAccountGUID();
+                statusResponse.OwnerPlayerGuid = GetGUID(); // Owner's Player GUID
                 statusResponse.Status = 0;
             }
             // No house: all fields stay at defaults (empty GUIDs, Status=0).
@@ -25478,14 +25482,14 @@ void Player::SendInitialPacketsAfterAddToMap()
             {
                 WorldPackets::Housing::QueryNeighborhoodNameResponse nameResponse;
                 nameResponse.NeighborhoodGuid = neighborhood->GetGuid();
-                nameResponse.Allow = true;
-                nameResponse.Name = neighborhood->GetName();
+                nameResponse.Result = true;
+                nameResponse.NeighborhoodName = neighborhood->GetName();
                 SendDirectMessage(nameResponse.Write());
 
                 TC_LOG_ERROR("housing", "=== SMSG_QUERY_NEIGHBORHOOD_NAME_RESPONSE (0x460012) [login-preload] ===\n"
-                    "  Allow={}, Name='{}' (len={})\n"
+                    "  Result={}, NeighborhoodName='{}' (len={})\n"
                     "  NeighborhoodGuid: {} (lo={:016X} hi={:016X})",
-                    nameResponse.Allow, nameResponse.Name, nameResponse.Name.size(),
+                    nameResponse.Result, nameResponse.NeighborhoodName, nameResponse.NeighborhoodName.size(),
                     nameResponse.NeighborhoodGuid.ToString(),
                     nameResponse.NeighborhoodGuid.GetRawValue(0), nameResponse.NeighborhoodGuid.GetRawValue(1));
             }
@@ -30501,6 +30505,9 @@ void Player::CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex)
         mirrorHouse.Favor = 0;
         mirrorHouse.MapID = static_cast<int32>(GetMapId());
         mirrorHouse.PlotID = housing->GetPlotIndex();
+
+        TC_LOG_ERROR("housing", "Player::CreateHousing: PlayerMirrorHouse: HouseGuid={} NeighborhoodGuid={} PlotID={} Level={} MapID={}",
+            housing->GetHouseGuid().ToString(), housing->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID);
 
         _housings.push_back(std::move(housing));
     }

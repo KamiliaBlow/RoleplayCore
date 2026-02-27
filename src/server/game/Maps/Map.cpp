@@ -3442,6 +3442,11 @@ bool Map::IsGarrison() const
     return i_mapEntry && i_mapEntry->IsGarrison();
 }
 
+bool Map::IsHouseInterior() const
+{
+    return i_mapEntry && i_mapEntry->IsHouseInterior();
+}
+
 bool Map::IsAlwaysActive() const
 {
     return IsBattlegroundOrArena();

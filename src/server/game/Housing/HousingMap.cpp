@@ -17,26 +17,99 @@
 
 #include "HousingMap.h"
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include "AreaTrigger.h"
+#include "EventProcessor.h"
+#include "DB2Stores.h"
 #include "GameObject.h"
 #include "GridDefines.h"
 #include "Housing.h"
+#include "HousingDefines.h"
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
 #include "MeshObject.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
+#include "ObjectAccessor.h"
 #include "ObjectGridLoader.h"
 #include "ObjectGuid.h"
 #include "PhasingHandler.h"
 #include "Player.h"
 #include "RealmList.h"
 #include "SocialMgr.h"
+#include "Spell.h"
+#include "SpellAuraDefines.h"
+#include "SpellPackets.h"
+#include "UpdateData.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
+
+namespace
+{
+    std::string HexDumpPacket(WorldPacket const* packet, size_t maxBytes = 128)
+    {
+        if (!packet || packet->size() == 0)
+            return "(empty)";
+        size_t len = std::min(packet->size(), maxBytes);
+        std::string result;
+        result.reserve(len * 3 + 32);
+        uint8 const* raw = packet->data();
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (i > 0 && i % 32 == 0)
+                result += "\n  ";
+            else if (i > 0)
+                result += ' ';
+            result += fmt::format("{:02X}", raw[i]);
+        }
+        if (len < packet->size())
+            result += fmt::format(" ...({} more)", packet->size() - len);
+        return result;
+    }
+
+    // Recurring event that sends housing WorldState counters (13436/13437/13438) every ~300ms.
+    // Sniff-verified: these are continuous counters incrementing by ~1333 each tick throughout
+    // the entire housing map session, NOT edit-mode-specific.
+    class HousingWorldStateCounterEvent : public BasicEvent
+    {
+    public:
+        HousingWorldStateCounterEvent(ObjectGuid playerGuid, uint32 counter1, uint32 counter2, uint32 counter3)
+            : _playerGuid(playerGuid), _counter1(counter1), _counter2(counter2), _counter3(counter3) { }
+
+        bool Execute(uint64 /*e_time*/, uint32 /*p_time*/) override
+        {
+            Player* player = ObjectAccessor::FindPlayer(_playerGuid);
+            if (!player || !player->IsInWorld())
+                return true; // delete event — player gone
+
+            // Send the three counter WorldState updates
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_1, _counter1);
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_2, _counter2);
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_3, _counter3);
+
+            // Increment for next tick
+            _counter1 += HOUSING_WORLDSTATE_INCREMENT;
+            _counter2 += HOUSING_WORLDSTATE_INCREMENT;
+            _counter3 += HOUSING_WORLDSTATE_INCREMENT;
+
+            // Re-schedule self for next tick
+            player->m_Events.AddEventAtOffset(
+                new HousingWorldStateCounterEvent(_playerGuid, _counter1, _counter2, _counter3),
+                Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
+
+            return true; // delete this instance (new one scheduled)
+        }
+
+    private:
+        ObjectGuid _playerGuid;
+        uint32 _counter1;
+        uint32 _counter2;
+        uint32 _counter3;
+    };
+}
 
 HousingMap::HousingMap(uint32 id, time_t expiry, uint32 instanceId, Difficulty spawnMode, uint32 neighborhoodId)
     : Map(id, expiry, instanceId, spawnMode), _neighborhoodId(neighborhoodId), _neighborhood(nullptr)
@@ -45,6 +118,23 @@ HousingMap::HousingMap(uint32 id, time_t expiry, uint32 instanceId, Difficulty s
     // Map::CanUnload() returns false when m_unloadTimer == 0
     m_unloadTimer = 0;
     HousingMap::InitVisibilityDistance();
+
+    // Verify InstanceType is MAP_HOUSE_NEIGHBORHOOD (8).
+    // The client's "Airlock" system sets field_32=2 ONLY when InstanceType==8.
+    // Without this, IsInsidePlot() always returns false → OutsidePlotBounds on ALL decor placement.
+    if (GetEntry()->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
+    {
+        TC_LOG_ERROR("housing", "CRITICAL: HousingMap {} '{}' has InstanceType={}, expected {} (MAP_HOUSE_NEIGHBORHOOD). "
+            "Client will NOT allow decor placement — OutsidePlotBounds will always fire!",
+            id, GetEntry()->MapName[sWorld->GetDefaultDbcLocale()],
+            GetEntry()->InstanceType, MAP_HOUSE_NEIGHBORHOOD);
+    }
+    else
+    {
+        TC_LOG_DEBUG("housing", "HousingMap::ctor: mapId={} neighborhoodId={} instanceId={} "
+            "InstanceType={} (MAP_HOUSE_NEIGHBORHOOD) — OK",
+            id, neighborhoodId, instanceId, GetEntry()->InstanceType);
+    }
 }
 
 HousingMap::~HousingMap()
@@ -89,6 +179,15 @@ void HousingMap::SpawnPlotGameObjects()
     uint32 goCount = 0;
     uint32 noEntryCount = 0;
 
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: DB2 PlotIndex→GOEntry mapping for {} plots on map {}:",
+        uint32(plots.size()), neighborhoodMapId);
+    for (NeighborhoodPlotData const* plot : plots)
+    {
+        TC_LOG_DEBUG("housing", "  DB2 ID={} PlotIndex={} CornerstoneGOEntry={} Cost={} WorldState={} HousePos=({:.1f},{:.1f},{:.1f})",
+            plot->ID, plot->PlotIndex, plot->CornerstoneGameObjectID, plot->Cost, plot->WorldState,
+            plot->HousePosition[0], plot->HousePosition[1], plot->HousePosition[2]);
+    }
+
     for (NeighborhoodPlotData const* plot : plots)
     {
         float x = plot->CornerstonePosition[0];
@@ -98,7 +197,8 @@ void HousingMap::SpawnPlotGameObjects()
         // Ensure the grid at this position is loaded so we can add GOs
         LoadGrid(x, y);
 
-        // Retail always uses CornerstoneGameObjectID (457142) for ALL plots.
+        // Retail uses a UNIQUE CornerstoneGameObjectID per plot so the server can
+        // identify which plot a player interacted with.  All share type=48, displayId=110660.
         // Ownership state via GOState: 0 (ACTIVE) = Owned/Claimed, 1 (READY) = ForSale sign.
         Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(static_cast<uint8>(plot->PlotIndex));
         uint32 goEntry = static_cast<uint32>(plot->CornerstoneGameObjectID);
@@ -138,7 +238,7 @@ void HousingMap::SpawnPlotGameObjects()
         // Housing objects are dynamically spawned (no DB spawn record), so they have no
         // phase_area association. Explicitly mark them as universally visible so they're
         // seen by players regardless of what phases the player has from area-based phasing.
-        PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), 0, 0, 0);
+        PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
         // Populate the FJamHousingCornerstone_C entity fragment so the client
         // knows this is a Cornerstone and can render the "For Sale" / owned UI
@@ -161,45 +261,9 @@ void HousingMap::SpawnPlotGameObjects()
 
         ++goCount;
 
-        // Spawn a plot AreaTrigger at the HousePosition for plot enter/exit detection
-        uint8 plotIndex = static_cast<uint8>(plot->PlotIndex);
-        if (_plotAreaTriggers.find(plotIndex) == _plotAreaTriggers.end())
-        {
-            AreaTriggerCreatePropertiesId atId = { .Id = 37358, .IsCustom = false };
-            Position atPos(plot->HousePosition[0], plot->HousePosition[1], plot->HousePosition[2]);
-
-            // Ensure the grid at the AT position is loaded too
-            LoadGrid(atPos.GetPositionX(), atPos.GetPositionY());
-
-            AreaTrigger* at = AreaTrigger::CreateStaticAreaTrigger(atId, this, atPos);
-            if (at)
-            {
-                // Mark AT as universally visible (same rationale as cornerstones above)
-                PhasingHandler::InitDbPhaseShift(at->GetPhaseShift(), 0, 0, 0);
-
-                ObjectGuid ownerGuid;
-                ObjectGuid houseGuid;
-                ObjectGuid ownerBnetGuid;
-                if (plotInfo)
-                {
-                    ownerGuid = plotInfo->OwnerGuid;
-                    houseGuid = plotInfo->HouseGuid;
-                    ownerBnetGuid = plotInfo->OwnerBnetGuid;
-                }
-
-                at->InitHousingPlotData(plotIndex, ownerGuid, houseGuid, ownerBnetGuid);
-                _plotAreaTriggers[plotIndex] = at->GetGUID();
-                _neighborhood->SetPlotAreaTriggerGuid(plotIndex, at->GetGUID());
-
-                TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Spawned plot AT for plot {} at ({}, {}, {}) guid={} in neighborhood '{}'",
-                    plotIndex, atPos.GetPositionX(), atPos.GetPositionY(), atPos.GetPositionZ(), at->GetGUID().ToString(), _neighborhood->GetName());
-            }
-            else
-            {
-                TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to create plot AT (entry 37358) for plot {} in neighborhood '{}'",
-                    plotIndex, _neighborhood->GetName());
-            }
-        }
+        // NOTE: Plot AreaTriggers REMOVED — the AT-based IsInsidePlot() client check
+        // was causing persistent OutsidePlotBounds errors. Plot enter/exit is now handled
+        // directly in AddPlayerToMap/RemovePlayerFromMap without AT dependency.
     }
 
     // Set per-plot WorldState values from DB2 so the client can render plot status on the map
@@ -228,8 +292,8 @@ void HousingMap::SpawnPlotGameObjects()
         }
     }
 
-    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs, {} ATs, set {} WorldStates for {} plots in neighborhood '{}' (noEntry={})",
-        goCount, uint32(_plotAreaTriggers.size()), wsSetCount, uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
+    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs, set {} WorldStates for {} plots in neighborhood '{}' (noEntry={})",
+        goCount, wsSetCount, uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
 
     // Spawn house structure GOs for owned plots
     uint32 houseCount = 0;
@@ -241,7 +305,7 @@ void HousingMap::SpawnPlotGameObjects()
         if (!plotInfo || plotInfo->OwnerGuid.IsEmpty())
             continue;
 
-        TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Plot {} is owned by {} - attempting house spawn (HousePos: {:.1f}, {:.1f}, {:.1f})",
+        TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} is owned by {} - attempting house spawn (HousePos: {:.1f}, {:.1f}, {:.1f})",
             plotIdx, plotInfo->OwnerGuid.ToString(),
             plot->HousePosition[0], plot->HousePosition[1], plot->HousePosition[2]);
 
@@ -283,7 +347,7 @@ void HousingMap::SpawnPlotGameObjects()
             SpawnAllDecorForPlot(plotIdx, housing);
     }
 
-    TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: House spawn results: {}/{} successful for neighborhood '{}'",
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: House spawn results: {}/{} successful for neighborhood '{}'",
         houseSuccessCount, houseCount, _neighborhood->GetName());
 }
 
@@ -433,19 +497,19 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // First try exact GUID match, then fall back to checking all housings
     // (handles legacy data where neighborhood GUID counter was from client's DB2 ID
     // instead of the server's canonical counter).
-    TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Looking up housing for player {} in neighborhood '{}' (guid={})",
+    TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Looking up housing for player {} in neighborhood '{}' (guid={})",
         player->GetGUID().ToString(), _neighborhood->GetName(), _neighborhood->GetGuid().ToString());
 
     Housing* housing = player->GetHousingForNeighborhood(_neighborhood->GetGuid());
     if (!housing)
     {
-        TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: No housing found via GetHousingForNeighborhood. Checking fallback (allHousings count: {})",
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: No housing found via GetHousingForNeighborhood. Checking fallback (allHousings count: {})",
             uint32(player->GetAllHousings().size()));
 
         // Fallback: check if any of the player's housings has a plot in this neighborhood
         for (Housing const* h : player->GetAllHousings())
         {
-            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Fallback check: housing plotIndex={} neighborhoodGuid={} houseGuid={}",
+            TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Fallback check: housing plotIndex={} neighborhoodGuid={} houseGuid={}",
                 h ? h->GetPlotIndex() : 255,
                 h ? h->GetNeighborhoodGuid().ToString() : "null",
                 h ? h->GetHouseGuid().ToString() : "null");
@@ -453,7 +517,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             if (h && _neighborhood->GetPlotInfo(h->GetPlotIndex()))
             {
                 housing = const_cast<Housing*>(h);
-                TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Fixed neighborhood GUID mismatch for player {} (stored={}, canonical={})",
+                TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Fixed neighborhood GUID mismatch for player {} (stored={}, canonical={})",
                     player->GetGUID().ToString(), h->GetNeighborhoodGuid().ToString(), _neighborhood->GetGuid().ToString());
                 // Fix the stored GUID so future lookups work
                 housing->SetNeighborhoodGuid(_neighborhood->GetGuid());
@@ -464,7 +528,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     if (housing)
     {
-        TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Player {} has housing: plotIndex={} houseType={} houseGuid={}",
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Player {} has housing: plotIndex={} houseType={} houseGuid={}",
             player->GetGUID().ToString(), housing->GetPlotIndex(), housing->GetHouseType(), housing->GetHouseGuid().ToString());
 
         AddPlayerHousing(player->GetGUID(), housing);
@@ -472,10 +536,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         // Ensure the neighborhood PlotInfo has the HouseGuid (may be missing after server restart
         // since LoadFromDB only populates it if character_housing row exists)
         uint8 plotIdx = housing->GetPlotIndex();
+        ObjectGuid ownerBnetGuid = player->GetSession() ? player->GetSession()->GetBattlenetAccountGUID() : ObjectGuid::Empty;
         if (!housing->GetHouseGuid().IsEmpty())
         {
-            _neighborhood->UpdatePlotHouseInfo(plotIdx, housing->GetHouseGuid(),
-                player->GetSession() ? player->GetSession()->GetBattlenetAccountGUID() : ObjectGuid::Empty);
+            _neighborhood->UpdatePlotHouseInfo(plotIdx, housing->GetHouseGuid(), ownerBnetGuid);
         }
 
         // Update PlayerMirrorHouse.MapID so the client knows this house is on the current map.
@@ -485,7 +549,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
         // Spawn house GO if not already present (handles offline → online transition)
         bool alreadySpawned = _houseGameObjects.find(plotIdx) != _houseGameObjects.end();
-        TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: House GO for plot {}: alreadySpawned={} _houseGameObjects.size={}",
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: House GO for plot {}: alreadySpawned={} _houseGameObjects.size={}",
             plotIdx, alreadySpawned, uint32(_houseGameObjects.size()));
 
         if (!alreadySpawned)
@@ -512,7 +576,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             else
                 go = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID);
 
-            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: SpawnHouseForPlot result for plot {}: {}",
+            TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: SpawnHouseForPlot result for plot {}: {}",
                 plotIdx, go ? go->GetGUID().ToString() : "FAILED");
         }
         else
@@ -535,7 +599,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     SpawnFullHouseMeshObjects(plotIdx, pos, rot,
                         housing->GetHouseGuid(), 141, 9);
 
-                    TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Late-spawned MeshObjects for plot {} (house GO {} already existed)",
+                    TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Late-spawned MeshObjects for plot {} (house GO {} already existed)",
                         plotIdx, houseGo->GetGUID().ToString());
                 }
             }
@@ -553,49 +617,86 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (!Map::AddPlayerToMap(player, initPlayer))
         return false;
 
+    // === DIAGNOSTIC: Report plot GO state when player enters ===
+    {
+        TC_LOG_DEBUG("housing", "=== HOUSING DIAGNOSTIC for player {} entering map {} ===", player->GetGUID().ToString(), GetId());
+        TC_LOG_DEBUG("housing", "  Player position: ({:.1f}, {:.1f}, {:.1f})", player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+        TC_LOG_DEBUG("housing", "  _plotGameObjects.size={} Map InstanceType={} (expected {} for MAP_HOUSE_NEIGHBORHOOD)",
+            uint32(_plotGameObjects.size()), GetEntry()->InstanceType, MAP_HOUSE_NEIGHBORHOOD);
+
+        uint32 shown = 0;
+        for (auto const& [plotIdx, goGuid] : _plotGameObjects)
+        {
+            if (shown >= 3) break;
+            if (GameObject* go = GetGameObject(goGuid))
+            {
+                float dist = player->GetDistance(go);
+                TC_LOG_DEBUG("housing", "  Plot[{}] GO: guid={} entry={} pos=({:.1f},{:.1f},{:.1f}) dist={:.1f}yd",
+                    plotIdx, goGuid.ToString(), go->GetEntry(),
+                    go->GetPositionX(), go->GetPositionY(), go->GetPositionZ(), dist);
+            }
+            ++shown;
+        }
+        TC_LOG_DEBUG("housing", "=== END HOUSING DIAGNOSTIC ===");
+    }
+
     // Send neighborhood context so the client can call SetViewingNeighborhood()
     // and enable Cornerstone purchase UI interaction
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse houseInfo;
     if (housing)
     {
-        // Sniff-verified: SecondaryOwnerGuid=NeighborhoodGUID (context for edit mode), PlotGuid=PlotGUID
-        houseInfo.HouseInfo.OwnerGuid = housing->GetHouseGuid();
-        houseInfo.HouseInfo.SecondaryOwnerGuid = housing->GetNeighborhoodGuid();
-        houseInfo.HouseInfo.PlotGuid = housing->GetPlotGuid();
-        houseInfo.HouseInfo.Flags = housing->GetPlotIndex();
-        houseInfo.HouseInfo.HouseTypeId = 32;
-        houseInfo.HouseInfo.StatusFlags = 0;
+        houseInfo.House.HouseGuid = housing->GetHouseGuid();
+        houseInfo.House.OwnerGuid = player->GetGUID();
+        houseInfo.House.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+        houseInfo.House.PlotId = housing->GetPlotIndex();
+        houseInfo.House.AccessFlags = 32;
+        houseInfo.House.HasMoveOutTime = false;
     }
     else if (_neighborhood)
     {
-        // No house — provide neighborhood GUID in SecondaryOwnerGuid field for context
-        houseInfo.HouseInfo.SecondaryOwnerGuid = _neighborhood->GetGuid();
+        // No house — send player's GUID (client expects HighGuid::Player type)
+        houseInfo.House.OwnerGuid = player->GetGUID();
+        houseInfo.House.NeighborhoodGuid = _neighborhood->GetGuid();
     }
-    houseInfo.ResponseFlags = 0;
-    player->SendDirectMessage(houseInfo.Write());
+    houseInfo.Result = 0;
+    WorldPacket const* houseInfoPkt = houseInfo.Write();
+    TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap CURRENT_HOUSE_INFO ({} bytes): {}",
+        houseInfoPkt->size(), HexDumpPacket(houseInfoPkt));
+    TC_LOG_DEBUG("housing", "  PlotId={}, HouseGuid={}, OwnerGuid={}, NeighborhoodGuid={}, AccessFlags={}, hasHouse={}",
+        houseInfo.House.PlotId, houseInfo.House.HouseGuid.ToString(),
+        houseInfo.House.OwnerGuid.ToString(), houseInfo.House.NeighborhoodGuid.ToString(),
+        houseInfo.House.AccessFlags, housing ? "yes" : "no");
+    player->SendDirectMessage(houseInfoPkt);
 
-    // Proactively send ENTER_PLOT for the player's own plot so the client
-    // has plot context immediately (the AT-based ENTER_PLOT may fire later
-    // when the player physically moves into AT radius, but sniff shows
-    // retail sends this early in the map-enter sequence).
+    // Send plot enter directly — no AT dependency.
+    // The AT-based approach caused persistent OutsidePlotBounds; use direct plot tracking instead.
     if (housing)
     {
         uint8 plotIndex = housing->GetPlotIndex();
-        auto atItr = _plotAreaTriggers.find(plotIndex);
-        if (atItr != _plotAreaTriggers.end())
-        {
-            WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
-            enterPlot.PlotAreaTriggerGuid = atItr->second;
-            player->SendDirectMessage(enterPlot.Write());
 
-            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Sent proactive ENTER_PLOT for plot {} AT {} to player {}",
-                plotIndex, atItr->second.ToString(), player->GetGUID().ToString());
-        }
-        else
-        {
-            TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: No AT tracked for plot {} - ENTER_PLOT NOT sent (player {})",
-                plotIndex, player->GetGUID().ToString());
-        }
+        // Mark this player as on their plot immediately
+        SetPlayerCurrentPlot(player->GetGUID(), plotIndex);
+
+        // Send plot enter spell packets immediately (auras at slots 50, 56, 9)
+        SendPlotEnterSpellPackets(player, plotIndex);
+
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Sent plot enter spells for plot {} to player {} (no AT)",
+            plotIndex, player->GetGUID().ToString());
+    }
+
+    // Start the periodic housing WorldState counter timer.
+    // Sniff-verified: counters 13436/13437/13438 increment by ~1333 every ~300ms
+    // throughout the entire housing map session. Seed with getMSTime()-based values
+    // (retail uses opaque server-tick values; the exact seed doesn't matter as long
+    // as the increment pattern is correct).
+    {
+        uint32 baseSeed = getMSTime();
+        player->m_Events.AddEventAtOffset(
+            new HousingWorldStateCounterEvent(player->GetGUID(),
+                baseSeed, baseSeed / 3, baseSeed + 55758738),
+            Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Started WorldState counter timer for player {}",
+            player->GetGUID().ToString());
     }
 
     // Send personalized per-plot WorldState values for this specific player.
@@ -604,20 +705,233 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // based on the player's relationship to each plot owner.
     SendPerPlayerPlotWorldStates(player);
 
-    TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Sent neighborhood context to player {} (neighborhood='{}', hasHouse={}, plotATs={})",
-        player->GetGUID().ToString(), _neighborhood->GetName(), housing ? "yes" : "no", uint32(_plotAreaTriggers.size()));
+    // Comprehensive summary of all packets sent during map entry (for sniff comparison)
+    TC_LOG_DEBUG("housing", "=== AddPlayerToMap COMPLETE for player {} ===\n"
+        "  Map: {} InstanceType={} NeighborhoodId={}\n"
+        "  HasHouse: {} PlotIndex: {}\n"
+        "  Packets sent: CURRENT_HOUSE_INFO, 3xAURA+3xSTART+3xGO, "
+        "WorldState timer started, PerPlayerPlotWorldStates\n"
+        "  Player pos: ({:.1f}, {:.1f}, {:.1f})",
+        player->GetGUID().ToString(),
+        GetId(), GetEntry()->InstanceType, _neighborhoodId,
+        housing ? "yes" : "no",
+        housing ? housing->GetPlotIndex() : 255,
+        player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
 
     return true;
 }
 
 void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
 {
+    // Remove plot auras before removing housing data.
+    if (Housing const* housing = GetHousingForPlayer(player->GetGUID()))
+    {
+        // Remove all plot enter/presence auras (manual packets — spells not in DB2)
+        SendPlotLeaveAuraRemoval(player);
+
+        // Clear plot tracking
+        ClearPlayerCurrentPlot(player->GetGUID());
+    }
+
     RemovePlayerHousing(player->GetGUID());
 
     TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerFromMap: Player {} leaving housing map {} instanceId {}",
         player->GetGUID().ToString(), GetId(), GetInstanceId());
 
     Map::RemovePlayerFromMap(player, remove);
+}
+
+void HousingMap::SendPlotEnterSpellPackets(Player* player, uint8 plotIndex)
+{
+    // Sniff-verified plot enter spell sequence (packets 26530-26541):
+    //   AURA_UPDATE+SPELL_START+SPELL_GO (1239847, slot 50)
+    //   → HasPlayers flag on AT (Flags=1024)
+    //   → AURA_UPDATE+SPELL_START+SPELL_GO (469226, slot 56)
+    //   → AURA_UPDATE removal (slot 9) → AURA_UPDATE+SPELL_START+SPELL_GO (1266699, slot 9)
+    // These spells don't exist in DB2, so CastSpell() fails silently. Manual packets required.
+
+    TC_LOG_DEBUG("housing", "SendPlotEnterSpellPackets: BEGIN for player {} plot {} map {}",
+        player->GetGUID().ToString(), plotIndex, GetId());
+
+    // 1. Spell 1239847 — plot enter tracking aura (slot 50)
+    // SPELL_START CastFlags=524302, SPELL_GO CastFlags=525068
+    {
+        ObjectGuid castId = ObjectGuid::Create<HighGuid::Cast>(
+            SPELL_CAST_SOURCE_NORMAL, player->GetMapId(), SPELL_HOUSING_PLOT_ENTER,
+            player->GetMap()->GenerateLowGuid<HighGuid::Cast>());
+
+        WorldPackets::Spells::AuraUpdate auraUpdate;
+        auraUpdate.UpdateAll = false;
+        auraUpdate.UnitGUID = player->GetGUID();
+
+        WorldPackets::Spells::AuraInfo auraInfo;
+        auraInfo.Slot = 50;
+        auraInfo.AuraData.emplace();
+        auraInfo.AuraData->CastID = castId;
+        auraInfo.AuraData->SpellID = SPELL_HOUSING_PLOT_ENTER;
+        auraInfo.AuraData->Flags = AFLAG_NOCASTER;
+        auraInfo.AuraData->ActiveFlags = 2;
+        auraInfo.AuraData->CastLevel = 36;
+        auraInfo.AuraData->Applications = 0;
+        auraUpdate.Auras.push_back(std::move(auraInfo));
+        player->SendDirectMessage(auraUpdate.Write());
+
+        WorldPackets::Spells::SpellStart spellStart;
+        spellStart.Cast.CasterGUID = player->GetGUID();
+        spellStart.Cast.CasterUnit = player->GetGUID();
+        spellStart.Cast.CastID = castId;
+        spellStart.Cast.SpellID = SPELL_HOUSING_PLOT_ENTER;
+        spellStart.Cast.CastFlags = CAST_FLAG_HAS_TRAJECTORY | CAST_FLAG_UNKNOWN_3 | CAST_FLAG_UNKNOWN_4 | CAST_FLAG_VISUAL_CHAIN;  // 524302 = 0x8000E
+        spellStart.Cast.CastTime = 0;
+        player->SendDirectMessage(spellStart.Write());
+
+        WorldPackets::Spells::SpellGo spellGo;
+        spellGo.Cast.CasterGUID = player->GetGUID();
+        spellGo.Cast.CasterUnit = player->GetGUID();
+        spellGo.Cast.CastID = castId;
+        spellGo.Cast.SpellID = SPELL_HOUSING_PLOT_ENTER;
+        spellGo.Cast.CastFlags = CAST_FLAG_UNKNOWN_3 | CAST_FLAG_UNKNOWN_4 | CAST_FLAG_UNKNOWN_9 | CAST_FLAG_UNKNOWN_10 | CAST_FLAG_VISUAL_CHAIN;  // 525068 = 0x8030C
+        spellGo.Cast.CastFlagsEx = 16;
+        spellGo.Cast.CastFlagsEx2 = 4;
+        spellGo.Cast.CastTime = getMSTime();
+        spellGo.Cast.Target.Flags = TARGET_FLAG_UNIT;
+        spellGo.Cast.HitTargets.push_back(player->GetGUID());
+        spellGo.Cast.HitStatus.emplace_back(uint8(0));
+        spellGo.LogData.Initialize(player);
+        player->SendDirectMessage(spellGo.Write());
+    }
+
+    // 2. (AT HasPlayers flag removed — no plot ATs spawned)
+
+    // 3. Spell 469226 — plot presence aura (slot 56)
+    {
+        ObjectGuid castId2 = ObjectGuid::Create<HighGuid::Cast>(
+            SPELL_CAST_SOURCE_NORMAL, player->GetMapId(), SPELL_HOUSING_PLOT_PRESENCE,
+            player->GetMap()->GenerateLowGuid<HighGuid::Cast>());
+
+        WorldPackets::Spells::AuraUpdate auraUpdate;
+        auraUpdate.UpdateAll = false;
+        auraUpdate.UnitGUID = player->GetGUID();
+
+        WorldPackets::Spells::AuraInfo auraInfo;
+        auraInfo.Slot = 56;
+        auraInfo.AuraData.emplace();
+        auraInfo.AuraData->CastID = castId2;
+        auraInfo.AuraData->SpellID = SPELL_HOUSING_PLOT_PRESENCE;
+        auraInfo.AuraData->Flags = AFLAG_NOCASTER;
+        auraInfo.AuraData->ActiveFlags = 1;
+        auraInfo.AuraData->CastLevel = 36;
+        auraInfo.AuraData->Applications = 0;
+        auraUpdate.Auras.push_back(std::move(auraInfo));
+        player->SendDirectMessage(auraUpdate.Write());
+
+        WorldPackets::Spells::SpellStart spellStart;
+        spellStart.Cast.CasterGUID = player->GetGUID();
+        spellStart.Cast.CasterUnit = player->GetGUID();
+        spellStart.Cast.CastID = castId2;
+        spellStart.Cast.SpellID = SPELL_HOUSING_PLOT_PRESENCE;
+        spellStart.Cast.CastFlags = CAST_FLAG_PENDING | CAST_FLAG_HAS_TRAJECTORY | CAST_FLAG_UNKNOWN_4 | CAST_FLAG_UNKNOWN_24 | CAST_FLAG_UNKNOWN_30;  // 0x2080000B
+        spellStart.Cast.CastFlagsEx = 0x2000200;
+        spellStart.Cast.CastTime = 0;
+        player->SendDirectMessage(spellStart.Write());
+
+        WorldPackets::Spells::SpellGo spellGo;
+        spellGo.Cast.CasterGUID = player->GetGUID();
+        spellGo.Cast.CasterUnit = player->GetGUID();
+        spellGo.Cast.CastID = castId2;
+        spellGo.Cast.SpellID = SPELL_HOUSING_PLOT_PRESENCE;
+        spellGo.Cast.CastFlags = CAST_FLAG_PENDING | CAST_FLAG_UNKNOWN_4 | CAST_FLAG_UNKNOWN_9 | CAST_FLAG_UNKNOWN_10 | CAST_FLAG_UNKNOWN_24 | CAST_FLAG_UNKNOWN_30;  // 0x20800309
+        spellGo.Cast.CastFlagsEx = 0x2000210;
+        spellGo.Cast.CastFlagsEx2 = 4;
+        spellGo.Cast.CastTime = getMSTime();
+        spellGo.Cast.Target.Flags = TARGET_FLAG_UNIT;
+        spellGo.Cast.HitTargets.push_back(player->GetGUID());
+        spellGo.Cast.HitStatus.emplace_back(uint8(0));
+        spellGo.LogData.Initialize(player);
+        player->SendDirectMessage(spellGo.Write());
+    }
+
+    // 4. Spell 1266699 — slot 9 replacement (preceded by slot 9 removal)
+    // CastFlags: START=15, GO=781, GoEx=16, GoEx2=4
+    {
+        // Remove existing slot 9 aura
+        WorldPackets::Spells::AuraUpdate auraRemove;
+        auraRemove.UpdateAll = false;
+        auraRemove.UnitGUID = player->GetGUID();
+        WorldPackets::Spells::AuraInfo removeInfo;
+        removeInfo.Slot = 9;
+        auraRemove.Auras.push_back(std::move(removeInfo));
+        player->SendDirectMessage(auraRemove.Write());
+
+        ObjectGuid castId3 = ObjectGuid::Create<HighGuid::Cast>(
+            SPELL_CAST_SOURCE_NORMAL, player->GetMapId(), SPELL_HOUSING_PLOT_ENTER_2,
+            player->GetMap()->GenerateLowGuid<HighGuid::Cast>());
+
+        // Apply 1266699 at slot 9 (Flags=NoCaster|Scalable=9, PointsCount=1, Points[0]=1)
+        WorldPackets::Spells::AuraUpdate auraUpdate;
+        auraUpdate.UpdateAll = false;
+        auraUpdate.UnitGUID = player->GetGUID();
+        WorldPackets::Spells::AuraInfo auraInfo;
+        auraInfo.Slot = 9;
+        auraInfo.AuraData.emplace();
+        auraInfo.AuraData->CastID = castId3;
+        auraInfo.AuraData->SpellID = SPELL_HOUSING_PLOT_ENTER_2;
+        auraInfo.AuraData->Flags = AFLAG_NOCASTER | AFLAG_SCALABLE;
+        auraInfo.AuraData->ActiveFlags = 1;
+        auraInfo.AuraData->CastLevel = 36;
+        auraInfo.AuraData->Applications = 0;
+        auraInfo.AuraData->Points.push_back(1.0f);
+        auraUpdate.Auras.push_back(std::move(auraInfo));
+        player->SendDirectMessage(auraUpdate.Write());
+
+        WorldPackets::Spells::SpellStart spellStart;
+        spellStart.Cast.CasterGUID = player->GetGUID();
+        spellStart.Cast.CasterUnit = player->GetGUID();
+        spellStart.Cast.CastID = castId3;
+        spellStart.Cast.SpellID = SPELL_HOUSING_PLOT_ENTER_2;
+        spellStart.Cast.CastFlags = CAST_FLAG_PENDING | CAST_FLAG_HAS_TRAJECTORY | CAST_FLAG_UNKNOWN_3 | CAST_FLAG_UNKNOWN_4;  // 15
+        spellStart.Cast.CastTime = 0;
+        player->SendDirectMessage(spellStart.Write());
+
+        WorldPackets::Spells::SpellGo spellGo;
+        spellGo.Cast.CasterGUID = player->GetGUID();
+        spellGo.Cast.CasterUnit = player->GetGUID();
+        spellGo.Cast.CastID = castId3;
+        spellGo.Cast.SpellID = SPELL_HOUSING_PLOT_ENTER_2;
+        spellGo.Cast.CastFlags = CAST_FLAG_PENDING | CAST_FLAG_UNKNOWN_3 | CAST_FLAG_UNKNOWN_4 | CAST_FLAG_UNKNOWN_9 | CAST_FLAG_UNKNOWN_10;  // 781
+        spellGo.Cast.CastFlagsEx = 16;
+        spellGo.Cast.CastFlagsEx2 = 4;
+        spellGo.Cast.CastTime = getMSTime();
+        spellGo.Cast.Target.Flags = TARGET_FLAG_UNIT;
+        spellGo.Cast.HitTargets.push_back(player->GetGUID());
+        spellGo.Cast.HitStatus.emplace_back(uint8(0));
+        spellGo.LogData.Initialize(player);
+        player->SendDirectMessage(spellGo.Write());
+    }
+
+    TC_LOG_DEBUG("housing", "SendPlotEnterSpellPackets: END — sent 3 spell sequences "
+        "(1239847@s50, 469226@s56, 1266699@s9) + AT HasPlayers flag for player {} plot {}",
+        player->GetGUID().ToString(), plotIndex);
+}
+
+void HousingMap::SendPlotLeaveAuraRemoval(Player* player)
+{
+    // Remove all plot enter/presence auras (slots 50, 56, 9)
+    // Send aura removal packets (empty AuraData = HasAura=False)
+    for (uint8 slot : { uint8(50), uint8(56), uint8(9) })
+    {
+        WorldPackets::Spells::AuraUpdate auraUpdate;
+        auraUpdate.UpdateAll = false;
+        auraUpdate.UnitGUID = player->GetGUID();
+
+        WorldPackets::Spells::AuraInfo auraInfo;
+        auraInfo.Slot = slot;
+        auraUpdate.Auras.push_back(std::move(auraInfo));
+
+        player->SendDirectMessage(auraUpdate.Write());
+    }
+    TC_LOG_DEBUG("housing", "HousingMap::SendPlotLeaveAuraRemoval: Removed auras (slots 50, 56, 9) for player {}",
+        player->GetGUID().ToString());
 }
 
 HousingPlotOwnerType HousingMap::GetPlotOwnerTypeForPlayer(Player const* player, uint8 plotIndex) const
@@ -760,6 +1074,20 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
 
     LoadGrid(x, y);
 
+    // Ground-clamp: the DB2 HousePosition Z can be below terrain level.
+    // Snap Z to the terrain height so the house sits on the surface.
+    {
+        PhaseShift emptyPhase;
+        PhasingHandler::InitDbPhaseShift(emptyPhase, 0, 0, 0);
+        float groundZ = GetStaticHeight(emptyPhase, x, y, z + 20.0f, true, 50.0f);
+        if (groundZ > INVALID_HEIGHT && std::abs(groundZ - z) > 1.0f)
+        {
+            TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Ground-clamping plot {} Z from {:.2f} to {:.2f} (delta={:.2f})",
+                plotIndex, z, groundZ, groundZ - z);
+            z = groundZ;
+        }
+    }
+
     // Build rotation quaternion from euler angles
     QuaternionData rot = QuaternionData::fromEulerAnglesZYX(facing,
         customPos ? 0.0f : targetPlot->HouseRotation[1],
@@ -773,7 +1101,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     Position pos(x, y, z, facing);
     Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(plotIndex);
 
-    TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: plot={} pos=({:.2f}, {:.2f}, {:.2f}) facing={:.3f} rot=({:.3f}, {:.3f}, {:.3f}, {:.3f}) hasPlotInfo={} hasHouseGuid={}",
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: plot={} pos=({:.2f}, {:.2f}, {:.2f}) facing={:.3f} rot=({:.3f}, {:.3f}, {:.3f}, {:.3f}) hasPlotInfo={} hasHouseGuid={}",
         plotIndex, x, y, z, facing, rot.x, rot.y, rot.z, rot.w,
         plotInfo != nullptr, plotInfo && !plotInfo->HouseGuid.IsEmpty());
 
@@ -788,23 +1116,29 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
 
     // Spawn the front door GO (entry 602702, type Goober, displayId 116971)
     // Sniff confirms: door is a separate interactive GO, NOT a MeshObject.
-    // It is spawned at the house position with the house facing.
+    // The door must be offset from the house center to the front entrance.
+    // From mesh hierarchy: front wall at local X ≈ +5.4, so door at ≈ +5.5 forward.
     GameObject* doorGo = nullptr;
     uint32 doorEntry = 602702;
+    constexpr float DOOR_FORWARD_OFFSET = 5.5f;
+    float doorX = x + DOOR_FORWARD_OFFSET * std::cos(facing);
+    float doorY = y + DOOR_FORWARD_OFFSET * std::sin(facing);
+    Position doorPos(doorX, doorY, z, facing);
+
     GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorEntry);
     if (doorTemplate)
     {
-        doorGo = GameObject::CreateGameObject(doorEntry, this, pos, rot, 255, GO_STATE_ACTIVE);
+        doorGo = GameObject::CreateGameObject(doorEntry, this, doorPos, rot, 255, GO_STATE_READY);
         if (doorGo)
         {
             doorGo->SetFlag(GO_FLAG_NODESPAWN);
-            PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(), 0, 0, 0);
+            PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
             if (AddToMap(doorGo))
             {
                 _houseGameObjects[plotIndex] = doorGo->GetGUID();
-                TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Door GO spawned - entry={} guid={} displayId={} at ({:.1f}, {:.1f}, {:.1f}) for plot {}",
-                    doorEntry, doorGo->GetGUID().ToString(), doorGo->GetDisplayId(), x, y, z, plotIndex);
+                TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door GO spawned - entry={} guid={} displayId={} at ({:.1f}, {:.1f}, {:.1f}) (house center: {:.1f}, {:.1f}, {:.1f}) for plot {}",
+                    doorEntry, doorGo->GetGUID().ToString(), doorGo->GetDisplayId(), doorX, doorY, z, x, y, z, plotIndex);
             }
             else
             {
@@ -989,7 +1323,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     if (meshItr != _meshObjects.end())
         meshCount = static_cast<uint32>(meshItr->second.size());
 
-    TC_LOG_ERROR("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} MeshObjects for plot {} in neighborhood '{}' "
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} MeshObjects for plot {} in neighborhood '{}' "
         "(base={} door={})",
         meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?",
         basePiece ? "OK" : "FAIL", doorPiece ? "OK" : "FAIL");
@@ -1090,7 +1424,7 @@ GameObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor con
     go->SetFlag(GO_FLAG_NODESPAWN);
 
     // Universally visible (same rationale as cornerstones — no DB spawn, no phase_area)
-    PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), 0, 0, 0);
+    PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
     // Populate the FHousingDecor_C entity fragment
     go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0);

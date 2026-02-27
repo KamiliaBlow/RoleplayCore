@@ -108,7 +108,12 @@ public:
     void SetInInterior(bool interior) { _isInInterior = interior; }
     bool IsInInterior() const { return _isInInterior; }
 
-    // Decor operations
+    // Decor operations — StartPlacingNewDecor creates a pending placement, PlaceDecorWithGuid commits it
+    ObjectGuid StartPlacingNewDecor(uint32 catalogEntryId, HousingResult& result);
+    uint32 GetPendingPlacementEntryId(ObjectGuid decorGuid) const;
+    void CancelPendingPlacement(ObjectGuid decorGuid);
+    HousingResult PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntryId, float x, float y, float z,
+        float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid);
     HousingResult PlaceDecor(uint32 decorEntryId, float x, float y, float z,
         float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid);
     HousingResult MoveDecor(ObjectGuid decorGuid, float x, float y, float z,
@@ -230,6 +235,7 @@ private:
     uint32 _fixtureWeightUsed = 0;
 
     std::unordered_map<ObjectGuid, PlacedDecor> _placedDecor;
+    std::unordered_map<ObjectGuid, uint32 /*decorEntryId*/> _pendingPlacements;
     std::unordered_map<ObjectGuid, Room> _rooms;
     std::unordered_map<uint32 /*fixturePointId*/, Fixture> _fixtures;
     std::unordered_map<uint32 /*decorEntryId*/, CatalogEntry> _catalog;

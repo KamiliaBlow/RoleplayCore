@@ -95,8 +95,10 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
         return false;
     }
 
-    // Phase shift: visible to all phases (housing objects are universally visible)
-    PhasingHandler::InitDbPhaseShift(GetPhaseShift(), 0, 0, 0);
+    // Phase shift: always visible regardless of player's phase state.
+    // Must use PHASE_USE_FLAGS_ALWAYS_VISIBLE (matching door GOs, cornerstones, ATs, decor GOs)
+    // otherwise cosmetic phase additions on plot exit hide meshes including neighbor houses.
+    PhasingHandler::InitDbPhaseShift(GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
     _Create(ObjectGuid::Create<HighGuid::MeshObject>(GetMapId(), 0,
         GetMap()->GenerateLowGuid<HighGuid::MeshObject>()));

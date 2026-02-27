@@ -77,6 +77,18 @@ void AreaTrigger::AddToWorld()
             GetMap()->GetAreaTriggerBySpawnIdStore().insert(std::make_pair(_spawnId, this));
 
         WorldObject::AddToWorld();
+
+        // Housing AT debug logging ? critical for diagnosing OutsidePlotBounds
+        if (m_housingPlotAreaTriggerData.has_value())
+        {
+            ObjectGuid ownerGuid = m_housingPlotAreaTriggerData->HouseOwnerGUID;
+            TC_LOG_DEBUG("housing", "AreaTrigger::AddToWorld: AT {} entry {} pos ({:.1f}, {:.1f}, {:.1f}) "
+                "map={} ? HousingPlot: PlotID={} OwnerGUID={}",
+                GetGUID().ToString(), GetEntry(),
+                GetPositionX(), GetPositionY(), GetPositionZ(), GetMapId(),
+                uint32(m_housingPlotAreaTriggerData->PlotID),
+                ownerGuid.ToString());
+        }
     }
 }
 
@@ -347,6 +359,19 @@ void AreaTrigger::InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, Objec
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingPlotAreaTrigger_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingPlotAreaTriggerData));
+}
+
+void AreaTrigger::UpdateHousingPlotOwnerData(ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid)
+{
+    if (!m_housingPlotAreaTriggerData.has_value())
+        return;
+
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseOwnerGUID), ownerGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&AreaTrigger::m_housingPlotAreaTriggerData, 0)
+        .ModifyValue(&UF::HousingPlotAreaTriggerData::HouseOwnerBnetAccountGUID), ownerBnetGuid);
 }
 
 ObjectGuid AreaTrigger::CreateNewMovementForceId(Map* map, uint32 areaTriggerId)
@@ -1549,6 +1574,25 @@ void AreaTrigger::BuildValuesCreate(UF::UpdateFieldFlag flags, ByteBuffer& data,
 {
     m_objectData->WriteCreate(flags, data, target, this);
     m_areaTriggerData->WriteCreate(flags, data, target, this);
+
+    // Housing AT fragment verification ? log fields that the client reads for IsInsidePlot()
+    if (m_housingPlotAreaTriggerData.has_value())
+    {
+        ObjectGuid ownerGuid = m_housingPlotAreaTriggerData->HouseOwnerGUID;
+        ObjectGuid houseGuid = m_housingPlotAreaTriggerData->HouseGUID;
+        ObjectGuid bnetGuid = m_housingPlotAreaTriggerData->HouseOwnerBnetAccountGUID;
+        TC_LOG_DEBUG("housing", "AreaTrigger::BuildValuesCreate: AT {} ? target {} ? "
+            "FHousingPlotAreaTrigger_C: PlotID={} OwnerGUID={} HouseGUID={} BnetGUID={} | "
+            "ATData: SpellForVisuals={} DecalPropertiesID={} SpellID={} BoundsRadius2D={:.1f}",
+            GetGUID().ToString(),
+            target ? target->GetGUID().ToString() : "broadcast",
+            uint32(m_housingPlotAreaTriggerData->PlotID),
+            ownerGuid.ToString(), houseGuid.ToString(), bnetGuid.ToString(),
+            int32(m_areaTriggerData->SpellForVisuals),
+            uint32(m_areaTriggerData->DecalPropertiesID),
+            int32(m_areaTriggerData->SpellID),
+            float(m_areaTriggerData->BoundsRadius2D));
+    }
 }
 
 void AreaTrigger::BuildValuesUpdate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const

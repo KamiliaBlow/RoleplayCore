@@ -105,10 +105,10 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
 
         AreaTriggerAI* AI() { return _ai.get(); }
 
-        bool IsCustom() const { return _areaTriggerTemplate->Id.IsCustom; }
-        bool IsServerSide() const { return _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
+        bool IsCustom() const { return _areaTriggerTemplate && _areaTriggerTemplate->Id.IsCustom; }
+        bool IsServerSide() const { return _areaTriggerTemplate && _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
         bool IsStaticSpawn() const { return _spawnId != 0; }
-        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
+        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate && _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
 
         bool IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects = false) const override;
 
@@ -126,6 +126,7 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
         bool LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, bool allowDuplicate);
 
         void InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
+        void UpdateHousingPlotOwnerData(ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
 
         void Update(uint32 diff) override;
         void Remove();

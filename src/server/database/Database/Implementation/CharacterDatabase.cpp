@@ -779,7 +779,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_CHARACTER_AURA_STORED_LOCATIONS, "SELECT Spell, MapId, PositionX, PositionY, PositionZ, Orientation FROM character_aura_stored_location WHERE Guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_AURA_STORED_LOCATIONS_BY_GUID, "DELETE FROM character_aura_stored_location WHERE Guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_AURA_STORED_LOCATION, "DELETE FROM character_aura_stored_location WHERE Guid = ? AND Spell = ?", CONNECTION_ASYNC);
-    PrepareStatement(CHAR_INS_CHARACTER_AURA_STORED_LOCATION, "INSERT INTO character_aura_stored_location (Guid, Spell, MapId, PositionX, PositionY, PositionZ, Orientation) "
+    PrepareStatement(CHAR_INS_CHARACTER_AURA_STORED_LOCATION, "REPLACE INTO character_aura_stored_location (Guid, Spell, MapId, PositionX, PositionY, PositionZ, Orientation) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
 
     // War mode
@@ -844,7 +844,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_PUBLIC, "UPDATE neighborhoods SET isPublic = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_NAME, "UPDATE neighborhoods SET name = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD, "DELETE FROM neighborhoods WHERE guid = ?", CONNECTION_ASYNC);
-    PrepareStatement(CHAR_SEL_NEIGHBORHOOD_MEMBERS, "SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId FROM neighborhood_members nm LEFT JOIN character_housing ch ON nm.playerGuid = ch.guid WHERE nm.neighborhoodGuid = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_SEL_NEIGHBORHOOD_MEMBERS, "SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId, c.account FROM neighborhood_members nm LEFT JOIN character_housing ch ON nm.playerGuid = ch.guid LEFT JOIN characters c ON nm.playerGuid = c.guid WHERE nm.neighborhoodGuid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_NEIGHBORHOOD_MEMBER, "INSERT INTO neighborhood_members (neighborhoodGuid, playerGuid, role, joinTime, plotIndex) VALUES (?, ?, ?, ?, ?)", CONNECTION_BOTH);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_MEMBERS, "DELETE FROM neighborhood_members WHERE neighborhoodGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_MEMBER, "DELETE FROM neighborhood_members WHERE neighborhoodGuid = ? AND playerGuid = ?", CONNECTION_BOTH);

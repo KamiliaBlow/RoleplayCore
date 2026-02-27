@@ -18,11 +18,13 @@
 #include "HousingMgr.h"
 #include "DB2Stores.h"
 #include "DB2Structure.h"
+#include "GameObjectData.h"
 #include "Group.h"
 #include "Guild.h"
 #include "Housing.h"
 #include "Log.h"
 #include "Neighborhood.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "Random.h"
 #include "SocialMgr.h"
@@ -292,6 +294,73 @@ void HousingMgr::LoadNeighborhoodPlotData()
                 p->HouseRotation[0], p->HouseRotation[1], p->HouseRotation[2]);
         }
     }
+
+    // Validate that all CornerstoneGameObjectID entries have matching gameobject_template entries.
+    // Templates are loaded from GameObjects.db2 (CASC) + gameobject_template SQL table.
+    // Per-plot entries that are missing from CASC need world_housing_go_templates.sql applied.
+    uint32 missingCornerstone = 0, missingPlotGO = 0, dynamicAdded = 0;
+    for (auto const& [id, plot] : _neighborhoodPlotStore)
+    {
+        if (plot.CornerstoneGameObjectID)
+        {
+            uint32 entry = static_cast<uint32>(plot.CornerstoneGameObjectID);
+            if (!sObjectMgr->GetGameObjectTemplate(entry))
+            {
+                // Dynamically register the missing cornerstone template.
+                // All cornerstones are identical: type=48 (UILink), displayId=110660, scale=1.0
+                // Data0=4 (CornerstoneInteraction), Data4=10 (radius), Data7=70 (PlayerInteractionType), Data8=1266097 (spell)
+                GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[entry];
+                got.entry = entry;
+                got.type = 48; // GAMEOBJECT_TYPE_UI_LINK
+                got.displayId = 110660;
+                got.name = Trinity::StringFormat("Cornerstone Plot {} Map {}", plot.PlotIndex, plot.NeighborhoodMapID);
+                got.IconName = "buy";
+                got.size = 1.0f;
+                memset(got.raw.data, 0, sizeof(got.raw.data));
+                got.raw.data[0] = 4;       // UILinkType = CornerstoneInteraction
+                got.raw.data[2] = 1;       // GiganticAOI
+                got.raw.data[4] = 10;      // radius
+                got.raw.data[7] = 70;      // PlayerInteractionType = CornerstoneInteraction
+                got.raw.data[8] = 1266097; // spell = [DNT] Trigger Convo for Unowned Plot
+                got.ContentTuningId = 0;
+                got.RequiredLevel = 0;
+                got.ScriptId = 0;
+                got.InitializeQueryData();
+                ++dynamicAdded;
+                ++missingCornerstone;
+            }
+        }
+        if (plot.PlotGameObjectID)
+        {
+            uint32 entry = static_cast<uint32>(plot.PlotGameObjectID);
+            if (!sObjectMgr->GetGameObjectTemplate(entry))
+            {
+                // Register missing plot marker template.
+                // All plot markers are identical: type=5 (Generic), displayId=113004, scale=1.0
+                GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[entry];
+                got.entry = entry;
+                got.type = 5; // GAMEOBJECT_TYPE_GENERIC
+                got.displayId = 113004;
+                got.name = Trinity::StringFormat("Plot {} Map {}", plot.PlotIndex, plot.NeighborhoodMapID);
+                got.size = 1.0f;
+                memset(got.raw.data, 0, sizeof(got.raw.data));
+                got.raw.data[1] = 1; // Data1
+                got.ContentTuningId = 0;
+                got.RequiredLevel = 0;
+                got.ScriptId = 0;
+                got.InitializeQueryData();
+                ++dynamicAdded;
+                ++missingPlotGO;
+            }
+        }
+    }
+
+    if (dynamicAdded > 0)
+    {
+        TC_LOG_ERROR("housing", "HousingMgr::LoadNeighborhoodPlotData: {} cornerstone + {} plot marker GO templates were MISSING from gameobject_template and GameObjects.db2. "
+            "Dynamically registered them. Apply sql/housing/world_housing_go_templates.sql to the world DB to fix permanently.",
+            missingCornerstone, missingPlotGO);
+    }
 }
 
 void HousingMgr::LoadNeighborhoodNameGenData()
@@ -382,6 +451,16 @@ uint32 HousingMgr::GetNeighborhoodMapIdByWorldMap(uint32 mapId) const
     return 0;
 }
 
+uint32 HousingMgr::GetWorldMapIdByNeighborhoodMapId(uint32 neighborhoodMapId) const
+{
+    for (auto const& [worldMapId, nmId] : _worldMapToNeighborhoodMap)
+    {
+        if (nmId == neighborhoodMapId)
+            return static_cast<uint32>(worldMapId);
+    }
+    return 0;
+}
+
 std::vector<NeighborhoodPlotData const*> HousingMgr::GetPlotsForMap(uint32 neighborhoodMapId) const
 {
     auto itr = _plotsByMap.find(neighborhoodMapId);
@@ -411,17 +490,30 @@ NeighborhoodPlotData const* HousingMgr::GetPlotByCornerstoneEntry(uint32 neighbo
 int32 HousingMgr::ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const
 {
     if (!neighborhood)
+    {
+        TC_LOG_ERROR("housing", "HousingMgr::ResolvePlotIndex: neighborhood is null");
         return -1;
+    }
 
     uint32 goEntry = cornerstoneGuid.GetEntry();
     if (!goEntry)
+    {
+        TC_LOG_ERROR("housing", "HousingMgr::ResolvePlotIndex: GetEntry() returned 0 for GUID {} (HighGuid: {})",
+            cornerstoneGuid.ToString(), static_cast<uint32>(cornerstoneGuid.GetHigh()));
         return -1;
+    }
 
     uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
     NeighborhoodPlotData const* plotData = GetPlotByCornerstoneEntry(neighborhoodMapId, goEntry);
     if (!plotData)
+    {
+        TC_LOG_ERROR("housing", "HousingMgr::ResolvePlotIndex: No plot found for goEntry={} in neighborhoodMapId={} (GUID: {})",
+            goEntry, neighborhoodMapId, cornerstoneGuid.ToString());
         return -1;
+    }
 
+    TC_LOG_DEBUG("housing", "HousingMgr::ResolvePlotIndex: Resolved GUID {} (entry={}) -> PlotIndex {} (DB2 ID {})",
+        cornerstoneGuid.ToString(), goEntry, plotData->PlotIndex, plotData->ID);
     return plotData->PlotIndex;
 }
 
@@ -528,9 +620,11 @@ std::vector<uint32> HousingMgr::GetStarterDecorIds(uint32 teamId) const
     // Sniff 12.0.1 verified: Alliance and Horde receive different starter decor sets.
     // HouseDecor.Flags encodes faction availability:
     //   bit 0 (0x1) = Alliance, bit 1 (0x2) = Horde, 0 or 0x3 = both factions
-    // Sniff-observed sets:
+    // Sniff-observed sets (unique IDs only, 7-8 per faction):
     //   Alliance: 389, 726, 1994, 1435, 9144
     //   Horde:    1700, 81, 10952, 2549, 8910
+    // FirstTimeDecorAcquisition sends one packet per UNIQUE decor ID.
+    // StartingQuantity determines catalog count, NOT notification count.
     static constexpr int32 HOUSE_DECOR_FLAG_FACTION_ALLIANCE = 0x1;
     static constexpr int32 HOUSE_DECOR_FLAG_FACTION_HORDE    = 0x2;
     static constexpr int32 HOUSE_DECOR_FLAG_FACTION_MASK     = 0x3;
@@ -546,10 +640,29 @@ std::vector<uint32> HousingMgr::GetStarterDecorIds(uint32 teamId) const
         int32 decorFaction = decor.Flags & HOUSE_DECOR_FLAG_FACTION_MASK;
         // Include decor if: no faction restriction (0 or both bits set), or matches player's faction
         if (decorFaction == 0 || decorFaction == HOUSE_DECOR_FLAG_FACTION_MASK || (decorFaction & factionBit))
-        {
-            for (int32 i = 0; i < decor.StartingQuantity; ++i)
-                result.push_back(id);
-        }
+            result.push_back(id);  // One entry per unique decor ID
+    }
+    return result;
+}
+
+std::vector<std::pair<uint32, int32>> HousingMgr::GetStarterDecorWithQuantities(uint32 teamId) const
+{
+    // Returns {DecorID, StartingQuantity} pairs for populating the catalog
+    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_ALLIANCE = 0x1;
+    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_HORDE    = 0x2;
+    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_MASK     = 0x3;
+
+    int32 factionBit = (teamId == ALLIANCE) ? HOUSE_DECOR_FLAG_FACTION_ALLIANCE : HOUSE_DECOR_FLAG_FACTION_HORDE;
+
+    std::vector<std::pair<uint32, int32>> result;
+    for (auto const& [id, decor] : _houseDecorStore)
+    {
+        if (decor.StartingQuantity <= 0)
+            continue;
+
+        int32 decorFaction = decor.Flags & HOUSE_DECOR_FLAG_FACTION_MASK;
+        if (decorFaction == 0 || decorFaction == HOUSE_DECOR_FLAG_FACTION_MASK || (decorFaction & factionBit))
+            result.push_back({ id, decor.StartingQuantity });
     }
     return result;
 }
@@ -697,29 +810,60 @@ void HousingMgr::LoadNeighborhoodInitiativeData()
 void HousingMgr::LoadRoomComponentData()
 {
     uint32 doorwayCount = 0;
+    uint32 totalCount = 0;
 
     for (RoomComponentEntry const* entry : sRoomComponentStore)
     {
-        // Only index doorway components (Type == 7)
-        if (entry->Type != HOUSING_ROOM_COMPONENT_DOORWAY)
-            continue;
+        // Store all components indexed by RoomWmoDataID for room spawning
+        RoomComponentData compData;
+        compData.ID = entry->ID;
+        compData.RoomWmoDataID = entry->RoomWmoDataID;
+        compData.OffsetPos[0] = entry->OffsetPos.X;
+        compData.OffsetPos[1] = entry->OffsetPos.Y;
+        compData.OffsetPos[2] = entry->OffsetPos.Z;
+        compData.OffsetRot[0] = entry->OffsetRot.X;
+        compData.OffsetRot[1] = entry->OffsetRot.Y;
+        compData.OffsetRot[2] = entry->OffsetRot.Z;
+        compData.ModelFileDataID = entry->ModelFileDataID;
+        compData.Type = entry->Type;
+        compData.MeshStyleFilterID = entry->MeshStyleFilterID;
+        compData.ConnectionType = entry->ConnectionType;
+        compData.Flags = entry->Flags;
 
-        RoomDoorInfo door;
-        door.RoomComponentID = entry->ID;
-        door.OffsetPos[0] = entry->OffsetPos.X;
-        door.OffsetPos[1] = entry->OffsetPos.Y;
-        door.OffsetPos[2] = entry->OffsetPos.Z;
-        door.OffsetRot[0] = entry->OffsetRot.X;
-        door.OffsetRot[1] = entry->OffsetRot.Y;
-        door.OffsetRot[2] = entry->OffsetRot.Z;
-        door.ConnectionType = entry->ConnectionType;
+        _roomComponentsByWmoData[entry->RoomWmoDataID].push_back(compData);
+        ++totalCount;
 
-        _roomDoorMap[entry->RoomWmoDataID].push_back(door);
-        ++doorwayCount;
+        // Also index doorway components separately for connectivity checks
+        if (entry->Type == HOUSING_ROOM_COMPONENT_DOORWAY)
+        {
+            RoomDoorInfo door;
+            door.RoomComponentID = entry->ID;
+            door.OffsetPos[0] = entry->OffsetPos.X;
+            door.OffsetPos[1] = entry->OffsetPos.Y;
+            door.OffsetPos[2] = entry->OffsetPos.Z;
+            door.OffsetRot[0] = entry->OffsetRot.X;
+            door.OffsetRot[1] = entry->OffsetRot.Y;
+            door.OffsetRot[2] = entry->OffsetRot.Z;
+            door.ConnectionType = entry->ConnectionType;
+
+            _roomDoorMap[entry->RoomWmoDataID].push_back(door);
+            ++doorwayCount;
+        }
     }
 
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadRoomComponentData: Indexed {} doorway components across {} room types from {} total RoomComponent entries",
-        doorwayCount, uint32(_roomDoorMap.size()), uint32(sRoomComponentStore.GetNumRows()));
+    TC_LOG_DEBUG("housing", "HousingMgr::LoadRoomComponentData: Indexed {} total components ({} doorways) "
+        "across {} room types from {} DB2 entries",
+        totalCount, doorwayCount, uint32(_roomComponentsByWmoData.size()),
+        uint32(sRoomComponentStore.GetNumRows()));
+}
+
+std::vector<RoomComponentData> const* HousingMgr::GetRoomComponents(uint32 roomWmoDataId) const
+{
+    auto itr = _roomComponentsByWmoData.find(roomWmoDataId);
+    if (itr != _roomComponentsByWmoData.end())
+        return &itr->second;
+
+    return nullptr;
 }
 
 bool HousingMgr::IsBaseRoom(uint32 roomEntryId) const

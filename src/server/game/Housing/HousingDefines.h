@@ -637,6 +637,29 @@ static constexpr uint32 MAX_HOUSE_LEVEL                 = 20;
 // Sniff: aura slot 51, Flags=NoCaster, ActiveFlags=15, CastLevel=36
 static constexpr uint32 SPELL_HOUSING_EDIT_MODE_AURA    = 1263303;
 
+// Spell applied when player enters their own housing plot
+// Sniff: aura slot 50/55, Flags=NoCaster, ActiveFlags=1-2, CastLevel=36
+static constexpr uint32 SPELL_HOUSING_PLOT_ENTER        = 1239847;
+
+// Second spell applied when player enters their own housing plot
+// Sniff: aura slot 56, Flags=NoCaster, ActiveFlags=1, CastLevel=36
+static constexpr uint32 SPELL_HOUSING_PLOT_PRESENCE     = 469226;
+
+// Third spell applied on first plot enter — replaces slot 9 aura
+// Sniff: aura slot 9, Flags=NoCaster|Scalable(9), ActiveFlags=1, CastLevel=36, has PointsCount
+static constexpr uint32 SPELL_HOUSING_PLOT_ENTER_2      = 1266699;
+
+// WorldState IDs — continuous counters sent throughout the entire housing session.
+// Sniff-verified: increment by ~1333 every ~300ms, starting at map login with INIT_WORLD_STATES.
+// Initial values from sniff: 13436=417396536, 13437=166923928, 13438=473155274
+static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
+static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_2    = 13437;
+static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
+
+// Interval and increment for housing WorldState counter updates
+static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 300;
+static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT    = 1333;
+
 // Cosmetic phases removed when a player enters their own housing plot and
 // restored when they leave. Sniff-verified: 16 phases with ~10s delay.
 static constexpr uint32 HOUSING_COSMETIC_PHASES[] =
@@ -650,5 +673,43 @@ static constexpr uint32 HOUSING_COSMETIC_PHASE_COUNT = sizeof(HOUSING_COSMETIC_P
 
 // Delay in milliseconds before cosmetic phase shifts take effect on plot enter/leave
 static constexpr uint32 HOUSING_COSMETIC_PHASE_DELAY_MS = 10000;
+
+// Room grid spacing for interior maps (sniff-verified: ~24 yards between room centers)
+static constexpr float HOUSING_ROOM_GRID_SPACING = 24.0f;
+
+// ------------------------------------------------------------------
+// Horde House Interior Mesh Data (from retail sniff, HouseExteriorWmoDataID=87)
+// ------------------------------------------------------------------
+// Attachment hierarchy:
+//   Root: House GO (spawned at plot position, e.g. entry 582075)
+//     └── Building shell WMO (FileDataID 6322976, attached to house GO)
+//           ├── Interior room WMOs (6426xxx, attached to building shell)
+//           └── Exterior fixture M2s (attached to building shell)
+//
+// The client uses the house GO as the root anchor. MeshObjects carry
+// FHousingFixture_C fragment data (ExteriorComponentID, HouseExteriorWmoDataID)
+// that the client uses to resolve which art assets to render.
+
+// Main building shell WMO (approx bounding box: ±35x30x126)
+static constexpr int32 HORDE_HOUSE_BUILDING_SHELL_FDI = 6322976;
+
+// Interior room WMOs — each approximately 24x24 unit rooms arranged on a 24-unit grid
+// Vertical floor height: 7.0 units between stacked rooms
+static constexpr int32 HORDE_HOUSE_INTERIOR_ROOM_FDIS[] = {
+    6426613,    // Main room / wall section (also used as corner)
+    6426431,    // Small room variant
+    6426641,    // Small room variant
+    6426647,    // Small room variant
+    6426665,    // Large room corner
+    6426605,    // Room ceiling
+    6426671,    // Room wall with door opening
+    6426452,    // Small room with specific configuration
+    6426672     // Room section variant
+};
+static constexpr uint32 HORDE_HOUSE_INTERIOR_ROOM_COUNT = sizeof(HORDE_HOUSE_INTERIOR_ROOM_FDIS) / sizeof(HORDE_HOUSE_INTERIOR_ROOM_FDIS[0]);
+static constexpr float  HORDE_HOUSE_FLOOR_HEIGHT = 7.0f;  // Vertical spacing between stacked rooms
+
+// HouseExteriorWmoDataID for Horde theme (from sniff)
+static constexpr int32 HORDE_HOUSE_EXTERIOR_WMO_DATA_ID = 87;
 
 #endif // TRINITYCORE_HOUSING_DEFINES_H

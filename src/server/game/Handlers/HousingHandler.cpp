@@ -295,7 +295,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         TC_LOG_ERROR("housing", "HandleHousingDecorSetEditMode: GetHousing() returned null for player {}",
             player->GetGUID().ToString());
         WorldPackets::Housing::HousingDecorSetEditModeResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        response.Result = HOUSING_RESULT_HOUSE_NOT_FOUND;
         SendPacket(response.Write());
         return;
     }
@@ -311,8 +311,8 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             player->GetGUID().ToString());
         WorldPackets::Housing::HousingDecorSetEditModeResponse response;
         response.HouseGuid = housing->GetHouseGuid();
-        response.HouseGuid2 = housing->GetNeighborhoodGuid();
-        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        response.BNetAccountGuid = GetBattlenetAccountGUID();
+        response.Result = HOUSING_RESULT_HOUSE_NOT_FOUND;
         SendPacket(response.Write());
         return;
     }
@@ -334,12 +334,11 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
     housing->SetEditorMode(targetMode);
 
     // Sniff-verified wire format: PackedGUID HouseGuid + PackedGUID BNetAccountGuid
-    // + uint32 DecorCount + uint8 Result + DecorCount × PackedGUID DecorGUIDs
-    // Sniff byte-level analysis: HouseGuid2 has hi byte7=0x78 = HighGuid::BNetAccount (30)
+    // + bit Enabled + uint32 Result + [PackedGUID PlayerGuid if Enabled=true]
     WorldPackets::Housing::HousingDecorSetEditModeResponse response;
     response.HouseGuid = housing->GetHouseGuid();
-    response.HouseGuid2 = GetBattlenetAccountGUID();
-    response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+    response.BNetAccountGuid = GetBattlenetAccountGUID();
+    response.Result = HOUSING_RESULT_SUCCESS;
 
     if (housingDecorSetEditMode.Active)
     {
@@ -374,9 +373,9 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
                 SPELL_HOUSING_EDIT_MODE_AURA);
         }
 
-        // 2. DecorGUIDs: sniff shows the PLAYER's own GUID (not placed decor GUIDs).
-        // The client checks if its own GUID is present to decide enter vs exit.
-        response.DecorGuids.push_back(player->GetGUID());
+        // 2. Build response with Enabled=true and PlayerGuid
+        response.Enabled = true;
+        response.PlayerGuid = player->GetGUID();
 
         // 3. Send the edit mode response BEFORE the UpdateObject
         SendPacket(response.Write());
@@ -394,8 +393,8 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         // handles this automatically via HaveAtClient check.
         GetBattlenetAccount().SendUpdateToPlayer(player);
 
-        TC_LOG_DEBUG("housing", "  EditMode ENTER: PlayerGUID={} HouseGuid2={} flags set (PACIFIED|NO_ACTIONS|SilencedAll)",
-            player->GetGUID().ToString(), response.HouseGuid2.ToString());
+        TC_LOG_DEBUG("housing", "  EditMode ENTER: PlayerGUID={} BNetAccountGuid={} flags set (PACIFIED|NO_ACTIONS|SilencedAll)",
+            player->GetGUID().ToString(), response.BNetAccountGuid.ToString());
     }
     else
     {
@@ -422,7 +421,8 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             player->SendDirectMessage(auraUpdate.Write());
         }
 
-        // 2. Send the edit mode response (DecorCount=0 = exit)
+        // 2. Send the edit mode response (Enabled=false = exit, no PlayerGuid)
+        response.Enabled = false;
         SendPacket(response.Write());
 
         // 3. Remove edit mode unit flags
@@ -430,13 +430,13 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         player->RemoveUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
         player->ReplaceAllSilencedSchoolMask(SpellSchoolMask(0));
 
-        TC_LOG_DEBUG("housing", "  EditMode EXIT: flags cleared, HouseGuid2={}",
-            response.HouseGuid2.ToString());
+        TC_LOG_DEBUG("housing", "  EditMode EXIT: flags cleared, BNetAccountGuid={}",
+            response.BNetAccountGuid.ToString());
     }
 
-    TC_LOG_DEBUG("housing", "  EDIT_MODE_RESPONSE: HouseGuid={} HouseGuid2={} DecorCount={} Result={}",
-        response.HouseGuid.ToString(), response.HouseGuid2.ToString(),
-        uint32(response.DecorGuids.size()), response.Result);
+    TC_LOG_DEBUG("housing", "  EDIT_MODE_RESPONSE: HouseGuid={} BNetAccountGuid={} Enabled={} Result={}",
+        response.HouseGuid.ToString(), response.BNetAccountGuid.ToString(),
+        response.Enabled, response.Result);
 
     if (player->m_playerHouseInfoComponentData.has_value())
     {

@@ -439,6 +439,8 @@ namespace WorldPackets
         class HousingDecorDeleteFromStorageById;
         class HousingDecorRequestStorage;
         class HousingDecorRedeemDeferredDecor;
+        class HousingDecorStartPlacingNewDecor;
+        class HousingDecorCatalogCreateSearcher;
         class HousingFixtureSetEditMode;
         class HousingFixtureSetCoreFixture;
         class HousingFixtureCreateFixture;
@@ -483,6 +485,7 @@ namespace WorldPackets
         class HousingFixtureSetHouseType;
         class GetAllLicensedDecorQuantities;
         class GetDecorRefundList;
+        class HousingRequestEditorAvailability;
     }
 
     namespace Neighborhood
@@ -1569,6 +1572,8 @@ class TC_GAME_API WorldSession
         void HandleHousingDecorDeleteFromStorageById(WorldPackets::Housing::HousingDecorDeleteFromStorageById const& housingDecorDeleteFromStorageById);
         void HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& housingDecorRequestStorage);
         void HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::HousingDecorRedeemDeferredDecor const& housingDecorRedeemDeferredDecor);
+        void HandleHousingDecorStartPlacingNewDecor(WorldPackets::Housing::HousingDecorStartPlacingNewDecor const& housingDecorStartPlacingNewDecor);
+        void HandleHousingDecorCatalogCreateSearcher(WorldPackets::Housing::HousingDecorCatalogCreateSearcher const& housingDecorCatalogCreateSearcher);
 
         // Housing - Fixture System
         void HandleHousingFixtureSetEditMode(WorldPackets::Housing::HousingFixtureSetEditMode const& housingFixtureSetEditMode);
@@ -1606,6 +1611,9 @@ class TC_GAME_API WorldSession
         void HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhood const& housingSvcsGetHouseFinderNeighborhood);
         void HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& housingSvcsGetBnetFriendNeighborhoods);
         void HandleHousingSvcsDeleteAllNeighborhoodInvites(WorldPackets::Housing::HousingSvcsDeleteAllNeighborhoodInvites const& housingSvcsDeleteAllNeighborhoodInvites);
+
+        // Housing - Editor Availability
+        void HandleHousingRequestEditorAvailability(WorldPackets::Housing::HousingRequestEditorAvailability const& housingRequestEditorAvailability);
 
         // Housing - Decor Licensing / Refund
         void HandleGetAllLicensedDecorQuantities(WorldPackets::Housing::GetAllLicensedDecorQuantities const& getAllLicensedDecorQuantities);
@@ -2243,6 +2251,12 @@ class TC_GAME_API WorldSession
         std::unique_ptr<CollectionMgr> _collectionMgr;
 
         ConnectToKey _instanceConnectKey;
+
+        // Housing: client's last-used PlotIndex from OpenCornerstoneUI,
+        // cached for the subsequent BuyHouse CMSG which doesn't include it.
+        // The client's PlotIndex may differ from our DB2 PlotIndex values.
+        uint32 _lastClientPlotIndex = 0;
+        ObjectGuid _lastCornerstoneGuid;
 
         WorldSession(WorldSession const& right) = delete;
         WorldSession& operator=(WorldSession const& right) = delete;

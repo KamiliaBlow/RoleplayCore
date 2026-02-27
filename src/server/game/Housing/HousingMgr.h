@@ -85,6 +85,20 @@ struct RoomDoorInfo
     uint8 ConnectionType = 0;   // RoomConnectionType
 };
 
+/// Full room component data (all types: wall, floor, ceiling, stairs, pillar, doorway)
+struct RoomComponentData
+{
+    uint32 ID = 0;
+    uint32 RoomWmoDataID = 0;
+    float OffsetPos[3] = {};
+    float OffsetRot[3] = {};
+    int32 ModelFileDataID = 0;  // The WMO/mesh file to spawn
+    uint8 Type = 0;             // HousingRoomComponentType
+    int32 MeshStyleFilterID = 0;
+    uint8 ConnectionType = 0;   // RoomConnectionType (for doorways)
+    int32 Flags = 0;
+};
+
 struct HouseThemeData
 {
     uint32 ID = 0;
@@ -241,6 +255,7 @@ public:
     std::vector<HouseLevelRewardInfoData const*> GetRewardsForLevel(uint32 houseLevelId) const;
 
     // Neighborhood plot lookups
+    uint32 GetPlotStoreSize() const { return uint32(_neighborhoodPlotStore.size()); }
     std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
     // Find a plot by its cornerstone GO entry within a specific neighborhood map
     NeighborhoodPlotData const* GetPlotByCornerstoneEntry(uint32 neighborhoodMapId, uint32 cornerstoneGoEntry) const;
@@ -255,6 +270,8 @@ public:
     bool IsNeighborhoodWorldMap(uint32 mapId) const;
     // Get the NeighborhoodMapID for a world MapID (returns 0 if not a neighborhood)
     uint32 GetNeighborhoodMapIdByWorldMap(uint32 mapId) const;
+    // Get the world MapID for a NeighborhoodMapID (reverse lookup, returns 0 if not found)
+    uint32 GetWorldMapIdByNeighborhoodMapId(uint32 neighborhoodMapId) const;
 
     // Name generation
     std::string GenerateNeighborhoodName(uint32 neighborhoodMapId) const;
@@ -276,10 +293,15 @@ public:
     uint32 GetRoomDoorCount(uint32 roomEntryId) const;
     std::vector<RoomDoorInfo> const* GetRoomDoors(uint32 roomWmoDataId) const;
 
+    // Room component data (all types: wall, floor, ceiling, stairs, doorway, etc.)
+    std::vector<RoomComponentData> const* GetRoomComponents(uint32 roomWmoDataId) const;
+
     // Starter decor (items granted on first house purchase)
     // Returns starter decor IDs filtered by faction (teamId: ALLIANCE=469, HORDE=67)
     // Sniff-verified: Alliance and Horde receive different starter decor sets
     std::vector<uint32> GetStarterDecorIds(uint32 teamId) const;
+    // Returns {DecorID, StartingQuantity} pairs for populating the catalog on purchase
+    std::vector<std::pair<uint32, int32>> GetStarterDecorWithQuantities(uint32 teamId) const;
 
     // Access control — checks if visitor can access a plot/house based on owner's settings
     // accessMask = HOUSE_SETTING_HOUSE_ACCESS_* for interior, HOUSE_SETTING_PLOT_ACCESS_* for exterior
@@ -338,6 +360,9 @@ private:
 
     // Room doorway map: RoomWmoDataID -> list of doorway components
     std::unordered_map<uint32 /*roomWmoDataId*/, std::vector<RoomDoorInfo>> _roomDoorMap;
+
+    // All room components indexed by RoomWmoDataID (walls, floors, ceilings, stairs, doorways)
+    std::unordered_map<uint32 /*roomWmoDataId*/, std::vector<RoomComponentData>> _roomComponentsByWmoData;
 };
 
 #define sHousingMgr HousingMgr::Instance()
