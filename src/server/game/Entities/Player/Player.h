@@ -947,6 +947,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS,
     PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS,
     PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFITS,
+    PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SITUATIONS,
     PLAYER_LOGIN_QUERY_LOAD_BG_DATA,
     PLAYER_LOGIN_QUERY_LOAD_GLYPHS,
     PLAYER_LOGIN_QUERY_LOAD_TALENTS,
@@ -2526,6 +2527,10 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void SendEquipmentSetList();
         void SetEquipmentSet(EquipmentSetInfo::EquipmentSetData const& newEqSet);
         void DeleteEquipmentSet(uint64 id);
+        EquipmentSetInfo::EquipmentSetData const* GetEquipmentSetData(uint64 id) const;
+        EquipmentSetInfo::EquipmentSetData const* GetTransmogOutfitBySetID(uint32 setID) const;
+        EquipmentSetInfo::EquipmentSetData* GetMutableTransmogOutfitBySetID(uint32 setID);
+        uint32 GetActiveTransmogOutfitID() const;
 
         void SendInitWorldStates(uint32 zoneId, uint32 areaId);
         void SendUpdateWorldState(uint32 variable, uint32 value, bool hidden = false) const;
@@ -3128,6 +3133,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadArenaTeamInfo(PreparedQueryResult result);
         void _LoadEquipmentSets(PreparedQueryResult result);
         void _LoadTransmogOutfits(PreparedQueryResult result);
+        void _LoadTransmogOutfitSituations(PreparedQueryResult result);
+        void _SyncTransmogOutfitsToActivePlayerData();
         void _LoadBGData(PreparedQueryResult result);
         void _LoadGlyphs(PreparedQueryResult result);
         void _LoadTalents(PreparedQueryResult result);

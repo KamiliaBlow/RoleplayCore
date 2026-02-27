@@ -441,6 +441,7 @@ class TC_GAME_API Spell
         void EffectGiveHonor();
         void EffectJumpCharge();
         void EffectLearnTransmogSet();
+        void EffectEquipTransmogOutfit();
         void EffectRespecAzeriteEmpoweredItem();
         void EffectLearnAzeriteEssencePower();
         void EffectCreatePrivateConversation();

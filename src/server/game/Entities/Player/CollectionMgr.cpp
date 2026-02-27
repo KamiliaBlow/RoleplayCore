@@ -352,8 +352,29 @@ void CollectionMgr::CheckHeirloomUpgrades(Item* item)
 
 void CollectionMgr::LoadMounts()
 {
+    Player* player = _owner->GetPlayer();
+
     for (auto const& m : _mounts)
-        AddMount(m.first, m.second, false, false);
+        AddMount(m.first, m.second, false, true);
+
+    // Learn mount spells that the player doesn't already know.
+    // We pass learned=true above to suppress per-mount SendSingleMountUpdate()
+    // since a bulk SMSG_ACCOUNT_MOUNT_UPDATE is sent later during login.
+    if (player)
+    {
+        for (auto const& m : _mounts)
+        {
+            MountEntry const* mount = sDB2Manager.GetMount(m.first);
+            if (!mount)
+                continue;
+
+            if (!ConditionMgr::IsPlayerMeetingCondition(player, mount->PlayerConditionID))
+                continue;
+
+            if (!player->HasSpell(m.first))
+                player->LearnSpell(m.first, true);
+        }
+    }
 }
 
 void CollectionMgr::LoadAccountMounts(PreparedQueryResult result)
@@ -882,7 +903,95 @@ void CollectionMgr::SendFavoriteAppearances() const
         if (state != CollectionItemState::Removed)
             accountTransmogUpdate.FavoriteAppearances.push_back(itemModifiedAppearanceId);
 
+    TC_LOG_DEBUG("network.opcode.transmog", "SMSG_ACCOUNT_TRANSMOG_UPDATE [{}]: fullUpdate=1 favorites={} new={}",
+        _owner->GetPlayerInfo(), accountTransmogUpdate.FavoriteAppearances.size(), accountTransmogUpdate.NewAppearances.size());
+
     _owner->SendPacket(accountTransmogUpdate.Write());
+}
+
+void CollectionMgr::LoadTransmogSetFavorites(PreparedQueryResult result)
+{
+    if (result)
+    {
+        do
+        {
+            _transmogSetFavorites[result->Fetch()[0].GetUInt32()] = CollectionItemState::Unchanged;
+        } while (result->NextRow());
+    }
+}
+
+void CollectionMgr::SaveTransmogSetFavorites(LoginDatabaseTransaction trans)
+{
+    LoginDatabasePreparedStatement* stmt;
+    for (auto itr = _transmogSetFavorites.begin(); itr != _transmogSetFavorites.end();)
+    {
+        switch (itr->second)
+        {
+            case CollectionItemState::New:
+                stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_BNET_TRANSMOG_SET_FAVORITE);
+                stmt->setUInt32(0, _owner->GetBattlenetAccountId());
+                stmt->setUInt32(1, itr->first);
+                trans->Append(stmt);
+                itr->second = CollectionItemState::Unchanged;
+                ++itr;
+                break;
+            case CollectionItemState::Removed:
+                stmt = LoginDatabase.GetPreparedStatement(LOGIN_DEL_BNET_TRANSMOG_SET_FAVORITE);
+                stmt->setUInt32(0, _owner->GetBattlenetAccountId());
+                stmt->setUInt32(1, itr->first);
+                trans->Append(stmt);
+                itr = _transmogSetFavorites.erase(itr);
+                break;
+            case CollectionItemState::Unchanged:
+            case CollectionItemState::Changed:
+                ++itr;
+                break;
+        }
+    }
+}
+
+void CollectionMgr::SetTransmogSetIsFavorite(uint32 transmogSetId, bool apply)
+{
+    if (!sTransmogSetStore.LookupEntry(transmogSetId))
+        return;
+
+    auto itr = _transmogSetFavorites.find(transmogSetId);
+    if (apply)
+    {
+        if (itr == _transmogSetFavorites.end())
+            _transmogSetFavorites[transmogSetId] = CollectionItemState::New;
+        else if (itr->second == CollectionItemState::Removed)
+            itr->second = CollectionItemState::Unchanged;
+        else
+            return;
+    }
+    else if (itr != _transmogSetFavorites.end())
+    {
+        if (itr->second == CollectionItemState::New)
+            _transmogSetFavorites.erase(transmogSetId);
+        else
+            itr->second = CollectionItemState::Removed;
+    }
+    else
+        return;
+
+    WorldPackets::Transmogrification::AccountTransmogSetFavoritesUpdate setFavoritesUpdate;
+    setFavoritesUpdate.IsFullUpdate = false;
+    setFavoritesUpdate.IsFavorite = apply;
+    setFavoritesUpdate.TransmogSetIDs.push_back(transmogSetId);
+    _owner->SendPacket(setFavoritesUpdate.Write());
+}
+
+void CollectionMgr::SendTransmogSetFavorites() const
+{
+    WorldPackets::Transmogrification::AccountTransmogSetFavoritesUpdate setFavoritesUpdate;
+    setFavoritesUpdate.IsFullUpdate = true;
+    setFavoritesUpdate.IsFavorite = true;
+    for (auto [setId, state] : _transmogSetFavorites)
+        if (state != CollectionItemState::Removed)
+            setFavoritesUpdate.TransmogSetIDs.push_back(setId);
+
+    _owner->SendPacket(setFavoritesUpdate.Write());
 }
 
 void CollectionMgr::LoadTransmogIllusions()
