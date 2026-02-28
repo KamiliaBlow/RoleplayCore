@@ -208,8 +208,15 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
             if (comp.ModelFileDataID <= 0)
                 continue;
 
-            // Look up faction-aware RoomComponentOption for this component
+            // Look up RoomComponentOption for this component.
+            // Interior room components use fixed themes regardless of faction:
+            //   Walls: themeID=8 (neutral), Floors/Ceilings: themeID=6
+            // Try faction theme first, then neutral (8), then generic (6).
             RoomComponentOptionEntry const* optEntry = sHousingMgr.FindRoomComponentOption(comp.ID, factionThemeID);
+            if (!optEntry && factionThemeID != 8)
+                optEntry = sHousingMgr.FindRoomComponentOption(comp.ID, 8);
+            if (!optEntry && factionThemeID != 6)
+                optEntry = sHousingMgr.FindRoomComponentOption(comp.ID, 6);
 
             int32 compFileDataID = comp.ModelFileDataID;
             int32 roomComponentOptionID = 0;
@@ -224,6 +231,14 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
                 roomComponentOptionID = static_cast<int32>(optEntry->ID);
                 houseThemeID = optEntry->HouseThemeID;
                 field24 = static_cast<int32>(optEntry->SubType);
+                // TextureID by component type (sniff-verified: walls=24, floors=40, ceilings=54)
+                switch (comp.Type)
+                {
+                    case 1: roomComponentTextureID = 24; break; // Wall
+                    case 2: roomComponentTextureID = 40; break; // Floor
+                    case 3: roomComponentTextureID = 54; break; // Ceiling
+                    default: break;
+                }
             }
 
             // Component position/rotation: local to room entity

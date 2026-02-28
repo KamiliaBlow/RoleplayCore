@@ -156,10 +156,30 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         } while (rooms->NextRow());
     }
 
-    // Runtime fixup: ensure we have the correct default visual room.
-    // Replace any visual room that has no RoomComponentOption entries (e.g., Octagon room 9
-    // was picked by a previous non-deterministic GetDefaultVisualRoomEntry).
+    // Runtime fixup: ensure base room (18) + correct visual room exist.
+    // Due to the old subType=0 GUID bug, both rooms shared ObjectGuid::Empty
+    // as their key and only the last one survived in the DB. Fix that first.
     {
+        // Step 1: Ensure base room exists
+        bool hasBaseRoom = false;
+        for (auto const& [guid, room] : _rooms)
+        {
+            if (sHousingMgr.IsBaseRoom(room.RoomEntryId))
+            {
+                hasBaseRoom = true;
+                break;
+            }
+        }
+
+        if (!hasBaseRoom)
+        {
+            HousingResult baseResult = PlaceRoom(/*roomEntryId*/ 18, /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
+            TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed base room (entry 18) in slot 0 "
+                "for house {} (migration fixup, result={})",
+                _houseGuid.ToString(), baseResult);
+        }
+
+        // Step 2: Ensure correct visual room exists
         uint32 correctVisualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
         bool hasVisualRoom = false;
         ObjectGuid wrongRoomGuid;
@@ -175,8 +195,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 break;
             }
 
-            // Check if this room's default visual room entry — if not the correct one,
-            // and it's the only non-base room, replace it
+            // If not the correct one and it's the only non-base room, replace it
             if (wrongRoomGuid.IsEmpty())
                 wrongRoomGuid = guid;
             else
@@ -203,33 +222,21 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             }
         }
 
-        if (!hasVisualRoom && wrongRoomGuid.IsEmpty() && !_rooms.empty())
+        // No visual room at all — add one
+        if (!hasVisualRoom && wrongRoomGuid.IsEmpty() && correctVisualRoom)
         {
-            uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
-            if (visualRoom)
+            // Find the next free slot (slot 0 is base room)
+            uint32 nextSlot = 1;
+            for (auto const& [guid, room] : _rooms)
             {
-                // Find the next free slot (slot 0 is base room)
-                uint32 nextSlot = 1;
-                for (auto const& [guid, room] : _rooms)
-                {
-                    if (room.SlotIndex >= nextSlot)
-                        nextSlot = room.SlotIndex + 1;
-                }
-
-                HousingResult placeResult = PlaceRoom(visualRoom, nextSlot, /*orientation*/ 0, /*mirrored*/ false);
-                if (placeResult == HOUSING_RESULT_SUCCESS)
-                {
-                    TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed visual room entry {} in slot {} "
-                        "for existing house {} (migration fixup)",
-                        visualRoom, nextSlot, _houseGuid.ToString());
-                }
-                else
-                {
-                    TC_LOG_ERROR("housing", "Housing::LoadFromDB: PlaceRoom FAILED for visual room entry {} "
-                        "slot {} — result={} — interior will be empty (house {})",
-                        visualRoom, nextSlot, placeResult, _houseGuid.ToString());
-                }
+                if (room.SlotIndex >= nextSlot)
+                    nextSlot = room.SlotIndex + 1;
             }
+
+            HousingResult placeResult = PlaceRoom(correctVisualRoom, nextSlot, /*orientation*/ 0, /*mirrored*/ false);
+            TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed visual room entry {} in slot {} "
+                "for house {} (migration fixup, result={})",
+                correctVisualRoom, nextSlot, _houseGuid.ToString(), placeResult);
         }
     }
 

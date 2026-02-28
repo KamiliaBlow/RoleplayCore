@@ -72,7 +72,8 @@ void HousingMgr::Initialize()
     TC_LOG_INFO("server.loading", ">> Loaded housing data: {} decor, {} levels, "
         "{} rooms, {} themes, {} decor materials, {} exterior wmos, {} level rewards, "
         "{} initiatives, {} neighborhood maps, {} neighborhood plots, "
-        "{} decor categories, {} decor subcategories, {} decor dye slots in {}",
+        "{} decor categories, {} decor subcategories, {} decor dye slots, "
+        "{} room component options in {}",
         uint32(_houseDecorStore.size()), uint32(_houseLevelDataStore.size()),
         uint32(_houseRoomStore.size()), uint32(_houseThemeStore.size()),
         uint32(_houseDecorMaterialStore.size()), uint32(_houseExteriorWmoStore.size()),
@@ -80,6 +81,7 @@ void HousingMgr::Initialize()
         uint32(_neighborhoodMapStore.size()), uint32(_neighborhoodPlotStore.size()),
         uint32(_decorCategoryStore.size()), uint32(_decorSubcategoryStore.size()),
         uint32(_decorDyeSlotStore.size()),
+        uint32(sRoomComponentOptionStore.GetNumRows()),
         GetMSTimeDiffToNow(oldMSTime));
 }
 
