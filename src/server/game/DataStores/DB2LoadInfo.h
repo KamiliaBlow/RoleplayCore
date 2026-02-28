@@ -1846,7 +1846,7 @@ struct DecorDyeSlotLoadInfo
         {.IsSigned = true, .Type = FT_INT, .Name = "SlotIndex" },
         {.IsSigned = false, .Type = FT_INT, .Name = "HouseDecorID" },
         {.IsSigned = true, .Type = FT_INT, .Name = "DyeChannelType" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "DefaultDyeRecordID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "DefaultDyeRecordID" },
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 5, &DecorDyeSlotMeta::Instance, HOTFIX_SEL_DECOR_DYE_SLOT };

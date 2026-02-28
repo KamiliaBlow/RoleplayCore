@@ -18914,10 +18914,11 @@ struct RolodexTypeMeta
 
 struct RoomComponentMeta
 {
-    static constexpr DB2MetaField Fields[9] =
+    static constexpr DB2MetaField Fields[10] =
     {
         { .Type = FT_FLOAT,                .ArraySize =  3, .IsSigned = false },
         { .Type = FT_FLOAT,                .ArraySize =  3, .IsSigned = false },
+        { .Type = FT_INT,                  .ArraySize =  1, .IsSigned = false },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned = false },
         { .Type = FT_INT,                  .ArraySize =  1, .IsSigned =  true },
         { .Type = FT_BYTE,                 .ArraySize =  1, .IsSigned = false },
