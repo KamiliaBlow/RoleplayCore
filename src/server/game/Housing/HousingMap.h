@@ -75,6 +75,10 @@ public:
         Position const* worldPos = nullptr);
     void SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& housePos,
         QuaternionData const& houseRot, ObjectGuid houseGuid,
+        int32 exteriorComponentID, int32 houseExteriorWmoDataID,
+        int32 factionRestriction = NEIGHBORHOOD_FACTION_ALLIANCE);
+    void SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
+        QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID);
     void DespawnAllMeshObjectsForPlot(uint8 plotIndex);
 
@@ -83,8 +87,8 @@ public:
         QuaternionData const& houseRot, ObjectGuid houseGuid);
     void DespawnRoomForPlot(uint8 plotIndex);
 
-    // Decor GO management
-    GameObject* SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
+    // Decor management (all decor is MeshObject — sniff-verified, never GO)
+    MeshObject* SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
     void DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid);
     void DespawnAllDecorForPlot(uint8 plotIndex);
     void SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing);

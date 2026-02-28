@@ -650,15 +650,19 @@ static constexpr uint32 SPELL_HOUSING_PLOT_PRESENCE     = 469226;
 static constexpr uint32 SPELL_HOUSING_PLOT_ENTER_2      = 1266699;
 
 // WorldState IDs — continuous counters sent throughout the entire housing session.
-// Sniff-verified: increment by ~1333 every ~300ms, starting at map login with INIT_WORLD_STATES.
-// Initial values from sniff: 13436=417396536, 13437=166923928, 13438=473155274
+// Sniff-verified: 5 counters total, sent as individual SMSG_UPDATE_WORLD_STATE packets.
+// Counters 1-3 increment by ~1333 every ~300ms.
+// Counters 4-5 increment by ~7233 every ~300ms.
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_2    = 13437;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
+static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_4    = 16035;
+static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_5    = 16711;
 
 // Interval and increment for housing WorldState counter updates
 static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 300;
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT    = 1333;
+static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT_2  = 7233;
 
 // Cosmetic phases removed when a player enters their own housing plot and
 // restored when they leave. Sniff-verified: 16 phases with ~10s delay.

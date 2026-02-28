@@ -18,11 +18,11 @@
 #ifndef HouseInteriorMap_h__
 #define HouseInteriorMap_h__
 
+#include "Housing.h"
 #include "Map.h"
 #include "ObjectGuid.h"
 #include <vector>
 
-class Housing;
 class Player;
 
 /// Map instance for a player's house interior (MAP_HOUSE_INTERIOR = 7, MapID 2783).
@@ -54,10 +54,23 @@ public:
 
     /// Spawn all room meshes for the owner's house layout.
     /// Called once when the interior map is first populated.
-    void SpawnRoomMeshObjects(Housing* housing);
+    /// @param factionRestriction  NEIGHBORHOOD_FACTION_ALLIANCE or NEIGHBORHOOD_FACTION_HORDE
+    void SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction);
 
     /// Despawn all room meshes (e.g., when the interior is rebuilt).
     void DespawnAllRoomMeshObjects();
+
+    /// Spawn all placed decor for the owner's house on the interior map.
+    void SpawnInteriorDecor(Housing* housing);
+
+    /// Spawn a single placed decor item immediately (called from PLACE handler).
+    void SpawnSingleInteriorDecor(Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
+
+    /// Update position/rotation of a single interior decor item.
+    void UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot);
+
+    /// Despawn a single decor item by its Housing decor GUID.
+    void DespawnDecorItem(ObjectGuid decorGuid);
 
 private:
     ObjectGuid _owner;
@@ -68,6 +81,9 @@ private:
 
     /// GUIDs of all spawned room MeshObjects, indexed by room GUID
     std::unordered_map<ObjectGuid /*roomGuid*/, std::vector<ObjectGuid>> _roomMeshObjects;
+
+    /// Decor GUID → visual object GUID (for despawning individual decor items)
+    std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
 };
 
 #endif // HouseInteriorMap_h__

@@ -558,13 +558,17 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
     HousingResult result = housing->PlaceDecorWithGuid(housingDecorPlace.DecorGuid, decorEntryId,
         posX, posY, posZ, rotX, rotY, rotZ, rotW, housingDecorPlace.RoomGuid);
 
-    // Spawn decor GO on the map if placement succeeded
+    // Spawn decor MeshObject on the map if placement succeeded.
+    // Sniff-verified: ALL retail decor is MeshObject (never GO). The server sends an UPDATE_OBJECT
+    // CREATE for the MeshObject + FHousingDecor_C immediately after placement.
     if (result == HOUSING_RESULT_SUCCESS)
     {
         if (Housing::PlacedDecor const* newDecor = housing->GetPlacedDecor(housingDecorPlace.DecorGuid))
         {
             if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
                 housingMap->SpawnDecorItem(housing->GetPlotIndex(), *newDecor, housing->GetHouseGuid());
+            else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+                interiorMap->SpawnSingleInteriorDecor(*newDecor, housing->GetHouseGuid());
         }
 
         // Sniff: UPDATE_OBJECT (BNetAccount with ChangeType=3, HouseGUID=set) arrives BEFORE response.
@@ -622,12 +626,12 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
     // Update decor GO position on the map
     if (result == HOUSING_RESULT_SUCCESS)
     {
+        Position newPos(posX, posY, posZ);
+        QuaternionData newRot(rotX, rotY, rotZ, rotW);
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
-        {
-            Position newPos(posX, posY, posZ);
-            QuaternionData newRot(rotX, rotY, rotZ, rotW);
             housingMap->UpdateDecorPosition(housing->GetPlotIndex(), housingDecorMove.DecorGuid, newPos, newRot);
-        }
+        else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            interiorMap->UpdateDecorPosition(housingDecorMove.DecorGuid, newPos, newRot);
     }
 
     WorldPackets::Housing::HousingDecorMoveResponse response;
@@ -665,8 +669,11 @@ void WorldSession::HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorR
     // Despawn the decor GO from the map and update Account entity
     if (result == HOUSING_RESULT_SUCCESS)
     {
+        // Support both exterior (HousingMap) and interior (HouseInteriorMap)
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
             housingMap->DespawnDecorItem(plotIndex, decorGuid);
+        else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            interiorMap->DespawnDecorItem(decorGuid);
 
         // Sniff: RemoveDecor deletes the Account entry, but retail keeps it with HouseGUID=Empty
         // Re-add the entry with HouseGUID=Empty to return it to storage

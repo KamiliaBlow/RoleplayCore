@@ -855,6 +855,37 @@ void HousingMgr::LoadRoomComponentData()
         "across {} room types from {} DB2 entries",
         totalCount, doorwayCount, uint32(_roomComponentsByWmoData.size()),
         uint32(sRoomComponentStore.GetNumRows()));
+
+    // Diagnostic: log HouseRoom entries with their component counts
+    for (auto const& [roomId, roomData] : _houseRoomStore)
+    {
+        auto const* comps = GetRoomComponents(roomData.RoomWmoDataID);
+        uint32 compCount = comps ? uint32(comps->size()) : 0;
+
+        // Count component types
+        uint32 wallCount = 0, floorCount = 0, ceilCount = 0, doorwayCount2 = 0, otherCount = 0;
+        if (comps)
+        {
+            for (auto const& c : *comps)
+            {
+                switch (c.Type)
+                {
+                    case HOUSING_ROOM_COMPONENT_WALL: ++wallCount; break;
+                    case HOUSING_ROOM_COMPONENT_FLOOR: ++floorCount; break;
+                    case HOUSING_ROOM_COMPONENT_CEILING: ++ceilCount; break;
+                    case HOUSING_ROOM_COMPONENT_DOORWAY:
+                    case HOUSING_ROOM_COMPONENT_DOORWAY_WALL: ++doorwayCount2; break;
+                    default: ++otherCount; break;
+                }
+            }
+        }
+
+        TC_LOG_INFO("housing", "  HouseRoom [ID={} '{}' RoomWmoDataID={} Flags=0x{:X}{}] -> {} components "
+            "({} wall, {} floor, {} ceiling, {} doorway, {} other)",
+            roomId, roomData.Name, roomData.RoomWmoDataID, roomData.Flags,
+            roomData.IsBaseRoom() ? " BASE_ROOM" : "",
+            compCount, wallCount, floorCount, ceilCount, doorwayCount2, otherCount);
+    }
 }
 
 std::vector<RoomComponentData> const* HousingMgr::GetRoomComponents(uint32 roomWmoDataId) const
@@ -1049,4 +1080,61 @@ std::vector<DecorDyeSlotData const*> HousingMgr::GetDyeSlotsForDecor(uint32 hous
         return itr->second;
 
     return {};
+}
+
+int32 HousingMgr::GetFactionDefaultThemeID(int32 factionRestriction) const
+{
+    // Sniff-verified: Alliance theme=6, Horde theme=2
+    if (factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE)
+        return 6;
+    if (factionRestriction == NEIGHBORHOOD_FACTION_HORDE)
+        return 2;
+    return 6; // fallback to alliance
+}
+
+RoomComponentOptionEntry const* HousingMgr::FindRoomComponentOption(uint32 roomComponentID, int32 houseThemeID) const
+{
+    for (RoomComponentOptionEntry const* optEntry : sRoomComponentOptionStore)
+    {
+        if (optEntry && optEntry->RoomComponentID == static_cast<int32>(roomComponentID)
+            && optEntry->HouseThemeID == houseThemeID)
+            return optEntry;
+    }
+    return nullptr;
+}
+
+uint32 HousingMgr::GetDefaultVisualRoomEntry() const
+{
+    // Sniff-verified: both alliance and horde use HouseRoomID=1 ("Square Room Small")
+    // as the primary interior room. The faction theme (themeID 6=Alliance, 2=Horde)
+    // controls wall/floor textures via RoomComponentOption, not the room shape.
+    // Pick the lowest-ID non-base room with UNLOCKED_BY_DEFAULT + visual components.
+    uint32 bestId = 0;
+    uint32 fallbackId = 0;
+
+    for (auto const& [id, roomData] : _houseRoomStore)
+    {
+        if (roomData.IsBaseRoom())
+            continue;
+
+        auto const* comps = GetRoomComponents(roomData.RoomWmoDataID);
+        if (!comps || comps->size() <= 1)
+            continue;
+
+        if (roomData.Flags & HOUSING_ROOM_FLAG_UNLOCKED_BY_DEFAULT)
+        {
+            // Pick lowest ID for determinism (room 1 = Square Room Small, the sniff default)
+            if (!bestId || id < bestId)
+                bestId = id;
+        }
+        else if (!fallbackId || id < fallbackId)
+        {
+            fallbackId = id;
+        }
+    }
+
+    uint32 result = bestId ? bestId : fallbackId;
+    TC_LOG_ERROR("housing", "HousingMgr::GetDefaultVisualRoomEntry: bestId={} fallbackId={} -> returning {}",
+        bestId, fallbackId, result);
+    return result;
 }

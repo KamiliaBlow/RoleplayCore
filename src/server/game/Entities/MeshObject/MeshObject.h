@@ -60,6 +60,12 @@ public:
         int32 houseExteriorWmoDataID, uint8 exteriorComponentType = 9,
         uint8 houseSize = 2, int32 exteriorComponentHookID = -1);
 
+    // Housing decor (adds FHousingDecor_C entity fragment for placed decor items)
+    // Sniff-verified: retail decor is ALWAYS MeshObject (never GO). TargetGameObjectGUID=empty.
+    // roomEntityGuid: the Housing/18 room entity this decor is attached to.
+    void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags,
+        ObjectGuid roomEntityGuid = ObjectGuid::Empty);
+
     // Housing room entity (adds FHousingRoom_C + Tag_HousingRoom entity fragments)
     // Creates a room data entity that the client uses to identify the plot's room type.
     void InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID, int32 flags, int32 floorIndex);

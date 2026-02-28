@@ -107,7 +107,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             placed.DyeSlots[2] = fields[11].GetUInt32();
             uint64 roomDbId = fields[12].GetUInt64();
             if (roomDbId)
-                placed.RoomGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, roomDbId);
+                placed.RoomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, 0, roomDbId);
             placed.Locked = fields[13].GetUInt8() != 0;
 
             if (decorDbId >= _decorDbIdGenerator)
@@ -127,11 +127,18 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             fields = rooms->Fetch();
 
             uint64 roomDbId = fields[0].GetUInt64();
-            ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, roomDbId);
+            uint32 roomEntryId = fields[1].GetUInt32();
+
+            // Fix up roomDbId=0 from old saves that used ObjectGuid::Empty (subType=0 produced Empty GUID).
+            // Without this, all rooms get the same GUID key and overwrite each other in _rooms.
+            if (roomDbId == 0)
+                roomDbId = _roomDbIdGenerator++;
+
+            ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, 0, roomDbId);
 
             Room& room = _rooms[roomGuid];
             room.Guid = roomGuid;
-            room.RoomEntryId = fields[1].GetUInt32();
+            room.RoomEntryId = roomEntryId;
             room.SlotIndex = fields[2].GetUInt32();
             room.Orientation = fields[3].GetUInt32();
             room.Mirrored = fields[4].GetBool();
@@ -147,6 +154,83 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 _roomDbIdGenerator = roomDbId + 1;
 
         } while (rooms->NextRow());
+    }
+
+    // Runtime fixup: ensure we have the correct default visual room.
+    // Replace any visual room that has no RoomComponentOption entries (e.g., Octagon room 9
+    // was picked by a previous non-deterministic GetDefaultVisualRoomEntry).
+    {
+        uint32 correctVisualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
+        bool hasVisualRoom = false;
+        ObjectGuid wrongRoomGuid;
+
+        for (auto const& [guid, room] : _rooms)
+        {
+            if (sHousingMgr.IsBaseRoom(room.RoomEntryId))
+                continue;
+
+            if (room.RoomEntryId == correctVisualRoom)
+            {
+                hasVisualRoom = true;
+                break;
+            }
+
+            // Check if this room's default visual room entry — if not the correct one,
+            // and it's the only non-base room, replace it
+            if (wrongRoomGuid.IsEmpty())
+                wrongRoomGuid = guid;
+            else
+                hasVisualRoom = true; // Multiple visual rooms — don't mess with them
+        }
+
+        // Replace wrong room with correct one
+        if (!hasVisualRoom && !wrongRoomGuid.IsEmpty() && correctVisualRoom)
+        {
+            auto wrongItr = _rooms.find(wrongRoomGuid);
+            if (wrongItr != _rooms.end())
+            {
+                uint32 oldEntry = wrongItr->second.RoomEntryId;
+                uint32 oldSlot = wrongItr->second.SlotIndex;
+
+                // Erase from map — SaveToDB will persist the change on next save
+                _rooms.erase(wrongItr);
+
+                // Place new room in same slot
+                HousingResult placeResult = PlaceRoom(correctVisualRoom, oldSlot, 0, false);
+                TC_LOG_ERROR("housing", "Housing::LoadFromDB: Replaced visual room {} with {} in slot {} "
+                    "for house {} (migration fixup, result={})",
+                    oldEntry, correctVisualRoom, oldSlot, _houseGuid.ToString(), placeResult);
+            }
+        }
+
+        if (!hasVisualRoom && wrongRoomGuid.IsEmpty() && !_rooms.empty())
+        {
+            uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
+            if (visualRoom)
+            {
+                // Find the next free slot (slot 0 is base room)
+                uint32 nextSlot = 1;
+                for (auto const& [guid, room] : _rooms)
+                {
+                    if (room.SlotIndex >= nextSlot)
+                        nextSlot = room.SlotIndex + 1;
+                }
+
+                HousingResult placeResult = PlaceRoom(visualRoom, nextSlot, /*orientation*/ 0, /*mirrored*/ false);
+                if (placeResult == HOUSING_RESULT_SUCCESS)
+                {
+                    TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed visual room entry {} in slot {} "
+                        "for existing house {} (migration fixup)",
+                        visualRoom, nextSlot, _houseGuid.ToString());
+                }
+                else
+                {
+                    TC_LOG_ERROR("housing", "Housing::LoadFromDB: PlaceRoom FAILED for visual room entry {} "
+                        "slot {} — result={} — interior will be empty (house {})",
+                        visualRoom, nextSlot, placeResult, _houseGuid.ToString());
+                }
+            }
+        }
     }
 
     // Load fixtures
@@ -443,6 +527,35 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
         _owner->GetName(), bnetAccountId, plotIndex, _neighborhoodGuid.ToString(), _houseGuid.ToString());
 
     SyncUpdateFields();
+
+    // Every new house starts with a base room (HouseRoom.db2 entry 18, BASE_ROOM flag).
+    // Without this, entering the interior spawns nothing and decor placement has no Geobox.
+    PlaceRoom(/*roomEntryId*/ 18, /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
+
+    // Also place a default visual room so the interior renders walls/floor/ceiling.
+    // Base room (18) only provides the geobox boundary — visual geometry needs a separate room.
+    uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
+    if (visualRoom)
+    {
+        HousingResult visualResult = PlaceRoom(visualRoom, /*slotIndex*/ 1, /*orientation*/ 0, /*mirrored*/ false);
+        if (visualResult == HOUSING_RESULT_SUCCESS)
+        {
+            TC_LOG_ERROR("housing", "Housing::Create: Auto-placed visual room entry {} in slot 1 for player {}",
+                visualRoom, _owner->GetName());
+        }
+        else
+        {
+            TC_LOG_ERROR("housing", "Housing::Create: PlaceRoom FAILED for visual room entry {} — result={} — "
+                "interior will be empty for player {}",
+                visualRoom, visualResult, _owner->GetName());
+        }
+    }
+    else
+    {
+        TC_LOG_ERROR("housing", "Housing::Create: No visual room entry found — interior will be empty for player {}",
+            _owner->GetName());
+    }
+
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -800,8 +913,9 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    if (itr->second.Locked)
-        return HOUSING_RESULT_LOCKED_BY_OTHER_PLAYER;
+    // Sniff-verified: Lock→Move is valid (the locker is the one moving).
+    // Lock only prevents OTHER editors from modifying — not the owner.
+    // TODO: When multi-editor support is added, track LockedByGuid and check here.
 
     PlacedDecor& decor = itr->second;
     decor.PosX = x;
@@ -841,8 +955,9 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    if (itr->second.Locked)
-        return HOUSING_RESULT_LOCKED_BY_OTHER_PLAYER;
+    // Sniff-verified: Lock→Remove is a valid retail flow (packet #27117 LOCK then
+    // #27139 REMOVE with Result=0). The house owner can always remove their own decor.
+    // Lock only prevents OTHER editors from modifying — not the owner.
 
     // Refund WeightCost budget (route to correct budget based on room)
     uint32 decorEntryId = itr->second.DecorEntryId;
@@ -1015,21 +1130,14 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
             return HOUSING_RESULT_PLOT_NOT_FOUND;
     }
 
-    // Room must have at least one doorway to connect to the house layout
-    if (!roomData->IsBaseRoom())
-    {
-        uint32 doorCount = sHousingMgr.GetRoomDoorCount(roomEntryId);
-        if (doorCount == 0)
-        {
-            TC_LOG_ERROR("housing", "Housing::PlaceRoom: Room entry {} has no doorways, cannot connect to house layout",
-                roomEntryId);
-            return HOUSING_RESULT_ROOM_UPDATE_FAILED;
-        }
-    }
+    // NOTE: Doorway components (Type 7) are OPTIONAL in the DB2.
+    // Standard rooms (1-15) have 0 doorway components — they use wall segments (Type 1) instead.
+    // Only prefab/custom rooms (113+) have explicit doorway components.
+    // Retail places rooms without doorways, so we don't enforce this check.
 
     // Generate a new room guid
     uint64 newDbId = GenerateRoomDbId();
-    ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, newDbId);
+    ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, 0, newDbId);
 
     Room& room = _rooms[roomGuid];
     room.Guid = roomGuid;

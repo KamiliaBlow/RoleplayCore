@@ -35,6 +35,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectGridLoader.h"
 #include "ObjectGuid.h"
+#include "ObjectMgr.h"
 #include "PhasingHandler.h"
 #include "Player.h"
 #include "RealmList.h"
@@ -70,14 +71,19 @@ namespace
         return result;
     }
 
-    // Recurring event that sends housing WorldState counters (13436/13437/13438) every ~300ms.
-    // Sniff-verified: these are continuous counters incrementing by ~1333 each tick throughout
-    // the entire housing map session, NOT edit-mode-specific.
+    // Recurring event that sends housing WorldState counters every ~300ms.
+    // Sniff-verified: 5 continuous counters throughout the entire housing map session.
+    // Counters 1-3 (13436/13437/13438) increment by ~1333 each tick.
+    // Counters 4-5 (16035/16711) increment by ~7233 each tick.
     class HousingWorldStateCounterEvent : public BasicEvent
     {
     public:
-        HousingWorldStateCounterEvent(ObjectGuid playerGuid, uint32 counter1, uint32 counter2, uint32 counter3)
-            : _playerGuid(playerGuid), _counter1(counter1), _counter2(counter2), _counter3(counter3) { }
+        HousingWorldStateCounterEvent(ObjectGuid playerGuid,
+            uint32 counter1, uint32 counter2, uint32 counter3,
+            uint32 counter4, uint32 counter5)
+            : _playerGuid(playerGuid)
+            , _counter1(counter1), _counter2(counter2), _counter3(counter3)
+            , _counter4(counter4), _counter5(counter5) { }
 
         bool Execute(uint64 /*e_time*/, uint32 /*p_time*/) override
         {
@@ -85,19 +91,24 @@ namespace
             if (!player || !player->IsInWorld())
                 return true; // delete event — player gone
 
-            // Send the three counter WorldState updates
+            // Send all five counter WorldState updates
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_1, _counter1);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_2, _counter2);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_3, _counter3);
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_4, _counter4);
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_5, _counter5);
 
-            // Increment for next tick
+            // Increment for next tick (different rates per sniff)
             _counter1 += HOUSING_WORLDSTATE_INCREMENT;
             _counter2 += HOUSING_WORLDSTATE_INCREMENT;
             _counter3 += HOUSING_WORLDSTATE_INCREMENT;
+            _counter4 += HOUSING_WORLDSTATE_INCREMENT_2;
+            _counter5 += HOUSING_WORLDSTATE_INCREMENT_2;
 
             // Re-schedule self for next tick
             player->m_Events.AddEventAtOffset(
-                new HousingWorldStateCounterEvent(_playerGuid, _counter1, _counter2, _counter3),
+                new HousingWorldStateCounterEvent(_playerGuid,
+                    _counter1, _counter2, _counter3, _counter4, _counter5),
                 Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
 
             return true; // delete this instance (new one scheduled)
@@ -108,6 +119,8 @@ namespace
         uint32 _counter1;
         uint32 _counter2;
         uint32 _counter3;
+        uint32 _counter4;
+        uint32 _counter5;
     };
 }
 
@@ -299,34 +312,19 @@ void HousingMap::SpawnPlotGameObjects()
         }
     }
 
-    // Set per-plot WorldState values from DB2 so the client can render plot status on the map
-    // WorldState values use HousingPlotOwnerType: 0=None, 1=Stranger, 2=Friend, 3=Self
-    // The map-global value is set to STRANGER (1) for occupied plots as the default.
-    // When a specific player enters the map, SendPerPlayerPlotWorldStates() sends
-    // personalized corrections (SELF/FRIEND) based on the player's relationship to each plot owner.
-    // IMPORTANT: Must use Map::SetWorldStateValue() (not sWorldStateMgr->SetValue()) because:
-    // 1. The same WorldState IDs are shared across maps (2735/2736) - each instance needs its own values
-    // 2. These IDs have no template in world_state SQL table, so sWorldStateMgr stores them
-    //    realm-wide which is wrong for instanced housing maps
-    // 3. Map-scoped values are included in SMSG_INIT_WORLD_STATES via FillInitialWorldStates()
-    uint32 wsSetCount = 0;
+    // Sniff-verified: SMSG_INIT_WORLD_STATES for housing maps (2735/2736) has Field Count = 0.
+    // Per-plot ownership worldstates are sent as individual SMSG_UPDATE_WORLD_STATE packets
+    // in SendPerPlayerPlotWorldStates() after the player joins — NOT in the init packet.
+    // Do NOT use Map::SetWorldStateValue() here as it pollutes INIT_WORLD_STATES.
+    uint32 wsCount = 0;
     for (NeighborhoodPlotData const* plot : plots)
     {
         if (plot->WorldState != 0)
-        {
-            Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(static_cast<uint8>(plot->PlotIndex));
-            bool isOccupied = plotInfo && !plotInfo->OwnerGuid.IsEmpty();
-
-            // Default: NONE (0) for unoccupied, STRANGER (1) for occupied
-            // Per-player corrections (SELF/FRIEND) are sent in SendPerPlayerPlotWorldStates()
-            int32 wsValue = isOccupied ? HOUSING_PLOT_OWNER_STRANGER : HOUSING_PLOT_OWNER_NONE;
-            SetWorldStateValue(plot->WorldState, wsValue, false);
-            ++wsSetCount;
-        }
+            ++wsCount;
     }
 
-    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs, set {} WorldStates for {} plots in neighborhood '{}' (noEntry={})",
-        goCount, wsSetCount, uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
+    TC_LOG_INFO("housing", "HousingMap::SpawnPlotGameObjects: Spawned {} GOs, {} plots have WorldState IDs for {} plots in neighborhood '{}' (noEntry={})",
+        goCount, wsCount, uint32(plots.size()), _neighborhood->GetName(), noEntryCount);
 
     // Spawn house structure GOs for owned plots
     uint32 houseCount = 0;
@@ -469,10 +467,9 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
             plotAt->UpdateHousingPlotOwnerData(ObjectGuid::Empty, ObjectGuid::Empty, ObjectGuid::Empty);
     }
 
-    // Update the per-plot WorldState using HousingPlotOwnerType values
-    // Default map-global: STRANGER (1) for occupied, NONE (0) for unoccupied
-    // Then send per-player corrections to all online players on this map
-    // Must use Map::SetWorldStateValue (see SpawnPlotGameObjects comment for rationale)
+    // Send per-plot WorldState update to all players on the map.
+    // Sniff-verified: housing maps use individual SMSG_UPDATE_WORLD_STATE packets
+    // (NOT map-scoped SetWorldStateValue, which pollutes INIT_WORLD_STATES).
     uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
     for (NeighborhoodPlotData const* plotData : plots)
@@ -481,11 +478,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
         {
             if (plotData->WorldState != 0)
             {
-                int32 wsValue = owned ? HOUSING_PLOT_OWNER_STRANGER : HOUSING_PLOT_OWNER_NONE;
-                SetWorldStateValue(plotData->WorldState, wsValue, false);
-
-                // Send personalized corrections to each player on the map
-                // (the map-global value only shows STRANGER; each player needs SELF/FRIEND override)
+                // Send personalized value to each player on the map
                 for (MapReference const& ref : GetPlayers())
                 {
                     if (Player* mapPlayer = ref.GetSource())
@@ -644,8 +637,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
                     Position pos = houseGo->GetPosition();
                     QuaternionData rot = houseGo->GetLocalRotation();
+                    int32 faction = _neighborhood ? _neighborhood->GetFactionRestriction()
+                        : NEIGHBORHOOD_FACTION_ALLIANCE;
                     SpawnFullHouseMeshObjects(plotIdx, pos, rot,
-                        housing->GetHouseGuid(), 141, 9);
+                        housing->GetHouseGuid(), 141, 9, faction);
 
                     // Also spawn room entity + Geobox if not already present
                     if (_roomEntities.find(plotIdx) == _roomEntities.end())
@@ -779,17 +774,18 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     }
 
     // Start the periodic housing WorldState counter timer.
-    // Sniff-verified: counters 13436/13437/13438 increment by ~1333 every ~300ms
-    // throughout the entire housing map session. Seed with getMSTime()-based values
-    // (retail uses opaque server-tick values; the exact seed doesn't matter as long
-    // as the increment pattern is correct).
+    // Sniff-verified: 5 counters sent as individual SMSG_UPDATE_WORLD_STATE packets.
+    // Counters 1-3 increment by ~1333, counters 4-5 by ~7233, every ~300ms.
+    // Seed with getMSTime()-based values (retail uses opaque server-tick values;
+    // the exact seed doesn't matter as long as the increment pattern is correct).
     {
         uint32 baseSeed = getMSTime();
         player->m_Events.AddEventAtOffset(
             new HousingWorldStateCounterEvent(player->GetGUID(),
-                baseSeed, baseSeed / 3, baseSeed + 55758738),
+                baseSeed, baseSeed / 3, baseSeed + 55758738,
+                baseSeed * 2, baseSeed + 123456789),
             Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
-        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Started WorldState counter timer for player {}",
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Started WorldState counter timer (5 counters) for player {}",
             player->GetGUID().ToString());
     }
 
@@ -1074,25 +1070,32 @@ void HousingMap::SendPerPlayerPlotWorldStates(Player* player)
     uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
 
-    uint32 correctionCount = 0;
+    uint32 sentCount = 0;
+    uint32 noWsCount = 0;
+    uint32 selfCount = 0;
+    uint32 friendCount = 0;
     for (NeighborhoodPlotData const* plot : plots)
     {
         if (plot->WorldState == 0)
+        {
+            ++noWsCount;
             continue;
+        }
 
         uint8 plotIdx = static_cast<uint8>(plot->PlotIndex);
         HousingPlotOwnerType ownerType = GetPlotOwnerTypeForPlayer(player, plotIdx);
         player->SendUpdateWorldState(plot->WorldState, static_cast<uint32>(ownerType), false);
+        ++sentCount;
 
-        if (ownerType != HOUSING_PLOT_OWNER_NONE && ownerType != HOUSING_PLOT_OWNER_STRANGER)
-            ++correctionCount;
+        if (ownerType == HOUSING_PLOT_OWNER_SELF)
+            ++selfCount;
+        else if (ownerType == HOUSING_PLOT_OWNER_FRIEND)
+            ++friendCount;
     }
 
-    if (correctionCount > 0)
-    {
-        TC_LOG_DEBUG("housing", "HousingMap::SendPerPlayerPlotWorldStates: Sent {} personalized WorldState corrections to player {} (SELF/FRIEND)",
-            correctionCount, player->GetGUID().ToString());
-    }
+    TC_LOG_INFO("housing", "HousingMap::SendPerPlayerPlotWorldStates: Player {} — sent {} WorldState updates "
+        "(self={}, friend={}, {} plots had no WorldState ID in DB2)",
+        player->GetGUID().ToString(), sentCount, selfCount, friendCount, noWsCount);
 }
 
 void HousingMap::AddPlayerHousing(ObjectGuid playerGuid, Housing* housing)
@@ -1207,13 +1210,15 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         plotIndex, x, y, z, facing, rot.x, rot.y, rot.z, rot.w,
         plotInfo != nullptr, plotInfo && !plotInfo->HouseGuid.IsEmpty());
 
-    // Spawn all house MeshObjects (sniff-verified: 10 structural pieces for Stucco Small alliance house)
+    // Spawn all house MeshObjects (sniff-verified: 10 structural pieces for alliance, different for horde)
     // Pieces have a parent-child hierarchy: base piece (0) and door piece (1) are roots,
     // other pieces attach to them with local-space positions/rotations.
     if (plotInfo && !plotInfo->HouseGuid.IsEmpty())
     {
+        int32 faction = _neighborhood ? _neighborhood->GetFactionRestriction()
+            : NEIGHBORHOOD_FACTION_ALLIANCE;
         SpawnFullHouseMeshObjects(plotIndex, pos, rot, plotInfo->HouseGuid,
-            exteriorComponentID, houseExteriorWmoDataID);
+            exteriorComponentID, houseExteriorWmoDataID, faction);
 
         // Spawn room entity + component mesh with Geobox for this plot.
         // The client uses the MeshObject Geobox to validate decor placement bounds.
@@ -1324,7 +1329,6 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
     }
 
     // 4. RoomComponentOption → theme-specific cosmetic data (varies by faction/house style)
-    //    Iterate DB2 to find any option matching RoomComponentID=196.
     //    Alliance sniff: optionID=874, themeID=6, field24=1, textureID=3
     //    Horde sniff:    optionID=420, themeID=2, field24=2, textureID=40
     //    These are cosmetic only (don't affect Geobox/bounds check).
@@ -1332,15 +1336,17 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
     int32 houseThemeID = 0;
     int32 roomComponentTextureID = 0;
     int32 field24 = 0;
-    for (RoomComponentOptionEntry const* optEntry : sRoomComponentOptionStore)
+
+    // Use faction-aware theme lookup
+    int32 factionThemeID = _neighborhood
+        ? sHousingMgr.GetFactionDefaultThemeID(_neighborhood->GetFactionRestriction())
+        : 6;
+    RoomComponentOptionEntry const* optEntry = sHousingMgr.FindRoomComponentOption(ROOM_COMPONENT_ID, factionThemeID);
+    if (optEntry)
     {
-        if (optEntry && optEntry->RoomComponentID == ROOM_COMPONENT_ID)
-        {
-            roomComponentOptionID = static_cast<int32>(optEntry->ID);
-            houseThemeID = optEntry->HouseThemeID;
-            field24 = static_cast<int32>(optEntry->SubType); // Sniff pattern: SubType matches Field_24
-            break;
-        }
+        roomComponentOptionID = static_cast<int32>(optEntry->ID);
+        houseThemeID = optEntry->HouseThemeID;
+        field24 = static_cast<int32>(optEntry->SubType);
     }
     // If no DB2 entry found, use sniff-verified alliance defaults
     if (roomComponentOptionID == 0)
@@ -1502,9 +1508,19 @@ MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, 
 
 void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& housePos,
     QuaternionData const& houseRot, ObjectGuid houseGuid,
-    int32 exteriorComponentID, int32 houseExteriorWmoDataID)
+    int32 exteriorComponentID, int32 houseExteriorWmoDataID,
+    int32 factionRestriction /*= NEIGHBORHOOD_FACTION_ALLIANCE*/)
 {
-    // Sniff-verified: Alliance starter house (Stucco Small) consists of 10 structural MeshObjects.
+    // Branch on faction — alliance and horde have different exterior mesh hierarchies
+    if (factionRestriction == NEIGHBORHOOD_FACTION_HORDE)
+    {
+        SpawnHordeHouseMeshObjects(plotIndex, housePos, houseRot, houseGuid,
+            exteriorComponentID, houseExteriorWmoDataID);
+        return;
+    }
+
+    // === ALLIANCE EXTERIOR (Stucco Small) ===
+    // Sniff-verified: Alliance starter house consists of 10 structural MeshObjects.
     // Two root pieces (base + door) positioned at the house location, and 8 child pieces
     // attached to roots with local-space offsets.
     //
@@ -1615,10 +1631,109 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     if (meshItr != _meshObjects.end())
         meshCount = static_cast<uint32>(meshItr->second.size());
 
-    TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} MeshObjects for plot {} in neighborhood '{}' "
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} alliance MeshObjects for plot {} in neighborhood '{}' "
         "(base={} door={})",
         meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?",
         basePiece ? "OK" : "FAIL", doorPiece ? "OK" : "FAIL");
+}
+
+void HousingMap::SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
+    QuaternionData const& houseRot, ObjectGuid houseGuid,
+    int32 /*exteriorComponentID*/, int32 /*houseExteriorWmoDataID*/)
+{
+    // === HORDE EXTERIOR ===
+    // Sniff-verified: Horde starter house with HouseExteriorWmoDataID=87.
+    // Two root pieces at the house position, children with local-space offsets.
+    //
+    // Parent-child hierarchy:
+    //   Root 0 (main structure, 7118906) - ExteriorComponentID 3811, type 10
+    //     ├── Child: Door/entrance (7118912), hookID 17245, extCompID 976
+    //     ├── Child: Wall element (7460531), hookID -1, extCompID 2476
+    //     ├── Child: Wall variant (7118901), hookID -1, extCompID 1011
+    //     ├── Child: Roof piece A (7462686), hookID 17294, extCompID 2445
+    //     ├── Child: Structure detail (7118918), hookID 17286, extCompID 980
+    //     └── Child: Roof piece B (7462686), hookID 17285, extCompID 2445
+    //   Root 1 (base, 6648685) - ExteriorComponentID 1003, type 9
+
+    int32 hordeWmoDataID = HORDE_HOUSE_EXTERIOR_WMO_DATA_ID; // 87
+
+    // Root piece 0: Main structure
+    MeshObject* rootPiece = SpawnHouseMeshObject(plotIndex, 7118906, /*isWMO*/ true,
+        housePos, houseRot, 1.0f,
+        houseGuid, 3811, hordeWmoDataID,
+        /*exteriorComponentType*/ 10, /*houseSize*/ 2, /*hookID*/ -1,
+        ObjectGuid::Empty, /*attachFlags*/ 0);
+
+    // Root piece 1: Base structure
+    MeshObject* basePiece = SpawnHouseMeshObject(plotIndex, 6648685, /*isWMO*/ true,
+        housePos, houseRot, 1.0f,
+        houseGuid, 1003, hordeWmoDataID,
+        /*exteriorComponentType*/ 9, /*houseSize*/ 2, /*hookID*/ -1,
+        ObjectGuid::Empty, /*attachFlags*/ 0);
+
+    // Children of root piece 0
+    if (rootPiece)
+    {
+        ObjectGuid rootGuid = rootPiece->GetGUID();
+
+        // Door/entrance
+        SpawnHouseMeshObject(plotIndex, 7118912, /*isWMO*/ true,
+            Position(14.2722f, -8.6194f, 0.0f, 0.0f),
+            QuaternionData(0.0f, 0.0f, -0.2873478f, 0.9578263f), 1.0f,
+            houseGuid, 976, hordeWmoDataID,
+            /*exteriorComponentType*/ 11, /*houseSize*/ 2, /*hookID*/ 17245,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+
+        // Wall element
+        SpawnHouseMeshObject(plotIndex, 7460531, /*isWMO*/ true,
+            Position(0.0f, 0.0f, 0.0f, 0.0f),
+            QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
+            houseGuid, 2476, hordeWmoDataID,
+            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ -1,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+
+        // Wall variant
+        SpawnHouseMeshObject(plotIndex, 7118901, /*isWMO*/ true,
+            Position(0.0f, 0.0f, 0.0f, 0.0f),
+            QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
+            houseGuid, 1011, hordeWmoDataID,
+            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ -1,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+
+        // Roof piece A (right side)
+        SpawnHouseMeshObject(plotIndex, 7462686, /*isWMO*/ true,
+            Position(6.2889f, -4.4556f, 0.0833f, 0.0f),
+            QuaternionData(0.0f, 0.0f, 0.95782566f, 0.28735f), 1.0f,
+            houseGuid, 2445, hordeWmoDataID,
+            /*exteriorComponentType*/ 13, /*houseSize*/ 2, /*hookID*/ 17294,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+
+        // Structure detail
+        SpawnHouseMeshObject(plotIndex, 7118918, /*isWMO*/ true,
+            Position(-0.1389f, 8.6806f, 5.4139f, 0.0f),
+            QuaternionData(0.0f, 0.0f, 0.7071066f, 0.70710695f), 1.0f,
+            houseGuid, 980, hordeWmoDataID,
+            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 17286,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+
+        // Roof piece B (left side)
+        SpawnHouseMeshObject(plotIndex, 7462686, /*isWMO*/ true,
+            Position(-7.0611f, -3.7361f, 0.0833f, 0.0f),
+            QuaternionData(0.0f, 0.0f, 0.2873478f, 0.9578263f), 1.0f,
+            houseGuid, 2445, hordeWmoDataID,
+            /*exteriorComponentType*/ 13, /*houseSize*/ 2, /*hookID*/ 17285,
+            rootGuid, /*attachFlags*/ 3, &housePos);
+    }
+
+    uint32 meshCount = 0;
+    auto meshItr = _meshObjects.find(plotIndex);
+    if (meshItr != _meshObjects.end())
+        meshCount = static_cast<uint32>(meshItr->second.size());
+
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnHordeHouseMeshObjects: Spawned {} MeshObjects for plot {} in neighborhood '{}' "
+        "(root={} base={})",
+        meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?",
+        rootPiece ? "OK" : "FAIL", basePiece ? "OK" : "FAIL");
 }
 
 void HousingMap::DespawnAllMeshObjectsForPlot(uint8 plotIndex)
@@ -1675,10 +1790,10 @@ int8 HousingMap::GetPlotIndexForHouseGO(ObjectGuid goGuid) const
 }
 
 // ============================================================
-// Decor GO Management
+// Decor Management (all decor is MeshObject — sniff-verified)
 // ============================================================
 
-GameObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid)
+MeshObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid)
 {
     HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(decor.DecorEntryId);
     if (!decorData)
@@ -1688,75 +1803,125 @@ GameObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor con
         return nullptr;
     }
 
-    uint32 goEntry = decorData->GameObjectID > 0 ? static_cast<uint32>(decorData->GameObjectID) : 0;
-    if (!goEntry)
+    // Sniff-verified: ALL retail placed decor is MeshObject (never GO).
+    // FHousingDecor_C on a GameObject crashes the client (same issue as FHousingFixture_C on GOs).
+    // Determine FileDataID: prefer ModelFileDataID, fall back to GO template displayInfo.
+    int32 fileDataID = decorData->ModelFileDataID;
+    if (fileDataID <= 0 && decorData->GameObjectID > 0)
     {
-        TC_LOG_DEBUG("housing", "HousingMap::SpawnDecorItem: Decor entry {} has GameObjectID=0 (CLIENT_MODEL type), skipping GO spawn",
+        GameObjectTemplate const* goTemplate = sObjectMgr->GetGameObjectTemplate(
+            static_cast<uint32>(decorData->GameObjectID));
+        if (goTemplate)
+        {
+            GameObjectDisplayInfoEntry const* displayInfo =
+                sGameObjectDisplayInfoStore.LookupEntry(goTemplate->displayId);
+            if (displayInfo && displayInfo->FileDataID > 0)
+                fileDataID = displayInfo->FileDataID;
+        }
+
+        if (fileDataID <= 0)
+        {
+            TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Cannot derive FileDataID for decor entry {} "
+                "(GameObjectID={}, ModelFileDataID={}), skipping",
+                decor.DecorEntryId, decorData->GameObjectID, decorData->ModelFileDataID);
+            return nullptr;
+        }
+
+        TC_LOG_DEBUG("housing", "HousingMap::SpawnDecorItem: Derived FileDataID={} from GameObjectID={} displayId for entry {}",
+            fileDataID, decorData->GameObjectID, decor.DecorEntryId);
+    }
+    else if (fileDataID <= 0)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Decor entry {} has no ModelFileDataID and no GameObjectID, skipping",
             decor.DecorEntryId);
         return nullptr;
     }
 
-    float x = decor.PosX;
-    float y = decor.PosY;
-    float z = decor.PosZ;
+    // Sniff-verified: Decor MeshObjects are attached to the plot's base room entity
+    // (Housing/18) with attachFlags=3. Position is room-local space.
+    // Get the room entity for this plot (spawned by SpawnRoomForPlot).
+    ObjectGuid roomEntityGuid = ObjectGuid::Empty;
+    Position roomWorldPos;
+    auto roomItr = _roomEntities.find(plotIndex);
+    if (roomItr != _roomEntities.end())
+    {
+        roomEntityGuid = roomItr->second;
+        if (MeshObject* roomEntity = GetMeshObject(roomEntityGuid))
+            roomWorldPos = roomEntity->GetPosition();
+    }
 
-    LoadGrid(x, y);
+    float worldX = decor.PosX;
+    float worldY = decor.PosY;
+    float worldZ = decor.PosZ;
+    LoadGrid(worldX, worldY);
 
-    // Decor rotation is stored as quaternion
     QuaternionData rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
 
-    Position pos(x, y, z);
-    GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, GO_STATE_ACTIVE);
-    if (!go)
+    // Convert world position to room-local position if we have a room entity
+    float localX = worldX;
+    float localY = worldY;
+    float localZ = worldZ;
+    if (!roomEntityGuid.IsEmpty())
     {
-        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to create decor GO entry {} at ({}, {}, {}) for decor {}",
-            goEntry, x, y, z, decor.Guid.ToString());
+        localX = worldX - roomWorldPos.GetPositionX();
+        localY = worldY - roomWorldPos.GetPositionY();
+        localZ = worldZ - roomWorldPos.GetPositionZ();
+    }
+
+    Position localPos(localX, localY, localZ);
+    Position worldPos(worldX, worldY, worldZ);
+
+    MeshObject* mesh = MeshObject::CreateMeshObject(this, localPos, rot, 1.0f,
+        fileDataID, /*isWMO*/ false,
+        roomEntityGuid, /*attachFlags*/ roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3),
+        &worldPos);
+
+    if (!mesh)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to create decor MeshObject fileDataID={} for decor {}",
+            fileDataID, decor.Guid.ToString());
         return nullptr;
     }
 
-    go->SetFlag(GO_FLAG_NODESPAWN);
+    PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+    mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid);
 
-    // Universally visible (same rationale as cornerstones — no DB spawn, no phase_area)
-    PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-
-    // Populate the FHousingDecor_C entity fragment
-    go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0);
-
-    if (!AddToMap(go))
+    if (!AddToMap(mesh))
     {
-        delete go;
-        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to add decor GO to map for decor {}", decor.Guid.ToString());
+        TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: Failed to add decor MeshObject to map for decor {}", decor.Guid.ToString());
+        delete mesh;
         return nullptr;
     }
 
-    // Track the decor GO
-    _decorGameObjects[plotIndex].push_back(go->GetGUID());
-    _decorGuidToGoGuid[decor.Guid] = go->GetGUID();
+    _decorGameObjects[plotIndex].push_back(mesh->GetGUID());
+    _decorGuidToGoGuid[decor.Guid] = mesh->GetGUID();
     _decorGuidToPlotIndex[decor.Guid] = plotIndex;
 
-    TC_LOG_DEBUG("housing", "HousingMap::SpawnDecorItem: Spawned decor GO entry={} goGuid={} decorGuid={} at ({:.1f}, {:.1f}, {:.1f}) for plot {}",
-        goEntry, go->GetGUID().ToString(), decor.Guid.ToString(), x, y, z, plotIndex);
-
-    return go;
+    TC_LOG_INFO("housing", "HousingMap::SpawnDecorItem: Spawned decor MeshObject fileDataID={} meshGuid={} decorGuid={} "
+        "at world({:.1f},{:.1f},{:.1f}) local({:.1f},{:.1f},{:.1f}) room={} plot={}",
+        fileDataID, mesh->GetGUID().ToString(), decor.Guid.ToString(),
+        worldX, worldY, worldZ, localX, localY, localZ,
+        roomEntityGuid.ToString(), plotIndex);
+    return mesh;
 }
 
 void HousingMap::DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid)
 {
-    auto goItr = _decorGuidToGoGuid.find(decorGuid);
-    if (goItr == _decorGuidToGoGuid.end())
+    auto itr = _decorGuidToGoGuid.find(decorGuid);
+    if (itr == _decorGuidToGoGuid.end())
         return;
 
-    ObjectGuid goGuid = goItr->second;
-    if (GameObject* go = GetGameObject(goGuid))
-        go->AddObjectToRemoveList();
+    ObjectGuid objGuid = itr->second;
+    if (MeshObject* mesh = GetMeshObject(objGuid))
+        mesh->AddObjectToRemoveList();
 
     // Remove from tracking
     auto& plotDecor = _decorGameObjects[plotIndex];
-    plotDecor.erase(std::remove(plotDecor.begin(), plotDecor.end(), goGuid), plotDecor.end());
-    _decorGuidToGoGuid.erase(goItr);
+    plotDecor.erase(std::remove(plotDecor.begin(), plotDecor.end(), objGuid), plotDecor.end());
+    _decorGuidToGoGuid.erase(itr);
     _decorGuidToPlotIndex.erase(decorGuid);
 
-    TC_LOG_DEBUG("housing", "HousingMap::DespawnDecorItem: Despawned decor GO for decorGuid={} plot={}", decorGuid.ToString(), plotIndex);
+    TC_LOG_DEBUG("housing", "HousingMap::DespawnDecorItem: Despawned decor MeshObject for decorGuid={} plot={}", decorGuid.ToString(), plotIndex);
 }
 
 void HousingMap::DespawnAllDecorForPlot(uint8 plotIndex)
@@ -1765,10 +1930,10 @@ void HousingMap::DespawnAllDecorForPlot(uint8 plotIndex)
     if (itr == _decorGameObjects.end())
         return;
 
-    for (ObjectGuid const& goGuid : itr->second)
+    for (ObjectGuid const& objGuid : itr->second)
     {
-        if (GameObject* go = GetGameObject(goGuid))
-            go->AddObjectToRemoveList();
+        if (MeshObject* mesh = GetMeshObject(objGuid))
+            mesh->AddObjectToRemoveList();
     }
 
     // Clean up all tracking for this plot's decor
@@ -1787,7 +1952,7 @@ void HousingMap::DespawnAllDecorForPlot(uint8 plotIndex)
     itr->second.clear();
     _decorSpawnedPlots.erase(plotIndex);
 
-    TC_LOG_DEBUG("housing", "HousingMap::DespawnAllDecorForPlot: Despawned all decor GOs for plot {}", plotIndex);
+    TC_LOG_DEBUG("housing", "HousingMap::DespawnAllDecorForPlot: Despawned all decor MeshObjects for plot {}", plotIndex);
 }
 
 void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
@@ -1800,30 +1965,41 @@ void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
 
     ObjectGuid houseGuid = housing->GetHouseGuid();
     uint32 spawnCount = 0;
+    uint32 exteriorCount = 0;
+    uint32 failCount = 0;
     for (auto const& [decorGuid, decor] : housing->GetPlacedDecorMap())
     {
-        if (SpawnDecorItem(plotIndex, decor, houseGuid))
+        // Skip interior decor — those are spawned by HouseInteriorMap::SpawnInteriorDecor
+        if (!decor.RoomGuid.IsEmpty())
+            continue;
+
+        ++exteriorCount;
+        MeshObject* mesh = SpawnDecorItem(plotIndex, decor, houseGuid);
+        if (mesh)
             ++spawnCount;
+        else
+            ++failCount;
     }
 
     _decorSpawnedPlots.insert(plotIndex);
 
-    TC_LOG_INFO("housing", "HousingMap::SpawnAllDecorForPlot: Spawned {} decor GOs for plot {} in neighborhood '{}'",
-        spawnCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?");
+    TC_LOG_ERROR("housing", "HousingMap::SpawnAllDecorForPlot: Spawned {}/{} exterior decor for plot {} "
+        "(failed={}, neighborhood='{}')",
+        spawnCount, exteriorCount, plotIndex, failCount,
+        _neighborhood ? _neighborhood->GetName() : "?");
 }
 
-void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot)
+void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& /*rot*/)
 {
-    auto goItr = _decorGuidToGoGuid.find(decorGuid);
-    if (goItr == _decorGuidToGoGuid.end())
+    auto itr = _decorGuidToGoGuid.find(decorGuid);
+    if (itr == _decorGuidToGoGuid.end())
         return;
 
-    if (GameObject* go = GetGameObject(goItr->second))
+    // All decor is MeshObject now
+    if (MeshObject* mesh = GetMeshObject(itr->second))
     {
-        go->Relocate(pos);
-        go->SetLocalRotation(rot.x, rot.y, rot.z, rot.w);
-
-        TC_LOG_DEBUG("housing", "HousingMap::UpdateDecorPosition: Moved decor GO {} to ({:.1f}, {:.1f}, {:.1f}) for plot {}",
+        mesh->Relocate(pos);
+        TC_LOG_DEBUG("housing", "HousingMap::UpdateDecorPosition: Moved decor MeshObject {} to ({:.1f}, {:.1f}, {:.1f}) for plot {}",
             decorGuid.ToString(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), plotIndex);
     }
 }

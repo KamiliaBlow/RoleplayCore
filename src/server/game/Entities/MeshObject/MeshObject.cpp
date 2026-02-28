@@ -149,6 +149,36 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
     return true;
 }
 
+void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags,
+    ObjectGuid roomEntityGuid /*= ObjectGuid::Empty*/)
+{
+    if (m_housingDecorData.has_value())
+        return;
+
+    // Sniff-verified: FHousingDecor_C entity fragment on MeshObject decor entities.
+    // TargetGameObjectGUID is EMPTY (0x0) in ALL retail sniffs.
+    // AttachParentGUID points to the room entity (Housing/18 base room) the decor is placed in.
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::DecorGUID), decorGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::AttachParentGUID), roomEntityGuid);
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::Flags), flags);
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), ObjectGuid::Empty);
+
+    auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
+    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), uint8(0));
+
+    m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
+        WowCS::GetRawFragmentData(m_housingDecorData));
+
+    TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={}",
+        GetGUID().ToString(), decorGuid.ToString(), houseGuid.ToString(), flags, roomEntityGuid.ToString());
+}
+
 void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComponentID,
     int32 houseExteriorWmoDataID, uint8 exteriorComponentType /*= 9*/,
     uint8 houseSize /*= 2*/, int32 exteriorComponentHookID /*= -1*/)

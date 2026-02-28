@@ -314,8 +314,19 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
         // Instance ID = player's GUID counter so each player gets their own interior.
         newInstanceId = player->GetGUID().GetCounter();
         map = FindMap_i(mapId, newInstanceId);
-        if (!map)
+        if (map)
+        {
+            TC_LOG_ERROR("housing", "MapManager::CreateMap: REUSING existing HouseInteriorMap mapId={} instanceId={} "
+                "for player {} (map ptr={})",
+                mapId, newInstanceId, player->GetGUID().ToString(), (void*)map);
+        }
+        else
+        {
             map = CreateHouseInterior(mapId, newInstanceId, player);
+            TC_LOG_ERROR("housing", "MapManager::CreateMap: CREATED NEW HouseInteriorMap mapId={} instanceId={} "
+                "for player {} (map ptr={})",
+                mapId, newInstanceId, player->GetGUID().ToString(), (void*)map);
+        }
     }
     else if (entry->IsNeighborhood())
     {

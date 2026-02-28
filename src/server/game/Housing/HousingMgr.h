@@ -296,6 +296,16 @@ public:
     // Room component data (all types: wall, floor, ceiling, stairs, doorway, etc.)
     std::vector<RoomComponentData> const* GetRoomComponents(uint32 roomWmoDataId) const;
 
+    // Faction-to-theme mapping (sniff-verified: Alliance=6, Horde=2)
+    int32 GetFactionDefaultThemeID(int32 factionRestriction) const;
+
+    // Find a RoomComponentOption matching a specific component + theme
+    // Returns nullptr if no match found
+    RoomComponentOptionEntry const* FindRoomComponentOption(uint32 roomComponentID, int32 houseThemeID) const;
+
+    // Find the first HouseRoom entry with visual components (not the base room 18)
+    uint32 GetDefaultVisualRoomEntry() const;
+
     // Starter decor (items granted on first house purchase)
     // Returns starter decor IDs filtered by faction (teamId: ALLIANCE=469, HORDE=67)
     // Sniff-verified: Alliance and Horde receive different starter decor sets
