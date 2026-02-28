@@ -359,6 +359,45 @@ void AreaTrigger::InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, Objec
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingPlotAreaTrigger_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingPlotAreaTriggerData));
+
+    // Force SpellForVisuals=1282351 and SpellXSpellVisualID=510142 for housing plot ATs.
+    // Spell 1282351 doesn't exist in sSpellMgr (AreaTriggerDataStore resets SpellForVisuals
+    // to 0 during load, and the normal SpellXSpellVisualID lookup in _InitFields fails).
+    // The client requires BOTH values to properly identify the AT as a housing plot boundary:
+    //   - SpellForVisuals=1282351: marks the AT as a housing plot AT
+    //   - SpellXSpellVisualID=510142: retail-sniff-verified visual ID, required for
+    //     the client's plot boundary decal and placement validation system
+    // Without SpellXSpellVisualID=510142, the client fires OutsidePlotBounds on every
+    // decor placement attempt despite the AT having correct box extents.
+    {
+        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
+        if (*m_areaTriggerData->SpellForVisuals == 0)
+            SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellForVisuals), int32(1282351));
+        if (m_areaTriggerData->SpellVisual->SpellXSpellVisualID == 0)
+            SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellVisual).ModifyValue(&UF::SpellCastVisual::SpellXSpellVisualID), int32(510142));
+    }
+
+    // Set PeriodModifier to match retail: Field_0=0, Field_4=1.0f.
+    // Retail sniff-verified: ALL housing plot ATs have PeriodModifier=(0, 1.0).
+    // Without this, the client may fail the AABB bounds lookup for decor placement.
+    {
+        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+            .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_0), int32(0));
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+            .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_4), 1.0f);
+    }
+
+    TC_LOG_ERROR("housing", "AreaTrigger::InitHousingPlotData: AT {} plot={} owner={} houseGuid={} bnetGuid={}"
+        " | SpellForVisuals={} SpellXSpellVisualID={} DecalPropertiesID={}"
+        " | ShapeType={} BoundsRadius2D={:.2f} PeriodModifier=({},{})"
+        " | Pos=({:.1f},{:.1f},{:.1f},{:.3f})",
+        GetGUID().ToString(), plotId, ownerGuid.ToString(), houseGuid.ToString(), ownerBnetGuid.ToString(),
+        *m_areaTriggerData->SpellForVisuals, m_areaTriggerData->SpellVisual->SpellXSpellVisualID,
+        *m_areaTriggerData->DecalPropertiesID,
+        *m_areaTriggerData->ShapeType, *m_areaTriggerData->BoundsRadius2D,
+        *m_areaTriggerData->PeriodModifier->Field_0, *m_areaTriggerData->PeriodModifier->Field_4,
+        GetPositionX(), GetPositionY(), GetPositionZ(), GetOrientation());
 }
 
 void AreaTrigger::UpdateHousingPlotOwnerData(ObjectGuid ownerGuid, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid)

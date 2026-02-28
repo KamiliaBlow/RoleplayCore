@@ -78,6 +78,11 @@ public:
         int32 exteriorComponentID, int32 houseExteriorWmoDataID);
     void DespawnAllMeshObjectsForPlot(uint8 plotIndex);
 
+    // Room entity management (provides Geobox for client OutsidePlotBounds check)
+    void SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
+        QuaternionData const& houseRot, ObjectGuid houseGuid);
+    void DespawnRoomForPlot(uint8 plotIndex);
+
     // Decor GO management
     GameObject* SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
     void DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid);
@@ -111,6 +116,10 @@ private:
 
     // MeshObject tracking (plotIndex -> vector of MeshObject GUIDs)
     std::unordered_map<uint8, std::vector<ObjectGuid>> _meshObjects;
+
+    // Room entity tracking (plotIndex -> room/component MeshObject GUIDs)
+    std::unordered_map<uint8, ObjectGuid> _roomEntities;        // room "entity" MeshObject
+    std::unordered_map<uint8, ObjectGuid> _roomComponentMeshes; // room component MeshObject (has Geobox)
 
     // Decor GO tracking
     std::unordered_map<uint8, std::vector<ObjectGuid>> _decorGameObjects;         // plotIndex -> decor GO GUIDs

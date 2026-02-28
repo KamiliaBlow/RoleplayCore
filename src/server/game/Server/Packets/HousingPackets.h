@@ -886,12 +886,12 @@ namespace WorldPackets::Housing
 
         // IDA-verified wire format (case 5308422):
         // PackedGUID BNetAccountGUID + uint8 ResultCode + uint8 Flags
-        // Flags bit 7 = 1: empty/no storage data; bit 7 = 0: data available (client triggers refresh)
-        // Sniff-confirmed: 4 bytes for empty storage = 00 00 00 80
-        // Actual decor entries are NOT inline — delivered via UpdateObject fragments
+        // Sniff-verified: Flags is ALWAYS 0x80 in all 3 retail instances (housing + garrison).
+        // Actual decor data is delivered via FHousingStorage_C fragment on the Account entity,
+        // not inline in this packet. This response is purely an acknowledgement.
         ObjectGuid BNetAccountGuid;
         uint8 ResultCode = 0;
-        bool HasData = false;  // When false, Flags.bit7 = 1 (empty); when true, Flags.bit7 = 0
+        uint8 Flags = 0x80;  // Retail-verified: always 0x80
     };
 
     class HousingDecorAddToHouseChestResponse final : public ServerPacket

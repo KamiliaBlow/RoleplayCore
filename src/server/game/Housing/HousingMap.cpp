@@ -261,9 +261,42 @@ void HousingMap::SpawnPlotGameObjects()
 
         ++goCount;
 
-        // NOTE: Plot AreaTriggers REMOVED — the AT-based IsInsidePlot() client check
-        // was causing persistent OutsidePlotBounds errors. Plot enter/exit is now handled
-        // directly in AddPlayerToMap/RemovePlayerFromMap without AT dependency.
+        // Spawn plot AreaTrigger (entry 37358) at the house position (plot center).
+        // Sniff-verified: Box shape 35x30x94, DecalPropertiesId=621 (plot boundary visual),
+        // SpellForVisuals=1282351, FHousingPlotAreaTrigger_C entity fragment with owner data.
+        // The AT is required for the client to show the edit menu and plot boundary decal.
+        {
+            float hx = plot->HousePosition[0];
+            float hy = plot->HousePosition[1];
+            float hz = plot->HousePosition[2];
+            float hFacing = plot->HouseRotation[2];
+
+            LoadGrid(hx, hy);
+
+            Position atPos(hx, hy, hz, hFacing);
+            AreaTrigger* plotAt = AreaTrigger::CreateStaticAreaTrigger({ .Id = 37358, .IsCustom = false }, this, atPos);
+            if (plotAt)
+            {
+                PhasingHandler::InitDbPhaseShift(plotAt->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+
+                ObjectGuid ownerGuid = plotInfo ? plotInfo->OwnerGuid : ObjectGuid::Empty;
+                ObjectGuid houseGuid = plotInfo ? plotInfo->HouseGuid : ObjectGuid::Empty;
+                ObjectGuid ownerBnetGuid = plotInfo ? plotInfo->OwnerBnetGuid : ObjectGuid::Empty;
+
+                plotAt->InitHousingPlotData(static_cast<uint32>(plot->PlotIndex), ownerGuid, houseGuid, ownerBnetGuid);
+
+                _plotAreaTriggers[static_cast<uint8>(plot->PlotIndex)] = plotAt->GetGUID();
+
+                TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} AT entry=37358 guid={} at ({:.1f},{:.1f},{:.1f}) owner={}",
+                    plot->PlotIndex, plotAt->GetGUID().ToString(), hx, hy, hz,
+                    ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
+            }
+            else
+            {
+                TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to create plot AT (entry 37358) for plot {} at ({:.1f},{:.1f},{:.1f})",
+                    plot->PlotIndex, hx, hy, hz);
+            }
+        }
     }
 
     // Set per-plot WorldState values from DB2 so the client can render plot status on the map
@@ -426,6 +459,16 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
             plotIndex, _neighborhood->GetName());
     }
 
+    // Update the plot AT's owner data so the client sees current ownership
+    if (AreaTrigger* plotAt = GetPlotAreaTrigger(plotIndex))
+    {
+        Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(plotIndex);
+        if (owned && plotInfo)
+            plotAt->UpdateHousingPlotOwnerData(plotInfo->OwnerGuid, plotInfo->HouseGuid, plotInfo->OwnerBnetGuid);
+        else
+            plotAt->UpdateHousingPlotOwnerData(ObjectGuid::Empty, ObjectGuid::Empty, ObjectGuid::Empty);
+    }
+
     // Update the per-plot WorldState using HousingPlotOwnerType values
     // Default map-global: STRANGER (1) for occupied, NONE (0) for unoccupied
     // Then send per-player corrections to all online players on this map
@@ -540,6 +583,11 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         if (!housing->GetHouseGuid().IsEmpty())
         {
             _neighborhood->UpdatePlotHouseInfo(plotIdx, housing->GetHouseGuid(), ownerBnetGuid);
+
+            // Update the plot AT's owner data (may have been spawned with empty GUIDs
+            // if the player was offline during SpawnPlotGameObjects)
+            if (AreaTrigger* plotAt = GetPlotAreaTrigger(plotIdx))
+                plotAt->UpdateHousingPlotOwnerData(player->GetGUID(), housing->GetHouseGuid(), ownerBnetGuid);
         }
 
         // Update PlayerMirrorHouse.MapID so the client knows this house is on the current map.
@@ -598,6 +646,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     QuaternionData rot = houseGo->GetLocalRotation();
                     SpawnFullHouseMeshObjects(plotIdx, pos, rot,
                         housing->GetHouseGuid(), 141, 9);
+
+                    // Also spawn room entity + Geobox if not already present
+                    if (_roomEntities.find(plotIdx) == _roomEntities.end())
+                        SpawnRoomForPlot(plotIdx, pos, rot, housing->GetHouseGuid());
 
                     TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Late-spawned MeshObjects for plot {} (house GO {} already existed)",
                         plotIdx, houseGo->GetGUID().ToString());
@@ -668,20 +720,62 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         houseInfo.House.AccessFlags, housing ? "yes" : "no");
     player->SendDirectMessage(houseInfoPkt);
 
-    // Send plot enter directly — no AT dependency.
-    // The AT-based approach caused persistent OutsidePlotBounds; use direct plot tracking instead.
+    // ENTER_PLOT must be sent AFTER SMSG_UPDATE_OBJECT creates the AT on the client.
+    // UPDATE_OBJECT is flushed after AddPlayerToMap returns, so sending ENTER_PLOT
+    // here synchronously would reference an AT GUID the client doesn't know yet.
+    // Solution: schedule a deferred event that sends ENTER_PLOT after a short delay,
+    // giving the UPDATE_OBJECT time to flush to the client first.
+    // The at_housing_plot AT overlap script also sends ENTER_PLOT when the player
+    // physically enters the box, but on login the AT overlap check may not fire
+    // on the first tick (player already inside the AT when it was created).
+    // SetPlayerCurrentPlot is called here so the AT script's alreadyOnPlot guard
+    // prevents duplicate ENTER_PLOT sends if both paths fire.
     if (housing)
     {
         uint8 plotIndex = housing->GetPlotIndex();
-
-        // Mark this player as on their plot immediately
         SetPlayerCurrentPlot(player->GetGUID(), plotIndex);
 
-        // Send plot enter spell packets immediately (auras at slots 50, 56, 9)
-        SendPlotEnterSpellPackets(player, plotIndex);
+        ObjectGuid playerGuid = player->GetGUID();
+        uint8 deferredPlotIndex = plotIndex;
+        player->m_Events.AddEventAtOffset([playerGuid, deferredPlotIndex]()
+        {
+            Player* p = ObjectAccessor::FindPlayer(playerGuid);
+            if (!p || !p->IsInWorld())
+                return;
 
-        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Sent plot enter spells for plot {} to player {} (no AT)",
-            plotIndex, player->GetGUID().ToString());
+            HousingMap* hMap = dynamic_cast<HousingMap*>(p->GetMap());
+            if (!hMap)
+                return;
+
+            AreaTrigger* plotAt = hMap->GetPlotAreaTrigger(deferredPlotIndex);
+            if (!plotAt)
+            {
+                TC_LOG_ERROR("housing", "HousingMap deferred ENTER_PLOT: No AT for plot {} player {}",
+                    deferredPlotIndex, playerGuid.ToString());
+                return;
+            }
+
+            WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
+            enterPlot.PlotAreaTriggerGuid = plotAt->GetGUID();
+            p->SendDirectMessage(enterPlot.Write());
+
+            hMap->SendPlotEnterSpellPackets(p, deferredPlotIndex);
+
+            // Diagnostic: print AT position vs player position for OutsidePlotBounds debugging
+            float dist2d = p->GetExactDist2d(plotAt);
+            float dist3d = p->GetExactDist(plotAt);
+            bool inBox = p->IsWithinBox(*plotAt, 35.0f, 30.0f, 47.0f);  // half-extents from SQL ShapeData
+
+            TC_LOG_DEBUG("housing", "HousingMap deferred ENTER_PLOT: player {} plot {} AT {}\n"
+                "  AT pos: ({:.1f}, {:.1f}, {:.1f}, facing={:.3f})\n"
+                "  Player pos: ({:.1f}, {:.1f}, {:.1f})\n"
+                "  Dist2D={:.1f} Dist3D={:.1f} InBox={} HasPlayers={}",
+                playerGuid.ToString(), deferredPlotIndex, plotAt->GetGUID().ToString(),
+                plotAt->GetPositionX(), plotAt->GetPositionY(), plotAt->GetPositionZ(), plotAt->GetOrientation(),
+                p->GetPositionX(), p->GetPositionY(), p->GetPositionZ(),
+                dist2d, dist3d, inBox,
+                plotAt->HasAreaTriggerFlag(AreaTriggerFieldFlags::HasPlayers));
+        }, Milliseconds(500));
     }
 
     // Start the periodic housing WorldState counter timer.
@@ -710,7 +804,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         "  Map: {} InstanceType={} NeighborhoodId={}\n"
         "  HasHouse: {} PlotIndex: {}\n"
         "  Packets sent: CURRENT_HOUSE_INFO, 3xAURA+3xSTART+3xGO, "
-        "WorldState timer started, PerPlayerPlotWorldStates\n"
+        "deferred ENTER_PLOT (500ms), WorldState timer started, PerPlayerPlotWorldStates\n"
         "  Player pos: ({:.1f}, {:.1f}, {:.1f})",
         player->GetGUID().ToString(),
         GetId(), GetEntry()->InstanceType, _neighborhoodId,
@@ -801,7 +895,15 @@ void HousingMap::SendPlotEnterSpellPackets(Player* player, uint8 plotIndex)
         player->SendDirectMessage(spellGo.Write());
     }
 
-    // 2. (AT HasPlayers flag removed — no plot ATs spawned)
+    // 2. Set HasPlayers flag (Flags=1024) on the plot AreaTrigger.
+    // Sniff-verified: this UPDATE_OBJECT goes out between the first spell set (1239847)
+    // and the second (469226). It tells the client that players are inside this AT.
+    if (AreaTrigger* plotAt = GetPlotAreaTrigger(plotIndex))
+    {
+        plotAt->SetAreaTriggerFlag(AreaTriggerFieldFlags::HasPlayers);
+        TC_LOG_DEBUG("housing", "SendPlotEnterSpellPackets: Set HasPlayers on AT {} for player {} plot {}",
+            plotAt->GetGUID().ToString(), player->GetGUID().ToString(), plotIndex);
+    }
 
     // 3. Spell 469226 — plot presence aura (slot 56)
     {
@@ -1112,6 +1214,11 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     {
         SpawnFullHouseMeshObjects(plotIndex, pos, rot, plotInfo->HouseGuid,
             exteriorComponentID, houseExteriorWmoDataID);
+
+        // Spawn room entity + component mesh with Geobox for this plot.
+        // The client uses the MeshObject Geobox to validate decor placement bounds.
+        // Without this, ALL placement attempts fail with OutsidePlotBounds.
+        SpawnRoomForPlot(plotIndex, pos, rot, plotInfo->HouseGuid);
     }
 
     // Spawn the front door GO (entry 602702, type Goober, displayId 116971)
@@ -1158,6 +1265,191 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     }
 
     return doorGo;
+}
+
+void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
+    QuaternionData const& houseRot, ObjectGuid houseGuid)
+{
+    // The retail client requires a Room entity with an attached MeshObject that has a Geobox
+    // (axis-aligned bounding box) to define the plot's placement boundary. Without these,
+    // the client reports "OutsidePlotBounds" for ALL decor placement attempts.
+    //
+    // Sniff-verified structure (12.0.1 retail):
+    // 1. Room entity:      FHousingRoom_C fragment with HouseGUID, HouseRoomID=18, Flags=1
+    // 2. Room MeshObject:  FHousingRoomComponentMesh_C + Geobox attached to room at local (0,0,0)
+    //    Geobox bounds are identical for ALL factions/themes: (-35,-30,-1.01)→(35,30,125.01)
+    //
+    // In retail, the Room entity is a lightweight entity (type 18) without CGObject/FMeshObjectData_C.
+    // Our implementation uses MeshObjects for both, adding room data as extra entity fragments.
+    // The client processes fragments independently, so the extra fragments are harmless.
+
+    static constexpr int32 HOUSE_ROOM_ID = 18;   // HouseRoom.db2 entry for exterior plot
+    static constexpr int32 ROOM_FLAGS    = 1;     // BASE_ROOM
+    static constexpr int32 ROOM_COMPONENT_ID = 196; // Sniff-verified: same for alliance+horde
+
+    // Clean up any existing room entities for this plot
+    DespawnRoomForPlot(plotIndex);
+
+    // --- DB2 lookups for room component data ---
+
+    // 1. HouseRoom → RoomWmoDataID
+    HouseRoomEntry const* houseRoomEntry = sHouseRoomStore.LookupEntry(HOUSE_ROOM_ID);
+    int32 roomWmoDataID = houseRoomEntry ? houseRoomEntry->RoomWmoDataID : 0;
+
+    // 2. RoomWmoData → Geobox bounds (bounding box for OutsidePlotBounds check)
+    //    Sniff fallback: (-35,-30,-1.01)→(35,30,125.01)
+    float geoMinX = -35.0f, geoMinY = -30.0f, geoMinZ = -1.01f;
+    float geoMaxX =  35.0f, geoMaxY =  30.0f, geoMaxZ = 125.01f;
+    RoomWmoDataEntry const* wmoData = roomWmoDataID ? sRoomWmoDataStore.LookupEntry(roomWmoDataID) : nullptr;
+    if (wmoData)
+    {
+        geoMinX = wmoData->BoundingBoxMinX;
+        geoMinY = wmoData->BoundingBoxMinY;
+        geoMinZ = wmoData->BoundingBoxMinZ;
+        geoMaxX = wmoData->BoundingBoxMaxX;
+        geoMaxY = wmoData->BoundingBoxMaxY;
+        geoMaxZ = wmoData->BoundingBoxMaxZ;
+    }
+
+    // 3. RoomComponent → ModelFileDataID, Type
+    //    Sniff fallback: FileDataID=6322976, Type=2
+    int32 fileDataID = 6322976;
+    uint8 roomComponentType = 2;
+    RoomComponentEntry const* compEntry = sRoomComponentStore.LookupEntry(ROOM_COMPONENT_ID);
+    if (compEntry)
+    {
+        if (compEntry->ModelFileDataID > 0)
+            fileDataID = compEntry->ModelFileDataID;
+        roomComponentType = compEntry->Type;
+    }
+
+    // 4. RoomComponentOption → theme-specific cosmetic data (varies by faction/house style)
+    //    Iterate DB2 to find any option matching RoomComponentID=196.
+    //    Alliance sniff: optionID=874, themeID=6, field24=1, textureID=3
+    //    Horde sniff:    optionID=420, themeID=2, field24=2, textureID=40
+    //    These are cosmetic only (don't affect Geobox/bounds check).
+    int32 roomComponentOptionID = 0;
+    int32 houseThemeID = 0;
+    int32 roomComponentTextureID = 0;
+    int32 field24 = 0;
+    for (RoomComponentOptionEntry const* optEntry : sRoomComponentOptionStore)
+    {
+        if (optEntry && optEntry->RoomComponentID == ROOM_COMPONENT_ID)
+        {
+            roomComponentOptionID = static_cast<int32>(optEntry->ID);
+            houseThemeID = optEntry->HouseThemeID;
+            field24 = static_cast<int32>(optEntry->SubType); // Sniff pattern: SubType matches Field_24
+            break;
+        }
+    }
+    // If no DB2 entry found, use sniff-verified alliance defaults
+    if (roomComponentOptionID == 0)
+    {
+        roomComponentOptionID = 874;
+        houseThemeID = 6;
+        field24 = 1;
+        roomComponentTextureID = 3;
+    }
+
+    TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: plot={} DB2 lookup: "
+        "roomWmoDataID={} geobox=({:.2f},{:.2f},{:.2f})→({:.2f},{:.2f},{:.2f}) "
+        "fileDataID={} compType={} optionID={} themeID={} field24={} textureID={}",
+        plotIndex, roomWmoDataID,
+        geoMinX, geoMinY, geoMinZ, geoMaxX, geoMaxY, geoMaxZ,
+        fileDataID, roomComponentType,
+        roomComponentOptionID, houseThemeID, field24, roomComponentTextureID);
+
+    // --- Create entities ---
+
+    // 1. Create room entity (MeshObject with FHousingRoom_C + Tag_HousingRoom fragments)
+    MeshObject* roomEntity = MeshObject::CreateMeshObject(this, housePos, houseRot, 1.0f,
+        fileDataID, /*isWMO*/ true,
+        ObjectGuid::Empty, /*attachFlags*/ 3, nullptr);
+
+    if (!roomEntity)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: Failed to create room entity for plot {}", plotIndex);
+        return;
+    }
+
+    PhasingHandler::InitDbPhaseShift(roomEntity->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+    roomEntity->InitHousingRoomData(houseGuid, HOUSE_ROOM_ID, ROOM_FLAGS, /*floorIndex*/ 0);
+
+    // 2. Create room component MeshObject (with Geobox for OutsidePlotBounds check)
+    Position componentPos(0.0f, 0.0f, 0.0f, 0.0f);
+    QuaternionData componentRot;
+    componentRot.x = 0.0f;
+    componentRot.y = 0.0f;
+    componentRot.z = 0.0f;
+    componentRot.w = 1.0f;
+
+    MeshObject* componentMesh = MeshObject::CreateMeshObject(this, componentPos, componentRot, 1.0f,
+        fileDataID, /*isWMO*/ true,
+        roomEntity->GetGUID(), /*attachFlags*/ 3, &housePos);
+
+    if (!componentMesh)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: Failed to create room component mesh for plot {}", plotIndex);
+        delete roomEntity;
+        return;
+    }
+
+    PhasingHandler::InitDbPhaseShift(componentMesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+    componentMesh->InitHousingRoomComponentData(roomEntity->GetGUID(),
+        roomComponentOptionID, ROOM_COMPONENT_ID,
+        roomComponentType, field24,
+        houseThemeID, roomComponentTextureID,
+        /*roomComponentTypeParam*/ 0,
+        geoMinX, geoMinY, geoMinZ,
+        geoMaxX, geoMaxY, geoMaxZ);
+
+    // 3. Link: add component GUID to room entity's MeshObjects array
+    roomEntity->AddRoomMeshObject(componentMesh->GetGUID());
+
+    // 4. Add both to map (room entity first since component references it)
+    if (!AddToMap(roomEntity))
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: Failed to add room entity to map for plot {}", plotIndex);
+        delete roomEntity;
+        delete componentMesh;
+        return;
+    }
+
+    if (!AddToMap(componentMesh))
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: Failed to add room component mesh to map for plot {}", plotIndex);
+        roomEntity->AddObjectToRemoveList();
+        delete componentMesh;
+        return;
+    }
+
+    _roomEntities[plotIndex] = roomEntity->GetGUID();
+    _roomComponentMeshes[plotIndex] = componentMesh->GetGUID();
+
+    TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: plot={} room={} component={} "
+        "at ({:.1f},{:.1f},{:.1f}) geobox=({:.2f},{:.2f},{:.2f})→({:.2f},{:.2f},{:.2f})",
+        plotIndex, roomEntity->GetGUID().ToString(), componentMesh->GetGUID().ToString(),
+        housePos.GetPositionX(), housePos.GetPositionY(), housePos.GetPositionZ(),
+        geoMinX, geoMinY, geoMinZ, geoMaxX, geoMaxY, geoMaxZ);
+}
+
+void HousingMap::DespawnRoomForPlot(uint8 plotIndex)
+{
+    auto roomItr = _roomEntities.find(plotIndex);
+    if (roomItr != _roomEntities.end())
+    {
+        if (MeshObject* mesh = GetMeshObject(roomItr->second))
+            mesh->AddObjectToRemoveList();
+        _roomEntities.erase(roomItr);
+    }
+
+    auto compItr = _roomComponentMeshes.find(plotIndex);
+    if (compItr != _roomComponentMeshes.end())
+    {
+        if (MeshObject* mesh = GetMeshObject(compItr->second))
+            mesh->AddObjectToRemoveList();
+        _roomComponentMeshes.erase(compItr);
+    }
 }
 
 MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, bool isWMO,
@@ -1348,7 +1640,8 @@ void HousingMap::DespawnAllMeshObjectsForPlot(uint8 plotIndex)
 
 void HousingMap::DespawnHouseForPlot(uint8 plotIndex)
 {
-    // Despawn MeshObjects first, then the GO
+    // Despawn room entities, MeshObjects, then the GO
+    DespawnRoomForPlot(plotIndex);
     DespawnAllMeshObjectsForPlot(plotIndex);
 
     auto itr = _houseGameObjects.find(plotIndex);

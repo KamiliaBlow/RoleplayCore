@@ -60,6 +60,24 @@ public:
         int32 houseExteriorWmoDataID, uint8 exteriorComponentType = 9,
         uint8 houseSize = 2, int32 exteriorComponentHookID = -1);
 
+    // Housing room entity (adds FHousingRoom_C + Tag_HousingRoom entity fragments)
+    // Creates a room data entity that the client uses to identify the plot's room type.
+    void InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID, int32 flags, int32 floorIndex);
+
+    // Add a mesh object GUID to the room's MeshObjects dynamic array.
+    // Must call InitHousingRoomData() first.
+    void AddRoomMeshObject(ObjectGuid meshObjectGuid);
+
+    // Housing room component mesh (adds FHousingRoomComponentMesh_C fragment, sets IsRoom + Geobox)
+    // The client uses the Geobox for its OutsidePlotBounds collision check.
+    void InitHousingRoomComponentData(ObjectGuid roomGuid,
+        int32 roomComponentOptionID, int32 roomComponentID,
+        uint8 roomComponentType, int32 field24,
+        int32 houseThemeID, int32 roomComponentTextureID,
+        int32 roomComponentTypeParam,
+        float geoboxMinX, float geoboxMinY, float geoboxMinZ,
+        float geoboxMaxX, float geoboxMaxY, float geoboxMaxZ);
+
     // Update fields
     UF::UpdateField<UF::MeshObjectData, int32(WowCS::EntityFragment::FMeshObjectData_C), TYPEID_MESH_OBJECT> m_meshObjectData;
     UF::UpdateField<UF::MirroredPositionData, int32(WowCS::EntityFragment::FMirroredPositionData_C), 0> m_mirroredPositionData;

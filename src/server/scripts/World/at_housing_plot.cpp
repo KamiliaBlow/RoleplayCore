@@ -71,8 +71,8 @@ struct at_housing_plot : AreaTriggerAI
             }
         }
 
-        // Check if this player was already proactively placed on this plot by
-        // HousingMap::AddPlayerToMap (which sends ENTER_PLOT + spell packets early).
+        // Check if this player was already placed on this plot by
+        // HousingMap::AddPlayerToMap's deferred ENTER_PLOT event.
         // If so, skip duplicate ENTER_PLOT and spell packets but still do cosmetic phases.
         int8 currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
         bool alreadyOnPlot = (currentPlot == static_cast<int8>(plotId));

@@ -640,14 +640,15 @@ WorldPacket const* HousingDecorDeleteFromStorageResponse::Write()
 
 WorldPacket const* HousingDecorRequestStorageResponse::Write()
 {
-    // IDA-verified wire format: PackedGUID + uint8 ResultCode + uint8 Flags
-    // Flags bit 7: 1 = empty/no data, 0 = data available (client triggers refresh)
+    // Retail-verified wire format: PackedGUID(Empty) + uint8(ResultCode) + uint8(Flags=0x80)
+    // All 3 retail sniff instances show identical 4 bytes: 00 00 00 80
+    // Decor data delivered via FHousingStorage_C fragment on Account entity, not inline.
     _worldPacket << BNetAccountGuid;
     _worldPacket << uint8(ResultCode);
-    _worldPacket << uint8(HasData ? 0x00 : 0x80);
+    _worldPacket << uint8(Flags);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_REQUEST_STORAGE_RESPONSE ResultCode: {} HasData: {} BNetAccountGuid: {}",
-        ResultCode, HasData, BNetAccountGuid.ToString());
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_DECOR_REQUEST_STORAGE_RESPONSE ResultCode: {} Flags: 0x{:02X} BNetAccountGuid: {}",
+        ResultCode, Flags, BNetAccountGuid.ToString());
 
     return &_worldPacket;
 }

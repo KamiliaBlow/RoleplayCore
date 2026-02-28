@@ -190,6 +190,97 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComp
         exteriorComponentType, houseSize);
 }
 
+void MeshObject::InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID,
+    int32 flags, int32 floorIndex)
+{
+    if (m_housingRoomData.has_value())
+        return;
+
+    // Populate HousingRoomData (FHousingRoom_C fragment data).
+    // Sniff-verified: Room entities carry HouseGUID, HouseRoomID, Flags, FloorIndex,
+    // and a MeshObjects array referencing attached room component MeshObjects.
+    auto roomData = m_values.ModifyValue(&Object::m_housingRoomData, 0);
+    SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::HouseRoomID), houseRoomID);
+    SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::Flags), flags);
+    SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::FloorIndex), floorIndex);
+
+    // Register FHousingRoom_C entity fragment
+    m_entityFragments.Add(WowCS::EntityFragment::FHousingRoom_C, IsInWorld(),
+        WowCS::GetRawFragmentData(m_housingRoomData));
+
+    // Register Tag_HousingRoom tag fragment
+    m_entityFragments.Add(WowCS::EntityFragment::Tag_HousingRoom, IsInWorld());
+
+    TC_LOG_DEBUG("housing", "MeshObject::InitHousingRoomData: guid={} houseGuid={} "
+        "roomID={} flags={} floor={}",
+        GetGUID().ToString(), houseGuid.ToString(), houseRoomID, flags, floorIndex);
+}
+
+void MeshObject::AddRoomMeshObject(ObjectGuid meshObjectGuid)
+{
+    if (!m_housingRoomData.has_value())
+        return;
+
+    AddDynamicUpdateFieldValue(m_values.ModifyValue(&Object::m_housingRoomData, 0)
+        .ModifyValue(&UF::HousingRoomData::MeshObjects)) = meshObjectGuid;
+
+    TC_LOG_DEBUG("housing", "MeshObject::AddRoomMeshObject: room={} added meshObject={}",
+        GetGUID().ToString(), meshObjectGuid.ToString());
+}
+
+void MeshObject::InitHousingRoomComponentData(ObjectGuid roomGuid,
+    int32 roomComponentOptionID, int32 roomComponentID,
+    uint8 roomComponentType, int32 field24,
+    int32 houseThemeID, int32 roomComponentTextureID,
+    int32 roomComponentTypeParam,
+    float geoboxMinX, float geoboxMinY, float geoboxMinZ,
+    float geoboxMaxX, float geoboxMaxY, float geoboxMaxZ)
+{
+    if (m_housingRoomComponentMeshData.has_value())
+        return;
+
+    // Set IsRoom = true on MeshObjectData so the client treats this as a room mesh
+    {
+        auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
+        SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsRoom), true);
+    }
+
+    // Set Geobox (axis-aligned bounding box) on MeshObjectData.
+    // Sniff-verified: ALL retail room component meshes have Geobox (-35,-30,-1.01)→(35,30,125.01).
+    // The client uses this box for its OutsidePlotBounds collision check.
+    {
+        auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
+        UF::AaBox geobox;
+        geobox.Low = TaggedPosition<Position::XYZ>(geoboxMinX, geoboxMinY, geoboxMinZ);
+        geobox.High = TaggedPosition<Position::XYZ>(geoboxMaxX, geoboxMaxY, geoboxMaxZ);
+        SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::Geobox, uint32(0)), std::move(geobox));
+    }
+
+    // Populate HousingRoomComponentMeshData (FHousingRoomComponentMesh_C fragment data)
+    auto compData = m_values.ModifyValue(&Object::m_housingRoomComponentMeshData, 0);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomGUID), roomGuid);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentOptionID), roomComponentOptionID);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentID), roomComponentID);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::Field_20), uint8(0));
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentType), roomComponentType);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::Field_24), field24);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::HouseThemeID), houseThemeID);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentTextureID), roomComponentTextureID);
+    SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentTypeParam), roomComponentTypeParam);
+
+    // Register FHousingRoomComponentMesh_C entity fragment
+    m_entityFragments.Add(WowCS::EntityFragment::FHousingRoomComponentMesh_C, IsInWorld(),
+        WowCS::GetRawFragmentData(m_housingRoomComponentMeshData));
+
+    TC_LOG_ERROR("housing", "MeshObject::InitHousingRoomComponentData: guid={} roomGuid={} "
+        "compOptionID={} compID={} compType={} themeID={} "
+        "geobox=({:.2f},{:.2f},{:.2f})→({:.2f},{:.2f},{:.2f})",
+        GetGUID().ToString(), roomGuid.ToString(),
+        roomComponentOptionID, roomComponentID, roomComponentType, houseThemeID,
+        geoboxMinX, geoboxMinY, geoboxMinZ, geoboxMaxX, geoboxMaxY, geoboxMaxZ);
+}
+
 void MeshObject::BuildValuesCreate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const
 {
     // Only ObjectData belongs to the CGObject fragment for MeshObjects.
