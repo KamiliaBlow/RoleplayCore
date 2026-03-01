@@ -353,6 +353,8 @@ DB2Storage<RewardPackXCurrencyTypeEntry>        sRewardPackXCurrencyTypeStore("R
 DB2Storage<RewardPackXItemEntry>                sRewardPackXItemStore("RewardPackXItem.db2", &RewardPackXItemLoadInfo::Instance);
 DB2Storage<RoomComponentEntry>                  sRoomComponentStore("RoomComponent.db2", &RoomComponentLoadInfo::Instance);
 DB2Storage<RoomComponentOptionEntry>            sRoomComponentOptionStore("RoomComponentOption.db2", &RoomComponentOptionLoadInfo::Instance);
+DB2Storage<RoomComponentOptionTextureEntry>     sRoomComponentOptionTextureStore("RoomComponentOptionTexture.db2", &RoomComponentOptionTextureLoadInfo::Instance);
+DB2Storage<RoomComponentTextureEntry>           sRoomComponentTextureStore("RoomComponentTexture.db2", &RoomComponentTextureLoadInfo::Instance);
 DB2Storage<RoomWmoDataEntry>                    sRoomWmoDataStore("RoomWmoData.db2", &RoomWmoDataLoadInfo::Instance);
 DB2Storage<ScenarioEntry>                       sScenarioStore("Scenario.db2", &ScenarioLoadInfo::Instance);
 DB2Storage<ScenarioStepEntry>                   sScenarioStepStore("ScenarioStep.db2", &ScenarioStepLoadInfo::Instance);
@@ -1064,6 +1066,8 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     LOAD_DB2(sRewardPackXItemStore);
     LOAD_DB2(sRoomComponentStore);
     LOAD_DB2(sRoomComponentOptionStore);
+    LOAD_DB2(sRoomComponentOptionTextureStore);
+    LOAD_DB2(sRoomComponentTextureStore);
     LOAD_DB2(sRoomWmoDataStore);
     LOAD_DB2(sScenarioStore);
     LOAD_DB2(sScenarioStepStore);

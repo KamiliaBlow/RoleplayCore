@@ -48,6 +48,7 @@ public:
         std::array<uint32, MAX_HOUSING_DYE_SLOTS> DyeSlots = {};
         ObjectGuid RoomGuid;
         bool Locked = false;
+        time_t PlacementTime = 0;
     };
 
     struct Room

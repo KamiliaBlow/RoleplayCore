@@ -80,6 +80,10 @@ public:
     void SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
         QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID);
+    uint32 SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
+        Position const& pos, QuaternionData const& rot,
+        ObjectGuid houseGuid, int32 houseExteriorWmoDataID,
+        ObjectGuid parentGuid, Position const* worldPos, int32 depth = 0);
     void DespawnAllMeshObjectsForPlot(uint8 plotIndex);
 
     // Room entity management (provides Geobox for client OutsidePlotBounds check)

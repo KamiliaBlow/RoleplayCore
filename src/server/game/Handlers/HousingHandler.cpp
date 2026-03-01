@@ -19,6 +19,7 @@
 #include "Account.h"
 #include <cmath>
 #include "DatabaseEnv.h"
+#include "GameTime.h"
 #include "RealmList.h"
 #include "AreaTrigger.h"
 #include "DB2Stores.h"
@@ -142,6 +143,22 @@ namespace
 
         TC_LOG_DEBUG("housing", "  Sent manual AURA_UPDATE + SPELL_START + SPELL_GO for spell {} (slot {}, CastID={})",
             spellId, auraSlot, castId.ToString());
+    }
+
+    // Refreshes all room MeshObjects in the player's interior instance after a room
+    // data change (add, remove, rotate, move, theme, material, door, ceiling).
+    void RefreshInteriorRoomVisuals(Player* player, Housing* housing)
+    {
+        HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap());
+        if (!interiorMap)
+            return;
+
+        NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(
+            interiorMap->GetSourceNeighborhoodMapId());
+        int32 faction = nmData ? nmData->FactionRestriction : NEIGHBORHOOD_FACTION_ALLIANCE;
+
+        interiorMap->DespawnAllRoomMeshObjects();
+        interiorMap->SpawnRoomMeshObjects(housing, faction);
     }
 }
 
@@ -1069,6 +1086,16 @@ void WorldSession::HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::Hou
         WorldPackets::Housing::AccountExteriorFixtureCollectionUpdate collectionUpdate;
         collectionUpdate.FixtureID = componentID;
         SendPacket(collectionUpdate.Write());
+
+        // Respawn house visuals so the new fixture is visible immediately
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint8 plotIndex = housing->GetPlotIndex();
+            housingMap->DespawnHouseForPlot(plotIndex);
+            housingMap->SpawnHouseForPlot(plotIndex, nullptr,
+                static_cast<int32>(housing->GetCoreExteriorComponentID()),
+                static_cast<int32>(housing->GetHouseType()));
+        }
     }
 
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE FixtureGuid: {}, ExteriorComponentID: {}, Result: {}",
@@ -1135,6 +1162,16 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
         WorldPackets::Housing::AccountExteriorFixtureCollectionUpdate collectionUpdate;
         collectionUpdate.FixtureID = hookID;
         SendPacket(collectionUpdate.Write());
+
+        // Respawn house visuals so the new fixture is visible immediately
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint8 plotIndex = housing->GetPlotIndex();
+            housingMap->DespawnHouseForPlot(plotIndex);
+            housingMap->SpawnHouseForPlot(plotIndex, nullptr,
+                static_cast<int32>(housing->GetCoreExteriorComponentID()),
+                static_cast<int32>(housing->GetHouseType()));
+        }
     }
 
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE ExteriorComponentType: {}, ExteriorComponentHookID: {}, Result: {}",
@@ -1178,6 +1215,19 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
     response.Result = static_cast<uint32>(result);
     response.FixtureGuid = housingFixtureDeleteFixture.FixtureGuid;
     SendPacket(response.Write());
+
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        // Respawn house visuals so the removed fixture disappears immediately
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint8 plotIndex = housing->GetPlotIndex();
+            housingMap->DespawnHouseForPlot(plotIndex);
+            housingMap->SpawnHouseForPlot(plotIndex, nullptr,
+                static_cast<int32>(housing->GetCoreExteriorComponentID()),
+                static_cast<int32>(housing->GetHouseType()));
+        }
+    }
 
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE FixtureGuid: {}, ExteriorComponentID: {}, Result: {}",
         housingFixtureDeleteFixture.FixtureGuid.ToString(), componentID, uint32(result));
@@ -1365,6 +1415,15 @@ void WorldSession::HandleHousingRoomAdd(WorldPackets::Housing::HousingRoomAdd co
     response.Result = static_cast<uint32>(result);
     SendPacket(response.Write());
 
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        RefreshInteriorRoomVisuals(player, housing);
+
+        WorldPackets::Housing::AccountRoomCollectionUpdate roomUpdate;
+        roomUpdate.RoomID = housingRoomAdd.HouseRoomID;
+        SendPacket(roomUpdate.Write());
+    }
+
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_ADD HouseRoomID: {}, FloorIndex: {}, Flags: {}, Result: {}",
         housingRoomAdd.HouseRoomID, housingRoomAdd.FloorIndex, housingRoomAdd.Flags, uint32(result));
 }
@@ -1390,6 +1449,9 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
     response.Result = static_cast<uint32>(result);
     response.RoomGuid = housingRoomRemove.RoomGuid;
     SendPacket(response.Write());
+
+    if (result == HOUSING_RESULT_SUCCESS)
+        RefreshInteriorRoomVisuals(player, housing);
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_REMOVE_ROOM RoomGuid: {}, Result: {}",
         housingRoomRemove.RoomGuid.ToString(), uint32(result));
@@ -1417,6 +1479,9 @@ void WorldSession::HandleHousingRoomRotate(WorldPackets::Housing::HousingRoomRot
     response.RoomGuid = housingRoomRotate.RoomGuid;
     SendPacket(response.Write());
 
+    if (result == HOUSING_RESULT_SUCCESS)
+        RefreshInteriorRoomVisuals(player, housing);
+
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_ROTATE_ROOM RoomGuid: {}, Clockwise: {}, Result: {}",
         housingRoomRotate.RoomGuid.ToString(), housingRoomRotate.Clockwise, uint32(result));
 }
@@ -1443,6 +1508,9 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
     response.Result = static_cast<uint32>(result);
     response.RoomGuid = housingRoomMoveRoom.RoomGuid;
     SendPacket(response.Write());
+
+    if (result == HOUSING_RESULT_SUCCESS)
+        RefreshInteriorRoomVisuals(player, housing);
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_MOVE RoomGuid: {}, TargetSlotIndex: {}, Result: {}",
         housingRoomMoveRoom.RoomGuid.ToString(), housingRoomMoveRoom.TargetSlotIndex, uint32(result));
@@ -1472,6 +1540,15 @@ void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::Hou
     response.ComponentID = housingRoomSetComponentTheme.HouseThemeID;
     response.ThemeSetID = housingRoomSetComponentTheme.HouseThemeID;
     SendPacket(response.Write());
+
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        RefreshInteriorRoomVisuals(player, housing);
+
+        WorldPackets::Housing::AccountRoomThemeCollectionUpdate themeUpdate;
+        themeUpdate.ThemeID = housingRoomSetComponentTheme.HouseThemeID;
+        SendPacket(themeUpdate.Write());
+    }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_COMPONENT_THEME RoomGuid: {}, HouseThemeID: {}, Result: {}",
         housingRoomSetComponentTheme.RoomGuid.ToString(), housingRoomSetComponentTheme.HouseThemeID, uint32(result));
@@ -1503,6 +1580,15 @@ void WorldSession::HandleHousingRoomApplyComponentMaterials(WorldPackets::Housin
     response.RoomComponentTextureRecordID = housingRoomApplyComponentMaterials.RoomComponentTextureID;
     SendPacket(response.Write());
 
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        RefreshInteriorRoomVisuals(player, housing);
+
+        WorldPackets::Housing::AccountRoomMaterialCollectionUpdate materialUpdate;
+        materialUpdate.MaterialID = housingRoomApplyComponentMaterials.RoomComponentTextureID;
+        SendPacket(materialUpdate.Write());
+    }
+
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS RoomGuid: {}, TextureID: {}, Result: {}",
         housingRoomApplyComponentMaterials.RoomGuid.ToString(), housingRoomApplyComponentMaterials.RoomComponentTextureID, uint32(result));
 }
@@ -1532,6 +1618,9 @@ void WorldSession::HandleHousingRoomSetDoorType(WorldPackets::Housing::HousingRo
     response.DoorType = housingRoomSetDoorType.RoomComponentType;
     SendPacket(response.Write());
 
+    if (result == HOUSING_RESULT_SUCCESS)
+        RefreshInteriorRoomVisuals(player, housing);
+
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_DOOR_TYPE RoomGuid: {}, RoomComponentID: {}, Result: {}",
         housingRoomSetDoorType.RoomGuid.ToString(), housingRoomSetDoorType.RoomComponentID, uint32(result));
 }
@@ -1560,6 +1649,9 @@ void WorldSession::HandleHousingRoomSetCeilingType(WorldPackets::Housing::Housin
     response.ComponentID = housingRoomSetCeilingType.RoomComponentID;
     response.CeilingType = housingRoomSetCeilingType.RoomComponentType;
     SendPacket(response.Write());
+
+    if (result == HOUSING_RESULT_SUCCESS)
+        RefreshInteriorRoomVisuals(player, housing);
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_CEILING_TYPE RoomGuid: {}, RoomComponentID: {}, Result: {}",
         housingRoomSetCeilingType.RoomGuid.ToString(), housingRoomSetCeilingType.RoomComponentID, uint32(result));
@@ -2204,8 +2296,11 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
         entry.NeighborhoodGuid = neighborhood->GetGuid();
         entry.NeighborhoodName = neighborhood->GetName();
         entry.MapID = neighborhood->GetNeighborhoodMapID();
-        entry.TotalPlots = MAX_NEIGHBORHOOD_PLOTS;
-        entry.AvailablePlots = MAX_NEIGHBORHOOD_PLOTS - neighborhood->GetOccupiedPlotCount();
+        // Use DB2 PlotCount for display, falling back to MAX_NEIGHBORHOOD_PLOTS
+        NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(neighborhood->GetNeighborhoodMapID());
+        uint32 totalPlots = nmData ? nmData->PlotCount : MAX_NEIGHBORHOOD_PLOTS;
+        entry.TotalPlots = totalPlots;
+        entry.AvailablePlots = totalPlots - neighborhood->GetOccupiedPlotCount();
         entry.SuggestionReason = 32; // Random
         response.Entries.push_back(std::move(entry));
     }
@@ -2681,12 +2776,43 @@ void WorldSession::HandleGetAllLicensedDecorQuantities(WorldPackets::Housing::Ge
 
     TC_LOG_DEBUG("housing", "CMSG_GET_ALL_LICENSED_DECOR_QUANTITIES Player: {}", player->GetGUID().ToString());
 
-    // Returns the player's licensed decor quantities. Since the housing decor licensing
-    // system is not yet fully implemented, we return an empty list to satisfy the client.
-    // When decor purchasing is implemented, this will query the player's account-wide
-    // decor license collection and return quantity data for each owned decor item.
     WorldPackets::Housing::GetAllLicensedDecorQuantitiesResponse response;
-    // response.Quantities is empty — no licensed decor yet
+
+    Housing* housing = player->GetHousing();
+    if (housing)
+    {
+        // Populate from the player's catalog (persisted decor they own)
+        for (Housing::CatalogEntry const* entry : housing->GetCatalogEntries())
+        {
+            WorldPackets::Housing::JamLicensedDecorQuantity qty;
+            qty.DecorID = entry->DecorEntryId;
+            qty.Quantity = entry->Count;
+            response.Quantities.push_back(qty);
+        }
+
+        // Merge starter decor that may not be in catalog yet (safety net)
+        auto starterDecor = sHousingMgr.GetStarterDecorWithQuantities(player->GetTeam());
+        for (auto const& [decorId, quantity] : starterDecor)
+        {
+            bool found = false;
+            for (auto const& existing : response.Quantities)
+            {
+                if (existing.DecorID == decorId)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                WorldPackets::Housing::JamLicensedDecorQuantity qty;
+                qty.DecorID = decorId;
+                qty.Quantity = quantity;
+                response.Quantities.push_back(qty);
+            }
+        }
+    }
+
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "SMSG_GET_ALL_LICENSED_DECOR_QUANTITIES_RESPONSE sent to Player: {} with {} quantities",
@@ -2701,12 +2827,28 @@ void WorldSession::HandleGetDecorRefundList(WorldPackets::Housing::GetDecorRefun
 
     TC_LOG_DEBUG("housing", "CMSG_GET_DECOR_REFUND_LIST Player: {}", player->GetGUID().ToString());
 
-    // Returns the list of refundable decor items. Since the housing decor purchasing
-    // system is not yet fully implemented, we return an empty list. When decor purchasing
-    // is implemented, this will return recently purchased decor items that are still within
-    // the refund window, including their refund price, expiry time, and flags.
     WorldPackets::Housing::GetDecorRefundListResponse response;
-    // response.Decors is empty — no refundable decor yet
+
+    Housing* housing = player->GetHousing();
+    if (housing)
+    {
+        time_t now = GameTime::GetGameTime();
+        constexpr time_t REFUND_WINDOW = 2 * HOUR;
+
+        for (auto const& [guid, decor] : housing->GetPlacedDecorMap())
+        {
+            if (decor.PlacementTime > 0 && (now - decor.PlacementTime) < REFUND_WINDOW)
+            {
+                WorldPackets::Housing::JamClientRefundableDecor refund;
+                refund.DecorID = decor.DecorEntryId;
+                refund.RefundPrice = 0;
+                refund.ExpiryTime = static_cast<uint64>(decor.PlacementTime + REFUND_WINDOW);
+                refund.Flags = 0;
+                response.Decors.push_back(refund);
+            }
+        }
+    }
+
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "SMSG_GET_DECOR_REFUND_LIST_RESPONSE sent to Player: {} with {} decors",

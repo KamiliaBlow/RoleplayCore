@@ -1811,6 +1811,17 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         " FROM room_component_option WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_OPTION, "SELECT MAX(ID) + 1 FROM room_component_option", CONNECTION_SYNCH);
 
+    // RoomComponentOptionTexture.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT_OPTION_TEXTURE, "SELECT ID, RoomComponentOptionID, RoomComponentTextureID, Flags"
+        " FROM room_component_option_texture WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_OPTION_TEXTURE, "SELECT MAX(ID) + 1 FROM room_component_option_texture", CONNECTION_SYNCH);
+
+    // RoomComponentTexture.db2
+    PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT_TEXTURE, "SELECT Name, ID, Type, FileDataID, Flags, UiOrder, RoomComponentID"
+        " FROM room_component_texture WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_TEXTURE, "SELECT MAX(ID) + 1 FROM room_component_texture", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_ROOM_COMPONENT_TEXTURE, "SELECT ID, Name_lang FROM room_component_texture_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
     // RoomWmoData.db2
     PrepareStatement(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT ID, BoundingBoxMinX, BoundingBoxMinY, BoundingBoxMinZ, BoundingBoxMaxX, BoundingBoxMaxY, "
         "BoundingBoxMaxZ, Height FROM room_wmo_data WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);

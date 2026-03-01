@@ -33,11 +33,6 @@
 #include "World.h"
 #include "WorldSession.h"
 
-// Interior map spawn origin (from NeighborhoodMap ID=7 DB2 data)
-static constexpr float INTERIOR_ORIGIN_X = -1000.0f;
-static constexpr float INTERIOR_ORIGIN_Y = -1000.0f;
-static constexpr float INTERIOR_ORIGIN_Z = 0.1f;
-
 HouseInteriorMap::HouseInteriorMap(uint32 id, time_t expiry, uint32 instanceId, ObjectGuid const& owner)
     : Map(id, expiry, instanceId, DIFFICULTY_NORMAL),
       _owner(owner),
@@ -47,6 +42,23 @@ HouseInteriorMap::HouseInteriorMap(uint32 id, time_t expiry, uint32 instanceId, 
       _roomsSpawned(false)
 {
     HouseInteriorMap::InitVisibilityDistance();
+
+    // Look up interior origin from NeighborhoodMap DB2 data for this world map
+    if (NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(id))
+    {
+        _originX = nmData->Origin[0];
+        _originY = nmData->Origin[1];
+        _originZ = nmData->Origin[2];
+        TC_LOG_INFO("housing", "HouseInteriorMap::CTOR: Using DB2 origin ({:.1f}, {:.1f}, {:.1f}) from "
+            "NeighborhoodMap {} for map {}",
+            _originX, _originY, _originZ, nmData->ID, id);
+    }
+    else
+    {
+        TC_LOG_INFO("housing", "HouseInteriorMap::CTOR: No NeighborhoodMap DB2 entry for map {} — "
+            "using default origin ({:.1f}, {:.1f}, {:.1f})",
+            id, _originX, _originY, _originZ);
+    }
 
     TC_LOG_ERROR("housing", "HouseInteriorMap::CTOR: Created interior map {} instanceId {} for owner {} "
         "(this={}, _roomsSpawned={})",
@@ -128,6 +140,12 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
             geoMaxY = wmoData->BoundingBoxMaxY;
             geoMaxZ = wmoData->BoundingBoxMaxZ;
         }
+        else
+        {
+            TC_LOG_WARN("housing", "HouseInteriorMap::SpawnRoomMeshObjects: No RoomWmoData for "
+                "roomWmoDataID={} (room entry {}), using fallback geobox (-35,-30,-1.01)->(35,30,125.01)",
+                roomWmoDataID, room->RoomEntryId);
+        }
 
         // 3. Get ALL components for this room
         std::vector<RoomComponentData> const* components = sHousingMgr.GetRoomComponents(roomWmoDataID);
@@ -158,9 +176,9 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
 
         // --- Calculate room world position ---
 
-        float roomX = INTERIOR_ORIGIN_X + static_cast<float>(room->SlotIndex) * HOUSING_ROOM_GRID_SPACING;
-        float roomY = INTERIOR_ORIGIN_Y;
-        float roomZ = INTERIOR_ORIGIN_Z;
+        float roomX = _originX + static_cast<float>(room->SlotIndex) * sHousingMgr.GetRoomGridSpacing();
+        float roomY = _originY;
+        float roomZ = _originZ;
         float roomFacing = static_cast<float>(room->Orientation) * (M_PI / 2.0f);
 
         Position roomPos(roomX, roomY, roomZ, roomFacing);
@@ -231,13 +249,20 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
                 roomComponentOptionID = static_cast<int32>(optEntry->ID);
                 houseThemeID = optEntry->HouseThemeID;
                 field24 = static_cast<int32>(optEntry->SubType);
-                // TextureID by component type (sniff-verified: walls=24, floors=40, ceilings=54)
-                switch (comp.Type)
+                // TextureID: try per-option DB2 first, then per-type, then hardcoded fallback
+                roomComponentTextureID = sHousingMgr.GetTextureIdForComponentOption(roomComponentOptionID);
+                if (roomComponentTextureID == 0)
+                    roomComponentTextureID = sHousingMgr.GetTextureIdForComponentType(comp.Type);
+                if (roomComponentTextureID == 0)
                 {
-                    case 1: roomComponentTextureID = 24; break; // Wall
-                    case 2: roomComponentTextureID = 40; break; // Floor
-                    case 3: roomComponentTextureID = 54; break; // Ceiling
-                    default: break;
+                    // Hardcoded fallback (sniff-verified: walls=24, floors=40, ceilings=54)
+                    switch (comp.Type)
+                    {
+                        case 1: roomComponentTextureID = 24; break;
+                        case 2: roomComponentTextureID = 40; break;
+                        case 3: roomComponentTextureID = 54; break;
+                        default: break;
+                    }
                 }
             }
 
@@ -685,9 +710,9 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                 HouseRoomData const* roomData2 = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
                 if (roomData2 && !roomData2->IsBaseRoom())
                 {
-                    float targetX = INTERIOR_ORIGIN_X + static_cast<float>(room->SlotIndex) * HOUSING_ROOM_GRID_SPACING;
-                    float targetY = INTERIOR_ORIGIN_Y;
-                    float targetZ = INTERIOR_ORIGIN_Z;
+                    float targetX = _originX + static_cast<float>(room->SlotIndex) * sHousingMgr.GetRoomGridSpacing();
+                    float targetY = _originY;
+                    float targetZ = _originZ;
                     TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: Teleporting player to visual room "
                         "entry={} slot={} at ({:.1f},{:.1f},{:.1f})",
                         room->RoomEntryId, room->SlotIndex, targetX, targetY, targetZ);

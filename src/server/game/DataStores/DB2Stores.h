@@ -284,6 +284,8 @@ TC_GAME_API extern DB2Storage<ResearchSiteEntry>                    sResearchSit
 TC_GAME_API extern DB2Storage<RewardPackEntry>                      sRewardPackStore;
 TC_GAME_API extern DB2Storage<RoomComponentEntry>                   sRoomComponentStore;
 TC_GAME_API extern DB2Storage<RoomComponentOptionEntry>             sRoomComponentOptionStore;
+TC_GAME_API extern DB2Storage<RoomComponentOptionTextureEntry>      sRoomComponentOptionTextureStore;
+TC_GAME_API extern DB2Storage<RoomComponentTextureEntry>            sRoomComponentTextureStore;
 TC_GAME_API extern DB2Storage<RoomWmoDataEntry>                     sRoomWmoDataStore;
 TC_GAME_API extern DB2Storage<ScenarioEntry>                        sScenarioStore;
 TC_GAME_API extern DB2Storage<ScenarioStepEntry>                    sScenarioStepStore;

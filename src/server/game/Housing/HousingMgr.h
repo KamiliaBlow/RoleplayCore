@@ -27,6 +27,11 @@
 #include <vector>
 
 class Neighborhood;
+struct ExteriorComponentEntry;
+struct ExteriorComponentExitPointEntry;
+struct ExteriorComponentHookEntry;
+struct RoomComponentOptionEntry;
+struct RoomComponentTextureEntry;
 
 struct HouseDecorData
 {
@@ -266,6 +271,9 @@ public:
     // Returns the DB2 PlotIndex, or -1 if resolution failed (caller should use clientPlotIndex as fallback).
     int32 ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const;
 
+    // Get the NeighborhoodMapData for a world MapID (returns nullptr if not a neighborhood)
+    NeighborhoodMapData const* GetNeighborhoodMapDataForWorldMap(uint32 mapId) const;
+
     // Check if a world MapID corresponds to a neighborhood map
     bool IsNeighborhoodWorldMap(uint32 mapId) const;
     // Get the NeighborhoodMapID for a world MapID (returns 0 if not a neighborhood)
@@ -302,6 +310,26 @@ public:
     // Find a RoomComponentOption matching a specific component + theme
     // Returns nullptr if no match found
     RoomComponentOptionEntry const* FindRoomComponentOption(uint32 roomComponentID, int32 houseThemeID) const;
+
+    // Get the base room entry ID (from DB2 IsBaseRoom flag, fallback 18)
+    uint32 GetBaseRoomEntryId() const { return _baseRoomEntryId; }
+
+    // Room grid spacing for interior layout (sniff-verified: 15.0f)
+    float GetRoomGridSpacing() const { return _roomGridSpacing; }
+
+    // RoomComponentTexture lookup: given a RoomComponentOption ID, find the texture ID
+    // Returns the first matched RoomComponentTexture ID, or 0 if no link exists in DB2.
+    int32 GetTextureIdForComponentOption(int32 roomComponentOptionID) const;
+    // RoomComponentTexture by component type: fallback when per-option data is missing
+    // Returns the first matching texture for a given component type (1=wall, 2=floor, 3=ceiling)
+    int32 GetTextureIdForComponentType(uint8 componentType) const;
+
+    // ExteriorComponent indexed lookups
+    std::vector<ExteriorComponentHookEntry const*> const* GetHooksOnComponent(uint32 extCompID) const;
+    ExteriorComponentEntry const* GetComponentAtHook(int32 hookID) const;
+    ExteriorComponentExitPointEntry const* GetExitPoint(uint32 extCompID) const;
+    int32 GetGroupForComponent(uint32 extCompID) const;
+    std::vector<uint32> const* GetComponentsInGroup(int32 groupID) const;
 
     // Find the first HouseRoom entry with visual components (not the base room 18)
     uint32 GetDefaultVisualRoomEntry() const;
@@ -373,6 +401,33 @@ private:
 
     // All room components indexed by RoomWmoDataID (walls, floors, ceilings, stairs, doorways)
     std::unordered_map<uint32 /*roomWmoDataId*/, std::vector<RoomComponentData>> _roomComponentsByWmoData;
+
+    // O(1) RoomComponentOption lookup: key = (uint64(RoomComponentID) << 32) | uint32(HouseThemeID)
+    std::unordered_map<uint64, RoomComponentOptionEntry const*> _roomCompOptionIndex;
+    void BuildRoomComponentOptionIndex();
+    void BuildExteriorComponentIndexes();
+    void BuildRoomComponentTextureIndex();
+    void DumpExteriorComponentDiagnostics();
+    void DumpRoomComponentTextureDiagnostics();
+
+    // Base room entry ID (from DB2 IsBaseRoom flag scan, fallback 18)
+    uint32 _baseRoomEntryId = 0;
+
+    // Room grid spacing (sniff-verified: 15.0f)
+    float _roomGridSpacing = 15.0f;
+
+    // RoomComponentTexture indexes
+    // RoomComponentOptionID → RoomComponentTextureID (from RoomComponentOptionTexture join)
+    std::unordered_map<int32 /*optionID*/, int32 /*textureID*/> _textureByOptionId;
+    // componentType → textureID (first matching texture per type, fallback)
+    std::unordered_map<uint8 /*type*/, int32 /*textureID*/> _textureByComponentType;
+
+    // ExteriorComponent indexes
+    std::unordered_map<uint32 /*extCompID*/, std::vector<ExteriorComponentHookEntry const*>> _hooksByExtComp;
+    std::unordered_map<int32 /*hookID*/, ExteriorComponentEntry const*> _extCompByHookId;
+    std::unordered_map<uint32 /*extCompID*/, ExteriorComponentExitPointEntry const*> _exitPointByExtComp;
+    std::unordered_map<uint32 /*extCompID*/, int32 /*groupID*/> _groupByExtComp;
+    std::unordered_map<int32 /*groupID*/, std::vector<uint32 /*extCompID*/>> _extCompsByGroup;
 };
 
 #define sHousingMgr HousingMgr::Instance()

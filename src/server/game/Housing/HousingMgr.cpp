@@ -68,6 +68,53 @@ void HousingMgr::Initialize()
     LoadDecorSubcategoryData();
     LoadDecorDyeSlotData();
     LoadDecorXDecorSubcategoryData();
+    BuildRoomComponentOptionIndex();
+    BuildExteriorComponentIndexes();
+    BuildRoomComponentTextureIndex();
+    DumpExteriorComponentDiagnostics();
+    DumpRoomComponentTextureDiagnostics();
+
+    // Scan for base room entry from DB2 data (look for IsBaseRoom flag)
+    for (auto const& [id, roomData] : _houseRoomStore)
+    {
+        if (roomData.IsBaseRoom())
+        {
+            _baseRoomEntryId = id;
+            TC_LOG_INFO("housing", "HousingMgr::Initialize: Base room entry from DB2 flag: {} ('{}')",
+                id, roomData.Name);
+            break;
+        }
+    }
+    if (!_baseRoomEntryId)
+    {
+        _baseRoomEntryId = 18; // fallback
+        TC_LOG_WARN("housing", "HousingMgr::Initialize: No room with BASE_ROOM flag found, "
+            "falling back to entry 18");
+    }
+
+    // Room grid spacing (sniff-verified: 15.0f). Log diagnostic with base room WMO bounding box.
+    _roomGridSpacing = 15.0f;
+    if (_baseRoomEntryId)
+    {
+        HouseRoomData const* baseRoom = GetHouseRoomData(_baseRoomEntryId);
+        if (baseRoom)
+        {
+            RoomWmoDataEntry const* wmo = baseRoom->RoomWmoDataID
+                ? sRoomWmoDataStore.LookupEntry(baseRoom->RoomWmoDataID) : nullptr;
+            if (wmo)
+            {
+                float bbWidth = wmo->BoundingBoxMaxX - wmo->BoundingBoxMinX;
+                float bbDepth = wmo->BoundingBoxMaxY - wmo->BoundingBoxMinY;
+                TC_LOG_INFO("housing", "HousingMgr::Initialize: Room grid spacing = {:.1f}yd, "
+                    "base room WMO bbox = ({:.1f},{:.1f},{:.1f})->({:.1f},{:.1f},{:.1f}), "
+                    "width={:.1f} depth={:.1f}",
+                    _roomGridSpacing,
+                    wmo->BoundingBoxMinX, wmo->BoundingBoxMinY, wmo->BoundingBoxMinZ,
+                    wmo->BoundingBoxMaxX, wmo->BoundingBoxMaxY, wmo->BoundingBoxMaxZ,
+                    bbWidth, bbDepth);
+            }
+        }
+    }
 
     TC_LOG_INFO("server.loading", ">> Loaded housing data: {} decor, {} levels, "
         "{} rooms, {} themes, {} decor materials, {} exterior wmos, {} level rewards, "
@@ -438,6 +485,12 @@ NeighborhoodMapData const* HousingMgr::GetNeighborhoodMapData(uint32 id) const
         return &itr->second;
 
     return nullptr;
+}
+
+NeighborhoodMapData const* HousingMgr::GetNeighborhoodMapDataForWorldMap(uint32 mapId) const
+{
+    uint32 nmId = GetNeighborhoodMapIdByWorldMap(mapId);
+    return nmId ? GetNeighborhoodMapData(nmId) : nullptr;
 }
 
 bool HousingMgr::IsNeighborhoodWorldMap(uint32 mapId) const
@@ -1045,6 +1098,297 @@ void HousingMgr::LoadDecorXDecorSubcategoryData()
     TC_LOG_DEBUG("housing", "HousingMgr::LoadDecorXDecorSubcategoryData: Loaded {} decor-to-subcategory links", count);
 }
 
+void HousingMgr::BuildRoomComponentOptionIndex()
+{
+    _roomCompOptionIndex.clear();
+    uint32 count = 0;
+    for (RoomComponentOptionEntry const* entry : sRoomComponentOptionStore)
+    {
+        if (!entry)
+            continue;
+        uint64 key = (uint64(entry->RoomComponentID) << 32) | uint32(entry->HouseThemeID);
+        _roomCompOptionIndex[key] = entry;
+        ++count;
+    }
+    TC_LOG_INFO("housing", "HousingMgr::BuildRoomComponentOptionIndex: Indexed {} RoomComponentOption entries", count);
+}
+
+void HousingMgr::BuildRoomComponentTextureIndex()
+{
+    _textureByOptionId.clear();
+    _textureByComponentType.clear();
+
+    // Build option→texture link from RoomComponentOptionTexture join table
+    for (RoomComponentOptionTextureEntry const* link : sRoomComponentOptionTextureStore)
+    {
+        if (!link)
+            continue;
+        _textureByOptionId[link->RoomComponentOptionID] = link->RoomComponentTextureID;
+    }
+
+    // Build type→texture fallback from RoomComponentTexture
+    // "Type" in RoomComponentTexture maps to component type (1=wall, 2=floor, 3=ceiling)
+    for (RoomComponentTextureEntry const* tex : sRoomComponentTextureStore)
+    {
+        if (!tex || tex->Type <= 0)
+            continue;
+        uint8 compType = static_cast<uint8>(tex->Type);
+        if (!_textureByComponentType.contains(compType))
+            _textureByComponentType[compType] = static_cast<int32>(tex->ID);
+    }
+
+    TC_LOG_INFO("housing", "HousingMgr::BuildRoomComponentTextureIndex: "
+        "{} option→texture links, {} type→texture fallbacks "
+        "(RoomComponentTexture store: {} entries, RoomComponentOptionTexture store: {} entries)",
+        uint32(_textureByOptionId.size()), uint32(_textureByComponentType.size()),
+        sRoomComponentTextureStore.GetNumRows(), sRoomComponentOptionTextureStore.GetNumRows());
+}
+
+void HousingMgr::DumpRoomComponentTextureDiagnostics()
+{
+    TC_LOG_INFO("housing", "=== RoomComponentTexture Diagnostic Dump ===");
+    TC_LOG_INFO("housing", "  RoomComponentTexture store:       {} entries", sRoomComponentTextureStore.GetNumRows());
+    TC_LOG_INFO("housing", "  RoomComponentOptionTexture store:  {} entries", sRoomComponentOptionTextureStore.GetNumRows());
+
+    for (RoomComponentTextureEntry const* tex : sRoomComponentTextureStore)
+    {
+        if (!tex)
+            continue;
+        TC_LOG_INFO("housing", "  Texture [{}] Name='{}' Type={} FileDataID={} Flags={} UiOrder={} RoomComponentID={}",
+            tex->ID,
+            SafeStr(tex->Name[sWorld->GetDefaultDbcLocale()]),
+            tex->Type, tex->FileDataID, tex->Flags, tex->UiOrder, tex->RoomComponentID);
+    }
+
+    for (RoomComponentOptionTextureEntry const* link : sRoomComponentOptionTextureStore)
+    {
+        if (!link)
+            continue;
+        TC_LOG_INFO("housing", "  OptionTexture [{}] OptionID={} → TextureID={}",
+            link->ID, link->RoomComponentOptionID, link->RoomComponentTextureID);
+    }
+
+    // Log the hardcoded values we're replacing and their DB2 equivalents
+    TC_LOG_INFO("housing", "  --- Texture ID Resolution ---");
+    TC_LOG_INFO("housing", "  Wall  (type=1): DB2={} (was hardcoded 24)",
+        _textureByComponentType.contains(1) ? _textureByComponentType[1] : 0);
+    TC_LOG_INFO("housing", "  Floor (type=2): DB2={} (was hardcoded 40)",
+        _textureByComponentType.contains(2) ? _textureByComponentType[2] : 0);
+    TC_LOG_INFO("housing", "  Ceil  (type=3): DB2={} (was hardcoded 54)",
+        _textureByComponentType.contains(3) ? _textureByComponentType[3] : 0);
+    TC_LOG_INFO("housing", "=== End RoomComponentTexture Dump ===");
+}
+
+int32 HousingMgr::GetTextureIdForComponentOption(int32 roomComponentOptionID) const
+{
+    auto itr = _textureByOptionId.find(roomComponentOptionID);
+    return itr != _textureByOptionId.end() ? itr->second : 0;
+}
+
+int32 HousingMgr::GetTextureIdForComponentType(uint8 componentType) const
+{
+    auto itr = _textureByComponentType.find(componentType);
+    return itr != _textureByComponentType.end() ? itr->second : 0;
+}
+
+void HousingMgr::BuildExteriorComponentIndexes()
+{
+    _hooksByExtComp.clear();
+    _extCompByHookId.clear();
+    _exitPointByExtComp.clear();
+    _groupByExtComp.clear();
+    _extCompsByGroup.clear();
+
+    // 1. Build hook index: which hooks are parented to each component
+    for (ExteriorComponentHookEntry const* hook : sExteriorComponentHookStore)
+    {
+        if (!hook)
+            continue;
+        _hooksByExtComp[hook->ExteriorComponentID].push_back(hook);
+    }
+
+    // 2. Build reverse lookup: component's HookID → the component that attaches there
+    //    Each ExteriorComponent has a HookID field; if > 0, it means "I attach at this hook"
+    for (ExteriorComponentEntry const* comp : sExteriorComponentStore)
+    {
+        if (!comp || comp->HookID <= 0)
+            continue;
+        _extCompByHookId[comp->HookID] = comp;
+    }
+
+    // 3. Build exit point index
+    for (ExteriorComponentExitPointEntry const* exitPt : sExteriorComponentExitPointStore)
+    {
+        if (!exitPt)
+            continue;
+        _exitPointByExtComp[exitPt->ExteriorComponentID] = exitPt;
+    }
+
+    // 4. Build group indexes from ExteriorComponentXGroup
+    for (ExteriorComponentXGroupEntry const* xg : sExteriorComponentXGroupStore)
+    {
+        if (!xg)
+            continue;
+        uint32 compID = static_cast<uint32>(xg->ExteriorComponentID);
+        int32 groupID = xg->ExteriorComponentGroupID;
+        _groupByExtComp[compID] = groupID;
+        _extCompsByGroup[groupID].push_back(compID);
+    }
+
+    TC_LOG_INFO("housing", "HousingMgr::BuildExteriorComponentIndexes: "
+        "hooks={} compByHook={} exitPoints={} groups={} compsInGroups={}",
+        uint32(_hooksByExtComp.size()), uint32(_extCompByHookId.size()),
+        uint32(_exitPointByExtComp.size()), uint32(_groupByExtComp.size()),
+        uint32(_extCompsByGroup.size()));
+}
+
+std::vector<ExteriorComponentHookEntry const*> const* HousingMgr::GetHooksOnComponent(uint32 extCompID) const
+{
+    auto itr = _hooksByExtComp.find(extCompID);
+    return itr != _hooksByExtComp.end() ? &itr->second : nullptr;
+}
+
+ExteriorComponentEntry const* HousingMgr::GetComponentAtHook(int32 hookID) const
+{
+    auto itr = _extCompByHookId.find(hookID);
+    return itr != _extCompByHookId.end() ? itr->second : nullptr;
+}
+
+ExteriorComponentExitPointEntry const* HousingMgr::GetExitPoint(uint32 extCompID) const
+{
+    auto itr = _exitPointByExtComp.find(extCompID);
+    return itr != _exitPointByExtComp.end() ? itr->second : nullptr;
+}
+
+int32 HousingMgr::GetGroupForComponent(uint32 extCompID) const
+{
+    auto itr = _groupByExtComp.find(extCompID);
+    return itr != _groupByExtComp.end() ? itr->second : 0;
+}
+
+std::vector<uint32> const* HousingMgr::GetComponentsInGroup(int32 groupID) const
+{
+    auto itr = _extCompsByGroup.find(groupID);
+    return itr != _extCompsByGroup.end() ? &itr->second : nullptr;
+}
+
+void HousingMgr::DumpExteriorComponentDiagnostics()
+{
+    TC_LOG_INFO("housing", "=== ExteriorComponent Diagnostic Dump ===");
+    TC_LOG_INFO("housing", "  ExteriorComponent store:        {} entries", sExteriorComponentStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentHook store:    {} entries", sExteriorComponentHookStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentExitPoint:     {} entries", sExteriorComponentExitPointStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentGroup store:   {} entries", sExteriorComponentGroupStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentGroupXHook:    {} entries", sExteriorComponentGroupXHookStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentType store:    {} entries", sExteriorComponentTypeStore.GetNumRows());
+    TC_LOG_INFO("housing", "  ExteriorComponentXGroup store:  {} entries", sExteriorComponentXGroupStore.GetNumRows());
+
+    // Dump known components from both alliance and horde sniff data
+    static constexpr uint32 knownCompIDs[] = {
+        141, 1505, 3811, 1003, 1436, 1417, 1448, 1452, 976, 980, 2445, 2476, 1011
+    };
+
+    TC_LOG_INFO("housing", "  --- Known ExteriorComponents ---");
+    for (uint32 compID : knownCompIDs)
+    {
+        ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(compID);
+        if (!comp)
+        {
+            TC_LOG_INFO("housing", "    [{}] NOT FOUND in DB2", compID);
+            continue;
+        }
+        TC_LOG_INFO("housing", "    [{}] Name='{}' FileDataID={} Type={} Slot={} HookID={} GroupID={} Flags={}",
+            compID,
+            SafeStr(comp->Name[sWorld->GetDefaultDbcLocale()]),
+            comp->FileDataID, comp->Type, comp->Slot, comp->HookID, comp->ComponentGroupID, comp->Flags);
+    }
+
+    // Dump hooks parented to known components
+    TC_LOG_INFO("housing", "  --- ExteriorComponentHooks parented to known components ---");
+    for (ExteriorComponentHookEntry const* hook : sExteriorComponentHookStore)
+    {
+        if (!hook)
+            continue;
+        // Check if this hook belongs to a known component
+        bool isKnown = false;
+        for (uint32 compID : knownCompIDs)
+            if (hook->ExteriorComponentID == compID)
+            { isKnown = true; break; }
+
+        if (isKnown)
+        {
+            TC_LOG_INFO("housing", "    Hook [{}] on comp={} pos=({:.2f},{:.2f},{:.2f}) "
+                "rot=({:.2f},{:.2f},{:.2f}) typeID={}",
+                hook->ID, hook->ExteriorComponentID,
+                hook->Position[0], hook->Position[1], hook->Position[2],
+                hook->Rotation[0], hook->Rotation[1], hook->Rotation[2],
+                hook->ExteriorComponentTypeID);
+        }
+    }
+
+    // Dump exit points for known components
+    TC_LOG_INFO("housing", "  --- ExteriorComponentExitPoints for known components ---");
+    for (ExteriorComponentExitPointEntry const* exitPt : sExteriorComponentExitPointStore)
+    {
+        if (!exitPt)
+            continue;
+        bool isKnown = false;
+        for (uint32 compID : knownCompIDs)
+            if (exitPt->ExteriorComponentID == compID)
+            { isKnown = true; break; }
+
+        if (isKnown)
+        {
+            TC_LOG_INFO("housing", "    ExitPoint [{}] on comp={} pos=({:.2f},{:.2f},{:.2f}) "
+                "rot=({:.2f},{:.2f},{:.2f})",
+                exitPt->ID, exitPt->ExteriorComponentID,
+                exitPt->Position[0], exitPt->Position[1], exitPt->Position[2],
+                exitPt->Rotation[0], exitPt->Rotation[1], exitPt->Rotation[2]);
+        }
+    }
+
+    // Dump component→hook attachment map (comp.HookID → hook → hook.ExteriorComponentID = parent)
+    TC_LOG_INFO("housing", "  --- Component→Hook attachment chain ---");
+    for (uint32 compID : knownCompIDs)
+    {
+        ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(compID);
+        if (!comp || comp->HookID <= 0)
+            continue;
+
+        ExteriorComponentHookEntry const* hook = sExteriorComponentHookStore.LookupEntry(comp->HookID);
+        if (hook)
+        {
+            TC_LOG_INFO("housing", "    comp {} (HookID={}) → hook [{}] → parent comp {}",
+                compID, comp->HookID, hook->ID, hook->ExteriorComponentID);
+        }
+        else
+        {
+            TC_LOG_INFO("housing", "    comp {} (HookID={}) → hook NOT FOUND",
+                compID, comp->HookID);
+        }
+    }
+
+    // Dump ExteriorComponentXGroup mappings
+    TC_LOG_INFO("housing", "  --- ExteriorComponentXGroup mappings ---");
+    for (ExteriorComponentXGroupEntry const* xg : sExteriorComponentXGroupStore)
+    {
+        if (!xg)
+            continue;
+        bool isKnown = false;
+        for (uint32 compID : knownCompIDs)
+            if (static_cast<uint32>(xg->ExteriorComponentID) == compID)
+            { isKnown = true; break; }
+
+        if (isKnown)
+        {
+            TC_LOG_INFO("housing", "    XGroup [{}] comp={} → group={}",
+                xg->ID, xg->ExteriorComponentID, xg->ExteriorComponentGroupID);
+        }
+    }
+
+    TC_LOG_INFO("housing", "=== End ExteriorComponent Diagnostic Dump ===");
+}
+
 DecorCategoryData const* HousingMgr::GetDecorCategoryData(uint32 id) const
 {
     auto itr = _decorCategoryStore.find(id);
@@ -1096,13 +1440,9 @@ int32 HousingMgr::GetFactionDefaultThemeID(int32 factionRestriction) const
 
 RoomComponentOptionEntry const* HousingMgr::FindRoomComponentOption(uint32 roomComponentID, int32 houseThemeID) const
 {
-    for (RoomComponentOptionEntry const* optEntry : sRoomComponentOptionStore)
-    {
-        if (optEntry && optEntry->RoomComponentID == static_cast<int32>(roomComponentID)
-            && optEntry->HouseThemeID == houseThemeID)
-            return optEntry;
-    }
-    return nullptr;
+    uint64 key = (uint64(roomComponentID) << 32) | uint32(houseThemeID);
+    auto itr = _roomCompOptionIndex.find(key);
+    return itr != _roomCompOptionIndex.end() ? itr->second : nullptr;
 }
 
 uint32 HousingMgr::GetDefaultVisualRoomEntry() const

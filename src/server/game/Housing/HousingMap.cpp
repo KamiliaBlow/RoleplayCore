@@ -22,6 +22,7 @@
 #include "AreaTrigger.h"
 #include "EventProcessor.h"
 #include "DB2Stores.h"
+#include "DB2Structure.h"
 #include "GameObject.h"
 #include "GridDefines.h"
 #include "Housing.h"
@@ -1229,12 +1230,36 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     // Spawn the front door GO (entry 602702, type Goober, displayId 116971)
     // Sniff confirms: door is a separate interactive GO, NOT a MeshObject.
     // The door must be offset from the house center to the front entrance.
-    // From mesh hierarchy: front wall at local X ≈ +5.4, so door at ≈ +5.5 forward.
+    // Try to get the offset from DB2 ExteriorComponentExitPoint, falling back to 5.5f.
     GameObject* doorGo = nullptr;
     uint32 doorEntry = 602702;
-    constexpr float DOOR_FORWARD_OFFSET = 5.5f;
-    float doorX = x + DOOR_FORWARD_OFFSET * std::cos(facing);
-    float doorY = y + DOOR_FORWARD_OFFSET * std::sin(facing);
+    float doorForwardOffset = 5.5f; // fallback
+
+    // Find the door component by scanning the group for one with an exit point
+    int32 groupID = sHousingMgr.GetGroupForComponent(static_cast<uint32>(exteriorComponentID));
+    if (groupID != 0)
+    {
+        std::vector<uint32> const* groupComps = sHousingMgr.GetComponentsInGroup(groupID);
+        if (groupComps)
+        {
+            for (uint32 compID : *groupComps)
+            {
+                ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(compID);
+                if (exitPt)
+                {
+                    // Exit point position is in local space — use the forward (X) component as offset
+                    doorForwardOffset = exitPt->Position[0];
+                    TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door offset from DB2 "
+                        "ExitPoint (comp={}) = {:.2f}",
+                        compID, doorForwardOffset);
+                    break;
+                }
+            }
+        }
+    }
+
+    float doorX = x + doorForwardOffset * std::cos(facing);
+    float doorY = y + doorForwardOffset * std::sin(facing);
     Position doorPos(doorX, doorY, z, facing);
 
     GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorEntry);
@@ -1288,7 +1313,7 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
     // Our implementation uses MeshObjects for both, adding room data as extra entity fragments.
     // The client processes fragments independently, so the extra fragments are harmless.
 
-    static constexpr int32 HOUSE_ROOM_ID = 18;   // HouseRoom.db2 entry for exterior plot
+    int32 HOUSE_ROOM_ID = static_cast<int32>(sHousingMgr.GetBaseRoomEntryId());
     static constexpr int32 ROOM_FLAGS    = 1;     // BASE_ROOM
     static constexpr int32 ROOM_COMPONENT_ID = 196; // Sniff-verified: same for alliance+horde
 
@@ -1314,6 +1339,12 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
         geoMaxX = wmoData->BoundingBoxMaxX;
         geoMaxY = wmoData->BoundingBoxMaxY;
         geoMaxZ = wmoData->BoundingBoxMaxZ;
+    }
+    else
+    {
+        TC_LOG_WARN("housing", "HousingMap::SpawnRoomForPlot: No RoomWmoData for roomWmoDataID={} "
+            "(plot {}), using fallback geobox (-35,-30,-1.01)->(35,30,125.01)",
+            roomWmoDataID, plotIndex);
     }
 
     // 3. RoomComponent → ModelFileDataID, Type
@@ -1511,7 +1542,54 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     int32 exteriorComponentID, int32 houseExteriorWmoDataID,
     int32 factionRestriction /*= NEIGHBORHOOD_FACTION_ALLIANCE*/)
 {
-    // Branch on faction — alliance and horde have different exterior mesh hierarchies
+    // === DATA-DRIVEN EXTERIOR SPAWNING ===
+    // Try to build the house from DB2 ExteriorComponent tree first.
+    // If the data-driven approach yields 0 meshes, fall back to hardcoded methods.
+
+    uint32 coreExtCompID = static_cast<uint32>(exteriorComponentID);
+    int32 groupID = sHousingMgr.GetGroupForComponent(coreExtCompID);
+
+    if (groupID != 0)
+    {
+        // Find all root components in this group (those with HookID <= 0 are roots)
+        std::vector<uint32> const* groupComps = sHousingMgr.GetComponentsInGroup(groupID);
+        if (groupComps && !groupComps->empty())
+        {
+            uint32 totalSpawned = 0;
+            for (uint32 compID : *groupComps)
+            {
+                ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(compID);
+                if (!comp || comp->HookID > 0) // skip children — they'll be spawned recursively
+                    continue;
+
+                totalSpawned += SpawnExtCompTree(plotIndex, compID,
+                    housePos, houseRot,
+                    houseGuid, houseExteriorWmoDataID,
+                    ObjectGuid::Empty, nullptr);
+            }
+
+            if (totalSpawned > 0)
+            {
+                TC_LOG_INFO("housing", "HousingMap::SpawnFullHouseMeshObjects: Data-driven spawn "
+                    "for plot {} group {} — {} MeshObjects (faction={})",
+                    plotIndex, groupID, totalSpawned,
+                    factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde");
+                return;
+            }
+
+            TC_LOG_WARN("housing", "HousingMap::SpawnFullHouseMeshObjects: Data-driven spawn "
+                "yielded 0 meshes for plot {} group {} — falling back to hardcoded",
+                plotIndex, groupID);
+        }
+    }
+    else
+    {
+        TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: No group found for "
+            "exteriorComponentID {} — using hardcoded spawn for plot {}",
+            exteriorComponentID, plotIndex);
+    }
+
+    // === HARDCODED FALLBACK ===
     if (factionRestriction == NEIGHBORHOOD_FACTION_HORDE)
     {
         SpawnHordeHouseMeshObjects(plotIndex, housePos, houseRot, houseGuid,
@@ -1734,6 +1812,87 @@ void HousingMap::SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& hou
         "(root={} base={})",
         meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?",
         rootPiece ? "OK" : "FAIL", basePiece ? "OK" : "FAIL");
+}
+
+uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
+    Position const& pos, QuaternionData const& rot,
+    ObjectGuid houseGuid, int32 houseExteriorWmoDataID,
+    ObjectGuid parentGuid, Position const* worldPos, int32 depth /*= 0*/)
+{
+    if (depth > 10) // safety limit against infinite recursion
+        return 0;
+
+    ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(extCompID);
+    if (!comp)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnExtCompTree: ExteriorComponent {} not found", extCompID);
+        return 0;
+    }
+
+    if (comp->FileDataID <= 0)
+    {
+        TC_LOG_WARN("housing", "HousingMap::SpawnExtCompTree: ExteriorComponent {} has no FileDataID", extCompID);
+        return 0;
+    }
+
+    // Determine attach flags: root pieces (no parent) use 0, children use 3
+    uint8 attachFlags = parentGuid.IsEmpty() ? 0 : 3;
+
+    MeshObject* mesh = SpawnHouseMeshObject(plotIndex, comp->FileDataID, /*isWMO*/ true,
+        pos, rot, 1.0f,
+        houseGuid, static_cast<int32>(extCompID), houseExteriorWmoDataID,
+        comp->Type, /*houseSize*/ 2, comp->HookID,
+        parentGuid, attachFlags, worldPos);
+
+    if (!mesh)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnExtCompTree: Failed to spawn mesh for comp {} "
+            "(fileDataID={}) at depth {}",
+            extCompID, comp->FileDataID, depth);
+        return 0;
+    }
+
+    uint32 count = 1;
+    ObjectGuid meshGuid = mesh->GetGUID();
+
+    // Use worldPos for children: root's worldPos is itself, child's is the root's position
+    Position const* childWorldPos = worldPos ? worldPos : &pos;
+
+    // Recurse into hooks on this component
+    auto const* hooks = sHousingMgr.GetHooksOnComponent(extCompID);
+    if (hooks)
+    {
+        for (ExteriorComponentHookEntry const* hook : *hooks)
+        {
+            if (!hook)
+                continue;
+
+            // Find what component attaches at this hook
+            ExteriorComponentEntry const* childComp = sHousingMgr.GetComponentAtHook(static_cast<int32>(hook->ID));
+            if (!childComp)
+                continue;
+
+            // Hook position/rotation are local-space offsets relative to the parent
+            Position hookPos(hook->Position[0], hook->Position[1], hook->Position[2], 0.0f);
+            QuaternionData hookRot;
+            // Hook rotation is in degrees — convert to quaternion
+            static constexpr float DEG_TO_RAD = static_cast<float>(M_PI / 180.0);
+            float rx = hook->Rotation[0] * DEG_TO_RAD;
+            float ry = hook->Rotation[1] * DEG_TO_RAD;
+            float rz = hook->Rotation[2] * DEG_TO_RAD;
+            hookRot.x = std::sin(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
+            hookRot.y = std::cos(rx / 2.0f) * std::sin(ry / 2.0f) * std::cos(rz / 2.0f);
+            hookRot.z = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::sin(rz / 2.0f);
+            hookRot.w = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
+
+            count += SpawnExtCompTree(plotIndex, childComp->ID,
+                hookPos, hookRot,
+                houseGuid, houseExteriorWmoDataID,
+                meshGuid, childWorldPos, depth + 1);
+        }
+    }
+
+    return count;
 }
 
 void HousingMap::DespawnAllMeshObjectsForPlot(uint8 plotIndex)

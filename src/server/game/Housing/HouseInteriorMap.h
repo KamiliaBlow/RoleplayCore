@@ -79,6 +79,11 @@ private:
     uint8 _sourcePlotIndex;
     bool _roomsSpawned = false;
 
+    // Interior map origin from NeighborhoodMap DB2 (fallback: -1000, -1000, 0.1)
+    float _originX = -1000.0f;
+    float _originY = -1000.0f;
+    float _originZ = 0.1f;
+
     /// GUIDs of all spawned room MeshObjects, indexed by room GUID
     std::unordered_map<ObjectGuid /*roomGuid*/, std::vector<ObjectGuid>> _roomMeshObjects;
 
