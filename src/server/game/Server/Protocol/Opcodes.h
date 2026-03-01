@@ -1045,7 +1045,7 @@ enum OpcodeClient : uint32
     CMSG_TRANSMOGRIFY_ITEMS                                         = CMSG_REQUEST_SCHEDULED_PVP_INFO + 1,
 };
 
-inline constexpr std::size_t NUM_CMSG_OPCODES = 1938;
+inline constexpr std::size_t NUM_CMSG_OPCODES = 1939;
 
 inline constexpr std::ptrdiff_t GetOpcodeArrayIndex(OpcodeClient opcode)
 {
@@ -1062,17 +1062,17 @@ inline constexpr std::ptrdiff_t GetOpcodeArrayIndex(OpcodeClient opcode)
         case 0x31: return idInGroup <   8 ? idInGroup +  169 : -1;
         case 0x32: return idInGroup <   9 ? idInGroup +  177 : -1;
         case 0x33: return idInGroup <  36 ? idInGroup +  186 : -1;
-        case 0x35: return idInGroup <   9 ? idInGroup +  222 : -1;
-        case 0x37: return idInGroup <   8 ? idInGroup +  231 : -1;
-        case 0x38: return idInGroup <  16 ? idInGroup +  239 : -1;
-        case 0x39: return idInGroup <  16 ? idInGroup +  255 : -1;
-        case 0x3A: return idInGroup < 782 ? idInGroup +  271 : -1;
-        case 0x3B: return idInGroup < 305 ? idInGroup + 1053 : -1;
-        case 0x3C: return idInGroup <   1 ? idInGroup + 1358 : -1;
-        case 0x3D: return idInGroup <  10 ? idInGroup + 1359 : -1;
-        case 0x3E: return idInGroup < 134 ? idInGroup + 1369 : -1;
-        case 0x40: return idInGroup < 417 ? idInGroup + 1503 : -1;
-        case 0x41: return idInGroup <  18 ? idInGroup + 1920 : -1;
+        case 0x35: return idInGroup <  10 ? idInGroup +  222 : -1;
+        case 0x37: return idInGroup <   8 ? idInGroup +  232 : -1;
+        case 0x38: return idInGroup <  16 ? idInGroup +  240 : -1;
+        case 0x39: return idInGroup <  16 ? idInGroup +  256 : -1;
+        case 0x3A: return idInGroup < 782 ? idInGroup +  272 : -1;
+        case 0x3B: return idInGroup < 305 ? idInGroup + 1054 : -1;
+        case 0x3C: return idInGroup <   1 ? idInGroup + 1359 : -1;
+        case 0x3D: return idInGroup <  10 ? idInGroup + 1360 : -1;
+        case 0x3E: return idInGroup < 134 ? idInGroup + 1370 : -1;
+        case 0x40: return idInGroup < 417 ? idInGroup + 1504 : -1;
+        case 0x41: return idInGroup <  18 ? idInGroup + 1921 : -1;
         default: return -1;
     }
 }
@@ -2475,39 +2475,40 @@ enum OpcodeServer : uint32
     SMSG_ARENA_TEAM_STATS                                           = UNKNOWN_OPCODE,
 };
 
-inline constexpr std::size_t NUM_SMSG_OPCODES = 1638;
+inline constexpr std::size_t NUM_SMSG_OPCODES = 1643;
 
 inline constexpr std::ptrdiff_t GetOpcodeArrayIndex(OpcodeServer opcode)
 {
     uint32 idInGroup = opcode & 0xFFFF;
     switch (opcode >> 16)
     {
-        case 0x42: return idInGroup < 893 ? idInGroup +    0 : -1;
-        case 0x43: return idInGroup <   5 ? idInGroup +  893 : -1;
-        case 0x46: return idInGroup <  20 ? idInGroup +  898 : -1;
-        case 0x47: return idInGroup <  36 ? idInGroup +  918 : -1;
-        case 0x48: return idInGroup <  49 ? idInGroup +  954 : -1;
-        case 0x49: return idInGroup <  14 ? idInGroup + 1003 : -1;
-        case 0x4A: return idInGroup <  12 ? idInGroup + 1017 : -1;
-        case 0x4C: return idInGroup <  82 ? idInGroup + 1029 : -1;
-        case 0x4E: return idInGroup <  72 ? idInGroup + 1111 : -1;
-        case 0x50: return idInGroup <   2 ? idInGroup + 1183 : -1;
-        case 0x51: return idInGroup <  11 ? idInGroup + 1185 : -1;
-        case 0x52: return idInGroup <   8 ? idInGroup + 1196 : -1;
-        case 0x53: return idInGroup <   8 ? idInGroup + 1204 : -1;
-        case 0x54: return idInGroup <  35 ? idInGroup + 1212 : -1;
-        case 0x55: return idInGroup <   8 ? idInGroup + 1247 : -1;
-        case 0x56: return idInGroup <  34 ? idInGroup + 1255 : -1;
-        case 0x58: return idInGroup <   1 ? idInGroup + 1289 : -1;
-        case 0x5A: return idInGroup < 122 ? idInGroup + 1290 : -1;
-        case 0x5B: return idInGroup <   6 ? idInGroup + 1412 : -1;
-        case 0x5C: return idInGroup <  23 ? idInGroup + 1418 : -1;
-        case 0x5E: return idInGroup <   8 ? idInGroup + 1441 : -1;
-        case 0x5F: return idInGroup <  52 ? idInGroup + 1449 : -1;
-        case 0x60: return idInGroup <  41 ? idInGroup + 1501 : -1;
-        case 0x62: return idInGroup <  87 ? idInGroup + 1542 : -1;
-        case 0x63: return idInGroup <   8 ? idInGroup + 1629 : -1;
-        case 0x65: return idInGroup <   1 ? idInGroup + 1637 : -1;
+        case 0x2F: return idInGroup < 2 ? idInGroup + 0 : -1;
+        case 0x42: return idInGroup < 893 ? idInGroup + 2 : -1;
+        case 0x43: return idInGroup < 5 ? idInGroup + 895 : -1;
+        case 0x46: return idInGroup < 20 ? idInGroup + 900 : -1;
+        case 0x47: return idInGroup < 36 ? idInGroup + 920 : -1;
+        case 0x48: return idInGroup < 49 ? idInGroup + 956 : -1;
+        case 0x49: return idInGroup < 14 ? idInGroup + 1005 : -1;
+        case 0x4A: return idInGroup < 12 ? idInGroup + 1019 : -1;
+        case 0x4C: return idInGroup < 82 ? idInGroup + 1031 : -1;
+        case 0x4E: return idInGroup < 72 ? idInGroup + 1113 : -1;
+        case 0x50: return idInGroup < 2 ? idInGroup + 1185 : -1;
+        case 0x51: return idInGroup < 13 ? idInGroup + 1187 : -1;
+        case 0x52: return idInGroup < 8 ? idInGroup + 1200 : -1;
+        case 0x53: return idInGroup < 8 ? idInGroup + 1208 : -1;
+        case 0x54: return idInGroup < 35 ? idInGroup + 1216 : -1;
+        case 0x55: return idInGroup < 9 ? idInGroup + 1251 : -1;
+        case 0x56: return idInGroup < 34 ? idInGroup + 1260 : -1;
+        case 0x58: return idInGroup < 1 ? idInGroup + 1294 : -1;
+        case 0x5A: return idInGroup < 122 ? idInGroup + 1295 : -1;
+        case 0x5B: return idInGroup < 6 ? idInGroup + 1417 : -1;
+        case 0x5C: return idInGroup < 23 ? idInGroup + 1423 : -1;
+        case 0x5E: return idInGroup < 8 ? idInGroup + 1446 : -1;
+        case 0x5F: return idInGroup < 52 ? idInGroup + 1454 : -1;
+        case 0x60: return idInGroup < 41 ? idInGroup + 1506 : -1;
+        case 0x62: return idInGroup < 87 ? idInGroup + 1547 : -1;
+        case 0x63: return idInGroup < 8 ? idInGroup + 1634 : -1;
+        case 0x65: return idInGroup < 1 ? idInGroup + 1642 : -1;
         default: return -1;
     }
 }

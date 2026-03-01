@@ -1379,42 +1379,33 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(plotIdx);
     bool isOwned = plotInfo && !plotInfo->OwnerGuid.IsEmpty();
 
-    // Build cornerstone UI response — wire format verified against retail 12.0.1 build 65940
+    // Build cornerstone UI response — wire format verified against retail 12.0.1 build 65940.
+    // Retail sniff analysis (3 packets):
+    //   - Cost is ALWAYS 0 (cost comes from FJamHousingCornerstone_C entity fragment, not packet)
+    //   - PurchaseStatus is ALWAYS 0
+    //   - IsPlotOwned is ALWAYS false (ownership determined by PlotOwnerGuid being non-empty)
+    //   - CornerstoneGuid is ALWAYS empty
+    //   - CanPurchase is ALWAYS false
+    //   - Owned plots: PlotOwnerGuid=player GUID, NeighborhoodGuid=Housing GUID
+    //   - Unclaimed plots: PlotOwnerGuid=empty, NeighborhoodGuid=empty
     WorldPackets::Neighborhood::NeighborhoodOpenCornerstoneUIResponse response;
     response.PlotIndex = plotIndex;
-    // NeighborhoodGuid (→Buffer+56): Controls flag +574 via JamCliNeighborhoodName DataCache.
-    // Client looks up neighborhood name in the cache using this GUID as the key.
-    response.NeighborhoodGuid = neighborhood->GetGuid();
-    response.Cost = plotCost;
+    response.Cost = 0;
+    response.PurchaseStatus = 0;
+    response.IsPlotOwned = false;
+    response.CanPurchase = false;
+    response.CornerstoneGuid = ObjectGuid::Empty;
     response.NeighborhoodName = neighborhood->GetName();
 
     if (isOwned)
     {
-        // Plot is owned — send owner info so client knows this plot is claimed
-        // PlotOwnerGuid (→Buffer+40): Controls flag +573. Non-empty triggers owner name lookup.
         response.PlotOwnerGuid = plotInfo->OwnerGuid;
-        response.IsPlotOwned = true;
-        // PurchaseStatus 73 = PlotReserved, tells client "Plot already reserved"
-        response.PurchaseStatus = 73;
-        response.CanPurchase = false;
-
-        // CornerstoneGuid: the cornerstone GO GUID for this plot (if on a HousingMap)
-        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
-        {
-            if (GameObject* cornerstoneGo = housingMap->GetPlotGameObject(plotIdx))
-                response.CornerstoneGuid = cornerstoneGo->GetGUID();
-        }
+        response.NeighborhoodGuid = neighborhood->GetGuid();
     }
     else
     {
-        // Plot is unclaimed — purchasable
         response.PlotOwnerGuid = ObjectGuid::Empty;
-        response.IsPlotOwned = false;
-        // PurchaseStatus 0 = Success (no error), allows the purchase UI to render normally
-        response.PurchaseStatus = 0;
-        // CanPurchase bit is 0 in ALL retail packets (both owned and unclaimed purchasable)
-        response.CanPurchase = false;
-        response.CornerstoneGuid = ObjectGuid::Empty;
+        response.NeighborhoodGuid = ObjectGuid::Empty;
     }
     WorldPacket const* pkt = response.Write();
     SendPacket(pkt);

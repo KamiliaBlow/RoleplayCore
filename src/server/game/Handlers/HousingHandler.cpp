@@ -153,9 +153,11 @@ namespace
         if (!interiorMap)
             return;
 
-        NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(
-            interiorMap->GetSourceNeighborhoodMapId());
-        int32 faction = nmData ? nmData->FactionRestriction : NEIGHBORHOOD_FACTION_ALLIANCE;
+        // Use player's team for faction theme, matching HouseInteriorMap::AddPlayerToMap pattern.
+        // NeighborhoodMapData::FactionRestriction is a bitmask (3 = both factions) and doesn't
+        // map to the enum values expected by GetFactionDefaultThemeID().
+        int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
+            ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
 
         interiorMap->DespawnAllRoomMeshObjects();
         interiorMap->SpawnRoomMeshObjects(housing, faction);
