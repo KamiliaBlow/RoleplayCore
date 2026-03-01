@@ -5636,7 +5636,7 @@ void Unit::RemoveAllAreaTriggers(AreaTriggerRemoveReason reason /*= AreaTriggerR
 {
     for (AreaTrigger* at : AreaTriggerList(std::move(m_areaTrigger)))
     {
-        if (reason == AreaTriggerRemoveReason::UnitDespawn && at->GetTemplate()->ActionSetFlags.HasFlag(AreaTriggerActionSetFlag::DontDespawnWithCreator))
+        if (reason == AreaTriggerRemoveReason::UnitDespawn && at->GetTemplate() && at->GetTemplate()->ActionSetFlags.HasFlag(AreaTriggerActionSetFlag::DontDespawnWithCreator))
             continue;
 
         at->Remove();
