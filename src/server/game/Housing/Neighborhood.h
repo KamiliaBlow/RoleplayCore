@@ -22,9 +22,12 @@
 #include "DatabaseEnvFwd.h"
 #include "HousingDefines.h"
 #include "ObjectGuid.h"
+#include "Optional.h"
 #include <array>
 #include <string>
 #include <vector>
+
+class WorldPacket;
 
 class TC_GAME_API Neighborhood
 {
@@ -32,9 +35,11 @@ public:
     struct Member
     {
         ObjectGuid PlayerGuid;
+        ObjectGuid HouseGuid;
         uint8 Role = 0;        // NeighborhoodMemberRole
         uint32 JoinTime = 0;
         uint8 PlotIndex = INVALID_PLOT_INDEX;
+        uint8 StatusFlags = 0;
     };
 
     struct PlotInfo
@@ -53,6 +58,12 @@ public:
         ObjectGuid InviteeGuid;
         ObjectGuid InviterGuid;
         uint32 InviteTime = 0;
+    };
+
+    struct PendingOwnershipTransfer
+    {
+        ObjectGuid TargetGuid;
+        uint32 OfferTime = 0;
     };
 
     explicit Neighborhood(ObjectGuid guid);
@@ -83,6 +94,11 @@ public:
     HousingResult DeclineInvitation(ObjectGuid playerGuid);
     HousingResult EvictPlayer(ObjectGuid plotGuid);
     HousingResult TransferOwnership(ObjectGuid newOwnerGuid);
+    HousingResult OfferOwnership(ObjectGuid targetGuid);
+    HousingResult AcceptOwnershipTransfer(ObjectGuid acceptorGuid);
+    HousingResult RejectOwnershipTransfer(ObjectGuid rejectorGuid);
+    bool HasPendingTransfer() const { return _pendingTransfer.has_value(); }
+    Optional<PendingOwnershipTransfer> const& GetPendingTransfer() const { return _pendingTransfer; }
 
     // Plot management
     HousingResult PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex);
@@ -112,6 +128,9 @@ public:
     bool HasPendingInvite(ObjectGuid playerGuid) const;
     std::vector<PendingInvite> const& GetPendingInvites() const { return _pendingInvites; }
 
+    // Broadcast
+    void BroadcastPacket(WorldPacket const* packet, ObjectGuid excludeGuid = ObjectGuid::Empty) const;
+
 private:
     ObjectGuid _guid;
     std::string _name;
@@ -124,6 +143,7 @@ private:
     std::vector<Member> _members;
     std::array<PlotInfo, MAX_NEIGHBORHOOD_PLOTS> _plots{};
     std::vector<PendingInvite> _pendingInvites;
+    Optional<PendingOwnershipTransfer> _pendingTransfer;
 };
 
 #endif // TRINITYCORE_NEIGHBORHOOD_H

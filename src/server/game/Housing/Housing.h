@@ -25,6 +25,7 @@
 #include "Optional.h"
 #include "Position.h"
 #include <array>
+#include <atomic>
 #include <unordered_map>
 #include <vector>
 
@@ -81,6 +82,10 @@ public:
 
     explicit Housing(Player* owner);
 
+    // Global DB ID generators — must be called once during server startup
+    // before any Housing objects are loaded, to prevent cross-player ID collisions.
+    static void InitializeDbIdGenerators();
+
     bool LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         PreparedQueryResult rooms, PreparedQueryResult fixtures, PreparedQueryResult catalog);
     void SaveToDB(CharacterDatabaseTransaction trans);
@@ -126,6 +131,11 @@ public:
     std::vector<PlacedDecor const*> GetAllPlacedDecor() const;
     uint32 GetDecorCount() const { return static_cast<uint32>(_placedDecor.size()); }
 
+    // Auto-place starter decor in the visual room (called after catalog is populated).
+    // Sniff-verified: retail pre-places starter items at fixed positions in Room 1.
+    // The "Welcome Home" quest requires the player to remove 3 of these items.
+    uint32 PlaceStarterDecor();
+
     // Room operations
     HousingResult PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 orientation, bool mirrored);
     HousingResult RemoveRoom(ObjectGuid roomGuid);
@@ -151,7 +161,7 @@ public:
 
     // House level and favor
     void AddLevel(uint32 amount);
-    void AddFavor(uint64 amount);
+    void AddFavor(uint64 amount, HousingFavorUpdateSource source = HOUSING_FAVOR_SOURCE_UNKNOWN);
     uint64 GetFavor64() const { return _favor64; }
     uint32 GetMaxDecorCount() const;
 
@@ -195,6 +205,11 @@ public:
     // Direct access to placed decor map (for GO spawning)
     std::unordered_map<ObjectGuid, PlacedDecor> const& GetPlacedDecorMap() const { return _placedDecor; }
 
+    // Populate ALL decor entries (placed + catalog) into the Account entity's FHousingStorage_C.
+    // Called on-demand by REQUEST_STORAGE handler. Retail does NOT populate storage at login —
+    // FHousingStorage_C is only sent when the player enters edit mode or requests storage.
+    void PopulateCatalogStorageEntries();
+
 private:
     uint64 GenerateDecorDbId();
     uint64 GenerateRoomDbId();
@@ -228,6 +243,7 @@ private:
     float _housePosZ = 0.0f;
     float _houseFacing = 0.0f;
     bool _hasCustomPosition = false;
+    bool _storagePopulated = false; // True after PopulateCatalogStorageEntries() — gates Account entity updates
 
     // WeightCost-based budget tracking
     uint32 _interiorDecorWeightUsed = 0;
@@ -241,8 +257,9 @@ private:
     std::unordered_map<uint32 /*fixturePointId*/, Fixture> _fixtures;
     std::unordered_map<uint32 /*decorEntryId*/, CatalogEntry> _catalog;
 
-    uint64 _decorDbIdGenerator;
-    uint64 _roomDbIdGenerator;
+    // Global DB ID generators (atomic, shared across all Housing instances)
+    static std::atomic<uint64> s_nextDecorDbId;
+    static std::atomic<uint64> s_nextRoomDbId;
 };
 
 #endif // Housing_h__

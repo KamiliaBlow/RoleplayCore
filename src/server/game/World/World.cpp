@@ -702,6 +702,12 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "AllowLoggingIPAddressesInDatabase"sv, .DefaultValue = true, .Index = CONFIG_ALLOW_LOGGING_IP_ADDRESSES_IN_DATABASE },
         { .Name = "Loot.EnableAELoot"sv, .DefaultValue = true, .Index = CONFIG_ENABLE_AE_LOOT },
         { .Name = "Load.Locales"sv, .DefaultValue = true, .Index = CONFIG_LOAD_LOCALES },
+        { .Name = "Housing.EnableBuyHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_BUY_HOUSE },
+        { .Name = "Housing.EnableDeleteHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_DELETE_HOUSE },
+        { .Name = "Housing.EnableMoveHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_MOVE_HOUSE },
+        { .Name = "Housing.EnableCreateCharterNeighborhood"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD },
+        { .Name = "Housing.EnableCreateGuildNeighborhood"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_CREATE_GUILD_NEIGHBORHOOD },
+        { .Name = "Housing.TutorialsEnabled"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_TUTORIALS_ENABLED },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint32, INT_CONFIG_VALUE_COUNT> ints =

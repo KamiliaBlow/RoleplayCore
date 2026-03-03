@@ -74,6 +74,10 @@ void HousingMgr::Initialize()
     DumpExteriorComponentDiagnostics();
     DumpRoomComponentTextureDiagnostics();
 
+    // Initialize global DB ID generators from MAX(id) in character_housing_rooms/decor.
+    // Must happen before any Housing objects are loaded to prevent cross-player ID collisions.
+    Housing::InitializeDbIdGenerators();
+
     // Scan for base room entry from DB2 data (look for IsBaseRoom flag)
     for (auto const& [id, roomData] : _houseRoomStore)
     {
@@ -90,6 +94,26 @@ void HousingMgr::Initialize()
         _baseRoomEntryId = 18; // fallback
         TC_LOG_WARN("housing", "HousingMgr::Initialize: No room with BASE_ROOM flag found, "
             "falling back to entry 18");
+    }
+
+    // Scan for interior entry hall room (second BASE_ROOM after exterior geobox).
+    // Retail has two base rooms: Room 18 (exterior geobox for SpawnRoomForPlot) and
+    // Room 46 (interior entry corridor connecting to the visual room via a door).
+    for (auto const& [id, roomData] : _houseRoomStore)
+    {
+        if (roomData.IsBaseRoom() && id != _baseRoomEntryId)
+        {
+            _entryHallRoomEntryId = id;
+            TC_LOG_INFO("housing", "HousingMgr::Initialize: Entry hall room entry from DB2: {} ('{}')",
+                id, roomData.Name);
+            break;
+        }
+    }
+    if (!_entryHallRoomEntryId)
+    {
+        _entryHallRoomEntryId = _baseRoomEntryId;
+        TC_LOG_WARN("housing", "HousingMgr::Initialize: No second BASE_ROOM found for entry hall, "
+            "falling back to base room entry {}", _baseRoomEntryId);
     }
 
     // Room grid spacing (sniff-verified: 15.0f). Log diagnostic with base room WMO bounding box.

@@ -486,6 +486,29 @@ namespace WorldPackets
         class GetAllLicensedDecorQuantities;
         class GetDecorRefundList;
         class HousingRequestEditorAvailability;
+        class HousingDecorUpdateDyeSlot;
+        class HousingDecorStartPlacingFromSource;
+        class HousingDecorCleanupModeToggle;
+        class HousingDecorBatchOperation;
+        class HousingDecorPlacementPreview;
+        class HousingFixtureCreateBasicHouse;
+        class HousingFixtureDeleteHouse;
+        class HousingSvcsRequestPermissionsCheck;
+        class HousingSvcsClearPlotReservation;
+        class HousingSvcsGetPlayerHousesInfoAlt;
+        class HousingSvcsGetRosterData;
+        class HousingSvcsRosterUpdateSubscribe;
+        class HousingSvcsChangeHouseCosmeticOwnerRequest;
+        class HousingSvcsQueryHouseLevelFavor;
+        class HousingSvcsGuildAddHouse;
+        class HousingSvcsGuildAppendNeighborhood;
+        class HousingSvcsGuildRenameNeighborhood;
+        class HousingSvcsGuildGetHousingInfo;
+        class HousingSystemHouseStatusQuery;
+        class HousingSystemGetHouseInfoAlt;
+        class HousingSystemHouseSnapshot;
+        class HousingSystemExportHouse;
+        class HousingSystemUpdateHouseInfo;
     }
 
     namespace Neighborhood
@@ -515,6 +538,11 @@ namespace WorldPackets
         class GetAvailableInitiativeRequest;
         class GetInitiativeActivityLogRequest;
         class InitiativeUpdateActiveNeighborhood;
+        class NeighborhoodCharterSignResponsePacket;
+        class NeighborhoodCharterRemoveSignature;
+        class NeighborhoodCancelInvitationAlt;
+        class NeighborhoodInviteNotificationAck;
+        class NeighborhoodOfferOwnershipResponsePacket;
     }
 
     namespace Inspect
@@ -1628,6 +1656,38 @@ class TC_GAME_API WorldSession
         void HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::HousingGetCurrentHouseInfo const& housingGetCurrentHouseInfo);
         void HandleHousingGetPlayerPermissions(WorldPackets::Housing::HousingGetPlayerPermissions const& housingGetPlayerPermissions);
         void HandleHousingResetKioskMode(WorldPackets::Housing::HousingResetKioskMode const& housingResetKioskMode);
+
+        // Phase 7 Housing Decor handlers
+        void HandleHousingDecorUpdateDyeSlot(WorldPackets::Housing::HousingDecorUpdateDyeSlot const& housingDecorUpdateDyeSlot);
+        void HandleHousingDecorStartPlacingFromSource(WorldPackets::Housing::HousingDecorStartPlacingFromSource const& housingDecorStartPlacingFromSource);
+        void HandleHousingDecorCleanupModeToggle(WorldPackets::Housing::HousingDecorCleanupModeToggle const& housingDecorCleanupModeToggle);
+        void HandleHousingDecorBatchOperation(WorldPackets::Housing::HousingDecorBatchOperation const& housingDecorBatchOperation);
+        void HandleHousingDecorPlacementPreview(WorldPackets::Housing::HousingDecorPlacementPreview const& housingDecorPlacementPreview);
+
+        // Phase 7 Housing Fixture handlers
+        void HandleHousingFixtureCreateBasicHouse(WorldPackets::Housing::HousingFixtureCreateBasicHouse const& housingFixtureCreateBasicHouse);
+        void HandleHousingFixtureDeleteHouse(WorldPackets::Housing::HousingFixtureDeleteHouse const& housingFixtureDeleteHouse);
+
+        // Phase 7 Housing Services handlers
+        void HandleHousingSvcsRequestPermissionsCheck(WorldPackets::Housing::HousingSvcsRequestPermissionsCheck const& housingSvcsRequestPermissionsCheck);
+        void HandleHousingSvcsClearPlotReservation(WorldPackets::Housing::HousingSvcsClearPlotReservation const& housingSvcsClearPlotReservation);
+        void HandleHousingSvcsGetPlayerHousesInfoAlt(WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoAlt const& housingSvcsGetPlayerHousesInfoAlt);
+        void HandleHousingSvcsGetRosterData(WorldPackets::Housing::HousingSvcsGetRosterData const& housingSvcsGetRosterData);
+        void HandleHousingSvcsRosterUpdateSubscribe(WorldPackets::Housing::HousingSvcsRosterUpdateSubscribe const& housingSvcsRosterUpdateSubscribe);
+        void HandleHousingSvcsChangeHouseCosmeticOwner(WorldPackets::Housing::HousingSvcsChangeHouseCosmeticOwnerRequest const& housingSvcsChangeHouseCosmeticOwner);
+        void HandleHousingSvcsQueryHouseLevelFavor(WorldPackets::Housing::HousingSvcsQueryHouseLevelFavor const& housingSvcsQueryHouseLevelFavor);
+        void HandleHousingSvcsGuildAddHouse(WorldPackets::Housing::HousingSvcsGuildAddHouse const& housingSvcsGuildAddHouse);
+        void HandleHousingSvcsGuildAppendNeighborhood(WorldPackets::Housing::HousingSvcsGuildAppendNeighborhood const& housingSvcsGuildAppendNeighborhood);
+        void HandleHousingSvcsGuildRenameNeighborhood(WorldPackets::Housing::HousingSvcsGuildRenameNeighborhood const& housingSvcsGuildRenameNeighborhood);
+        void HandleHousingSvcsGuildGetHousingInfo(WorldPackets::Housing::HousingSvcsGuildGetHousingInfo const& housingSvcsGuildGetHousingInfo);
+
+        // Phase 7 Housing System handlers
+        void HandleHousingSystemHouseStatusQuery(WorldPackets::Housing::HousingSystemHouseStatusQuery const& housingSystemHouseStatusQuery);
+        void HandleHousingSystemGetHouseInfoAlt(WorldPackets::Housing::HousingSystemGetHouseInfoAlt const& housingSystemGetHouseInfoAlt);
+        void HandleHousingSystemHouseSnapshot(WorldPackets::Housing::HousingSystemHouseSnapshot const& housingSystemHouseSnapshot);
+        void HandleHousingSystemExportHouse(WorldPackets::Housing::HousingSystemExportHouse const& housingSystemExportHouse);
+        void HandleHousingSystemUpdateHouseInfo(WorldPackets::Housing::HousingSystemUpdateHouseInfo const& housingSystemUpdateHouseInfo);
+
         void HandleDeclineNeighborhoodInvites(WorldPackets::Housing::DeclineNeighborhoodInvites const& declineNeighborhoodInvites);
         void HandleQueryNeighborhoodInfo(WorldPackets::Housing::QueryNeighborhoodInfo const& queryNeighborhoodInfo);
         void HandleInvitePlayerToNeighborhood(WorldPackets::Housing::InvitePlayerToNeighborhood const& invitePlayerToNeighborhood);
@@ -1657,6 +1717,16 @@ class TC_GAME_API WorldSession
         void HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::NeighborhoodOfferOwnership const& neighborhoodOfferOwnership);
         void HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::NeighborhoodGetRoster const& neighborhoodGetRoster);
         void HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::NeighborhoodEvictPlot const& neighborhoodEvictPlot);
+
+        // Phase 7 Neighborhood Charter handlers
+        void HandleNeighborhoodCharterSignResponse(WorldPackets::Neighborhood::NeighborhoodCharterSignResponsePacket const& neighborhoodCharterSignResponse);
+        void HandleNeighborhoodCharterRemoveSignature(WorldPackets::Neighborhood::NeighborhoodCharterRemoveSignature const& neighborhoodCharterRemoveSignature);
+
+        // Phase 7 Neighborhood handlers
+        void HandleNeighborhoodCancelInvitationAlt(WorldPackets::Neighborhood::NeighborhoodCancelInvitationAlt const& neighborhoodCancelInvitationAlt);
+        void HandleNeighborhoodInviteNotificationAck(WorldPackets::Neighborhood::NeighborhoodInviteNotificationAck const& neighborhoodInviteNotificationAck);
+        void HandleNeighborhoodOfferOwnershipResponse(WorldPackets::Neighborhood::NeighborhoodOfferOwnershipResponsePacket const& neighborhoodOfferOwnershipResponse);
+
         void HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::Neighborhood::NeighborhoodInitiativeServiceStatusCheck const& packet);
         void HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhood::GetAvailableInitiativeRequest const& getAvailableInitiativeRequest);
         void HandleGetInitiativeActivityLogRequest(WorldPackets::Neighborhood::GetInitiativeActivityLogRequest const& getInitiativeActivityLogRequest);

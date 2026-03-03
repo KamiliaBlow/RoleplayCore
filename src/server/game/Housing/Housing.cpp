@@ -31,16 +31,38 @@
 #include <queue>
 #include <unordered_set>
 
+// Global DB ID generators — initialized from MAX(id) at server startup
+std::atomic<uint64> Housing::s_nextDecorDbId{1};
+std::atomic<uint64> Housing::s_nextRoomDbId{1};
+
 Housing::Housing(Player* owner)
     : _owner(owner)
     , _plotIndex(INVALID_PLOT_INDEX)
     , _level(1)
     , _favor(0)
-    , _settingsFlags(HOUSE_SETTING_HOUSE_ACCESS_ANYONE)
+    , _settingsFlags(HOUSE_SETTING_DEFAULT)
     , _editorMode(HOUSING_EDITOR_MODE_NONE)
-    , _decorDbIdGenerator(1)
-    , _roomDbIdGenerator(1)
 {
+}
+
+void Housing::InitializeDbIdGenerators()
+{
+    // Initialize global ID generators from current MAX(id) in the database.
+    // Must be called during server startup before any Housing objects are loaded.
+    {
+        QueryResult result = CharacterDatabase.Query("SELECT COALESCE(MAX(id), 0) FROM character_housing_decor");
+        uint64 maxDecorId = result ? (*result)[0].GetUInt64() : 0;
+        s_nextDecorDbId.store(maxDecorId + 1);
+        TC_LOG_INFO("housing", "Housing::InitializeDbIdGenerators: Decor ID generator starting at {} (MAX in DB: {})",
+            maxDecorId + 1, maxDecorId);
+    }
+    {
+        QueryResult result = CharacterDatabase.Query("SELECT COALESCE(MAX(id), 0) FROM character_housing_rooms");
+        uint64 maxRoomId = result ? (*result)[0].GetUInt64() : 0;
+        s_nextRoomDbId.store(maxRoomId + 1);
+        TC_LOG_INFO("housing", "Housing::InitializeDbIdGenerators: Room ID generator starting at {} (MAX in DB: {})",
+            maxRoomId + 1, maxRoomId);
+    }
 }
 
 bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
@@ -111,8 +133,11 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             placed.Locked = fields[13].GetUInt8() != 0;
             placed.PlacementTime = static_cast<time_t>(fields[14].GetUInt64());
 
-            if (decorDbId >= _decorDbIdGenerator)
-                _decorDbIdGenerator = decorDbId + 1;
+            // Advance global generator if this loaded ID is at or above current value
+            // (safety net in case InitializeDbIdGenerators ran before data was loaded)
+            uint64 expected = s_nextDecorDbId.load();
+            while (decorDbId >= expected && !s_nextDecorDbId.compare_exchange_weak(expected, decorDbId + 1))
+                ;
 
         } while (decor->NextRow());
     }
@@ -133,7 +158,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             // Fix up roomDbId=0 from old saves that used ObjectGuid::Empty (subType=0 produced Empty GUID).
             // Without this, all rooms get the same GUID key and overwrite each other in _rooms.
             if (roomDbId == 0)
-                roomDbId = _roomDbIdGenerator++;
+                roomDbId = GenerateRoomDbId();
 
             ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, 0, roomDbId);
 
@@ -151,17 +176,39 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             room.CeilingTypeId = fields[10].GetUInt32();
             room.CeilingSlot = fields[11].GetUInt8();
 
-            if (roomDbId >= _roomDbIdGenerator)
-                _roomDbIdGenerator = roomDbId + 1;
+            // Advance global generator if needed (safety net)
+            uint64 expected = s_nextRoomDbId.load();
+            while (roomDbId >= expected && !s_nextRoomDbId.compare_exchange_weak(expected, roomDbId + 1))
+                ;
 
         } while (rooms->NextRow());
     }
 
-    // Runtime fixup: ensure base room (18) + correct visual room exist.
+    // Runtime fixup: ensure entry hall room (46) + correct visual room exist.
     // Due to the old subType=0 GUID bug, both rooms shared ObjectGuid::Empty
     // as their key and only the last one survived in the DB. Fix that first.
     {
-        // Step 1: Ensure base room exists
+        // Step 0: Migrate exterior geobox room (18) to entry hall room (46) in existing houses.
+        // Room 18 was incorrectly used as the interior base room. It should only be used
+        // for the exterior plot geobox (handled by SpawnRoomForPlot independently).
+        uint32 entryHallEntry = sHousingMgr.GetEntryHallRoomEntryId();
+        uint32 extGeoboxEntry = sHousingMgr.GetBaseRoomEntryId();
+        if (entryHallEntry != extGeoboxEntry)
+        {
+            for (auto& [guid, room] : _rooms)
+            {
+                if (room.RoomEntryId == extGeoboxEntry)
+                {
+                    TC_LOG_ERROR("housing", "Housing::LoadFromDB: Migrating interior base room {} -> {} "
+                        "in slot {} for house {} (entry hall fixup)",
+                        extGeoboxEntry, entryHallEntry, room.SlotIndex, _houseGuid.ToString());
+                    room.RoomEntryId = entryHallEntry;
+                    break;
+                }
+            }
+        }
+
+        // Step 1: Ensure base room (entry hall) exists
         bool hasBaseRoom = false;
         for (auto const& [guid, room] : _rooms)
         {
@@ -174,11 +221,11 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
 
         if (!hasBaseRoom)
         {
-            uint32 baseRoomEntry = sHousingMgr.GetBaseRoomEntryId();
-            HousingResult baseResult = PlaceRoom(baseRoomEntry, /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
-            TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed base room (entry {}) in slot 0 "
+            uint32 entryHallRoomEntry = sHousingMgr.GetEntryHallRoomEntryId();
+            HousingResult baseResult = PlaceRoom(entryHallRoomEntry, /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
+            TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed entry hall room (entry {}) in slot 0 "
                 "for house {} (migration fixup, result={})",
-                baseRoomEntry, _houseGuid.ToString(), baseResult);
+                entryHallRoomEntry, _houseGuid.ToString(), baseResult);
         }
 
         // Step 2: Ensure correct visual room exists
@@ -312,55 +359,24 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         }
     }
 
+    // Auto-place starter decor for existing houses with catalog but no placed decor.
+    // This handles houses created before the starter decor placement was added.
+    if (_placedDecor.empty() && !_catalog.empty() && !_houseGuid.IsEmpty() && _owner)
+    {
+        uint32 placed = PlaceStarterDecor();
+        if (placed > 0)
+            TC_LOG_ERROR("housing", "Housing::LoadFromDB: Auto-placed {} starter decor items for house {} (migration fixup)",
+                placed, _houseGuid.ToString());
+    }
+
     // Recalculate budget weights from loaded data
     RecalculateBudgets();
 
-    // Populate HousingStorageData::Decor UpdateField so the client can see decor
-    // in the edit mode UI. This includes BOTH placed decor AND catalog (unplaced) entries.
-    // The client derives its edit mode inventory from this UpdateField data.
-    if (_owner && _owner->GetSession())
-    {
-        Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
-
-        // 1. Placed decor → SourceType=0
-        for (auto const& [decorGuid, decor] : _placedDecor)
-            account.SetHousingDecorStorageEntry(decorGuid, _houseGuid, 0);
-
-        // 2. Catalog (unplaced/available) entries → HouseGUID=Empty, SourceType=0
-        // Sniff-verified: items in storage have HouseGUID=0x0 (Empty), placed items have non-empty HouseGUID.
-        // Catalog Count includes placed instances, so subtract them to get the storage-only count.
-        // Each storage entry needs a unique Housing GUID as the map key.
-        // Generate deterministic GUIDs from the decor entry ID so they're stable across relogs.
-        std::unordered_map<uint32, uint32> placedCountByEntry;
-        for (auto const& [decorGuid, decor] : _placedDecor)
-            placedCountByEntry[decor.DecorEntryId]++;
-
-        uint64 catalogGuidBase = _owner->GetGUID().GetCounter() * 100000; // avoid collision with placed decor
-        uint32 totalStorageItems = 0;
-        for (auto const& [entryId, entry] : _catalog)
-        {
-            uint32 placedOfType = 0;
-            auto pIt = placedCountByEntry.find(entryId);
-            if (pIt != placedCountByEntry.end())
-                placedOfType = pIt->second;
-
-            uint32 storageCount = entry.Count > placedOfType ? entry.Count - placedOfType : 0;
-            for (uint32 i = 0; i < storageCount; ++i)
-            {
-                uint64 uniqueId = catalogGuidBase + entryId * 100 + i;
-                ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
-                    /*subType*/ 1,
-                    /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
-                    /*arg2*/ entryId,
-                    uniqueId);
-                account.SetHousingDecorStorageEntry(catalogDecorGuid, ObjectGuid::Empty, 0);
-            }
-            totalStorageItems += storageCount;
-        }
-
-        TC_LOG_INFO("housing", "Housing::LoadFromDB: Pushed {} placed + {} storage items ({} catalog types) to HousingStorageData for player {}",
-            uint32(_placedDecor.size()), totalStorageItems, uint32(_catalog.size()), _owner->GetGUID().ToString());
-    }
+    // NOTE: FHousingStorage_C is NOT populated at login — retail flow confirms it is only sent
+    // when the player enters edit mode or sends REQUEST_STORAGE. Populating it at login causes
+    // client crashes (BLZ_ALLOC for HouseDecorGUID) because the client doesn't expect storage
+    // data in the initial Account entity CREATE. Storage entries (both placed and catalog) are
+    // populated on-demand by PopulateCatalogStorageEntries() called from REQUEST_STORAGE handler.
 
     SyncUpdateFields();
 
@@ -494,9 +510,13 @@ void Housing::SetEditorMode(HousingEditorMode mode)
 {
     _editorMode = mode;
 
-    // Sync to Player's PlayerHouseInfoComponentData UpdateField so the client knows the mode changed
-    if (_owner)
-        _owner->SetHousingEditorModeUpdateField(static_cast<uint8>(mode));
+    // NOTE: Retail does NOT set EditorMode UpdateField during active decoration.
+    // Sniff analysis (horde_housing) shows EditorMode=0 in ALL PlayerHouseInfoComponentData
+    // snapshots, even during active decor placement. The client-side editor mode
+    // (ClientHousingDecorSystem offset+329) is set entirely by the
+    // SMSG_HOUSING_DECOR_SET_EDIT_MODE_RESPONSE handler, not by this UpdateField.
+    // Previously we called _owner->SetHousingEditorModeUpdateField() here which
+    // may have interfered with the client's internal editor state management.
 }
 
 HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
@@ -511,7 +531,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     _plotIndex = plotIndex;
     _level = 1;
     _favor = 0;
-    _settingsFlags = HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
+    _settingsFlags = HOUSE_SETTING_DEFAULT;
     _editorMode = HOUSING_EDITOR_MODE_NONE;
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
@@ -538,9 +558,10 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
 
     SyncUpdateFields();
 
-    // Every new house starts with a base room (from DB2 BASE_ROOM flag, typically entry 18).
-    // Without this, entering the interior spawns nothing and decor placement has no Geobox.
-    PlaceRoom(sHousingMgr.GetBaseRoomEntryId(), /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
+    // Every new house starts with an entry hall room (interior base room).
+    // Room 18 is the EXTERIOR geobox only (handled by SpawnRoomForPlot independently).
+    // Room 46 is the proper interior entry hall (sniff-verified: BASE_ROOM flag, door to visual room).
+    PlaceRoom(sHousingMgr.GetEntryHallRoomEntryId(), /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
 
     // Also place a default visual room so the interior renders walls/floor/ceiling.
     // Base room (18) only provides the geobox boundary — visual geometry needs a separate room.
@@ -588,8 +609,8 @@ void Housing::Delete()
     TC_LOG_DEBUG("housing", "Housing::Delete: Player {} (GUID {}) deleted house {}",
         _owner->GetName(), _owner->GetGUID().GetCounter(), _houseGuid.ToString());
 
-    // Remove all decor storage entries from account UpdateField
-    if (_owner->GetSession() && !_placedDecor.empty())
+    // Remove all decor storage entries from account UpdateField (only if storage is populated)
+    if (_storagePopulated && _owner->GetSession() && !_placedDecor.empty())
     {
         Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
         for (auto const& [decorGuid, decor] : _placedDecor)
@@ -601,7 +622,7 @@ void Housing::Delete()
     _plotIndex = INVALID_PLOT_INDEX;
     _level = 1;
     _favor = 0;
-    _settingsFlags = HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
+    _settingsFlags = HOUSE_SETTING_DEFAULT;
     _editorMode = HOUSING_EDITOR_MODE_NONE;
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
@@ -638,9 +659,12 @@ ObjectGuid Housing::StartPlacingNewDecor(uint32 catalogEntryId, HousingResult& r
         return ObjectGuid::Empty;
     }
 
-    // Generate a GUID for this pending placement
+    // Generate a GUID for this pending placement.
+    // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
-    ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, newDbId);
+    ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
+        /*subType*/ 1, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+        /*arg2*/ catalogEntryId, newDbId);
 
     _pendingPlacements[decorGuid] = catalogEntryId;
 
@@ -837,9 +861,12 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
         return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
-    // Generate a new decor guid
+    // Generate a new decor guid.
+    // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
-    ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, newDbId);
+    ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
+        /*subType*/ 1, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+        /*arg2*/ decorEntryId, newDbId);
 
     PlacedDecor& decor = _placedDecor[decorGuid];
     decor.Guid = decorGuid;
@@ -899,8 +926,8 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
         CharacterDatabase.Execute(stmt);
     }
 
-    // Update account decor storage UpdateField
-    if (_owner->GetSession())
+    // Update account decor storage UpdateField (only if storage is populated — not during LoadFromDB)
+    if (_storagePopulated && _owner->GetSession())
         _owner->GetSession()->GetBattlenetAccount().SetHousingDecorStorageEntry(decorGuid, _houseGuid, 0);
 
     TC_LOG_DEBUG("housing", "Housing::PlaceDecor: Player {} placed decor entry {} at ({}, {}, {}) in house {} (interior {}/{}, exterior {}/{})",
@@ -910,6 +937,97 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
+}
+
+uint32 Housing::PlaceStarterDecor()
+{
+    if (_houseGuid.IsEmpty() || !_owner)
+        return 0;
+
+    // Don't place if decor already exists (house already has items)
+    if (!_placedDecor.empty())
+        return 0;
+
+    // Find the visual room (non-base room, typically Room 1)
+    ObjectGuid visualRoomGuid;
+    for (auto const& [guid, room] : _rooms)
+    {
+        if (!sHousingMgr.IsBaseRoom(room.RoomEntryId))
+        {
+            visualRoomGuid = guid;
+            break;
+        }
+    }
+
+    if (visualRoomGuid.IsEmpty())
+    {
+        TC_LOG_ERROR("housing", "Housing::PlaceStarterDecor: No visual room found for house {} — cannot place starter decor",
+            _houseGuid.ToString());
+        return 0;
+    }
+
+    // Sniff-verified starter decor positions (room-local coordinates in the visual room).
+    // Both factions use the same Room 1 geometry — only the DecorEntryIDs differ.
+    // Positions from horde_housing sniff: painting on wall, table on floor, chandelier on ceiling,
+    // 2nd painting on opposite wall, fireplace against wall.
+    struct StarterDecorPlacement
+    {
+        uint32 DecorEntryId;
+        float X, Y, Z;
+        float RotX, RotY, RotZ, RotW;
+    };
+
+    std::vector<StarterDecorPlacement> placements;
+    uint32 teamId = _owner->GetTeam();
+
+    if (teamId == HORDE)
+    {
+        // Horde starter decor (sniff-verified positions in Room 1)
+        placements = {
+            { 1700, 11.458f,  7.588f, 2.984f, 0.0f, 0.0f, -0.9999962f, 0.0027621f },  // painting
+            { 2549,  9.844f, -8.013f, 0.020f, 0.0f, 0.0f,  0.9914417f, 0.1305500f },  // table
+            { 8910,  6.836f, -5.971f, 8.137f, 0.0f, 0.0f, -0.9999962f, 0.0027621f },  // chandelier
+            { 1700, -7.528f,-11.480f, 3.029f, 0.0f, 0.0f,  0.7071018f, 0.7071118f },  // painting 2
+            {   81,  0.074f, 10.788f, 0.020f, 0.0f, 0.0f, -0.7071047f, 0.7071089f },  // fireplace
+        };
+    }
+    else
+    {
+        // Alliance starter decor — same room geometry, faction-specific items.
+        // Using equivalent positions (wall art, table, ceiling fixture, wall art, hearth).
+        placements = {
+            {  389, 11.458f,  7.588f, 2.984f, 0.0f, 0.0f, -0.9999962f, 0.0027621f },  // wall art
+            {  726,  9.844f, -8.013f, 0.020f, 0.0f, 0.0f,  0.9914417f, 0.1305500f },  // table
+            { 1994,  6.836f, -5.971f, 8.137f, 0.0f, 0.0f, -0.9999962f, 0.0027621f },  // ceiling
+            { 1435, -7.528f,-11.480f, 3.029f, 0.0f, 0.0f,  0.7071018f, 0.7071118f },  // wall art 2
+            { 9144,  0.074f, 10.788f, 0.020f, 0.0f, 0.0f, -0.7071047f, 0.7071089f },  // hearth
+        };
+    }
+
+    uint32 placedCount = 0;
+    for (auto const& p : placements)
+    {
+        // Check that decor exists in catalog before placing
+        auto catalogItr = _catalog.find(p.DecorEntryId);
+        if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
+            continue;
+
+        HousingResult result = PlaceDecor(p.DecorEntryId, p.X, p.Y, p.Z,
+            p.RotX, p.RotY, p.RotZ, p.RotW, visualRoomGuid);
+
+        if (result == HOUSING_RESULT_SUCCESS)
+            ++placedCount;
+        else
+            TC_LOG_ERROR("housing", "Housing::PlaceStarterDecor: Failed to place decor entry {} — result={}",
+                p.DecorEntryId, result);
+    }
+
+    TC_LOG_ERROR("housing", "Housing::PlaceStarterDecor: Placed {}/{} starter decor items in visual room {} "
+        "for house {} (player {})",
+        placedCount, uint32(placements.size()), visualRoomGuid.ToString(),
+        _houseGuid.ToString(), _owner->GetName());
+
+    return placedCount;
 }
 
 HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z,
@@ -1014,8 +1132,8 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
         CharacterDatabase.Execute(stmt);
     }
 
-    // Remove from account decor storage UpdateField
-    if (_owner->GetSession())
+    // Remove from account decor storage UpdateField (only if storage is populated)
+    if (_storagePopulated && _owner->GetSession())
         _owner->GetSession()->GetBattlenetAccount().RemoveHousingDecorStorageEntry(decorGuid);
 
     TC_LOG_DEBUG("housing", "Housing::RemoveDecor: Player {} removed decor {} from house {}, returned to catalog",
@@ -1632,8 +1750,8 @@ HousingResult Housing::DestroyAllCopies(uint32 decorEntryId)
             ++it;
     }
 
-    // Remove from account decor storage UpdateField
-    if (_owner->GetSession() && !removedGuids.empty())
+    // Remove from account decor storage UpdateField (only if storage is populated)
+    if (_storagePopulated && _owner->GetSession() && !removedGuids.empty())
     {
         Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
         for (ObjectGuid const& guid : removedGuids)
@@ -1687,13 +1805,13 @@ void Housing::AddLevel(uint32 amount)
     }
 }
 
-void Housing::AddFavor(uint64 amount)
+void Housing::AddFavor(uint64 amount, HousingFavorUpdateSource source /*= HOUSING_FAVOR_SOURCE_UNKNOWN*/)
 {
     _favor64 += amount;
     _favor = static_cast<uint32>(std::min<uint64>(_favor64, std::numeric_limits<uint32>::max()));
 
-    TC_LOG_DEBUG("housing", "Housing::AddFavor: Player {} favor now {} in house {}",
-        _owner->GetName(), _favor64, _houseGuid.ToString());
+    TC_LOG_DEBUG("housing", "Housing::AddFavor: Player {} favor now {} (source {}) in house {}",
+        _owner->GetName(), _favor64, uint8(source), _houseGuid.ToString());
 
     SyncUpdateFields();
 
@@ -1701,7 +1819,7 @@ void Housing::AddFavor(uint64 amount)
     if (_owner && _owner->GetSession())
     {
         WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor favorUpdate;
-        favorUpdate.Type = 0;
+        favorUpdate.Type = static_cast<uint8>(source);
         favorUpdate.PreviousFavor = static_cast<int32>(_favor);
         favorUpdate.PreviousLevel = static_cast<int32>(_level);
         favorUpdate.NewLevel = static_cast<int32>(_level);
@@ -1820,6 +1938,56 @@ void Housing::SyncUpdateFields()
     );
 }
 
+void Housing::PopulateCatalogStorageEntries()
+{
+    if (!_owner || !_owner->GetSession())
+        return;
+
+    if (_storagePopulated)
+        return;
+
+    Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
+
+    // 1. Placed decor → HouseGUID=_houseGuid, SourceType=0
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        account.SetHousingDecorStorageEntry(decorGuid, _houseGuid, 0);
+
+    // 2. Catalog (unplaced/available) entries → HouseGUID=Empty, SourceType=0
+    // Sniff-verified: items in storage have HouseGUID=Empty, placed items have non-empty HouseGUID.
+    // Catalog Count includes placed instances, so subtract them to get the storage-only count.
+    std::unordered_map<uint32, uint32> placedCountByEntry;
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        placedCountByEntry[decor.DecorEntryId]++;
+
+    uint64 catalogGuidBase = _owner->GetGUID().GetCounter() * 100000;
+    uint32 totalStorageItems = 0;
+    for (auto const& [entryId, entry] : _catalog)
+    {
+        uint32 placedOfType = 0;
+        auto pIt = placedCountByEntry.find(entryId);
+        if (pIt != placedCountByEntry.end())
+            placedOfType = pIt->second;
+
+        uint32 storageCount = entry.Count > placedOfType ? entry.Count - placedOfType : 0;
+        for (uint32 i = 0; i < storageCount; ++i)
+        {
+            uint64 uniqueId = catalogGuidBase + entryId * 100 + i;
+            ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
+                /*subType*/ 1,
+                /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+                /*arg2*/ entryId,
+                uniqueId);
+            account.SetHousingDecorStorageEntry(catalogDecorGuid, ObjectGuid::Empty, 0);
+        }
+        totalStorageItems += storageCount;
+    }
+
+    _storagePopulated = true;
+
+    TC_LOG_INFO("housing", "Housing::PopulateCatalogStorageEntries: Pushed {} placed + {} storage items ({} catalog types) for player {}",
+        uint32(_placedDecor.size()), totalStorageItems, uint32(_catalog.size()), _owner->GetGUID().ToString());
+}
+
 void Housing::SaveSettings(uint32 settingsFlags)
 {
     _settingsFlags = settingsFlags;
@@ -1905,12 +2073,12 @@ void Housing::SetHousePosition(float x, float y, float z, float facing)
 
 uint64 Housing::GenerateDecorDbId()
 {
-    return _decorDbIdGenerator++;
+    return s_nextDecorDbId.fetch_add(1);
 }
 
 uint64 Housing::GenerateRoomDbId()
 {
-    return _roomDbIdGenerator++;
+    return s_nextRoomDbId.fetch_add(1);
 }
 
 void Housing::PersistRoomToDB(ObjectGuid roomGuid, Room const& room)

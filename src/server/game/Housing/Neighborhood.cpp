@@ -270,6 +270,13 @@ HousingResult Neighborhood::AddManager(ObjectGuid playerGuid)
 
     targetMember->Role = NEIGHBORHOOD_ROLE_MANAGER;
 
+    // Persist role change to DB
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
+    stmt->setUInt8(0, NEIGHBORHOOD_ROLE_MANAGER);
+    stmt->setUInt64(1, _guid.GetCounter());
+    stmt->setUInt64(2, playerGuid.GetCounter());
+    CharacterDatabase.Execute(stmt);
+
     TC_LOG_DEBUG("housing", "Neighborhood::AddManager: Player {} promoted to manager in neighborhood '{}'",
         playerGuid.ToString(), _name);
 
@@ -297,6 +304,13 @@ HousingResult Neighborhood::RemoveManager(ObjectGuid playerGuid)
             }
 
             member.Role = NEIGHBORHOOD_ROLE_RESIDENT;
+
+            // Persist role change to DB
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
+            stmt->setUInt8(0, NEIGHBORHOOD_ROLE_RESIDENT);
+            stmt->setUInt64(1, _guid.GetCounter());
+            stmt->setUInt64(2, playerGuid.GetCounter());
+            CharacterDatabase.Execute(stmt);
 
             TC_LOG_DEBUG("housing", "Neighborhood::RemoveManager: Player {} demoted to resident in neighborhood '{}'",
                 playerGuid.ToString(), _name);
@@ -329,6 +343,22 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
         TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Inviter {} lacks permission in neighborhood '{}'",
             inviterGuid.ToString(), _name);
         return HOUSING_RESULT_PERMISSION_DENIED;
+    }
+
+    // Check invite limit
+    if (_pendingInvites.size() >= MAX_PENDING_INVITES)
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Neighborhood '{}' has reached max pending invites ({})",
+            _name, MAX_PENDING_INVITES);
+        return HOUSING_RESULT_TOO_MANY_REQUESTS;
+    }
+
+    // Check if neighborhood has available plots (rough check: members + pending >= totalPlots)
+    if (GetOccupiedPlotCount() + _pendingInvites.size() >= MAX_NEIGHBORHOOD_PLOTS)
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Neighborhood '{}' has no available plots",
+            _name);
+        return HOUSING_RESULT_PLOT_NOT_VACANT;
     }
 
     // Check invitee is not already a member
@@ -365,7 +395,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
             {
                 TC_LOG_DEBUG("housing", "Neighborhood::InviteResident: Player {} faction mismatch for neighborhood '{}'",
                     inviteeGuid.ToString(), _name);
-                return HOUSING_RESULT_GENERIC_FAILURE;
+                return HOUSING_RESULT_INCORRECT_FACTION;
             }
         }
     }
@@ -646,6 +676,87 @@ HousingResult Neighborhood::TransferOwnership(ObjectGuid newOwnerGuid)
     return HOUSING_RESULT_SUCCESS;
 }
 
+HousingResult Neighborhood::OfferOwnership(ObjectGuid targetGuid)
+{
+    if (_pendingTransfer.has_value())
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::OfferOwnership: Ownership transfer already pending in neighborhood '{}'",
+            _name);
+        return HOUSING_RESULT_GENERIC_FAILURE;
+    }
+
+    if (!IsMember(targetGuid))
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::OfferOwnership: Target {} is not a member of neighborhood '{}'",
+            targetGuid.ToString(), _name);
+        return HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND;
+    }
+
+    PendingOwnershipTransfer transfer;
+    transfer.TargetGuid = targetGuid;
+    transfer.OfferTime = static_cast<uint32>(GameTime::GetGameTime());
+    _pendingTransfer = transfer;
+
+    TC_LOG_DEBUG("housing", "Neighborhood::OfferOwnership: Ownership offered to {} in neighborhood '{}'",
+        targetGuid.ToString(), _name);
+
+    return HOUSING_RESULT_SUCCESS;
+}
+
+HousingResult Neighborhood::AcceptOwnershipTransfer(ObjectGuid acceptorGuid)
+{
+    if (!_pendingTransfer.has_value())
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::AcceptOwnershipTransfer: No pending transfer in neighborhood '{}'",
+            _name);
+        return HOUSING_RESULT_NO_NEIGHBORHOOD_OWNERSHIP_REQUESTS;
+    }
+
+    if (_pendingTransfer->TargetGuid != acceptorGuid)
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::AcceptOwnershipTransfer: Player {} is not the transfer target in neighborhood '{}'",
+            acceptorGuid.ToString(), _name);
+        return HOUSING_RESULT_PERMISSION_DENIED;
+    }
+
+    // Check timeout (5 minutes)
+    uint32 now = static_cast<uint32>(GameTime::GetGameTime());
+    if (now - _pendingTransfer->OfferTime > 300)
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::AcceptOwnershipTransfer: Transfer expired in neighborhood '{}'",
+            _name);
+        _pendingTransfer.reset();
+        return HOUSING_RESULT_TIMEOUT_LIMIT;
+    }
+
+    _pendingTransfer.reset();
+    return TransferOwnership(acceptorGuid);
+}
+
+HousingResult Neighborhood::RejectOwnershipTransfer(ObjectGuid rejectorGuid)
+{
+    if (!_pendingTransfer.has_value())
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::RejectOwnershipTransfer: No pending transfer in neighborhood '{}'",
+            _name);
+        return HOUSING_RESULT_NO_NEIGHBORHOOD_OWNERSHIP_REQUESTS;
+    }
+
+    if (_pendingTransfer->TargetGuid != rejectorGuid)
+    {
+        TC_LOG_DEBUG("housing", "Neighborhood::RejectOwnershipTransfer: Player {} is not the transfer target in neighborhood '{}'",
+            rejectorGuid.ToString(), _name);
+        return HOUSING_RESULT_PERMISSION_DENIED;
+    }
+
+    _pendingTransfer.reset();
+
+    TC_LOG_DEBUG("housing", "Neighborhood::RejectOwnershipTransfer: Transfer rejected by {} in neighborhood '{}'",
+        rejectorGuid.ToString(), _name);
+
+    return HOUSING_RESULT_SUCCESS;
+}
+
 HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
 {
     if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
@@ -833,4 +944,15 @@ bool Neighborhood::HasPendingInvite(ObjectGuid playerGuid) const
 {
     return std::any_of(_pendingInvites.begin(), _pendingInvites.end(),
         [&playerGuid](PendingInvite const& invite) { return invite.InviteeGuid == playerGuid; });
+}
+
+void Neighborhood::BroadcastPacket(WorldPacket const* packet, ObjectGuid excludeGuid /*= ObjectGuid::Empty*/) const
+{
+    for (auto const& member : _members)
+    {
+        if (member.PlayerGuid == excludeGuid)
+            continue;
+        if (Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            player->SendDirectMessage(packet);
+    }
 }

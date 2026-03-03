@@ -15582,6 +15582,9 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
     sScriptMgr->OnQuestStatusChange(this, quest_id);
     sScriptMgr->OnQuestStatusChange(this, quest, oldStatus, QUEST_STATUS_REWARDED);
 
+    // Housing initiative: exploration task (TaskType=4)
+    sInitiativeManager.OnPlayerAction(this, 4, 1);
+
     if (updateVisibility)
         UpdateObjectVisibility();
 }
@@ -16938,6 +16941,9 @@ void Player::KilledMonsterCredit(uint32 entry, ObjectGuid guid /*= ObjectGuid::E
     UpdateCriteria(CriteriaType::KillCreature, real_entry, addKillCount, 0, killed);
 
     UpdateQuestObjectiveProgress(QUEST_OBJECTIVE_MONSTER, entry, 1, guid);
+
+    // Housing initiative: combat task (TaskType=3)
+    sInitiativeManager.OnPlayerAction(this, 3, addKillCount);
 }
 
 void Player::KilledPlayerCredit(ObjectGuid victimGuid)
@@ -18957,6 +18963,24 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES),
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG)))
         _housings.push_back(std::move(housing));
+
+    // Mark all tutorials as seen. Retail sniff shows all 256 tutorial bits set to 1 (0xFF bytes).
+    // Without this, the client blocks housing cleanup/expert modes with "Mode not available
+    // while in the tutorial" (FrameTutorialAccount.HousingModesUnlocked = bit 38).
+    if (GetSession())
+    {
+        bool needsUpdate = false;
+        for (uint8 i = 0; i < MAX_ACCOUNT_TUTORIAL_VALUES; ++i)
+        {
+            if (GetSession()->GetTutorialInt(i) != 0xFFFFFFFF)
+            {
+                GetSession()->SetTutorialInt(i, 0xFFFFFFFF);
+                needsUpdate = true;
+            }
+        }
+        if (needsUpdate)
+            GetSession()->SendTutorialsData();
+    }
 
     // Always register PlayerHouseInfoComponent_C fragment on the Player entity.
     // The client requires this fragment to resolve housing data from the Player descriptor;
@@ -25472,6 +25496,12 @@ void Player::SendInitialPacketsAfterAddToMap()
                     account.AddNeighborhoodMirrorManager(bnetGuid, member.PlayerGuid);
                 }
             }
+
+            // Flush the Account entity update to the client so it receives the
+            // NeighborhoodMirrorData (houses, managers, owner, name).
+            // Without this, the client never gets the ownership data and
+            // cannot display the player as house owner in the settings panel.
+            account.SendUpdateToPlayer(this);
 
             // Proactively send the neighborhood name response BEFORE the roster.
             // The client's NeighborhoodState singleton initializes all four display

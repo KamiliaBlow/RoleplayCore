@@ -267,6 +267,53 @@ namespace WorldPackets::Housing
         ObjectGuid Owner;
     };
 
+    class HousingDecorUpdateDyeSlot final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorUpdateDyeSlot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_UPDATE_DYE_SLOT, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid DecorGuid;
+        uint8 SlotIndex = 0;
+        uint32 DyeColorID = 0;
+    };
+
+    class HousingDecorStartPlacingFromSource final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorStartPlacingFromSource(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_START_PLACING_FROM_SOURCE, std::move(packet)) { }
+        void Read() override;
+        uint32 SourceType = 0;
+        uint32 SourceID = 0;
+    };
+
+    class HousingDecorCleanupModeToggle final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorCleanupModeToggle(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_CLEANUP_MODE_TOGGLE, std::move(packet)) { }
+        void Read() override;
+        bool Enabled = false;
+    };
+
+    class HousingDecorBatchOperation final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorBatchOperation(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_BATCH_OPERATION, std::move(packet)) { }
+        void Read() override;
+        uint8 OperationType = 0;
+        std::vector<ObjectGuid> DecorGuids;
+    };
+
+    class HousingDecorPlacementPreview final : public ClientPacket
+    {
+    public:
+        explicit HousingDecorPlacementPreview(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_PLACEMENT_PREVIEW, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid DecorGuid;
+        TaggedPosition<Position::XYZ> PreviewPosition;
+        TaggedPosition<Position::XYZ> PreviewRotation;
+        float Scale = 1.0f;
+    };
+
     // ============================================================
     // Fixture System (0x31xxxx)
     // ============================================================
@@ -337,6 +384,23 @@ namespace WorldPackets::Housing
 
         ObjectGuid HouseGuid;
         uint32 HouseExteriorWmoDataID = 0;
+    };
+
+    class HousingFixtureCreateBasicHouse final : public ClientPacket
+    {
+    public:
+        explicit HousingFixtureCreateBasicHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_CREATE_BASIC_HOUSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid PlotGuid;
+        uint32 HouseStyleID = 0;
+    };
+
+    class HousingFixtureDeleteHouse final : public ClientPacket
+    {
+    public:
+        explicit HousingFixtureDeleteHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_FIXTURE_DELETE_HOUSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
     };
 
     // ============================================================
@@ -615,6 +679,94 @@ namespace WorldPackets::Housing
         void Read() override { }
     };
 
+    class HousingSvcsRequestPermissionsCheck final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsRequestPermissionsCheck(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_REQUEST_PERMISSIONS_CHECK, std::move(packet)) { }
+        void Read() override { }
+    };
+
+    class HousingSvcsClearPlotReservation final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsClearPlotReservation(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_CLEAR_PLOT_RESERVATION, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsGetPlayerHousesInfoAlt final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGetPlayerHousesInfoAlt(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_ALT, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid PlayerGuid;
+    };
+
+    class HousingSvcsGetRosterData final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGetRosterData(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GET_ROSTER_DATA, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsRosterUpdateSubscribe final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsRosterUpdateSubscribe(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_ROSTER_UPDATE_SUBSCRIBE, std::move(packet)) { }
+        void Read() override { }
+    };
+
+    class HousingSvcsChangeHouseCosmeticOwnerRequest final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsChangeHouseCosmeticOwnerRequest(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+        ObjectGuid NewOwnerGuid;
+    };
+
+    class HousingSvcsQueryHouseLevelFavor final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsQueryHouseLevelFavor(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_QUERY_HOUSE_LEVEL_FAVOR, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSvcsGuildAddHouse final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGuildAddHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GUILD_ADD_HOUSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSvcsGuildAppendNeighborhood final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGuildAppendNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class HousingSvcsGuildRenameNeighborhood final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGuildRenameNeighborhood(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        std::string NewName;
+    };
+
+    class HousingSvcsGuildGetHousingInfo final : public ClientPacket
+    {
+    public:
+        explicit HousingSvcsGuildGetHousingInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SVCS_GUILD_GET_HOUSING_INFO, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid GuildGuid;
+    };
+
     // ============================================================
     // Housing Misc (0x35xxxx)
     // ============================================================
@@ -662,6 +814,49 @@ namespace WorldPackets::Housing
         void Read() override;
 
         Optional<ObjectGuid> HouseGuid;
+    };
+
+    class HousingSystemHouseStatusQuery final : public ClientPacket
+    {
+    public:
+        explicit HousingSystemHouseStatusQuery(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SYSTEM_HOUSE_STATUS_QUERY, std::move(packet)) { }
+        void Read() override { }
+    };
+
+    class HousingSystemGetHouseInfoAlt final : public ClientPacket
+    {
+    public:
+        explicit HousingSystemGetHouseInfoAlt(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SYSTEM_GET_HOUSE_INFO_ALT, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSystemHouseSnapshot final : public ClientPacket
+    {
+    public:
+        explicit HousingSystemHouseSnapshot(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SYSTEM_HOUSE_SNAPSHOT, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+        uint8 SnapshotType = 0;
+    };
+
+    class HousingSystemExportHouse final : public ClientPacket
+    {
+    public:
+        explicit HousingSystemExportHouse(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SYSTEM_EXPORT_HOUSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+    };
+
+    class HousingSystemUpdateHouseInfo final : public ClientPacket
+    {
+    public:
+        explicit HousingSystemUpdateHouseInfo(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_SYSTEM_UPDATE_HOUSE_INFO, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid HouseGuid;
+        uint32 InfoType = 0;
+        std::string HouseName;
+        std::string HouseDescription;
     };
 
     // ============================================================
@@ -784,7 +979,7 @@ namespace WorldPackets::Housing
     public:
         HouseExteriorLockResponse() : ServerPacket(SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
         bool Locked = false;
     };
@@ -794,7 +989,7 @@ namespace WorldPackets::Housing
     public:
         HouseExteriorSetHousePositionResponse() : ServerPacket(SMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
     };
 
@@ -874,7 +1069,7 @@ namespace WorldPackets::Housing
     public:
         HousingDecorDeleteFromStorageResponse() : ServerPacket(SMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid DecorGuid;
     };
 
@@ -899,7 +1094,7 @@ namespace WorldPackets::Housing
     public:
         HousingDecorAddToHouseChestResponse() : ServerPacket(SMSG_HOUSING_DECOR_ADD_TO_HOUSE_CHEST_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid DecorGuid;
     };
 
@@ -942,6 +1137,24 @@ namespace WorldPackets::Housing
         uint8 Result = 0;
     };
 
+    class HousingDecorBatchOperationResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorBatchOperationResponse() : ServerPacket(SMSG_HOUSING_DECOR_BATCH_OPERATION_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint8 Result = 0;
+        uint32 ProcessedCount = 0;
+    };
+
+    class HousingDecorPlacementPreviewResponse final : public ServerPacket
+    {
+    public:
+        HousingDecorPlacementPreviewResponse() : ServerPacket(SMSG_HOUSING_DECOR_PLACEMENT_PREVIEW_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint8 Result = 0;
+        uint8 RestrictionFlags = 0;
+    };
+
     class HousingFirstTimeDecorAcquisition final : public ServerPacket
     {
     public:
@@ -959,7 +1172,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureSetEditModeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         bool Active = false;
     };
 
@@ -968,7 +1181,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureCreateBasicHouseResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_CREATE_BASIC_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
     };
 
@@ -977,7 +1190,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureDeleteHouseResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_DELETE_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
     };
 
@@ -986,7 +1199,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureSetHouseSizeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         uint8 Size = 0;
     };
 
@@ -995,7 +1208,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureSetHouseTypeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         int32 HouseExteriorTypeID = 0;
     };
 
@@ -1004,7 +1217,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureSetCoreFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         int32 FixtureRecordID = 0;
     };
 
@@ -1013,7 +1226,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureCreateFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_CREATE_FIXTURE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid FixtureGuid;
     };
 
@@ -1022,7 +1235,7 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureDeleteFixtureResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_DELETE_FIXTURE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid FixtureGuid;
     };
 
@@ -1035,7 +1248,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomSetLayoutEditModeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_LAYOUT_EDIT_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         bool Active = false;
     };
 
@@ -1044,7 +1257,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomAddResponse() : ServerPacket(SMSG_HOUSING_ROOM_ADD_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
     };
 
@@ -1053,7 +1266,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomRemoveResponse() : ServerPacket(SMSG_HOUSING_ROOM_REMOVE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
     };
 
@@ -1062,7 +1275,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomUpdateResponse() : ServerPacket(SMSG_HOUSING_ROOM_UPDATE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
     };
 
@@ -1071,7 +1284,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomSetComponentThemeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_COMPONENT_THEME_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
         int32 ComponentID = 0;
         int32 ThemeSetID = 0;
@@ -1082,7 +1295,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomApplyComponentMaterialsResponse() : ServerPacket(SMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
         int32 ComponentID = 0;
         int32 RoomComponentTextureRecordID = 0;
@@ -1093,7 +1306,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomSetDoorTypeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_DOOR_TYPE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
         int32 ComponentID = 0;
         uint8 DoorType = 0;
@@ -1104,7 +1317,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomSetCeilingTypeResponse() : ServerPacket(SMSG_HOUSING_ROOM_SET_CEILING_TYPE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid RoomGuid;
         int32 ComponentID = 0;
         uint8 CeilingType = 0;
@@ -1119,7 +1332,8 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsNotifyPermissionsFailure() : ServerPacket(SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE) { }
         WorldPacket const* Write() override;
-        uint16 Result = 0;  // Sniff-confirmed: 2-byte wire format (e.g. 0x0039 = 57)
+        uint8 FailureType = 0;  // IDA-verified: 2 separate uint8 reads, not 1 uint16
+        uint8 ErrorCode = 0;
     };
 
     class HousingSvcsGuildCreateNeighborhoodNotification final : public ServerPacket
@@ -1135,7 +1349,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsCreateCharterNeighborhoodResponse() : ServerPacket(SMSG_HOUSING_SVCS_CREATE_CHARTER_NEIGHBORHOOD_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
     };
 
@@ -1153,7 +1367,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsClearPlotReservationResponse() : ServerPacket(SMSG_HOUSING_SVCS_CLEAR_PLOT_RESERVATION_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
     };
 
@@ -1162,7 +1376,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsRelinquishHouseResponse() : ServerPacket(SMSG_HOUSING_SVCS_RELINQUISH_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
     };
 
@@ -1171,7 +1385,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsCancelRelinquishHouseResponse() : ServerPacket(SMSG_HOUSING_SVCS_CANCEL_RELINQUISH_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
     };
 
@@ -1191,7 +1405,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsPlayerViewHousesResponse() : ServerPacket(SMSG_HOUSING_SVCS_PLAYER_VIEW_HOUSES_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct NeighborhoodInfoData
         {
@@ -1209,6 +1423,46 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
         ObjectGuid HouseGuid;
         ObjectGuid NewOwnerGuid;
+    };
+
+    // Account-level housing collection notifications
+    class AccountHousingRoomAdded final : public ServerPacket
+    {
+    public:
+        AccountHousingRoomAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_ADDED) { }
+        WorldPacket const* Write() override;
+
+        ObjectGuid RoomGuid;
+    };
+
+    class AccountHousingFixtureAdded final : public ServerPacket
+    {
+    public:
+        AccountHousingFixtureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_FIXTURE_ADDED) { }
+        WorldPacket const* Write() override;
+
+        ObjectGuid FixtureGuid;
+        std::string Name;
+    };
+
+    class AccountHousingThemeAdded final : public ServerPacket
+    {
+    public:
+        AccountHousingThemeAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_THEME_ADDED) { }
+        WorldPacket const* Write() override;
+
+        ObjectGuid ThemeGuid;
+        std::string Name;
+    };
+
+    class AccountHousingRoomComponentTextureAdded final : public ServerPacket
+    {
+    public:
+        AccountHousingRoomComponentTextureAdded() : ServerPacket(SMSG_ACCOUNT_HOUSING_ROOM_COMPONENT_TEXTURE_ADDED) { }
+        WorldPacket const* Write() override;
+
+        ObjectGuid TextureGuid;
+        std::string Name;
     };
 
     class HousingSvcsUpdateHousesLevelFavor final : public ServerPacket
@@ -1267,7 +1521,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsGuildGetHousingInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GUILD_GET_HOUSING_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
         ObjectGuid HouseGuid;
     };
@@ -1277,7 +1531,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsAcceptNeighborhoodOwnershipResponse() : ServerPacket(SMSG_HOUSING_SVCS_ACCEPT_NEIGHBORHOOD_OWNERSHIP_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
     };
 
@@ -1286,7 +1540,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsRejectNeighborhoodOwnershipResponse() : ServerPacket(SMSG_HOUSING_SVCS_REJECT_NEIGHBORHOOD_OWNERSHIP_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
     };
 
@@ -1304,7 +1558,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsGetPotentialHouseOwnersResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct PotentialOwnerData
         {
@@ -1319,7 +1573,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsUpdateHouseSettingsResponse() : ServerPacket(SMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
         uint32 AccessFlags = 0;
     };
@@ -1329,7 +1583,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsGetHouseFinderInfoResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct HouseFinderEntry
         {
@@ -1348,7 +1602,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsGetHouseFinderNeighborhoodResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct PlotEntry
         {
@@ -1367,7 +1621,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsGetBnetFriendNeighborhoodsResponse() : ServerPacket(SMSG_HOUSING_SVCS_GET_BNET_FRIEND_NEIGHBORHOODS_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
 
         struct BnetFriendNeighborhoodData
         {
@@ -1397,7 +1651,7 @@ namespace WorldPackets::Housing
     public:
         HousingSvcsDeleteAllNeighborhoodInvitesResponse() : ServerPacket(SMSG_HOUSING_SVCS_DELETE_ALL_NEIGHBORHOOD_INVITES_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid NeighborhoodGuid;
     };
 
@@ -1436,9 +1690,17 @@ namespace WorldPackets::Housing
     public:
         HousingExportHouseResponse() : ServerPacket(SMSG_HOUSING_EXPORT_HOUSE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid HouseGuid;
         std::string ExportData;
+    };
+
+    class HousingSystemHouseSnapshotResponse final : public ServerPacket
+    {
+    public:
+        HousingSystemHouseSnapshotResponse() : ServerPacket(SMSG_HOUSING_SYSTEM_HOUSE_SNAPSHOT_RESPONSE) { }
+        WorldPacket const* Write() override;
+        uint8 Result = 0;
     };
 
     class HousingGetPlayerPermissionsResponse final : public ServerPacket
@@ -1621,7 +1883,7 @@ namespace WorldPackets::Housing
     public:
         GetPlayerInitiativeInfoResult() : ServerPacket(SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         std::vector<JamPlayerInitiativeTaskInfo> Tasks;
     };
 
@@ -1630,7 +1892,7 @@ namespace WorldPackets::Housing
     public:
         GetInitiativeActivityLogResult() : ServerPacket(SMSG_GET_INITIATIVE_ACTIVITY_LOG_RESULT) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         std::vector<NICompletedTasksEntry> CompletedTasks;
     };
 
@@ -1665,7 +1927,7 @@ namespace WorldPackets::Housing
     public:
         GetInitiativeRewardsResult() : ServerPacket(SMSG_GET_INITIATIVE_REWARDS_RESULT) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
     };
 
     class InitiativeRewardAvailable final : public ServerPacket
@@ -1686,7 +1948,7 @@ namespace WorldPackets::Housing
     public:
         HousingPhotoSharingAuthorizationResult() : ServerPacket(SMSG_HOUSING_PHOTO_SHARING_AUTHORIZATION_RESULT) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
     };
 
     class HousingPhotoSharingAuthorizationClearedResult final : public ServerPacket
@@ -1694,7 +1956,7 @@ namespace WorldPackets::Housing
     public:
         HousingPhotoSharingAuthorizationClearedResult() : ServerPacket(SMSG_HOUSING_PHOTO_SHARING_AUTHORIZATION_CLEARED_RESULT) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
     };
 }
 
@@ -1762,6 +2024,23 @@ namespace WorldPackets::Neighborhood
         void Read() override;
 
         ObjectGuid TargetPlayerGuid;
+    };
+
+    class NeighborhoodCharterSignResponsePacket final : public ClientPacket
+    {
+    public:
+        explicit NeighborhoodCharterSignResponsePacket(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_SIGN_RESPONSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid CharterGuid;
+    };
+
+    class NeighborhoodCharterRemoveSignature final : public ClientPacket
+    {
+    public:
+        explicit NeighborhoodCharterRemoveSignature(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CHARTER_REMOVE_SIGNATURE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid CharterGuid;
+        ObjectGuid SignerGuid;
     };
 
     // ============================================================
@@ -1921,6 +2200,31 @@ namespace WorldPackets::Neighborhood
         uint32 PlotIndex = 0;
     };
 
+    class NeighborhoodCancelInvitationAlt final : public ClientPacket
+    {
+    public:
+        explicit NeighborhoodCancelInvitationAlt(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_CANCEL_INVITATION_ALT, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid InviteeGuid;
+    };
+
+    class NeighborhoodInviteNotificationAck final : public ClientPacket
+    {
+    public:
+        explicit NeighborhoodInviteNotificationAck(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_INVITE_NOTIFICATION_ACK, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+    };
+
+    class NeighborhoodOfferOwnershipResponsePacket final : public ClientPacket
+    {
+    public:
+        explicit NeighborhoodOfferOwnershipResponsePacket(WorldPacket&& packet) : ClientPacket(CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        bool Accept = false;
+    };
+
     // ============================================================
     // Neighborhood Charter SMSG Responses (0x5Bxxxx)
     // ============================================================
@@ -1930,7 +2234,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodCharterUpdateResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_UPDATE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid CharterGuid;
     };
 
@@ -1939,7 +2243,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodCharterOpenUIResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid CharterGuid;
         std::string NeighborhoodName;
         uint32 NeighborhoodMapID = 0;
@@ -1960,7 +2264,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodCharterAddSignatureResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURE_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid CharterGuid;
         ObjectGuid SignerGuid;
     };
@@ -1970,7 +2274,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodCharterOpenConfirmationUIResponse() : ServerPacket(SMSG_NEIGHBORHOOD_CHARTER_OPEN_CONFIRMATION_UI_RESPONSE) { }
         WorldPacket const* Write() override;
-        uint32 Result = 0;
+        uint8 Result = 0;
         ObjectGuid CharterGuid;
         ObjectGuid CharterOwnerGuid;
         std::string NeighborhoodName;
@@ -2175,6 +2479,7 @@ namespace WorldPackets::Neighborhood
             ObjectGuid BnetAccountGuid;  // Usually empty
             uint8 PlotIndex = 0xFF;      // INVALID_PLOT_INDEX
             uint32 JoinTime = 0;
+            uint8 ResidentType = 0;      // NeighborhoodMemberRole (0=Resident, 1=Manager, 2=Owner)
             bool IsOnline = false;       // Controls status byte 2 bit 7 in roster UI
         };
         std::vector<RosterMemberData> Members;
@@ -2192,7 +2497,8 @@ namespace WorldPackets::Neighborhood
         struct ResidentEntry
         {
             ObjectGuid PlayerGuid;
-            uint16 StatusFlags = 0;
+            uint8 UpdateType = 0;   // 0=Added, 1=RoleChanged, 2=Removed
+            uint8 NewRole = 0;      // NeighborhoodMemberRole
         };
 
         NeighborhoodRosterResidentUpdate() : ServerPacket(SMSG_NEIGHBORHOOD_ROSTER_RESIDENT_UPDATE) { }

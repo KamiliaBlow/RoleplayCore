@@ -17,6 +17,7 @@
 
 #include "InitiativeManager.h"
 #include "CharacterDatabase.h"
+#include "Housing.h"
 #include "DB2Stores.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -527,6 +528,53 @@ void InitiativeManager::ClearTaskCriteria(uint64 neighborhoodGuid, uint32 initia
 
     TC_LOG_DEBUG("housing", "InitiativeManager::ClearTaskCriteria: Cleared task {} in initiative {} (neighborhood {})",
         taskID, initiativeID, neighborhoodGuid);
+}
+
+void InitiativeManager::OnPlayerAction(Player* player, int32 taskType, uint32 count /*= 1*/)
+{
+    if (!player)
+        return;
+
+    // Early bail: player must have an active housing with a neighborhood
+    Housing* housing = player->GetHousing();
+    if (!housing)
+        return;
+
+    ObjectGuid neighborhoodGuid = housing->GetNeighborhoodGuid();
+    if (neighborhoodGuid.IsEmpty())
+        return;
+
+    uint64 nhLowGuid = neighborhoodGuid.GetCounter();
+
+    // Find active initiative for this neighborhood
+    auto itr = _activeInitiatives.find(nhLowGuid);
+    if (itr == _activeInitiatives.end())
+        return;
+
+    for (auto& initiative : itr->second)
+    {
+        if (initiative->Completed)
+            continue;
+
+        // Find matching tasks by TaskType
+        auto tasksItr = _initiativeTasks.find(initiative->InitiativeID);
+        if (tasksItr == _initiativeTasks.end())
+            continue;
+
+        for (auto const& task : tasksItr->second)
+        {
+            if (task.TaskType != taskType)
+                continue;
+
+            // Check task is not already complete
+            auto progressItr = initiative->TaskProgress.find(task.TaskID);
+            if (progressItr != initiative->TaskProgress.end() && progressItr->second.Status == INITIATIVE_TASK_STATUS_COMPLETE)
+                continue;
+
+            // Update progress
+            UpdateTaskProgress(nhLowGuid, initiative->InitiativeID, task.TaskID, count, player);
+        }
+    }
 }
 
 bool InitiativeManager::HasUnclaimedRewards(uint64 neighborhoodGuid, uint32 initiativeID) const

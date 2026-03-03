@@ -21,7 +21,7 @@
 #include "Define.h"
 
 // HousingResult enum - 90 values (0-89), verified against client binary
-enum HousingResult : uint32
+enum HousingResult : uint8
 {
     HOUSING_RESULT_SUCCESS                                  = 0,
     HOUSING_RESULT_ACTION_LOCKED_BY_COMBAT                  = 1,
@@ -269,7 +269,7 @@ enum HousingLayoutRestriction : uint8
 };
 
 // NeighborhoodInviteResult enum - 11 values (0-10), verified against client binary
-enum NeighborhoodInviteResult : uint32
+enum NeighborhoodInviteResult : uint8
 {
     NEIGHBORHOOD_INVITE_SUCCESS                 = 0,
     NEIGHBORHOOD_INVITE_DB_ERROR                = 1,
@@ -334,6 +334,9 @@ enum HouseSettingFlags : uint32
     HOUSE_SETTING_PLOT_ACCESS_FRIENDS       = 0x100,
     HOUSE_SETTING_PLOT_ACCESS_PARTY         = 0x200
 };
+
+constexpr uint32 HOUSE_SETTING_DEFAULT    = HOUSE_SETTING_PLOT_ACCESS_ANYONE; // 0x020 — sniff-verified default
+constexpr uint32 HOUSE_SETTING_VALID_MASK = 0x3FF; // bits 0-9
 
 // HousingDecorPlacementFlags enum - 5 values (bitmask)
 enum HousingDecorPlacementFlags : int32
@@ -626,6 +629,7 @@ static constexpr uint32 MAX_HOUSING_FIXTURES_PER_HOUSE  = 10;
 static constexpr uint32 MAX_HOUSING_DYE_SLOTS           = 3;
 static constexpr uint32 MAX_NEIGHBORHOOD_PLOTS          = 55;
 static constexpr uint32 MAX_NEIGHBORHOOD_MANAGERS       = 5;
+static constexpr uint32 MAX_PENDING_INVITES             = 20;
 static constexpr uint32 MIN_CHARTER_SIGNATURES          = 4;
 static constexpr uint8  INVALID_PLOT_INDEX              = 255;
 static constexpr uint32 HOUSING_MAX_NAME_LENGTH         = 64;
@@ -648,6 +652,17 @@ static constexpr uint32 SPELL_HOUSING_PLOT_PRESENCE     = 469226;
 // Third spell applied on first plot enter — replaces slot 9 aura
 // Sniff: aura slot 9, Flags=NoCaster|Scalable(9), ActiveFlags=1, CastLevel=36, has PointsCount
 static constexpr uint32 SPELL_HOUSING_PLOT_ENTER_2      = 1266699;
+
+// Post-tutorial auras — applied when quest 94455 "Home at Last" is completed.
+// Sniff-verified: quest reward removes old tutorial auras (slots 8,9,50) and replaces them
+// with these three new ones. These don't exist in DB2, so we send manual SMSG_AURA_UPDATE.
+// Slot 8: Flags=NoCaster, ActiveFlags=1, CastLevel=36
+static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_1   = 1285428;
+// Slot 9: Flags=NoCaster, ActiveFlags=1, CastLevel=36
+static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_2   = 1285424;
+// Slot 50: Flags=NoCaster|Scalable, ActiveFlags=1, CastLevel=36, Points=[1]
+// Note: Same spell ID as SPELL_HOUSING_PLOT_ENTER_2 but applied at slot 50 (not slot 9)
+static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_3   = 1266699;
 
 // WorldState IDs — continuous counters sent throughout the entire housing session.
 // Sniff-verified: 5 counters total, sent as individual SMSG_UPDATE_WORLD_STATE packets.

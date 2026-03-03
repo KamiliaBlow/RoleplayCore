@@ -114,6 +114,10 @@ public:
     void UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initiativeID, uint32 taskID, uint32 progressDelta, Player* contributor);
     void ClearTaskCriteria(uint64 neighborhoodGuid, uint32 initiativeID, uint32 taskID);
 
+    // Gameplay trigger — called from Player/SpellEffects hooks
+    // taskType matches InitiativeTask.TaskType: 1=Gathering, 2=Crafting, 3=Combat, 4=Exploration
+    void OnPlayerAction(Player* player, int32 taskType, uint32 count = 1);
+
     // Reward queries
     bool HasUnclaimedRewards(uint64 neighborhoodGuid, uint32 initiativeID) const;
 

@@ -316,7 +316,27 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
         map = FindMap_i(mapId, newInstanceId);
         if (map)
         {
-            TC_LOG_ERROR("housing", "MapManager::CreateMap: REUSING existing HouseInteriorMap mapId={} instanceId={} "
+            // Update source info on reuse ? the player may re-enter from a different
+            // neighborhood or plot each time.
+            if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(map))
+            {
+                if (Housing* housing = player->GetHousing())
+                {
+                    uint32 sourceWorldMapId = 0;
+                    if (player->GetMap() && player->GetMap()->GetEntry()->IsNeighborhood())
+                        sourceWorldMapId = player->GetMapId();
+                    if (sourceWorldMapId == 0)
+                    {
+                        uint32 nhMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(player->GetMapId());
+                        if (nhMapId)
+                            sourceWorldMapId = player->GetMapId();
+                    }
+                    interiorMap->SetSourceNeighborhoodMapId(sourceWorldMapId);
+                    interiorMap->SetSourcePlotIndex(housing->GetPlotIndex());
+                }
+            }
+
+            TC_LOG_DEBUG("housing", "MapManager::CreateMap: REUSING existing HouseInteriorMap mapId={} instanceId={} "
                 "for player {} (map ptr={})",
                 mapId, newInstanceId, player->GetGUID().ToString(), (void*)map);
         }

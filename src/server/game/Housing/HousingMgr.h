@@ -311,8 +311,12 @@ public:
     // Returns nullptr if no match found
     RoomComponentOptionEntry const* FindRoomComponentOption(uint32 roomComponentID, int32 houseThemeID) const;
 
-    // Get the base room entry ID (from DB2 IsBaseRoom flag, fallback 18)
+    // Get the base room entry ID (exterior geobox room, from DB2 IsBaseRoom flag, fallback 18)
     uint32 GetBaseRoomEntryId() const { return _baseRoomEntryId; }
+
+    // Get the entry hall room entry ID (interior base room, sniff-verified: Room 46)
+    // Room 18 = exterior plot geobox (SpawnRoomForPlot), Room 46 = interior entry hall
+    uint32 GetEntryHallRoomEntryId() const { return _entryHallRoomEntryId; }
 
     // Room grid spacing for interior layout (sniff-verified: 15.0f)
     float GetRoomGridSpacing() const { return _roomGridSpacing; }
@@ -410,8 +414,12 @@ private:
     void DumpExteriorComponentDiagnostics();
     void DumpRoomComponentTextureDiagnostics();
 
-    // Base room entry ID (from DB2 IsBaseRoom flag scan, fallback 18)
+    // Base room entry ID — exterior geobox (from DB2 IsBaseRoom flag scan, fallback 18)
     uint32 _baseRoomEntryId = 0;
+
+    // Entry hall room entry ID — interior base room (second BASE_ROOM in DB2, fallback to _baseRoomEntryId)
+    // Sniff-verified: Room 46 is the entry corridor with door connecting to the visual room
+    uint32 _entryHallRoomEntryId = 0;
 
     // Room grid spacing (sniff-verified: 15.0f)
     float _roomGridSpacing = 15.0f;

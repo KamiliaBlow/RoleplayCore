@@ -105,6 +105,11 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
 
     SetObjectScale(1.0f);
 
+    // Retail sniff: MeshObject decor entities have ObjectData.EntryID set to FileDataID.
+    // e.g., EntryID=7011541 matching FileDataID=7011541 on the same entity.
+    // The client may use EntryID for internal entity lookups in the placed decor hash map.
+    SetEntry(fileDataID);
+
     // Set mesh object update fields
     auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
     SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::FileDataID), fileDataID);

@@ -109,6 +109,7 @@ public:
 
     // Manual spell packet helpers — called from AddPlayerToMap and at_housing_plot AT script.
     // These spells don't exist in DB2, so CastSpell() silently fails; manual packets are required.
+    void SendPostTutorialAuras(Player* player);
     void SendPlotEnterSpellPackets(Player* player, uint8 plotIndex);
     void SendPlotLeaveAuraRemoval(Player* player);
 
