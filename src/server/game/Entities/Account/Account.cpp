@@ -19,6 +19,7 @@
 #include "Map.h"
 #include "Player.h"
 #include "StringFormat.h"
+#include "UpdateData.h"
 #include "WorldSession.h"
 
 namespace Battlenet
@@ -86,6 +87,17 @@ void Account::RemoveFromObjectUpdate()
 {
     if (Player* owner = m_session->GetPlayer(); owner && owner->IsInWorld())
         owner->GetMap()->RemoveUpdateObject(this);
+}
+
+void Account::SendUpdateToPlayer(Player* player)
+{
+    // BaseEntity::SendUpdateToPlayer is const and skips BuildUpdateChangesMask(),
+    // so ContentsChangedMask is 0 and the VALUES_UPDATE contains no fragment data.
+    // We must compute the mask before serializing so that pending fragment changes
+    // (e.g., FHousingStorage_C populated by PopulateCatalogStorageEntries) are included.
+    BuildUpdateChangesMask();
+    BaseEntity::SendUpdateToPlayer(player);
+    ClearUpdateMask(false);
 }
 
 void Account::SetHousingPlotIndex(int32 plotIndex)

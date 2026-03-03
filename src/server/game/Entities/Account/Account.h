@@ -37,6 +37,12 @@ public:
 
     std::string GetDebugInfo() const override;
 
+    // Direct send that builds ContentsChangedMask before serializing.
+    // BaseEntity::SendUpdateToPlayer is const and doesn't call BuildUpdateChangesMask(),
+    // so the VALUES_UPDATE packet is empty when called directly from handlers.
+    // This override ensures fragment changes are detected before the send.
+    void SendUpdateToPlayer(Player* player);
+
     // Housing UpdateField setters
     void SetHousingPlotIndex(int32 plotIndex);
     void SetHousingLevel(uint32 level);
