@@ -126,6 +126,7 @@ void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid house
     auto ref = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor, decorGuid);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::string());
 }
 
 void Account::RemoveHousingDecorStorageEntry(ObjectGuid decorGuid)
