@@ -25424,6 +25424,13 @@ void Player::SendInitialPacketsAfterAddToMap()
 
     SetPlayerLocalFlag(PLAYER_LOCAL_FLAG_ACCOUNT_SECURED);
 
+    // Track the BNetAccount entity as "at client" so that subsequent
+    // SendUpdateToPlayer() calls use VALUES_UPDATE instead of a duplicate CREATE.
+    // The Account entity CREATE is embedded in the player's own create block
+    // (Player::BuildCreateUpdateBlockForPlayer), which was just sent by
+    // UpdateVisibilityForPlayer() above.
+    m_clientGUIDs.insert(GetSession()->GetBattlenetAccount().GetGUID());
+
     // Send map wide vignettes before UpdateZone, that will send zone wide vignettes
     // But first send on new map will wipe all vignettes on client
     {
