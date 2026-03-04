@@ -947,6 +947,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS,
     PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS,
     PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFITS,
+    PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SITUATIONS,
     PLAYER_LOGIN_QUERY_LOAD_BG_DATA,
     PLAYER_LOGIN_QUERY_LOAD_GLYPHS,
     PLAYER_LOGIN_QUERY_LOAD_TALENTS,
@@ -1602,8 +1603,6 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         bool IsUsingTwoHandedWeaponInOneHand() const;
         void SendNewItem(Item* item, uint32 quantity, bool received, bool created, bool broadcast = false, uint32 dungeonEncounterId = 0);
         bool BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uint32 item, uint32 count, uint8 bag, uint8 slot);
-        Optional<SellResult> CanSellItemToVendor(Item const* item, uint32 amount) const;
-        Optional<SellResult> SellItemToVendor(Item* item, uint32 amount);
         bool BuyCurrencyFromVendorSlot(ObjectGuid vendorGuid, uint32 vendorSlot, uint32 currency, uint32 count);
         bool _StoreOrEquipNewItem(uint32 vendorslot, uint32 item, uint8 count, uint8 bag, uint8 slot, int64 price, ItemTemplate const* pProto, Creature* pVendor, VendorItem const* crItem, bool bStore);
 
@@ -2528,6 +2527,10 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void SendEquipmentSetList();
         void SetEquipmentSet(EquipmentSetInfo::EquipmentSetData const& newEqSet);
         void DeleteEquipmentSet(uint64 id);
+        EquipmentSetInfo::EquipmentSetData const* GetEquipmentSetData(uint64 id) const;
+        EquipmentSetInfo::EquipmentSetData const* GetTransmogOutfitBySetID(uint32 setID) const;
+        EquipmentSetInfo::EquipmentSetData* GetMutableTransmogOutfitBySetID(uint32 setID);
+        uint32 GetActiveTransmogOutfitID() const;
 
         void SendInitWorldStates(uint32 zoneId, uint32 areaId);
         void SendUpdateWorldState(uint32 variable, uint32 value, bool hidden = false) const;
@@ -3130,6 +3133,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadArenaTeamInfo(PreparedQueryResult result);
         void _LoadEquipmentSets(PreparedQueryResult result);
         void _LoadTransmogOutfits(PreparedQueryResult result);
+        void _LoadTransmogOutfitSituations(PreparedQueryResult result);
+        void _SyncTransmogOutfitsToActivePlayerData(char const* caller = "unknown");
         void _LoadBGData(PreparedQueryResult result);
         void _LoadGlyphs(PreparedQueryResult result);
         void _LoadTalents(PreparedQueryResult result);

@@ -23,6 +23,15 @@
 #include "Optional.h"
 #include <array>
 #include <map>
+#include <vector>
+
+struct TransmogSituationData
+{
+    uint32 SituationID = 0;
+    uint32 SpecID = 0;
+    uint32 LoadoutID = 0;
+    uint32 EquipmentSetID = 0;
+};
 
 enum EquipmentSetUpdateState
 {
@@ -59,6 +68,7 @@ struct EquipmentSetInfo
         int32 SecondaryShoulderSlot = 0;                        ///< Always 2 if secondary shoulder apperance is used
         int32 SecondaryWeaponAppearanceID = 0;                  ///< For legion artifacts: linked child item appearance
         int32 SecondaryWeaponSlot = 0;                          ///< For legion artifacts: which slot is used by child item
+        std::vector<TransmogSituationData> Situations;          ///< Transmog outfit auto-switch situations
     } Data;
 
     /// Server-side data

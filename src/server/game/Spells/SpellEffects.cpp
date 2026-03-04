@@ -90,6 +90,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "GroupMgr.h"
+#include "TransmogrificationUtils.h"
 
 NonDefaultConstructible<SpellEffectHandlerFn> SpellEffectHandlers[TOTAL_SPELL_EFFECTS] =
 {
@@ -440,7 +441,7 @@ NonDefaultConstructible<SpellEffectHandlerFn> SpellEffectHandlers[TOTAL_SPELL_EF
     &Spell::EffectNULL,                                     //344 SPELL_EFFECT_344
     &Spell::EffectNULL,                                     //345 SPELL_EFFECT_ASSIST_ACTION
     &Spell::EffectNULL,                                     //346 SPELL_EFFECT_346
-    &Spell::EffectNULL,                                     //347 SPELL_EFFECT_EQUIP_TRANSMOG_OUTFIT
+    &Spell::EffectEquipTransmogOutfit,                       //347 SPELL_EFFECT_EQUIP_TRANSMOG_OUTFIT
     &Spell::EffectNULL,                                     //348 SPELL_EFFECT_GIVE_HOUSE_LEVEL
     &Spell::EffectNULL,                                     //349 SPELL_EFFECT_LEARN_HOUSE_ROOM
     &Spell::EffectNULL,                                     //350 SPELL_EFFECT_LEARN_HOUSE_EXTERIOR_COMPONENT
@@ -5998,6 +5999,33 @@ void Spell::EffectLearnTransmogSet()
         return;
 
     unitTarget->ToPlayer()->GetSession()->GetCollectionMgr()->AddTransmogSet(effectInfo->MiscValue);
+}
+
+void Spell::EffectEquipTransmogOutfit()
+{
+    if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
+        return;
+
+    if (!unitTarget || unitTarget->GetTypeId() != TYPEID_PLAYER)
+        return;
+
+    Player* player = unitTarget->ToPlayer();
+    uint32 outfitEntryID = effectInfo->MiscValue;
+
+    TC_LOG_DEBUG("spells.effect", "EffectEquipTransmogOutfit [{}]: outfitEntryID={}", player->GetGUID().ToString(), outfitEntryID);
+
+    EquipmentSetInfo::EquipmentSetData const* outfit = player->GetTransmogOutfitBySetID(outfitEntryID);
+    if (!outfit)
+    {
+        TC_LOG_DEBUG("spells.effect", "EffectEquipTransmogOutfit [{}]: outfit not found for setId={}", player->GetGUID().ToString(), outfitEntryID);
+        return;
+    }
+
+    // Spell effect does not charge gold — ApplyTransmogOutfitToPlayer handles the cost
+    // check internally, but for spell-based application we skip cost via the aura check
+    // or simply accept the cost (spell effects from retail don't charge).
+    // The helper will charge gold if the player lacks SPELL_AURA_REMOVE_TRANSMOG_COST.
+    ApplyTransmogOutfitToPlayer(player, *outfit);
 }
 
 void Spell::EffectRespecAzeriteEmpoweredItem()

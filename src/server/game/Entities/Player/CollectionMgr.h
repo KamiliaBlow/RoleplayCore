@@ -175,6 +175,12 @@ public:
     void SetAppearanceIsFavorite(uint32 itemModifiedAppearanceId, bool apply);
     void SendFavoriteAppearances() const;
 
+    // Transmog Set Favorites
+    void LoadTransmogSetFavorites(PreparedQueryResult result);
+    void SaveTransmogSetFavorites(LoginDatabaseTransaction trans);
+    void SetTransmogSetIsFavorite(uint32 transmogSetId, bool apply);
+    void SendTransmogSetFavorites() const;
+
     // Illusions
     void LoadTransmogIllusions();
     void LoadAccountTransmogIllusions(PreparedQueryResult knownTransmogIllusions);
@@ -207,6 +213,7 @@ private:
     std::unique_ptr<boost::dynamic_bitset<uint32>> _appearances;
     std::unordered_map<uint32, std::unordered_set<ObjectGuid>> _temporaryAppearances;
     std::unordered_map<uint32, CollectionItemState> _favoriteAppearances;
+    std::unordered_map<uint32, CollectionItemState> _transmogSetFavorites;
     std::unique_ptr<boost::dynamic_bitset<uint32>> _transmogIllusions;
     WarbandSceneCollectionContainer _warbandScenes;
 };

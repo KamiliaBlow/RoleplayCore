@@ -38,6 +38,7 @@
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
+#include "StringConvert.h"
 #include "Util.h"
 #ifdef ELUNA
 #include "LuaEngine.h"
@@ -587,6 +588,92 @@ void WorldSession::HandleChatAddonMessage(ChatMsg type, std::string prefix, std:
 
     if (text.length() > 255)
         return;
+
+    // TransmogBridge: intercept addon messages from the client-side TransmogBridge addon.
+    // The 12.x client omits HEAD/MH/OH/enchants from CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS
+    // and sends stale IMAIDs for armor slots. The addon uses a hybrid approach:
+    // GetViewedOutfitSlotInfo snapshot (base) + SetPendingTransmog hooks (overlay, wins).
+    // We buffer the overrides so FinalizeTransmogBridgePendingOutfit can merge before save/apply.
+    if (prefix == "TMOG_BRIDGE")
+    {
+        std::string payload = text;
+
+        // Multi-part handling: "1>data" and "2>data"
+        if (payload.size() > 2 && payload[1] == '>')
+        {
+            char part = payload[0];
+            payload = payload.substr(2);
+            if (part == '1')
+            {
+                _transmogBridgePartialPayload = payload;
+                return;
+            }
+            else if (part == '2')
+            {
+                payload = _transmogBridgePartialPayload + payload;
+                _transmogBridgePartialPayload.clear();
+            }
+        }
+
+        _transmogBridgeOverrides.clear();
+
+        for (std::string_view token : Trinity::Tokenize(std::string_view(payload), ';', false))
+        {
+            // Format: "clientSlot.transmogID.option[.illusionID]"
+            std::vector<std::string_view> fields = Trinity::Tokenize(token, '.', true);
+            if (fields.size() < 2)
+                continue;
+
+            Optional<uint8> clientSlot = Trinity::StringTo<uint8>(fields[0]);
+            Optional<int32> transmogID = Trinity::StringTo<int32>(fields[1]);
+            if (!clientSlot || !transmogID)
+                continue;
+
+            if (*clientSlot > 13)
+                continue;
+
+            // transmogID=0 is valid: explicit "clear this slot's transmog" from addon
+            if (*transmogID >= 0)
+            {
+                TransmogBridgeOverride ov;
+                ov.ClientSlot = *clientSlot;
+                ov.TransmogID = *transmogID;
+
+                // Optional 4th field: illusion (SpellItemEnchantmentID)
+                if (fields.size() >= 4)
+                {
+                    Optional<int32> illusionID = Trinity::StringTo<int32>(fields[3]);
+                    if (illusionID)
+                    {
+                        ov.IllusionID = *illusionID;
+                        ov.HasIllusion = true;
+                    }
+                }
+
+                _transmogBridgeOverrides.push_back(ov);
+            }
+        }
+
+        TC_LOG_DEBUG("network.opcode.transmog", "TransmogBridge [{}]: received {} overrides",
+            GetPlayerInfo(), _transmogBridgeOverrides.size());
+
+        // The outfit packet (CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS) always arrives before
+        // this addon message due to FIFO packet ordering. It defers finalization so we
+        // can merge overrides now.
+        if (_transmogBridgePendingOutfit)
+            FinalizeTransmogBridgePendingOutfit();
+
+        return;
+    }
+
+    // Client-side log relays — write addon log entries to Debug.log
+    if (prefix == "TMOG_LOG" || prefix == "TSPY_LOG")
+    {
+        TC_LOG_DEBUG("network.opcode.transmog", "{} [{}]: {}",
+            prefix == "TMOG_LOG" ? "TransmogBridge client" : "TransmogSpy client",
+            GetPlayerInfo(), text);
+        return;
+    }
 
     switch (type)
     {
