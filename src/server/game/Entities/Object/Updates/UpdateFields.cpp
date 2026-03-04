@@ -10159,11 +10159,7 @@ void HousingStorageData::WriteCreate(EnumFlag<UpdateFieldFlag> fieldVisibilityFl
 
 void HousingStorageData::WriteUpdate(EnumFlag<UpdateFieldFlag> fieldVisibilityFlags, ByteBuffer& data, Player const* receiver, BaseEntity const* owner) const
 {
-    // Force ignoreNestedChangesMask=true so the Decor map is always serialized
-    // in full-create format (WriteMapFieldCreate) inside VALUES_UPDATE packets.
-    // The client expects the complete Decor map data, not partial change-mask
-    // updates for newly-added entries.
-    WriteUpdate(_changesMask, data, receiver, owner, true);
+    WriteUpdate(_changesMask, data, receiver, owner, false);
 }
 
 void HousingStorageData::WriteUpdate(Mask const& changesMask, ByteBuffer& data, Player const* receiver, BaseEntity const* owner, bool ignoreNestedChangesMask) const

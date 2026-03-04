@@ -459,11 +459,13 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         // 3. Send the edit mode response BEFORE the UpdateObject
         SendPacket(response.Write());
 
-        // NOTE: Retail does NOT apply UNIT_FLAG_PACIFIED, UNIT_FLAG2_NO_ACTIONS, or
-        // SilencedSchoolMask during edit mode. Sniff analysis (horde_housing) confirms
-        // SilencedSchoolMask=0 and no Pacified/NoActions flags at any point.
-        // Previously we set these flags which caused the client to suppress left-click
-        // input entirely (NO_ACTIONS blocks all player actions including decor selection).
+        // Sniff-verified: retail sets UNIT_FLAG_PACIFIED, UNIT_FLAG2_NO_ACTIONS,
+        // and SilencedSchoolMask=127 during edit mode. These are sent in the same
+        // UPDATE_OBJECT that carries EditorMode=1. The client's housing editor
+        // specifically expects these flags alongside EditorMode.
+        player->SetUnitFlag(UNIT_FLAG_PACIFIED);
+        player->SetUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
+        player->ReplaceAllSilencedSchoolMask(SPELL_SCHOOL_MASK_ALL);
 
         // 4. Populate FHousingStorage_C on the Account entity if not done yet.
         // The client correlates MeshObject FHousingDecor_C.DecorGUID with entries in
@@ -501,7 +503,12 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             player->SendDirectMessage(auraUpdate.Write());
         }
 
-        // 2. Send the edit mode response (empty AllowedEditor = exit)
+        // 2. Clear unit flags set during edit mode enter
+        player->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
+        player->RemoveUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
+        player->ReplaceAllSilencedSchoolMask(SpellSchoolMask(0));
+
+        // 3. Send the edit mode response (empty AllowedEditor = exit)
         SendPacket(response.Write());
 
         TC_LOG_DEBUG("housing", "  EditMode EXIT: BNetAccountGuid={}",
@@ -3680,7 +3687,7 @@ void WorldSession::HandleHousingSystemUpdateHouseInfo(WorldPackets::Housing::Hou
 
     WorldPackets::Housing::HousingUpdateHouseInfo response;
     response.HouseGuid = housingSystemUpdateHouseInfo.HouseGuid;
-    response.BnetAccountGuid = ObjectGuid::Empty;
+    response.BnetAccountGuid = GetBattlenetAccountGUID();
     response.OwnerGuid = player->GetGUID();
     response.Field_024 = 0;
     SendPacket(response.Write());
