@@ -2444,4 +2444,80 @@ void InitiativeUpdateActiveNeighborhood::Read()
     TC_LOG_DEBUG("network.opcode", "CMSG_INITIATIVE_UPDATE_ACTIVE_NEIGHBORHOOD NeighborhoodGuid: {}", NeighborhoodGuid.ToString());
 }
 
+void InitiativeAcceptMilestoneRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> InitiativeID;
+    _worldPacket >> MilestoneIndex;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_INITIATIVE_ACCEPT_MILESTONE_REQUEST NeighborhoodGuid: {} InitiativeID: {} MilestoneIndex: {}",
+        NeighborhoodGuid.ToString(), InitiativeID, MilestoneIndex);
+}
+
+void InitiativeReportProgress::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> InitiativeID;
+    _worldPacket >> TaskID;
+    _worldPacket >> ProgressDelta;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} InitiativeID: {} TaskID: {} ProgressDelta: {}",
+        NeighborhoodGuid.ToString(), InitiativeID, TaskID, ProgressDelta);
+}
+
+void GetInitiativeClaimRewardRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> InitiativeID;
+    _worldPacket >> MilestoneIndex;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_CLAIM_REWARD_REQUEST NeighborhoodGuid: {} InitiativeID: {} MilestoneIndex: {}",
+        NeighborhoodGuid.ToString(), InitiativeID, MilestoneIndex);
+}
+
+void GetInitiativeLeaderboardRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> InitiativeID;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_LEADERBOARD_REQUEST NeighborhoodGuid: {} InitiativeID: {}",
+        NeighborhoodGuid.ToString(), InitiativeID);
+}
+
+void GetInitiativeOpenChestRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> InitiativeID;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_OPEN_CHEST_REQUEST NeighborhoodGuid: {} InitiativeID: {}",
+        NeighborhoodGuid.ToString(), InitiativeID);
+}
+
+void GetInitiativeTaskAcceptRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> TaskID;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_TASK_ACCEPT_REQUEST NeighborhoodGuid: {} TaskID: {}",
+        NeighborhoodGuid.ToString(), TaskID);
+}
+
+void GetInitiativeTaskAbandonRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> TaskID;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_TASK_ABANDON_REQUEST NeighborhoodGuid: {} TaskID: {}",
+        NeighborhoodGuid.ToString(), TaskID);
+}
+
+void GetInitiativeTaskProgressRequest::Read()
+{
+    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> TaskID;
+
+    TC_LOG_DEBUG("network.opcode", "CMSG_GET_INITIATIVE_TASK_PROGRESS_REQUEST NeighborhoodGuid: {} TaskID: {}",
+        NeighborhoodGuid.ToString(), TaskID);
+}
+
 } // namespace WorldPackets::Neighborhood

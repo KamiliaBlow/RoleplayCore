@@ -539,6 +539,18 @@ HousingResult Neighborhood::AddResident(ObjectGuid playerGuid)
     stmt->setUInt8(index++, newMember.PlotIndex);
     CharacterDatabase.Execute(stmt);
 
+    // Clear any pending invite for this player now that they've joined
+    auto inviteIt = std::find_if(_pendingInvites.begin(), _pendingInvites.end(),
+        [&playerGuid](PendingInvite const& invite) { return invite.InviteeGuid == playerGuid; });
+    if (inviteIt != _pendingInvites.end())
+    {
+        CharacterDatabasePreparedStatement* delStmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_INVITE);
+        delStmt->setUInt64(0, _guid.GetCounter());
+        delStmt->setUInt64(1, playerGuid.GetCounter());
+        CharacterDatabase.Execute(delStmt);
+        _pendingInvites.erase(inviteIt);
+    }
+
     TC_LOG_DEBUG("housing", "Neighborhood::AddResident: Player {} joined neighborhood '{}' as resident",
         playerGuid.ToString(), _name);
 

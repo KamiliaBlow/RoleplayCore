@@ -15588,6 +15588,10 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
     // Housing initiative: exploration task (TaskType=4)
     sInitiativeManager.OnPlayerAction(this, 4, 1);
 
+    // Housing level progression: quest-based level-up
+    if (Housing* housing = GetHousing())
+        housing->OnQuestCompleted(quest_id);
+
     if (updateVisibility)
         UpdateObjectVisibility();
 }

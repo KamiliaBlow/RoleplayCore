@@ -2568,6 +2568,82 @@ namespace WorldPackets::Neighborhood
         void Read() override;
         ObjectGuid NeighborhoodGuid;
     };
+
+    class InitiativeAcceptMilestoneRequest final : public ClientPacket
+    {
+    public:
+        InitiativeAcceptMilestoneRequest(WorldPacket&& packet) : ClientPacket(CMSG_INITIATIVE_ACCEPT_MILESTONE_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 InitiativeID = 0;
+        uint32 MilestoneIndex = 0;
+    };
+
+    class InitiativeReportProgress final : public ClientPacket
+    {
+    public:
+        InitiativeReportProgress(WorldPacket&& packet) : ClientPacket(CMSG_INITIATIVE_REPORT_PROGRESS, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 InitiativeID = 0;
+        uint32 TaskID = 0;
+        uint32 ProgressDelta = 0;
+    };
+
+    class GetInitiativeClaimRewardRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeClaimRewardRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_CLAIM_REWARD_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 InitiativeID = 0;
+        uint32 MilestoneIndex = 0;
+    };
+
+    class GetInitiativeLeaderboardRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeLeaderboardRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_LEADERBOARD_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 InitiativeID = 0;
+    };
+
+    class GetInitiativeOpenChestRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeOpenChestRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_OPEN_CHEST_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 InitiativeID = 0;
+    };
+
+    class GetInitiativeTaskAcceptRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeTaskAcceptRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_TASK_ACCEPT_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 TaskID = 0;
+    };
+
+    class GetInitiativeTaskAbandonRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeTaskAbandonRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_TASK_ABANDON_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 TaskID = 0;
+    };
+
+    class GetInitiativeTaskProgressRequest final : public ClientPacket
+    {
+    public:
+        GetInitiativeTaskProgressRequest(WorldPacket&& packet) : ClientPacket(CMSG_GET_INITIATIVE_TASK_PROGRESS_REQUEST, std::move(packet)) { }
+        void Read() override;
+        ObjectGuid NeighborhoodGuid;
+        uint32 TaskID = 0;
+    };
 }
 
 #endif // TRINITYCORE_HOUSING_PACKETS_H

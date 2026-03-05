@@ -26,6 +26,7 @@
 #include "Position.h"
 #include <array>
 #include <atomic>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -185,9 +186,18 @@ public:
     // Settings
     void SaveSettings(uint32 settingsFlags);
 
+    // House name and description
+    std::string const& GetHouseName() const { return _houseName; }
+    std::string const& GetHouseDescription() const { return _houseDescription; }
+    void SetHouseNameDescription(std::string const& name, std::string const& desc);
+
     // Exterior lock state
     void SetExteriorLocked(bool locked);
     bool IsExteriorLocked() const { return _exteriorLocked; }
+
+    // Photo sharing authorization (per-session, volatile)
+    void SetPhotoSharingAuthorized(bool authorized) { _photoSharingAuthorized = authorized; }
+    bool IsPhotoSharingAuthorized() const { return _photoSharingAuthorized; }
 
     // House size (HousingFixtureSize enum)
     void SetHouseSize(uint8 size);
@@ -236,6 +246,8 @@ private:
     uint8 _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
     uint32 _houseType = 0;
     uint32 _createTime = 0;
+    std::string _houseName;
+    std::string _houseDescription;
 
     // Persisted house position on plot
     float _housePosX = 0.0f;
@@ -244,6 +256,7 @@ private:
     float _houseFacing = 0.0f;
     bool _hasCustomPosition = false;
     bool _storagePopulated = false; // True after PopulateCatalogStorageEntries() — gates Account entity updates
+    bool _photoSharingAuthorized = false; // Per-session photo sharing authorization state
 
     // WeightCost-based budget tracking
     uint32 _interiorDecorWeightUsed = 0;

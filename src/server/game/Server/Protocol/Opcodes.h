@@ -479,6 +479,7 @@ enum OpcodeClient : uint32
     CMSG_HOUSING_DECOR_CLEANUP_MODE_TOGGLE                          = 0x30000C,
     CMSG_HOUSING_DECOR_BATCH_OPERATION                              = 0x30000D,
     CMSG_HOUSING_DECOR_PLACEMENT_PREVIEW                            = 0x30000F,
+    CMSG_HOUSING_DECOR_CONFIRM_PREVIEW_PLACEMENT                    = 0x300011, // Purpose unverified ? follows PlacementPreview sequence
     CMSG_HOUSING_FIXTURE_CREATE_FIXTURE                             = 0x310006,
     CMSG_HOUSING_FIXTURE_DELETE_FIXTURE                             = 0x310007,
     CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE                           = 0x310005,
@@ -529,11 +530,15 @@ enum OpcodeClient : uint32
     CMSG_HOUSING_SVCS_GET_ROSTER_DATA                               = 0x33000C,
     CMSG_HOUSING_SVCS_ROSTER_UPDATE_SUBSCRIBE                       = 0x33000D,
     CMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER                   = 0x330010,
+    CMSG_HOUSING_SVCS_COMPLETE_TUTORIAL_STEP                        = 0x33001A, // Purpose unverified ? between StartTutorial and AcceptOwnership
     CMSG_HOUSING_SVCS_QUERY_HOUSE_LEVEL_FAVOR                       = 0x330012,
     CMSG_HOUSING_SVCS_GUILD_ADD_HOUSE                               = 0x330013,
     CMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD                     = 0x330014,
     CMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD                     = 0x330015,
     CMSG_HOUSING_SVCS_GUILD_GET_HOUSING_INFO                        = 0x330016,
+    CMSG_HOUSING_SVCS_QUERY_PENDING_INVITES                         = 0x330022, // Purpose unverified ? between GetBNetFriendNeighborhoods and DeleteAllInvites
+    CMSG_HOUSING_SVCS_SET_TUTORIAL_STATE                            = 0x330019, // Purpose unverified ? between StartTutorial and AcceptOwnership
+    CMSG_HOUSING_SVCS_SKIP_TUTORIAL                                 = 0x33001B, // Purpose unverified ? between StartTutorial and AcceptOwnership
     CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS                         = 0x33000A,
     CMSG_IGNORE_TRADE                                               = 0x3A0003,
     CMSG_INITIATE_ROLE_POLL                                         = 0x400006,

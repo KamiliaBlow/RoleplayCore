@@ -547,6 +547,15 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         return false;
     }
 
+    // Enforce max players on housing map
+    if (GetPlayersCountExceptGMs() >= MAX_HOUSING_MAP_PLAYERS)
+    {
+        TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Map {} full ({} players), rejecting player {}",
+            GetId(), GetPlayersCountExceptGMs(), player->GetGUID().ToString());
+        player->SendTransferAborted(GetId(), TRANSFER_ABORT_HOUSING_MAX_PLAYERS_IN_HOUSE);
+        return false;
+    }
+
     // Do NOT auto-add the player as a neighborhood member here.
     // Membership is granted when the player buys a plot or is invited.
     // Auto-adding causes the client to resolve neighborhoodOwnerType as

@@ -94,6 +94,14 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
     if (!player)
         return;
 
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        SendPacket(response.Write());
+        return;
+    }
+
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_CREATE NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
         neighborhoodCharterCreate.NeighborhoodMapID, neighborhoodCharterCreate.FactionFlags,
         neighborhoodCharterCreate.Name);
@@ -1844,6 +1852,276 @@ void WorldSession::HandleInitiativeUpdateActiveNeighborhood(WorldPackets::Neighb
         initiativeUpdateActiveNeighborhood.NeighborhoodGuid.ToString());
 }
 
+void WorldSession::HandleInitiativeAcceptMilestoneRequest(WorldPackets::Neighborhood::InitiativeAcceptMilestoneRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_INITIATIVE_ACCEPT_MILESTONE_REQUEST NeighborhoodGuid: {} InitiativeID: {} MilestoneIndex: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, packet.MilestoneIndex, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND));
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
+    if (!active || active->InitiativeID != packet.InitiativeID)
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
+        return;
+    }
+
+    // Verify milestone has been reached
+    auto milestoneItr = active->MilestonesReached.find(packet.MilestoneIndex);
+    if (milestoneItr == active->MilestonesReached.end() || !milestoneItr->second)
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
+        return;
+    }
+
+    // Milestone is reached — acknowledge acceptance
+    sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_SUCCESS));
+}
+
+void WorldSession::HandleInitiativeReportProgress(WorldPackets::Neighborhood::InitiativeReportProgress const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} InitiativeID: {} TaskID: {} Delta: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, packet.TaskID, packet.ProgressDelta, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    // Validate that the initiative and task exist
+    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
+    if (!active || active->InitiativeID != packet.InitiativeID)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Apply progress and send updated task info
+    if (packet.ProgressDelta > 0)
+        sInitiativeManager.UpdateTaskProgress(nhGuid, packet.InitiativeID, packet.TaskID, packet.ProgressDelta, player);
+
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+}
+
+void WorldSession::HandleGetInitiativeClaimRewardRequest(WorldPackets::Neighborhood::GetInitiativeClaimRewardRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_CLAIM_REWARD_REQUEST NeighborhoodGuid: {} InitiativeID: {} MilestoneIndex: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, packet.MilestoneIndex, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND));
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID))
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
+        return;
+    }
+
+    // Reward claiming acknowledged — actual item/currency rewards would be granted via
+    // InitiativeMilestone DB2 RewardID → reward table. For now, acknowledge success.
+    sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_SUCCESS));
+
+    // Update favor for the contributing player
+    sInitiativeManager.UpdatePlayerInitiativeFavor(player, nhGuid);
+}
+
+void WorldSession::HandleGetInitiativeLeaderboardRequest(WorldPackets::Neighborhood::GetInitiativeLeaderboardRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_LEADERBOARD_REQUEST NeighborhoodGuid: {} InitiativeID: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    // Build leaderboard from top contributors and send as activity log
+    // The client likely uses the activity log data to render the leaderboard
+    sInitiativeManager.SendActivityLog(this, nhGuid);
+}
+
+void WorldSession::HandleGetInitiativeOpenChestRequest(WorldPackets::Neighborhood::GetInitiativeOpenChestRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_OPEN_CHEST_REQUEST NeighborhoodGuid: {} InitiativeID: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND));
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    // Chest opening is a variant of reward claiming tied to milestone completion
+    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID))
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
+        return;
+    }
+
+    sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_SUCCESS));
+}
+
+void WorldSession::HandleGetInitiativeTaskAcceptRequest(WorldPackets::Neighborhood::GetInitiativeTaskAcceptRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_TASK_ACCEPT_REQUEST NeighborhoodGuid: {} TaskID: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.TaskID, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    // Verify the task exists in the active initiative
+    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
+    if (!active)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        SendPacket(response.Write());
+        return;
+    }
+
+    auto taskItr = active->TaskProgress.find(packet.TaskID);
+    if (taskItr == active->TaskProgress.end())
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Mark task as in-progress if not already
+    if (taskItr->second.Status == INITIATIVE_TASK_STATUS_NOT_STARTED)
+        taskItr->second.Status = INITIATIVE_TASK_STATUS_IN_PROGRESS;
+
+    // Send updated initiative info
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+}
+
+void WorldSession::HandleGetInitiativeTaskAbandonRequest(WorldPackets::Neighborhood::GetInitiativeTaskAbandonRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_TASK_ABANDON_REQUEST NeighborhoodGuid: {} TaskID: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.TaskID, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
+    if (!active)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Clear task criteria (reset progress) for the player's perspective
+    sInitiativeManager.ClearTaskCriteria(nhGuid, active->InitiativeID, packet.TaskID);
+
+    // Send clear criteria packet to the client
+    WorldPackets::Housing::ClearInitiativeTaskCriteriaProgress clearPacket;
+    clearPacket.InitiativeID = active->InitiativeID;
+    clearPacket.TaskID = packet.TaskID;
+    SendPacket(clearPacket.Write());
+
+    // Send updated initiative info
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+}
+
+void WorldSession::HandleGetInitiativeTaskProgressRequest(WorldPackets::Neighborhood::GetInitiativeTaskProgressRequest const& packet)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TC_LOG_DEBUG("housing", "CMSG_GET_INITIATIVE_TASK_PROGRESS_REQUEST NeighborhoodGuid: {} TaskID: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), packet.TaskID, player->GetGUID().ToString());
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
+    if (!neighborhood)
+    {
+        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
+
+    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+
+    // Send current initiative info which includes all task progress
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+}
+
 // ============================================================
 // Phase 7 — Charter Handlers
 // ============================================================
@@ -1923,25 +2201,41 @@ void WorldSession::HandleNeighborhoodOfferOwnershipResponse(WorldPackets::Neighb
         player->GetGUID().ToString(), neighborhoodOfferOwnershipResponse.NeighborhoodGuid.ToString(),
         neighborhoodOfferOwnershipResponse.Accept);
 
+    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(
+        neighborhoodOfferOwnershipResponse.NeighborhoodGuid, player);
+
     WorldPackets::Neighborhood::NeighborhoodOfferOwnershipResponse response;
+
+    if (!neighborhood)
+    {
+        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        SendPacket(response.Write());
+        return;
+    }
 
     if (neighborhoodOfferOwnershipResponse.Accept)
     {
-        Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(
-            neighborhoodOfferOwnershipResponse.NeighborhoodGuid, player);
-        if (neighborhood)
+        HousingResult result = neighborhood->AcceptOwnershipTransfer(player->GetGUID());
+        response.Result = static_cast<uint8>(result);
+
+        if (result == HOUSING_RESULT_SUCCESS)
         {
-            response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
-        }
-        else
-        {
-            response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+            // Broadcast roster update — role change for both old owner and new owner
+            WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+            rosterUpdate.Residents.push_back({ player->GetGUID(), 1 /*RoleChanged*/, NEIGHBORHOOD_ROLE_OWNER });
+            neighborhood->BroadcastPacket(rosterUpdate.Write());
+
+            TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE: Player {} accepted ownership of neighborhood {}",
+                player->GetGUID().ToString(), neighborhood->GetGuid().ToString());
         }
     }
     else
     {
-        // Player declined the ownership transfer
-        response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+        HousingResult result = neighborhood->RejectOwnershipTransfer(player->GetGUID());
+        response.Result = static_cast<uint8>(result);
+
+        TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE: Player {} rejected ownership of neighborhood {}",
+            player->GetGUID().ToString(), neighborhood->GetGuid().ToString());
     }
 
     SendPacket(response.Write());

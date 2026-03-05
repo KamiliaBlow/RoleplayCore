@@ -571,6 +571,14 @@ enum HouseFinderSuggestionReason : uint32
     HOUSE_FINDER_SUGGESTION_RANDOM          = 0x20
 };
 
+// CornerstonePurchaseMode enum - 3 values
+enum CornerstonePurchaseMode : uint8
+{
+    CORNERSTONE_PURCHASE_BASIC  = 0,
+    CORNERSTONE_PURCHASE_IMPORT = 1,
+    CORNERSTONE_PURCHASE_MOVE   = 2
+};
+
 // HouseLevelRewardType enum - 2 values
 enum HouseLevelRewardType : uint8
 {
@@ -730,5 +738,24 @@ static constexpr float  HORDE_HOUSE_FLOOR_HEIGHT = 7.0f;  // Vertical spacing be
 
 // HouseExteriorWmoDataID for Horde theme (from sniff)
 static constexpr int32 HORDE_HOUSE_EXTERIOR_WMO_DATA_ID = 87;
+
+// Max players allowed on a housing map (exterior neighborhood + interior combined)
+static constexpr uint32 MAX_HOUSING_MAP_PLAYERS = 40;
+
+// Housing warning flags — reasons why housing features may be restricted
+enum HousingWarningFlag : uint32
+{
+    HOUSING_WARNING_NONE                    = 0x00,
+    HOUSING_WARNING_EXPANSION_REQUIRED      = 0x01, // Player needs The War Within expansion
+    HOUSING_WARNING_LEVEL_TOO_LOW           = 0x02, // Player below minimum housing level
+    HOUSING_WARNING_FACTION_RESTRICTED      = 0x04, // Faction-specific restriction
+    HOUSING_WARNING_SERVICE_DISABLED        = 0x08, // Housing service disabled via CVar
+};
+
+// Minimum player level to access housing features
+static constexpr uint32 HOUSING_MIN_PLAYER_LEVEL = 10;
+
+// Required expansion for housing access (The War Within = 10)
+static constexpr uint32 HOUSING_REQUIRED_EXPANSION = 10;
 
 #endif // TRINITYCORE_HOUSING_DEFINES_H
