@@ -462,7 +462,8 @@ class TC_GAME_API GameObject : public WorldObject, public GridObject<GameObject>
 
         // Housing decor entity fragment (optional - only set on decor item GameObjects)
         void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid,
-            uint8 flags, ObjectGuid attachParent = ObjectGuid::Empty);
+            uint8 flags, ObjectGuid attachParent = ObjectGuid::Empty,
+            uint8 sourceType = 0, std::string sourceValue = {});
 
         // Housing fixture entity fragment (optional - only set on house structure GameObjects)
         // Sniff-verified: retail sends MeshObjects (type 14) for fixtures, but we attach the

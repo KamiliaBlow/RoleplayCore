@@ -290,6 +290,19 @@ Neighborhood* NeighborhoodMgr::GetNeighborhoodByOwner(ObjectGuid ownerGuid)
     return nullptr;
 }
 
+Neighborhood* NeighborhoodMgr::GetNeighborhoodByGuildId(uint32 guildId)
+{
+    if (guildId == 0)
+        return nullptr;
+
+    for (auto const& [guid, neighborhood] : _neighborhoods)
+    {
+        if (neighborhood->GetGuildId() == guildId)
+            return neighborhood.get();
+    }
+    return nullptr;
+}
+
 std::vector<Neighborhood*> NeighborhoodMgr::GetAllNeighborhoods() const
 {
     std::vector<Neighborhood*> result;

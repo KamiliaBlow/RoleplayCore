@@ -31,26 +31,26 @@
 
 namespace WowCS
 {
-struct FragmentInfoInitializer
-{
-    FragmentInfoInitializer()
+    struct FragmentInfoInitializer
     {
-        EntityFragmentInfos::Register(EntityFragment::FVendor_C, WowCS::FragmentSerializationTraits<UF::VendorData>{});
-        EntityFragmentInfos::Register(EntityFragment::FMeshObjectData_C, WowCS::FragmentSerializationTraits<UF::MeshObjectData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingDecor_C, WowCS::FragmentSerializationTraits<UF::HousingDecorData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingRoom_C, WowCS::FragmentSerializationTraits<UF::HousingRoomData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingRoomComponentMesh_C, WowCS::FragmentSerializationTraits<UF::HousingRoomComponentMeshData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingPlayerHouse_C, WowCS::FragmentSerializationTraits<UF::HousingPlayerHouseData>{});
-        EntityFragmentInfos::Register(EntityFragment::FJamHousingCornerstone_C, WowCS::FragmentSerializationTraits<UF::HousingCornerstoneData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingPlotAreaTrigger_C, WowCS::FragmentSerializationTraits<UF::HousingPlotAreaTriggerData>{});
-        EntityFragmentInfos::Register(EntityFragment::FNeighborhoodMirrorData_C, WowCS::FragmentSerializationTraits<UF::NeighborhoodMirrorData>{});
-        EntityFragmentInfos::Register(EntityFragment::FMirroredPositionData_C, WowCS::FragmentSerializationTraits<UF::MirroredPositionData>{});
-        EntityFragmentInfos::Register(EntityFragment::PlayerHouseInfoComponent_C, WowCS::FragmentSerializationTraits<UF::PlayerHouseInfoComponentData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingStorage_C, WowCS::FragmentSerializationTraits<UF::HousingStorageData>{});
-        EntityFragmentInfos::Register(EntityFragment::FHousingFixture_C, WowCS::FragmentSerializationTraits<UF::HousingFixtureData>{});
-        EntityFragmentInfos::Register(EntityFragment::PlayerInitiativeComponent_C, WowCS::FragmentSerializationTraits<UF::PlayerInitiativeComponentData>{});
-    }
-} static InitFragments;
+        FragmentInfoInitializer()
+        {
+            EntityFragmentInfos::Register(EntityFragment::FVendor_C, WowCS::FragmentSerializationTraits<UF::VendorData>{});
+            EntityFragmentInfos::Register(EntityFragment::FMeshObjectData_C, WowCS::FragmentSerializationTraits<UF::MeshObjectData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingDecor_C, WowCS::FragmentSerializationTraits<UF::HousingDecorData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingRoom_C, WowCS::FragmentSerializationTraits<UF::HousingRoomData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingRoomComponentMesh_C, WowCS::FragmentSerializationTraits<UF::HousingRoomComponentMeshData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingPlayerHouse_C, WowCS::FragmentSerializationTraits<UF::HousingPlayerHouseData>{});
+            EntityFragmentInfos::Register(EntityFragment::FJamHousingCornerstone_C, WowCS::FragmentSerializationTraits<UF::HousingCornerstoneData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingPlotAreaTrigger_C, WowCS::FragmentSerializationTraits<UF::HousingPlotAreaTriggerData>{});
+            EntityFragmentInfos::Register(EntityFragment::FNeighborhoodMirrorData_C, WowCS::FragmentSerializationTraits<UF::NeighborhoodMirrorData>{});
+            EntityFragmentInfos::Register(EntityFragment::FMirroredPositionData_C, WowCS::FragmentSerializationTraits<UF::MirroredPositionData>{});
+            EntityFragmentInfos::Register(EntityFragment::PlayerHouseInfoComponent_C, WowCS::FragmentSerializationTraits<UF::PlayerHouseInfoComponentData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingStorage_C, WowCS::FragmentSerializationTraits<UF::HousingStorageData>{});
+            EntityFragmentInfos::Register(EntityFragment::FHousingFixture_C, WowCS::FragmentSerializationTraits<UF::HousingFixtureData>{});
+            EntityFragmentInfos::Register(EntityFragment::PlayerInitiativeComponent_C, WowCS::FragmentSerializationTraits<UF::PlayerInitiativeComponentData>{});
+        }
+    } static InitFragments;
 }
 
 BaseEntity::BaseEntity() = default;
@@ -437,11 +437,17 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
         data << uint64(gameObject->GetPackedLocalRotation());          // Rotation
     }
 
-    //if (flags.Room)
-    //    data << ObjectGuid(HouseGUID);
+    if (flags.Room)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetRoomHouseGUID();
+    }
 
-    //if (flags.Decor)
-    //    data << ObjectGuid(RoomGUID);
+    if (flags.Decor)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetDecorRoomEntityGUID();
+    }
 
     if (flags.MeshObject)
     {
@@ -515,108 +521,108 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
         data.WriteBit(false);                                          // HasPetBattleFullUpdate
         data.FlushBits();
 
-    //    if (HasLocalScriptData)
-    //    {
-    //        data.WriteBits(Data.length(), 7);
-    //        data.FlushBits();
-    //        data.WriteString(Data);
-    //    }
+        //    if (HasLocalScriptData)
+        //    {
+        //        data.WriteBits(Data.length(), 7);
+        //        data.FlushBits();
+        //        data.WriteString(Data);
+        //    }
 
-    //    if (HasPetBattleFullUpdate)
-    //    {
-    //        for (std::size_t i = 0; i < 2; ++i)
-    //        {
-    //            data << ObjectGuid(Players[i].CharacterID);
-    //            data << int32(Players[i].TrapAbilityID);
-    //            data << int32(Players[i].TrapStatus);
-    //            data << uint16(Players[i].RoundTimeSecs);
-    //            data << int8(Players[i].FrontPet);
-    //            data << uint8(Players[i].InputFlags);
+        //    if (HasPetBattleFullUpdate)
+        //    {
+        //        for (std::size_t i = 0; i < 2; ++i)
+        //        {
+        //            data << ObjectGuid(Players[i].CharacterID);
+        //            data << int32(Players[i].TrapAbilityID);
+        //            data << int32(Players[i].TrapStatus);
+        //            data << uint16(Players[i].RoundTimeSecs);
+        //            data << int8(Players[i].FrontPet);
+        //            data << uint8(Players[i].InputFlags);
 
-    //            data.WriteBits(Players[i].Pets.size(), 2);
-    //            data.FlushBits();
-    //            for (std::size_t j = 0; j < Players[i].Pets.size(); ++j)
-    //            {
-    //                data << ObjectGuid(Players[i].Pets[j].BattlePetGUID);
-    //                data << int32(Players[i].Pets[j].SpeciesID);
-    //                data << int32(Players[i].Pets[j].CreatureID);
-    //                data << int32(Players[i].Pets[j].DisplayID);
-    //                data << int16(Players[i].Pets[j].Level);
-    //                data << int16(Players[i].Pets[j].Xp);
-    //                data << int32(Players[i].Pets[j].CurHealth);
-    //                data << int32(Players[i].Pets[j].MaxHealth);
-    //                data << int32(Players[i].Pets[j].Power);
-    //                data << int32(Players[i].Pets[j].Speed);
-    //                data << int32(Players[i].Pets[j].NpcTeamMemberID);
-    //                data << uint8(Players[i].Pets[j].BreedQuality);
-    //                data << uint16(Players[i].Pets[j].StatusFlags);
-    //                data << int8(Players[i].Pets[j].Slot);
+        //            data.WriteBits(Players[i].Pets.size(), 2);
+        //            data.FlushBits();
+        //            for (std::size_t j = 0; j < Players[i].Pets.size(); ++j)
+        //            {
+        //                data << ObjectGuid(Players[i].Pets[j].BattlePetGUID);
+        //                data << int32(Players[i].Pets[j].SpeciesID);
+        //                data << int32(Players[i].Pets[j].CreatureID);
+        //                data << int32(Players[i].Pets[j].DisplayID);
+        //                data << int16(Players[i].Pets[j].Level);
+        //                data << int16(Players[i].Pets[j].Xp);
+        //                data << int32(Players[i].Pets[j].CurHealth);
+        //                data << int32(Players[i].Pets[j].MaxHealth);
+        //                data << int32(Players[i].Pets[j].Power);
+        //                data << int32(Players[i].Pets[j].Speed);
+        //                data << int32(Players[i].Pets[j].NpcTeamMemberID);
+        //                data << uint8(Players[i].Pets[j].BreedQuality);
+        //                data << uint16(Players[i].Pets[j].StatusFlags);
+        //                data << int8(Players[i].Pets[j].Slot);
 
-    //                data << uint32(Players[i].Pets[j].Abilities.size());
-    //                data << uint32(Players[i].Pets[j].Auras.size());
-    //                data << uint32(Players[i].Pets[j].States.size());
-    //                for (std::size_t k = 0; k < Players[i].Pets[j].Abilities.size(); ++k)
-    //                {
-    //                    data << int32(Players[i].Pets[j].Abilities[k].AbilityID);
-    //                    data << int16(Players[i].Pets[j].Abilities[k].CooldownRemaining);
-    //                    data << int16(Players[i].Pets[j].Abilities[k].LockdownRemaining);
-    //                    data << int8(Players[i].Pets[j].Abilities[k].AbilityIndex);
-    //                    data << uint8(Players[i].Pets[j].Abilities[k].Pboid);
-    //                }
+        //                data << uint32(Players[i].Pets[j].Abilities.size());
+        //                data << uint32(Players[i].Pets[j].Auras.size());
+        //                data << uint32(Players[i].Pets[j].States.size());
+        //                for (std::size_t k = 0; k < Players[i].Pets[j].Abilities.size(); ++k)
+        //                {
+        //                    data << int32(Players[i].Pets[j].Abilities[k].AbilityID);
+        //                    data << int16(Players[i].Pets[j].Abilities[k].CooldownRemaining);
+        //                    data << int16(Players[i].Pets[j].Abilities[k].LockdownRemaining);
+        //                    data << int8(Players[i].Pets[j].Abilities[k].AbilityIndex);
+        //                    data << uint8(Players[i].Pets[j].Abilities[k].Pboid);
+        //                }
 
-    //                for (std::size_t k = 0; k < Players[i].Pets[j].Auras.size(); ++k)
-    //                {
-    //                    data << int32(Players[i].Pets[j].Auras[k].AbilityID);
-    //                    data << uint32(Players[i].Pets[j].Auras[k].InstanceID);
-    //                    data << int32(Players[i].Pets[j].Auras[k].RoundsRemaining);
-    //                    data << int32(Players[i].Pets[j].Auras[k].CurrentRound);
-    //                    data << uint8(Players[i].Pets[j].Auras[k].CasterPBOID);
-    //                }
+        //                for (std::size_t k = 0; k < Players[i].Pets[j].Auras.size(); ++k)
+        //                {
+        //                    data << int32(Players[i].Pets[j].Auras[k].AbilityID);
+        //                    data << uint32(Players[i].Pets[j].Auras[k].InstanceID);
+        //                    data << int32(Players[i].Pets[j].Auras[k].RoundsRemaining);
+        //                    data << int32(Players[i].Pets[j].Auras[k].CurrentRound);
+        //                    data << uint8(Players[i].Pets[j].Auras[k].CasterPBOID);
+        //                }
 
-    //                for (std::size_t k = 0; k < Players[i].Pets[j].States.size(); ++k)
-    //                {
-    //                    data << uint32(Players[i].Pets[j].States[k].StateID);
-    //                    data << int32(Players[i].Pets[j].States[k].StateValue);
-    //                }
+        //                for (std::size_t k = 0; k < Players[i].Pets[j].States.size(); ++k)
+        //                {
+        //                    data << uint32(Players[i].Pets[j].States[k].StateID);
+        //                    data << int32(Players[i].Pets[j].States[k].StateValue);
+        //                }
 
-    //                data.WriteBits(Players[i].Pets[j].CustomName.length(), 7);
-    //                data.FlushBits();
-    //                data.WriteString(Players[i].Pets[j].CustomName);
-    //            }
-    //        }
+        //                data.WriteBits(Players[i].Pets[j].CustomName.length(), 7);
+        //                data.FlushBits();
+        //                data.WriteString(Players[i].Pets[j].CustomName);
+        //            }
+        //        }
 
-    //        for (std::size_t i = 0; i < 3; ++i)
-    //        {
-    //            data << uint32(Enviros[j].Auras.size());
-    //            data << uint32(Enviros[j].States.size());
-    //            for (std::size_t j = 0; j < Enviros[j].Auras.size(); ++j)
-    //            {
-    //                data << int32(Enviros[j].Auras[j].AbilityID);
-    //                data << uint32(Enviros[j].Auras[j].InstanceID);
-    //                data << int32(Enviros[j].Auras[j].RoundsRemaining);
-    //                data << int32(Enviros[j].Auras[j].CurrentRound);
-    //                data << uint8(Enviros[j].Auras[j].CasterPBOID);
-    //            }
+        //        for (std::size_t i = 0; i < 3; ++i)
+        //        {
+        //            data << uint32(Enviros[j].Auras.size());
+        //            data << uint32(Enviros[j].States.size());
+        //            for (std::size_t j = 0; j < Enviros[j].Auras.size(); ++j)
+        //            {
+        //                data << int32(Enviros[j].Auras[j].AbilityID);
+        //                data << uint32(Enviros[j].Auras[j].InstanceID);
+        //                data << int32(Enviros[j].Auras[j].RoundsRemaining);
+        //                data << int32(Enviros[j].Auras[j].CurrentRound);
+        //                data << uint8(Enviros[j].Auras[j].CasterPBOID);
+        //            }
 
-    //            for (std::size_t j = 0; j < Enviros[j].States.size(); ++j)
-    //            {
-    //                data << uint32(Enviros[i].States[j].StateID);
-    //                data << int32(Enviros[i].States[j].StateValue);
-    //            }
-    //        }
+        //            for (std::size_t j = 0; j < Enviros[j].States.size(); ++j)
+        //            {
+        //                data << uint32(Enviros[i].States[j].StateID);
+        //                data << int32(Enviros[i].States[j].StateValue);
+        //            }
+        //        }
 
-    //        data << uint16(WaitingForFrontPetsMaxSecs);
-    //        data << uint16(PvpMaxRoundTime);
-    //        data << int32(CurRound);
-    //        data << uint32(NpcCreatureID);
-    //        data << uint32(NpcDisplayID);
-    //        data << int8(CurPetBattleState);
-    //        data << uint8(ForfeitPenalty);
-    //        data << ObjectGuid(InitialWildPetGUID);
-    //        data.WriteBit(IsPVP);
-    //        data.WriteBit(CanAwardXP);
-    //        data.FlushBits();
-    //    }
+        //        data << uint16(WaitingForFrontPetsMaxSecs);
+        //        data << uint16(PvpMaxRoundTime);
+        //        data << int32(CurRound);
+        //        data << uint32(NpcCreatureID);
+        //        data << uint32(NpcDisplayID);
+        //        data << int8(CurPetBattleState);
+        //        data << uint8(ForfeitPenalty);
+        //        data << ObjectGuid(InitialWildPetGUID);
+        //        data.WriteBit(IsPVP);
+        //        data.WriteBit(CanAwardXP);
+        //        data.FlushBits();
+        //    }
     }
 
     if (flags.ActivePlayer)

@@ -67,6 +67,9 @@ enum InventoryResult : uint8;
 enum class StableResult : uint8;
 enum class TabardVendorType : int32;
 
+class HousingNeighborhoodMirrorEntity;
+class HousingPlayerHouseEntity;
+
 namespace Battlenet
 {
 class Account;
@@ -463,6 +466,11 @@ namespace WorldPackets
         class HousingSvcsGetPlayerHousesInfo;
         class HousingSvcsTeleportToPlot;
         class HousingSvcsStartTutorial;
+        class HousingSvcsSetTutorialState;
+        class HousingSvcsCompleteTutorialStep;
+        class HousingSvcsSkipTutorial;
+        class HousingSvcsQueryPendingInvites;
+        class HousingDecorConfirmPreviewPlacement;
         class HousingSvcsAcceptNeighborhoodOwnership;
         class HousingSvcsRejectNeighborhoodOwnership;
         class HousingSvcsGetPotentialHouseOwners;
@@ -1151,6 +1159,8 @@ class TC_GAME_API WorldSession
         uint32 GetBattlenetAccountId() const;
         ObjectGuid GetBattlenetAccountGUID() const;
         Battlenet::Account& GetBattlenetAccount() const { return *_battlenetAccount; }
+        HousingPlayerHouseEntity& GetHousingPlayerHouseEntity() const { return *_housingPlayerHouseEntity; }
+        HousingNeighborhoodMirrorEntity& GetHousingNeighborhoodMirrorEntity() const { return *_housingNeighborhoodMirrorEntity; }
         Player* GetPlayer() const { return _player; }
         std::string const& GetPlayerName() const;
         std::string GetPlayerInfo() const;
@@ -1640,6 +1650,11 @@ class TC_GAME_API WorldSession
         void HandleHousingSvcsGetPlayerHousesInfo(WorldPackets::Housing::HousingSvcsGetPlayerHousesInfo const& housingSvcsGetPlayerHousesInfo);
         void HandleHousingSvcsTeleportToPlot(WorldPackets::Housing::HousingSvcsTeleportToPlot const& housingSvcsTeleportToPlot);
         void HandleHousingSvcsStartTutorial(WorldPackets::Housing::HousingSvcsStartTutorial const& housingSvcsStartTutorial);
+        void HandleHousingSvcsSetTutorialState(WorldPackets::Housing::HousingSvcsSetTutorialState const& housingSvcsSetTutorialState);
+        void HandleHousingSvcsCompleteTutorialStep(WorldPackets::Housing::HousingSvcsCompleteTutorialStep const& housingSvcsCompleteTutorialStep);
+        void HandleHousingSvcsSkipTutorial(WorldPackets::Housing::HousingSvcsSkipTutorial const& housingSvcsSkipTutorial);
+        void HandleHousingSvcsQueryPendingInvites(WorldPackets::Housing::HousingSvcsQueryPendingInvites const& housingSvcsQueryPendingInvites);
+        void HandleHousingDecorConfirmPreviewPlacement(WorldPackets::Housing::HousingDecorConfirmPreviewPlacement const& housingDecorConfirmPreviewPlacement);
         void HandleHousingSvcsAcceptNeighborhoodOwnership(WorldPackets::Housing::HousingSvcsAcceptNeighborhoodOwnership const& housingSvcsAcceptNeighborhoodOwnership);
         void HandleHousingSvcsRejectNeighborhoodOwnership(WorldPackets::Housing::HousingSvcsRejectNeighborhoodOwnership const& housingSvcsRejectNeighborhoodOwnership);
         void HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housing::HousingSvcsGetPotentialHouseOwners const& housingSvcsGetPotentialHouseOwners);
@@ -2287,6 +2302,8 @@ class TC_GAME_API WorldSession
         uint32 _accountId;
         std::string _accountName;
         std::unique_ptr<Battlenet::Account> _battlenetAccount;
+        std::unique_ptr<HousingPlayerHouseEntity> _housingPlayerHouseEntity;
+        std::unique_ptr<HousingNeighborhoodMirrorEntity> _housingNeighborhoodMirrorEntity;
         uint8 m_accountExpansion;
         uint8 m_expansion;
         std::string _os;

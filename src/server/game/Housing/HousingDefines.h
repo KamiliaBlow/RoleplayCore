@@ -206,6 +206,19 @@ enum HousingRoomComponentOptionType : uint8
     HOUSING_ROOM_COMPONENT_OPTION_DOORWAY       = 2
 };
 
+// DecorSourceType — identifies how a decor item was acquired.
+// IDA-verified: client reads SourceType as uint8 and SourceValue as SizedCString from DecorStoragePersistedData.
+// Retail sniff examples:
+//   SourceType=5, SourceValue="1250393"            → spell-acquired (spell ID as string)
+//   SourceType=6, SourceValue="3713-0-40000009CD1F16CB" → item-acquired (item GUID as string)
+enum DecorSourceType : uint8
+{
+    DECOR_SOURCE_STANDARD       = 0, // Default / starter decor / placed
+    DECOR_SOURCE_SPELL          = 5, // Acquired via spell cast (SourceValue = spell ID string)
+    DECOR_SOURCE_ITEM           = 6, // Acquired via item use (SourceValue = item GUID string)
+    DECOR_SOURCE_DEFERRED       = 3, // Redeemed from deferred reward queue
+};
+
 // HousingCatalogEntryType enum - 3 values
 enum HousingCatalogEntryType : uint8
 {

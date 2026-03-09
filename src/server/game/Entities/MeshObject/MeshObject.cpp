@@ -155,7 +155,7 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
 }
 
 void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags,
-    ObjectGuid roomEntityGuid /*= ObjectGuid::Empty*/)
+    ObjectGuid roomEntityGuid /*= ObjectGuid::Empty*/, uint8 sourceType /*= 0*/, std::string sourceValue /*= {}*/)
 {
     if (m_housingDecorData.has_value())
         return;
@@ -175,12 +175,19 @@ void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
         .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
-    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), uint8(0));
+    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
+    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingDecorData));
 
-    TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={}",
+    // Retail sniff: HasDecor movement block flag is NEVER set (always False).
+    // The room entity GUID is already in the FHousingDecor_C fragment's AttachParentGUID field.
+    // Do NOT set m_updateFlag.Decor here — it adds an extra movement block field
+    // that the client does not expect.
+    _decorRoomEntityGUID = roomEntityGuid;
+
+    TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={} (Decor flag=ON)",
         GetGUID().ToString(), decorGuid.ToString(), houseGuid.ToString(), flags, roomEntityGuid.ToString());
 }
 
@@ -247,8 +254,14 @@ void MeshObject::InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID,
     // Register Tag_HousingRoom tag fragment
     m_entityFragments.Add(WowCS::EntityFragment::Tag_HousingRoom, IsInWorld());
 
+    // Retail sniff: HasRoom movement block flag is NEVER set (always False).
+    // The house GUID is already in the FHousingRoom_C fragment data.
+    // Do NOT set m_updateFlag.Room here — it adds an extra movement block field
+    // that the client does not expect.
+    _roomHouseGUID = houseGuid;
+
     TC_LOG_DEBUG("housing", "MeshObject::InitHousingRoomData: guid={} houseGuid={} "
-        "roomID={} flags={} floor={}",
+        "roomID={} flags={} floor={} (Room flag=ON)",
         GetGUID().ToString(), houseGuid.ToString(), houseRoomID, flags, floorIndex);
 }
 

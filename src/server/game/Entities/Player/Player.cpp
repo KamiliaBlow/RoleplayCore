@@ -18,6 +18,8 @@
 #include "Player.h"
 #include "AreaTrigger.h"
 #include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "ArenaTeam.h"
@@ -1596,6 +1598,8 @@ void Player::AddToWorld()
             m_items[i]->AddToWorld();
 
     GetSession()->GetBattlenetAccount().AddToWorld();
+    GetSession()->GetHousingPlayerHouseEntity().AddToWorld();
+    GetSession()->GetHousingNeighborhoodMirrorEntity().AddToWorld();
 }
 
 void Player::RemoveFromWorld()
@@ -1615,6 +1619,8 @@ void Player::RemoveFromWorld()
         sBattlefieldMgr->HandlePlayerLeaveZone(this, m_zoneUpdateId);
     }
 
+    GetSession()->GetHousingNeighborhoodMirrorEntity().RemoveFromWorld();
+    GetSession()->GetHousingPlayerHouseEntity().RemoveFromWorld();
     GetSession()->GetBattlenetAccount().RemoveFromWorld();
 
     // Remove items from world before self - player must be found in Item::RemoveFromObjectUpdate
@@ -3670,6 +3676,8 @@ void Player::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) c
                 item->BuildCreateUpdateBlockForPlayer(data, target);
 
         GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
+        GetSession()->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(data, target);
+        GetSession()->GetHousingNeighborhoodMirrorEntity().BuildCreateUpdateBlockForPlayer(data, target);
     }
 
     Unit::BuildCreateUpdateBlockForPlayer(data, target);
@@ -19023,11 +19031,19 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         mirrorHouse.NeighborhoodGUID = h->GetNeighborhoodGuid();
         mirrorHouse.Level = h->GetLevel();
         mirrorHouse.Favor = static_cast<uint32>(std::min<uint64>(h->GetFavor64(), std::numeric_limits<uint32>::max()));
-        mirrorHouse.MapID = 0; // Will be resolved when entering neighborhood
         mirrorHouse.PlotID = h->GetPlotIndex();
 
-        TC_LOG_ERROR("housing", "Player::LoadFromDB: PlayerMirrorHouse: HouseGuid={} NeighborhoodGuid={} PlotID={} Level={} MapID={}",
-            h->GetHouseGuid().ToString(), h->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID);
+        // Resolve MapID from the neighborhood's DB2 data so the dashboard works before
+        // the player enters the neighborhood map.
+        mirrorHouse.MapID = 0;
+        if (Neighborhood const* nh = sNeighborhoodMgr.GetNeighborhood(h->GetNeighborhoodGuid()))
+        {
+            if (NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(nh->GetNeighborhoodMapID()))
+                mirrorHouse.MapID = nmData->MapID;
+        }
+
+        TC_LOG_ERROR("network", "Player::LoadFromDB: PlayerMirrorHouse: HouseGuid={} NeighborhoodGuid={} PlotID={} Level={} MapID={} Favor={}",
+            h->GetHouseGuid().ToString(), h->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID, mirrorHouse.Favor);
 
         // Initiative mirror fields - client reads InitiativeCycleID to display initiative UI
         uint64 nhGuid = h->GetNeighborhoodGuid().GetCounter();
@@ -25446,6 +25462,8 @@ void Player::SendInitialPacketsAfterAddToMap()
     // (Player::BuildCreateUpdateBlockForPlayer), which was just sent by
     // UpdateVisibilityForPlayer() above.
     m_clientGUIDs.insert(GetSession()->GetBattlenetAccount().GetGUID());
+    m_clientGUIDs.insert(GetSession()->GetHousingPlayerHouseEntity().GetGUID());
+    m_clientGUIDs.insert(GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID());
 
     // Send map wide vignettes before UpdateZone, that will send zone wide vignettes
     // But first send on new map will wipe all vignettes on client
@@ -25554,32 +25572,33 @@ void Player::SendInitialPacketsAfterAddToMap()
             if (housing)
             {
                 statusResponse.HouseGuid = housing->GetHouseGuid();
-                // Sniff byte-level: second field has hi byte7=0x78 = BNetAccount, NOT Housing/Neighborhood
-                statusResponse.NeighborhoodGuid = GetSession()->GetBattlenetAccountGUID();
-                statusResponse.OwnerPlayerGuid = GetGUID(); // Owner's Player GUID
+                statusResponse.AccountGuid = GetSession()->GetBattlenetAccountGUID();
+                statusResponse.OwnerPlayerGuid = GetGUID();
+                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
                 statusResponse.Status = 0;
             }
             // No house: all fields stay at defaults (empty GUIDs, Status=0).
             SendDirectMessage(statusResponse.Write());
 
-            // Populate NeighborhoodMirrorData on the Account entity so the
-            // client gets neighborhood info through the UpdateField system.
-            Battlenet::Account& account = GetSession()->GetBattlenetAccount();
-            account.SetNeighborhoodMirrorName(neighborhood->GetName());
-            account.SetNeighborhoodMirrorOwner(neighborhood->GetOwnerGuid());
+            // FNeighborhoodMirrorData_C belongs on the Housing/4 entity (separate from BNetAccount).
+            HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
+            mirrorEntity.SetName(neighborhood->GetName());
+            mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
 
-            // Add all plots with houses so the client knows which plots are occupied
-            account.ClearNeighborhoodMirrorHouses();
+            // Add ALL 55 plot entries so Houses[i] = PlotIndex i. The client uses
+            // the array index as the plot identifier; skipping empty slots causes
+            // the client to show the wrong plots as occupied.
+            mirrorEntity.ClearHouses();
             for (auto const& plot : neighborhood->GetPlots())
             {
-                if (!plot.IsOccupied())
-                    continue;
-                if (!plot.HouseGuid.IsEmpty())
-                    account.AddNeighborhoodMirrorHouse(plot.HouseGuid, plot.OwnerGuid);
+                if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                    mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+                else
+                    mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
             }
 
             // Add managers to mirror data
-            account.ClearNeighborhoodMirrorManagers();
+            mirrorEntity.ClearManagers();
             for (auto const& member : neighborhood->GetMembers())
             {
                 if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
@@ -25587,15 +25606,34 @@ void Player::SendInitialPacketsAfterAddToMap()
                     ObjectGuid bnetGuid;
                     if (Player* managerPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
                         bnetGuid = managerPlayer->GetSession()->GetBattlenetAccountGUID();
-                    account.AddNeighborhoodMirrorManager(bnetGuid, member.PlayerGuid);
+                    mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
                 }
             }
 
-            // Flush the Account entity update to the client so it receives the
+            // Flush the Housing/4 entity update to the client so it receives the
             // NeighborhoodMirrorData (houses, managers, owner, name).
-            // Without this, the client never gets the ownership data and
-            // cannot display the player as house owner in the settings panel.
-            account.SendUpdateToPlayer(this);
+            mirrorEntity.SendUpdateToPlayer(this);
+
+            // FHousingPlayerHouse_C belongs on the Housing/3 entity.
+            // Populate it with the player's house data for this neighborhood.
+            if (housing)
+            {
+                HousingPlayerHouseEntity& houseEntity = GetSession()->GetHousingPlayerHouseEntity();
+                houseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
+                houseEntity.SetEntityGUID(housing->GetHouseGuid());
+                houseEntity.SetHouseType(housing->GetHouseType());
+                houseEntity.SetHouseSize(static_cast<uint32>(housing->GetHouseSize()));
+                houseEntity.SetPlotIndex(static_cast<int32>(housing->GetPlotIndex()));
+                houseEntity.SetLevel(housing->GetLevel());
+                houseEntity.SetFavor(housing->GetFavor64());
+                houseEntity.SetBudgets(
+                    housing->GetMaxInteriorDecorBudget(),
+                    housing->GetMaxExteriorDecorBudget(),
+                    housing->GetMaxRoomBudget(),
+                    housing->GetMaxFixtureBudget()
+                );
+                houseEntity.SendUpdateToPlayer(this);
+            }
 
             // Proactively send the neighborhood name response BEFORE the roster.
             // The client's NeighborhoodState singleton initializes all four display

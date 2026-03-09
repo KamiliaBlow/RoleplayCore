@@ -424,7 +424,7 @@ NonDefaultConstructible<SpellEffectHandlerFn> SpellEffectHandlers[TOTAL_SPELL_EF
     &Spell::EffectNULL,                                     //321 SPELL_EFFECT_321
     &Spell::EffectNULL,                                     //322 SPELL_EFFECT_322
     &Spell::EffectNULL,                                     //323 SPELL_EFFECT_323
-    &Spell::EffectNULL,                                     //324 SPELL_EFFECT_324
+    &Spell::EffectCollectHousingDecor,                      //324 SPELL_EFFECT_COLLECT_HOUSING_DECOR
     &Spell::EffectNULL,                                     //325 SPELL_EFFECT_325
     &Spell::EffectNULL,                                     //326 SPELL_EFFECT_326
     &Spell::EffectNULL,                                     //327 SPELL_EFFECT_327
@@ -6748,6 +6748,50 @@ void Spell::EffectGiveHouseLevel()
         levelsToAdd, player->GetName(), housing->GetHouseGuid().ToString(), housing->GetLevel());
 
     housing->AddLevel(levelsToAdd);
+}
+
+void Spell::EffectCollectHousingDecor()
+{
+    if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
+        return;
+
+    Player* player = Object::ToPlayer(unitTarget);
+    if (!player)
+        return;
+
+    Housing* housing = player->GetHousing();
+    if (!housing)
+        return;
+
+    uint32 decorEntryId = effectInfo->MiscValue;
+    if (!decorEntryId)
+        return;
+
+    HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(decorEntryId);
+    if (!decorData)
+    {
+        TC_LOG_ERROR("spells", "Spell::EffectCollectHousingDecor: Invalid HouseDecor ID {} from spell {}",
+            decorEntryId, m_spellInfo->Id);
+        return;
+    }
+
+    HousingResult result = housing->AddToCatalog(decorEntryId, DECOR_SOURCE_SPELL,
+        std::to_string(m_spellInfo->Id));
+
+    if (result != HOUSING_RESULT_SUCCESS)
+    {
+        TC_LOG_ERROR("spells", "Spell::EffectCollectHousingDecor: AddToCatalog failed (result={}) for decor {} spell {}",
+            uint32(result), decorEntryId, m_spellInfo->Id);
+        return;
+    }
+
+    // Notify client of the new decor acquisition
+    WorldPackets::Housing::HousingFirstTimeDecorAcquisition decorAcq;
+    decorAcq.DecorEntryID = decorEntryId;
+    player->SendDirectMessage(decorAcq.Write());
+
+    TC_LOG_DEBUG("spells", "Spell::EffectCollectHousingDecor: Player {} learned decor '{}' (ID: {}) from spell {}",
+        player->GetName(), decorData->Name, decorEntryId, m_spellInfo->Id);
 }
 
 void Spell::EffectLearnHouseRoom()

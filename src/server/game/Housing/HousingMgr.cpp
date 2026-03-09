@@ -574,6 +574,16 @@ int32 HousingMgr::ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood cons
         return -1;
     }
 
+    // Only GameObject GUIDs encode a GO entry that can be matched against cornerstone entries.
+    // Housing/Neighborhood GUIDs (HighGuid 55) don't have a GO entry — callers sometimes
+    // pass these for diagnostic purposes; silently return -1.
+    if (cornerstoneGuid.GetHigh() != HighGuid::GameObject)
+    {
+        TC_LOG_DEBUG("housing", "HousingMgr::ResolvePlotIndex: GUID {} is not a GameObject (HighGuid: {}), skipping",
+            cornerstoneGuid.ToString(), static_cast<uint32>(cornerstoneGuid.GetHigh()));
+        return -1;
+    }
+
     uint32 goEntry = cornerstoneGuid.GetEntry();
     if (!goEntry)
     {

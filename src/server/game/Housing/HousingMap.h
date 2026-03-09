@@ -63,6 +63,7 @@ public:
     void DespawnHouseForPlot(uint8 plotIndex);
     GameObject* GetHouseGameObject(uint8 plotIndex);
     int8 GetPlotIndexForHouseGO(ObjectGuid goGuid) const;
+    uint32 GetHouseGameObjectCount() const { return static_cast<uint32>(_houseGameObjects.size()); }
 
     // MeshObject management (housing fixture rendering)
     // pos: local-space position for child pieces (or world position for root pieces)
@@ -106,6 +107,9 @@ public:
         auto itr = _playerCurrentPlot.find(playerGuid);
         return itr != _playerCurrentPlot.end() ? static_cast<int8>(itr->second) : -1;
     }
+
+    // Accessor for diagnostic logging (decor GUID → MeshObject GUID map)
+    std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToGoGuid; }
 
     // Manual spell packet helpers — called from AddPlayerToMap and at_housing_plot AT script.
     // These spells don't exist in DB2, so CastSpell() silently fails; manual packets are required.

@@ -9473,6 +9473,8 @@ void HousingRoomComponentMeshData::ClearChangesMask()
 void HousingPlayerHouseData::WriteCreate(EnumFlag<UpdateFieldFlag> fieldVisibilityFlags, ByteBuffer& data, Player const* receiver, BaseEntity const* owner) const
 {
     data << *BnetAccount;
+    data << uint32(HouseType);
+    data << uint32(HouseSize);
     data << int32(PlotIndex);
     data << uint32(Level);
     data << uint64(Favor);
@@ -9490,7 +9492,7 @@ void HousingPlayerHouseData::WriteUpdate(EnumFlag<UpdateFieldFlag> fieldVisibili
 
 void HousingPlayerHouseData::WriteUpdate(Mask const& changesMask, ByteBuffer& data, Player const* receiver, BaseEntity const* owner, bool ignoreNestedChangesMask) const
 {
-    data.WriteBits(changesMask.GetBlock(0), 10);
+    data.WriteBits(changesMask.GetBlock(0), 12);
 
     data.FlushBits();
     if (changesMask[0])
@@ -9501,33 +9503,41 @@ void HousingPlayerHouseData::WriteUpdate(Mask const& changesMask, ByteBuffer& da
         }
         if (changesMask[2])
         {
-            data << int32(PlotIndex);
+            data << uint32(HouseType);
         }
         if (changesMask[3])
         {
-            data << uint32(Level);
+            data << uint32(HouseSize);
         }
         if (changesMask[4])
         {
-            data << uint64(Favor);
+            data << int32(PlotIndex);
         }
         if (changesMask[5])
         {
-            data << uint32(InteriorDecorPlacementBudget);
+            data << uint32(Level);
         }
         if (changesMask[6])
         {
-            data << uint32(ExteriorDecorPlacementBudget);
+            data << uint64(Favor);
         }
         if (changesMask[7])
         {
-            data << uint32(ExteriorFixtureBudget);
+            data << uint32(InteriorDecorPlacementBudget);
         }
         if (changesMask[8])
         {
-            data << uint32(RoomPlacementBudget);
+            data << uint32(ExteriorDecorPlacementBudget);
         }
         if (changesMask[9])
+        {
+            data << uint32(ExteriorFixtureBudget);
+        }
+        if (changesMask[10])
+        {
+            data << uint32(RoomPlacementBudget);
+        }
+        if (changesMask[11])
         {
             data << *EntityGUID;
         }
@@ -9537,6 +9547,8 @@ void HousingPlayerHouseData::WriteUpdate(Mask const& changesMask, ByteBuffer& da
 void HousingPlayerHouseData::ClearChangesMask()
 {
     Base::ClearChangesMask(BnetAccount);
+    Base::ClearChangesMask(HouseType);
+    Base::ClearChangesMask(HouseSize);
     Base::ClearChangesMask(PlotIndex);
     Base::ClearChangesMask(Level);
     Base::ClearChangesMask(Favor);

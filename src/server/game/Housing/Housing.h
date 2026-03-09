@@ -51,6 +51,8 @@ public:
         ObjectGuid RoomGuid;
         bool Locked = false;
         time_t PlacementTime = 0;
+        uint8 SourceType = DECOR_SOURCE_STANDARD;
+        std::string SourceValue;
     };
 
     struct Room
@@ -79,6 +81,8 @@ public:
     {
         uint32 DecorEntryId = 0;
         uint32 Count = 0;
+        uint8 SourceType = DECOR_SOURCE_STANDARD;
+        std::string SourceValue;
     };
 
     explicit Housing(Player* owner);
@@ -106,6 +110,8 @@ public:
     uint32 GetLevel() const { return _level; }
     uint32 GetFavor() const { return _favor; }
     uint32 GetSettingsFlags() const { return _settingsFlags; }
+    ObjectGuid GetCosmeticOwnerGuid() const { return _cosmeticOwnerGuid; }
+    void SetCosmeticOwnerGuid(ObjectGuid guid) { _cosmeticOwnerGuid = guid; }
 
     // Editor mode
     void SetEditorMode(HousingEditorMode mode);
@@ -155,7 +161,7 @@ public:
     uint32 GetCoreExteriorComponentID() const;
 
     // Catalog operations
-    HousingResult AddToCatalog(uint32 decorEntryId);
+    HousingResult AddToCatalog(uint32 decorEntryId, uint8 sourceType = DECOR_SOURCE_STANDARD, std::string sourceValue = {});
     HousingResult RemoveFromCatalog(uint32 decorEntryId);
     HousingResult DestroyAllCopies(uint32 decorEntryId);
     std::vector<CatalogEntry const*> GetCatalogEntries() const;
@@ -214,6 +220,7 @@ public:
 
     // Direct access to placed decor map (for GO spawning)
     std::unordered_map<ObjectGuid, PlacedDecor> const& GetPlacedDecorMap() const { return _placedDecor; }
+    bool IsStoragePopulated() const { return _storagePopulated; }
 
     // Populate ALL decor entries (placed + catalog) into the Account entity's FHousingStorage_C.
     // Called on-demand by REQUEST_STORAGE handler. Retail does NOT populate storage at login —
@@ -254,6 +261,7 @@ private:
     float _housePosY = 0.0f;
     float _housePosZ = 0.0f;
     float _houseFacing = 0.0f;
+    ObjectGuid _cosmeticOwnerGuid; // Display owner for guild housing
     bool _hasCustomPosition = false;
     bool _storagePopulated = false; // True after PopulateCatalogStorageEntries() — gates Account entity updates
     bool _photoSharingAuthorized = false; // Per-session photo sharing authorization state

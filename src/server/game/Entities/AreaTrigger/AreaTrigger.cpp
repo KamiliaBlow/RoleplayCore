@@ -126,7 +126,7 @@ void AreaTrigger::PlaySpellVisual(uint32 spellVisualId) const
     SendMessageToSet(packet.Write(), false);
 }
 
-bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData /*= nullptr*/, Unit* caster /*= nullptr*/, Unit* target /*= nullptr*/, SpellCastVisual spellVisual /*= { 0, 0 }*/, SpellInfo const* spellInfo /*= nullptr*/, Spell* spell /*= nullptr*/, AuraEffect const* aurEff /*= nullptr*/)
+bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData /*= nullptr*/, Unit* caster /*= nullptr*/, Unit* target /*= nullptr*/, SpellCastVisual spellVisual /*= { 0, 0 }*/, SpellInfo const* spellInfo /*= nullptr*/, Spell* spell /*= nullptr*/, AuraEffect const* aurEff /*= nullptr*/, bool addToMap /*= true*/)
 {
     _targetGuid = target ? target->GetGUID() : ObjectGuid::Empty;
     _aurEff = aurEff;
@@ -300,7 +300,7 @@ bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreateProperti
     if (HasOrbit())
         Relocate(CalculateOrbitPosition());
 
-    if (!IsStaticSpawn())
+    if (!IsStaticSpawn() && addToMap)
     {
         if (!GetMap()->AddToMap(this))
         {
@@ -331,10 +331,10 @@ AreaTrigger* AreaTrigger::CreateAreaTrigger(AreaTriggerCreatePropertiesId areaTr
     return at;
 }
 
-AreaTrigger* AreaTrigger::CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration /*= -1*/)
+AreaTrigger* AreaTrigger::CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration /*= -1*/, bool addToMap /*= true*/)
 {
     AreaTrigger* at = new AreaTrigger();
-    if (!at->Create(areaTriggerCreatePropertiesId, map, pos, duration))
+    if (!at->Create(areaTriggerCreatePropertiesId, map, pos, duration, nullptr, nullptr, nullptr, { 0, 0 }, nullptr, nullptr, nullptr, addToMap))
     {
         delete at;
         return nullptr;

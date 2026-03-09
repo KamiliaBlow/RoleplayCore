@@ -15,52 +15,46 @@
 * with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef TRINITYCORE_ACCOUNT_H
-#define TRINITYCORE_ACCOUNT_H
+#ifndef TRINITYCORE_HOUSING_PLAYER_HOUSE_ENTITY_H
+#define TRINITYCORE_HOUSING_PLAYER_HOUSE_ENTITY_H
 
 #include "BaseEntity.h"
 
 class WorldSession;
 
-namespace Battlenet
-{
-class Account final : public BaseEntity
+// Separate entity carrying FHousingPlayerHouse_C fragment.
+// Retail sends this on a Housing/3 GUID (subType=3, arg2=7), NOT on the BNetAccount entity.
+class HousingPlayerHouseEntity final : public BaseEntity
 {
 public:
-    explicit Account(WorldSession* session, ObjectGuid guid, std::string&& name);
+    explicit HousingPlayerHouseEntity(WorldSession* session, ObjectGuid guid);
 
     void ClearUpdateMask(bool remove) override;
-
     std::string GetNameForLocaleIdx(LocaleConstant locale) const override;
-
     void BuildUpdate(UpdateDataMapType& data_map) override;
-
     std::string GetDebugInfo() const override;
 
-    // Direct send that builds ContentsChangedMask before serializing.
-    // BaseEntity::SendUpdateToPlayer is const and doesn't call BuildUpdateChangesMask(),
-    // so the VALUES_UPDATE packet is empty when called directly from handlers.
-    // This override ensures fragment changes are detected before the send.
     void SendUpdateToPlayer(Player* player);
 
-    // Housing storage data (decor catalog) ? only FHousingStorage_C belongs on the BNetAccount entity.
-    // FHousingPlayerHouse_C is on the Housing/3 entity (HousingPlayerHouseEntity).
-    // FNeighborhoodMirrorData_C is on the Housing/4 entity (HousingNeighborhoodMirrorEntity).
-    void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue = {});
-    void RemoveHousingDecorStorageEntry(ObjectGuid decorGuid);
+    // Housing UpdateField setters
+    void SetHouseType(uint32 houseType);
+    void SetHouseSize(uint32 houseSize);
+    void SetPlotIndex(int32 plotIndex);
+    void SetLevel(uint32 level);
+    void SetFavor(uint64 favor);
+    void SetBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint32 room, uint32 fixture);
+    void SetBnetAccount(ObjectGuid bnetAccountGuid);
+    void SetEntityGUID(ObjectGuid entityGuid);
 
-    UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
+    UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;
 
 protected:
     UF::UpdateFieldFlag GetUpdateFieldFlagsFor(Player const* target) const override;
-
     bool AddToObjectUpdate() override;
     void RemoveFromObjectUpdate() override;
 
 private:
-    WorldSession* m_session;
-    std::string m_name;
+    WorldSession* _session;
 };
-}
 
-#endif // TRINITYCORE_ACCOUNT_H
+#endif // TRINITYCORE_HOUSING_PLAYER_HOUSE_ENTITY_H

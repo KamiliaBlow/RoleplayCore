@@ -30,7 +30,7 @@
 
 namespace
 {
-    constexpr uint32 HOUSING_DOOR_ENTRY    = 602702;
+    constexpr uint32 HOUSING_DOOR_ENTRY    = 586576;  // retail "Founder's Point Front Door"
     constexpr uint32 HOUSE_INTERIOR_MAP_ID = 2783;     // "Home Interior" — InstanceType 7 (MAP_HOUSE_INTERIOR)
 
     // Interior spawn position from NeighborhoodMap ID=7 (sniff-confirmed)
@@ -60,39 +60,61 @@ public:
 
             HousingMap* housingMap = dynamic_cast<HousingMap*>(me->GetMap());
             if (!housingMap)
+            {
+                TC_LOG_ERROR("housing", "go_housing_door: Map {} is NOT a HousingMap", me->GetMapId());
                 return true;
+            }
 
-            // Find which plot this door belongs to
+            // Find which plot this door belongs to.
+            // Try dynamic door tracking first, then fall back to the player's current
+            // plot (set by the at_housing_plot AreaTrigger script). This handles both
+            // dynamically-spawned doors and static DB-spawned doors (from gameobject table).
             int8 plotIndex = housingMap->GetPlotIndexForHouseGO(me->GetGUID());
             if (plotIndex < 0)
             {
-                TC_LOG_ERROR("housing", "go_housing_door: Door GO {} not found in any plot",
-                    me->GetGUID().ToString());
-                return true;
+                // Fallback: use the plot the player is currently standing on
+                plotIndex = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+                if (plotIndex < 0)
+                {
+                    // Last resort: find the nearest plot by proximity to the door GO
+                    Neighborhood* nbh = housingMap->GetNeighborhood();
+                    if (nbh)
+                    {
+                        uint32 nbhMapId = nbh->GetNeighborhoodMapID();
+                        std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(nbhMapId);
+                        float bestDist = std::numeric_limits<float>::max();
+                        for (NeighborhoodPlotData const* plot : plots)
+                        {
+                            float dx = me->GetPositionX() - plot->HousePosition[0];
+                            float dy = me->GetPositionY() - plot->HousePosition[1];
+                            float dist = dx * dx + dy * dy;
+                            if (dist < bestDist)
+                            {
+                                bestDist = dist;
+                                plotIndex = static_cast<int8>(plot->PlotIndex);
+                            }
+                        }
+                    }
+                }
+
+                if (plotIndex < 0)
+                {
+                    TC_LOG_ERROR("housing", "go_housing_door: Could not determine plot for door GO {} "
+                        "(player {} at {:.1f},{:.1f},{:.1f})",
+                        me->GetGUID().ToString(), player->GetGUID().ToString(),
+                        me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
+                    return true;
+                }
+
+                TC_LOG_DEBUG("housing", "go_housing_door: Door GO {} not in _houseGameObjects, "
+                    "resolved plotIndex={} via fallback",
+                    me->GetGUID().ToString(), plotIndex);
             }
 
-            // Get the plot's data from DB2
             Neighborhood* neighborhood = housingMap->GetNeighborhood();
             if (!neighborhood)
-                return true;
-
-            uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
-            std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
-
-            NeighborhoodPlotData const* plotData = nullptr;
-            for (NeighborhoodPlotData const* plot : plots)
             {
-                if (static_cast<int8>(plot->PlotIndex) == plotIndex)
-                {
-                    plotData = plot;
-                    break;
-                }
-            }
-
-            if (!plotData)
-            {
-                TC_LOG_ERROR("housing", "go_housing_door: No NeighborhoodPlotData for plotIndex {} in map {}",
-                    plotIndex, neighborhoodMapId);
+                TC_LOG_ERROR("housing", "go_housing_door: Neighborhood is NULL on mapId={}", housingMap->GetId());
                 return true;
             }
 
@@ -106,7 +128,8 @@ public:
                     Housing const* ownerHousing = owner->GetHousing();
                     if (ownerHousing && !sHousingMgr.CanVisitorAccess(player, owner, ownerHousing->GetSettingsFlags(), true))
                     {
-                        TC_LOG_DEBUG("housing", "go_housing_door: Player {} denied interior access to plot {} (owner {} flags 0x{:X})",
+                        TC_LOG_DEBUG("housing", "go_housing_door: Player {} denied interior access to plot {} "
+                            "(owner {} flags 0x{:X})",
                             player->GetGUID().ToString(), plotIndex, plotInfo->OwnerGuid.ToString(),
                             ownerHousing->GetSettingsFlags());
                         return true;
@@ -118,15 +141,20 @@ public:
             me->UseDoorOrButton();
 
             // Teleport player to the house interior map (Map 2783).
-            // This triggers a full map transfer with loading screen, just like entering a dungeon.
-            // The HouseInteriorMap::AddPlayerToMap() callback will send
-            // SMSG_HOUSE_INTERIOR_ENTER_HOUSE and set the interior state.
-            player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
+            bool ok = player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
                 INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
 
-            TC_LOG_INFO("housing", "go_housing_door: Player {} entering house interior map {} from plot {} "
-                "neighborhoodMap={}",
-                player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex, neighborhoodMapId);
+            if (!ok)
+            {
+                TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED — player {} → map {} "
+                    "from plot {}",
+                    player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex);
+            }
+            else
+            {
+                TC_LOG_INFO("housing", "go_housing_door: Player {} entering interior map {} from plot {}",
+                    player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex);
+            }
 
             return true;
         }

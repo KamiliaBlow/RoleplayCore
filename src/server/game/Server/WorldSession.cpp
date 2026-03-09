@@ -17,6 +17,8 @@
 
 #include "WorldSession.h"
 #include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include "AccountMgr.h"
 #include "AuthenticationPackets.h"
 #include "Bag.h"
@@ -120,6 +122,8 @@ WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccoun
     _accountId(id),
     _accountName(std::move(name)),
     _battlenetAccount(new Battlenet::Account(this, ObjectGuid::Create<HighGuid::BNetAccount>(battlenetAccountId), std::move(battlenetAccountEmail))),
+    _housingPlayerHouseEntity(new HousingPlayerHouseEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/3, /*arg1*/1, /*arg2*/7, /*arg3*/battlenetAccountId))),
+    _housingNeighborhoodMirrorEntity(new HousingNeighborhoodMirrorEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/4, /*arg1*/2, /*arg2*/0, /*arg3*/battlenetAccountId))),
     m_accountExpansion(expansion),
     m_expansion(std::min<uint8>(expansion, sWorld->getIntConfig(CONFIG_EXPANSION))),
     _os(std::move(os)),

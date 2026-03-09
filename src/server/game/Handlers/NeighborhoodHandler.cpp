@@ -17,6 +17,7 @@
 
 #include "WorldSession.h"
 #include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
 #include "DatabaseEnv.h"
 #include "GameObject.h"
 #include "Guild.h"
@@ -32,6 +33,7 @@
 #include "NeighborhoodCharter.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "GameTime.h"
 #include "World.h"
@@ -118,6 +120,17 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
         return;
     }
 
+    if (!ObjectMgr::IsValidCharterName(neighborhoodCharterCreate.Name) || sObjectMgr->IsReservedName(neighborhoodCharterCreate.Name))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_FILTER_REJECTED);
+        SendPacket(response.Write());
+
+        TC_LOG_INFO("housing", "HandleNeighborhoodCharterCreate: Name rejected by filter for player {}",
+            player->GetGUID().ToString());
+        return;
+    }
+
     // Create charter object
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
     NeighborhoodCharter charter(charterId, player->GetGUID());
@@ -149,6 +162,14 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     if (!player)
         return;
 
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        SendPacket(response.Write());
+        return;
+    }
+
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_EDIT NeighborhoodMapID: {}, FactionFlags: {}, Name: {}",
         neighborhoodCharterEdit.NeighborhoodMapID, neighborhoodCharterEdit.FactionFlags,
         neighborhoodCharterEdit.Name);
@@ -161,6 +182,17 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
         SendPacket(response.Write());
 
         TC_LOG_INFO("housing", "HandleNeighborhoodCharterEdit: Invalid name length for player {}",
+            player->GetGUID().ToString());
+        return;
+    }
+
+    if (!ObjectMgr::IsValidCharterName(neighborhoodCharterEdit.Name) || sObjectMgr->IsReservedName(neighborhoodCharterEdit.Name))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_FILTER_REJECTED);
+        SendPacket(response.Write());
+
+        TC_LOG_INFO("housing", "HandleNeighborhoodCharterEdit: Name rejected by filter for player {}",
             player->GetGUID().ToString());
         return;
     }
@@ -196,6 +228,14 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     Player* player = GetPlayer();
     if (!player)
         return;
+
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        SendPacket(response.Write());
+        return;
+    }
 
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_FINALIZE received for player {}",
         player->GetGUID().ToString());
@@ -286,6 +326,14 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     if (!player)
         return;
 
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        SendPacket(response.Write());
+        return;
+    }
+
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURECharterGuid: {}",
         neighborhoodCharterAddSignature.CharterGuid.ToString());
 
@@ -339,7 +387,6 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.CharterGuid = neighborhoodCharterAddSignature.CharterGuid;
-    response.SignerGuid = player->GetGUID();
     SendPacket(response.Write());
 
     TC_LOG_DEBUG("housing", "Player {} signed charter {} ({}/{} signatures)",
@@ -352,6 +399,14 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
     Player* player = GetPlayer();
     if (!player)
         return;
+
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        WorldPackets::Housing::HousingSvcsNotifyPermissionsFailure response;
+        response.FailureType = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        SendPacket(response.Write());
+        return;
+    }
 
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_SEND_SIGNATURE_REQUEST TargetPlayerGuid: {}",
         neighborhoodCharterSendSignatureRequest.TargetPlayerGuid.ToString());
@@ -370,7 +425,6 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
     WorldPackets::Neighborhood::NeighborhoodCharterSignRequest signRequest;
     signRequest.CharterGuid = ObjectGuid::Create<HighGuid::Housing>(0, 0, 0, charterId);
-    signRequest.RequesterGuid = player->GetGUID();
     targetPlayer->SendDirectMessage(signRequest.Write());
 
     // Acknowledge to the requester that the signature request was sent
@@ -441,6 +495,16 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
         return;
     }
 
+    if (!ObjectMgr::IsValidCharterName(neighborhoodUpdateName.NewName) || sObjectMgr->IsReservedName(neighborhoodUpdateName.NewName))
+    {
+        WorldPackets::Neighborhood::NeighborhoodUpdateNameResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_FILTER_REJECTED);
+        SendPacket(response.Write());
+
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodUpdateName: Name rejected by filter");
+        return;
+    }
+
     neighborhood->SetName(neighborhoodUpdateName.NewName);
 
     // Broadcast name invalidation and update notification to ALL neighborhood members
@@ -466,10 +530,12 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
     if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
     {
         WorldPackets::Housing::HousingSvcsGuildRenameNeighborhoodNotification guildNotification;
-        guildNotification.NeighborhoodGuid = neighborhoodGuid;
         guildNotification.NewName = neighborhoodUpdateName.NewName;
         guild->BroadcastPacket(guildNotification.Write());
     }
+
+    // Refresh NeighborhoodMirrorData on all online members' Account entities
+    neighborhood->RefreshMirrorDataForOnlineMembers();
 
     TC_LOG_DEBUG("housing", "Neighborhood {} renamed to '{}' by player {}",
         neighborhoodGuid.ToString(), neighborhoodUpdateName.NewName,
@@ -572,35 +638,14 @@ void WorldSession::HandleNeighborhoodAddSecondaryOwner(WorldPackets::Neighborhoo
     response.Result = static_cast<uint8>(result);
     SendPacket(response.Write());
 
-    // Broadcast roster update and refresh manager mirror data for all online members
+    // Broadcast roster update and refresh mirror data for all online members
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        for (auto const& member : neighborhood->GetMembers())
-        {
-            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
-            {
-                if (member.PlayerGuid != player->GetGUID())
-                {
-                    WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-                    rosterUpdate.Residents.push_back({ neighborhoodAddSecondaryOwner.PlayerGuid, 1 /*RoleChanged*/, NEIGHBORHOOD_ROLE_MANAGER });
-                    memberPlayer->SendDirectMessage(rosterUpdate.Write());
-                }
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+        rosterUpdate.Residents.push_back({ neighborhoodAddSecondaryOwner.PlayerGuid, 1 /*RoleChanged*/, true /*promoted to manager = privileged*/ });
+        neighborhood->BroadcastPacket(rosterUpdate.Write(), player->GetGUID());
 
-                // Refresh manager mirror data on each online member's Account entity
-                Battlenet::Account& memberAccount = memberPlayer->GetSession()->GetBattlenetAccount();
-                memberAccount.ClearNeighborhoodMirrorManagers();
-                for (auto const& m : neighborhood->GetMembers())
-                {
-                    if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
-                    {
-                        ObjectGuid bnetGuid;
-                        if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
-                            bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-                        memberAccount.AddNeighborhoodMirrorManager(bnetGuid, m.PlayerGuid);
-                    }
-                }
-            }
-        }
+        neighborhood->RefreshMirrorDataForOnlineMembers();
     }
 
     TC_LOG_DEBUG("housing", "AddManager result: {} for player {} in neighborhood {}",
@@ -659,35 +704,14 @@ void WorldSession::HandleNeighborhoodRemoveSecondaryOwner(WorldPackets::Neighbor
     response.Result = static_cast<uint8>(result);
     SendPacket(response.Write());
 
-    // Broadcast roster update and refresh manager mirror data for all online members
+    // Broadcast roster update and refresh mirror data for all online members
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        for (auto const& member : neighborhood->GetMembers())
-        {
-            if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
-            {
-                if (member.PlayerGuid != player->GetGUID())
-                {
-                    WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-                    rosterUpdate.Residents.push_back({ neighborhoodRemoveSecondaryOwner.PlayerGuid, 1 /*RoleChanged*/, NEIGHBORHOOD_ROLE_RESIDENT });
-                    memberPlayer->SendDirectMessage(rosterUpdate.Write());
-                }
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
+        rosterUpdate.Residents.push_back({ neighborhoodRemoveSecondaryOwner.PlayerGuid, 1 /*RoleChanged*/, false /*demoted to resident = not privileged*/ });
+        neighborhood->BroadcastPacket(rosterUpdate.Write(), player->GetGUID());
 
-                // Refresh manager mirror data on each online member's Account entity
-                Battlenet::Account& memberAccount = memberPlayer->GetSession()->GetBattlenetAccount();
-                memberAccount.ClearNeighborhoodMirrorManagers();
-                for (auto const& m : neighborhood->GetMembers())
-                {
-                    if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
-                    {
-                        ObjectGuid bnetGuid;
-                        if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
-                            bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-                        memberAccount.AddNeighborhoodMirrorManager(bnetGuid, m.PlayerGuid);
-                    }
-                }
-            }
-        }
+        neighborhood->RefreshMirrorDataForOnlineMembers();
     }
 
     TC_LOG_DEBUG("housing", "RemoveManager result: {} for player {} in neighborhood {}",
@@ -1118,32 +1142,32 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         // 3. Send level/favor updates (sniff: always 2 packets after buy response)
         if (Housing const* h = player->GetHousing())
         {
-            // Packet 1: Initial level assignment (prev=-1/-1, new=level 1, next level cost=910)
+            // Packet 1: Initial level assignment
             {
                 WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor levelFavor;
                 levelFavor.Type = 0;
-                levelFavor.PreviousFavor = -1;
-                levelFavor.PreviousLevel = -1;
-                levelFavor.NewLevel = 1;
-                levelFavor.Field4 = 0;
-                levelFavor.HouseGuid = h->GetHouseGuid();
-                levelFavor.PreviousLevelId = -1;
-                levelFavor.NextLevelFavorCost = 910; // sniff value: 0x038E
-                levelFavor.Flags = 0x8000;
+                levelFavor.Field1 = 0;
+                levelFavor.Field2 = 1;
+                WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor::LevelFavorEntry entry;
+                entry.OwnerGUID = player->GetGUID();
+                entry.HouseGUID = h->GetHouseGuid();
+                entry.FavorAmount = 910;
+                entry.Level = 1;
+                levelFavor.Entries.push_back(std::move(entry));
                 SendPacket(levelFavor.Write());
             }
-            // Packet 2: Favor state (prev favor=910, level=1, no next level info)
+            // Packet 2: Favor state
             {
                 WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor levelFavor;
                 levelFavor.Type = 0;
-                levelFavor.PreviousFavor = 910;
-                levelFavor.PreviousLevel = 1;
-                levelFavor.NewLevel = 1;
-                levelFavor.Field4 = 0;
-                levelFavor.HouseGuid = h->GetHouseGuid();
-                levelFavor.PreviousLevelId = -1;
-                levelFavor.NextLevelFavorCost = -1;
-                levelFavor.Flags = 0x8000;
+                levelFavor.Field1 = 910;
+                levelFavor.Field2 = 1;
+                WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor::LevelFavorEntry entry;
+                entry.OwnerGUID = player->GetGUID();
+                entry.HouseGUID = h->GetHouseGuid();
+                entry.FavorAmount = 910;
+                entry.Level = 1;
+                levelFavor.Entries.push_back(std::move(entry));
                 SendPacket(levelFavor.Write());
             }
         }
@@ -1156,7 +1180,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
             {
                 WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-                rosterUpdate.Residents.push_back({ player->GetGUID(), 0 /*Added*/, NEIGHBORHOOD_ROLE_RESIDENT });
+                rosterUpdate.Residents.push_back({ player->GetGUID(), 0 /*Added*/, false /*resident = not privileged*/ });
                 memberPlayer->SendDirectMessage(rosterUpdate.Write());
             }
         }
@@ -1167,7 +1191,9 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             if (Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId()))
             {
                 WorldPackets::Housing::HousingSvcsGuildAddHouseNotification notification;
-                notification.HouseGuid = housing->GetHouseGuid();
+                notification.House.HouseGUID = housing->GetHouseGuid();
+                notification.House.OwnerGUID = player->GetGUID();
+                notification.House.HouseLevel = static_cast<uint8>(housing->GetLevel());
                 guild->BroadcastPacket(notification.Write());
             }
         }
@@ -1194,21 +1220,11 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         {
             WorldPackets::Housing::HousingFixtureCreateBasicHouseResponse houseResponse;
             houseResponse.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
-            houseResponse.HouseGuid = h->GetHouseGuid();
             SendPacket(houseResponse.Write());
         }
 
-        // Update Account entity NeighborhoodMirrorData with the new house so the
-        // client's settings/permissions panel can identify the player as house owner.
-        {
-            Battlenet::Account& account = GetBattlenetAccount();
-            account.ClearNeighborhoodMirrorHouses();
-            for (auto const& plot : neighborhood->GetPlots())
-            {
-                if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-                    account.AddNeighborhoodMirrorHouse(plot.HouseGuid, plot.OwnerGuid);
-            }
-        }
+        // Refresh NeighborhoodMirrorData (Houses[] changed) on all online members
+        neighborhood->RefreshMirrorDataForOnlineMembers();
 
         // Proactively send DECOR_REQUEST_STORAGE_RESPONSE after purchase.
         // The client requests storage at map entry (before purchase) and gets "no house".
@@ -1340,8 +1356,11 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
 
         // Broadcast roster update to other members
         WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-        rosterUpdate.Residents.push_back({ player->GetGUID(), 1 /*RoleChanged*/, NEIGHBORHOOD_ROLE_RESIDENT });
+        rosterUpdate.Residents.push_back({ player->GetGUID(), 1 /*RoleChanged*/, false /*resident = not privileged*/ });
         neighborhood->BroadcastPacket(rosterUpdate.Write(), player->GetGUID());
+
+        // Refresh NeighborhoodMirrorData (Houses[] changed — plot moved)
+        neighborhood->RefreshMirrorDataForOnlineMembers();
     }
     response.MoveTransactionGuid = ObjectGuid::Empty;
     SendPacket(response.Write());
@@ -1475,8 +1494,8 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     response.PurchaseStatus = 0;
     response.NeighborhoodGuid = neighborhood->GetGuid();
     response.CornerstoneGuid = neighborhoodOpenCornerstoneUI.NeighborhoodGuid; // GO GUID from CMSG
-    response.IsPlotOwned = false;
-    response.CanPurchase = false;
+    response.IsPlotOwned = isOwned;
+    response.CanPurchase = !isOwned;
     response.NeighborhoodName = neighborhood->GetName();
 
     if (isOwned)
@@ -1567,8 +1586,8 @@ void WorldSession::HandleNeighborhoodOfferOwnership(WorldPackets::Neighborhood::
         if (Player* newOwner = ObjectAccessor::FindPlayer(neighborhoodOfferOwnership.NewOwnerGuid))
         {
             WorldPackets::Housing::HousingSvcsNeighborhoodOwnershipTransferredResponse transferNotification;
-            transferNotification.NeighborhoodGuid = neighborhoodGuid;
-            transferNotification.NewOwnerGuid = neighborhoodOfferOwnership.NewOwnerGuid;
+            transferNotification.Result = static_cast<uint8>(result);
+            transferNotification.OwnerGUID = neighborhoodOfferOwnership.NewOwnerGuid;
             newOwner->SendDirectMessage(transferNotification.Write());
         }
     }
@@ -1646,6 +1665,34 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
 
     WorldPacket const* rosterPkt = response.Write();
     SendPacket(rosterPkt);
+
+    // Populate the Housing/4 entity with this neighborhood's mirror data so the
+    // client's internal house list stays in sync for plot resolution.
+    HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
+    mirrorEntity.SetName(neighborhood->GetName());
+    mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
+
+    mirrorEntity.ClearHouses();
+    for (auto const& plot : neighborhood->GetPlots())
+    {
+        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+            mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+        else
+            mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+    }
+
+    mirrorEntity.ClearManagers();
+    for (auto const& member : neighborhood->GetMembers())
+    {
+        if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+        {
+            ObjectGuid bnetGuid;
+            if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+            mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+        }
+    }
+    mirrorEntity.SendUpdateToPlayer(player);
 
     TC_LOG_ERROR("housing", "=== SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE (0x5C0012) [handler] ===\n"
         "  Result={}, Members={}, NeighborhoodName='{}'\n"
@@ -1755,8 +1802,11 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
 
         // Broadcast roster update to remaining members using helper
         WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-        rosterUpdate.Residents.push_back({ evictedPlayerGuid, 2 /*Removed*/, 0 });
+        rosterUpdate.Residents.push_back({ evictedPlayerGuid, 2 /*Removed*/, false });
         neighborhood->BroadcastPacket(rosterUpdate.Write(), player->GetGUID());
+
+        // Refresh NeighborhoodMirrorData (Houses[] changed)
+        neighborhood->RefreshMirrorDataForOnlineMembers();
     }
 
     TC_LOG_DEBUG("housing", "EvictPlayer result: {} for plot index {} in neighborhood {}",
@@ -2139,7 +2189,6 @@ void WorldSession::HandleNeighborhoodCharterSignResponse(WorldPackets::Neighborh
     // Send the sign request notification back to the charter owner
     WorldPackets::Neighborhood::NeighborhoodCharterSignRequest response;
     response.CharterGuid = neighborhoodCharterSignResponse.CharterGuid;
-    response.RequesterGuid = player->GetGUID();
     SendPacket(response.Write());
 }
 
@@ -2155,7 +2204,6 @@ void WorldSession::HandleNeighborhoodCharterRemoveSignature(WorldPackets::Neighb
 
     WorldPackets::Neighborhood::NeighborhoodCharterSignatureRemovedNotification response;
     response.CharterGuid = neighborhoodCharterRemoveSignature.CharterGuid;
-    response.SignerGuid = neighborhoodCharterRemoveSignature.SignerGuid;
     SendPacket(response.Write());
 }
 
@@ -2222,8 +2270,11 @@ void WorldSession::HandleNeighborhoodOfferOwnershipResponse(WorldPackets::Neighb
         {
             // Broadcast roster update — role change for both old owner and new owner
             WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate rosterUpdate;
-            rosterUpdate.Residents.push_back({ player->GetGUID(), 1 /*RoleChanged*/, NEIGHBORHOOD_ROLE_OWNER });
+            rosterUpdate.Residents.push_back({ player->GetGUID(), 1 /*RoleChanged*/, true /*owner = privileged*/ });
             neighborhood->BroadcastPacket(rosterUpdate.Write());
+
+            // Refresh NeighborhoodMirrorData (OwnerGUID + Managers changed)
+            neighborhood->RefreshMirrorDataForOnlineMembers();
 
             TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE: Player {} accepted ownership of neighborhood {}",
                 player->GetGUID().ToString(), neighborhood->GetGuid().ToString());

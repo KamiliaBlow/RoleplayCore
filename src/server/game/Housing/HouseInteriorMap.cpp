@@ -220,6 +220,8 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
         // --- Phase 2: Create all component MeshObjects and link to room entity ---
 
         std::vector<MeshObject*> componentMeshes;
+        uint32 wallCount = 0, floorCount = 0, ceilingCount = 0, doorwayCount = 0;
+        uint32 stairsCount = 0, pillarCount = 0, doorwayWallCount = 0, otherCount = 0;
 
         for (RoomComponentData const& comp : *components)
         {
@@ -274,10 +276,13 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
             float rx = comp.OffsetRot[0] * DEG_TO_RAD;
             float ry = comp.OffsetRot[1] * DEG_TO_RAD;
             float rz = comp.OffsetRot[2] * DEG_TO_RAD;
-            compRot.x = std::sin(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
-            compRot.y = std::cos(rx / 2.0f) * std::sin(ry / 2.0f) * std::cos(rz / 2.0f);
-            compRot.z = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::sin(rz / 2.0f);
-            compRot.w = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
+            float cx = std::cos(rx / 2.0f), sx = std::sin(rx / 2.0f);
+            float cy = std::cos(ry / 2.0f), sy = std::sin(ry / 2.0f);
+            float cz = std::cos(rz / 2.0f), sz = std::sin(rz / 2.0f);
+            compRot.x = sx * cy * cz - cx * sy * sz;
+            compRot.y = cx * sy * cz + sx * cy * sz;
+            compRot.z = cx * cy * sz - sx * sy * cz;
+            compRot.w = cx * cy * cz + sx * sy * sz;
 
             MeshObject* componentMesh = MeshObject::CreateMeshObject(this, compPos, compRot, 1.0f,
                 compFileDataID, /*isWMO*/ true,
@@ -304,13 +309,34 @@ void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestr
             roomEntity->AddRoomMeshObject(componentMesh->GetGUID());
             componentMeshes.push_back(componentMesh);
 
+            // Count by component type for diagnostic summary
+            switch (comp.Type)
+            {
+                case 1: ++wallCount; break;
+                case 2: ++floorCount; break;
+                case 3: ++ceilingCount; break;
+                case 4: ++doorwayCount; break;
+                case 5: ++stairsCount; break;
+                case 6: ++pillarCount; break;
+                case 7: ++doorwayWallCount; break;
+                default: ++otherCount; break;
+            }
+
             TC_LOG_ERROR("housing", "  Component: compID={} type={} fileDataID={} optionID={} themeID={} "
-                "pos=({:.2f},{:.2f},{:.2f}) rot=({:.4f},{:.4f},{:.4f}) quat=({:.4f},{:.4f},{:.4f},{:.4f})",
+                "pos=({:.2f},{:.2f},{:.2f}) rot=({:.4f},{:.4f},{:.4f}) quat=({:.4f},{:.4f},{:.4f},{:.4f})"
+                " themeFallback={}",
                 comp.ID, comp.Type, compFileDataID, roomComponentOptionID, houseThemeID,
                 comp.OffsetPos[0], comp.OffsetPos[1], comp.OffsetPos[2],
                 comp.OffsetRot[0], comp.OffsetRot[1], comp.OffsetRot[2],
-                compRot.x, compRot.y, compRot.z, compRot.w);
+                compRot.x, compRot.y, compRot.z, compRot.w,
+                optEntry ? (optEntry->HouseThemeID == factionThemeID ? "faction" :
+                    (optEntry->HouseThemeID == 8 ? "neutral" : "generic")) : "none");
         }
+
+        TC_LOG_ERROR("housing", "  Room '{}' component summary: walls={} floors={} ceilings={} "
+            "doorways={} stairs={} pillars={} doorwayWalls={} other={} total={}",
+            roomData->Name, wallCount, floorCount, ceilingCount, doorwayCount,
+            stairsCount, pillarCount, doorwayWallCount, otherCount, uint32(components->size()));
 
         // --- Phase 3: Add room entity to map FIRST (create packet includes all MeshObjects) ---
 
@@ -499,7 +525,7 @@ void HouseInteriorMap::SpawnInteriorDecor(Housing* housing)
         }
 
         PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-        mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid);
+        mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
 
         if (AddToMap(mesh))
         {
@@ -567,11 +593,17 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
 
     QuaternionData rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
 
+    // Convert world → local with inverse rotation of the room entity's facing.
     float localX = worldX, localY = worldY, localZ = worldZ;
     if (!roomEntityGuid.IsEmpty())
     {
-        localX = worldX - roomWorldPos.GetPositionX();
-        localY = worldY - roomWorldPos.GetPositionY();
+        float dx = worldX - roomWorldPos.GetPositionX();
+        float dy = worldY - roomWorldPos.GetPositionY();
+        float roomFacing = roomWorldPos.GetOrientation();
+        float cosF = std::cos(roomFacing);
+        float sinF = std::sin(roomFacing);
+        localX =  cosF * dx + sinF * dy;
+        localY = -sinF * dx + cosF * dy;
         localZ = worldZ - roomWorldPos.GetPositionZ();
     }
 
@@ -587,7 +619,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
         return;
 
     PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-    mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid);
+    mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
 
     if (AddToMap(mesh))
     {
@@ -729,8 +761,9 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
             // Send updated house status with Status=1 (Interior)
             WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
             statusResponse.HouseGuid = housing->GetHouseGuid();
-            statusResponse.NeighborhoodGuid = player->GetSession()->GetBattlenetAccountGUID();
+            statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
             statusResponse.OwnerPlayerGuid = player->GetGUID();
+            statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
             statusResponse.Status = 1; // Interior
             player->SendDirectMessage(statusResponse.Write());
         }

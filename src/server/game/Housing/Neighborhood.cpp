@@ -16,13 +16,16 @@
  */
 
 #include "Neighborhood.h"
+#include "HousingNeighborhoodMirrorEntity.h"
 #include "BattlenetAccountMgr.h"
 #include "DatabaseEnv.h"
+#include "HousingPackets.h"
 #include "GameTime.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "RealmList.h"
+#include "WorldSession.h"
 #include <algorithm>
 
 Neighborhood::Neighborhood(ObjectGuid guid) : _guid(guid)
@@ -280,6 +283,17 @@ HousingResult Neighborhood::AddManager(ObjectGuid playerGuid)
     TC_LOG_DEBUG("housing", "Neighborhood::AddManager: Player {} promoted to manager in neighborhood '{}'",
         playerGuid.ToString(), _name);
 
+    // Push roster update to all online members
+    {
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry entry;
+        entry.PlayerGuid = playerGuid;
+        entry.UpdateType = 1; // RoleChanged
+        entry.IsPrivileged = true; // Manager = privileged
+        update.Residents.push_back(entry);
+        BroadcastPacket(update.Write());
+    }
+
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -314,6 +328,17 @@ HousingResult Neighborhood::RemoveManager(ObjectGuid playerGuid)
 
             TC_LOG_DEBUG("housing", "Neighborhood::RemoveManager: Player {} demoted to resident in neighborhood '{}'",
                 playerGuid.ToString(), _name);
+
+            // Push roster update to all online members
+            {
+                WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+                WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry entry;
+                entry.PlayerGuid = playerGuid;
+                entry.UpdateType = 1; // RoleChanged
+                entry.IsPrivileged = false; // Resident = not privileged
+                update.Residents.push_back(entry);
+                BroadcastPacket(update.Write());
+            }
 
             return HOUSING_RESULT_SUCCESS;
         }
@@ -505,6 +530,17 @@ HousingResult Neighborhood::AcceptInvitation(ObjectGuid playerGuid)
     TC_LOG_DEBUG("housing", "Neighborhood::AcceptInvitation: Player {} joined neighborhood '{}' as resident",
         playerGuid.ToString(), _name);
 
+    // Push roster update to all online members
+    {
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry entry;
+        entry.PlayerGuid = playerGuid;
+        entry.UpdateType = 0; // Added
+        entry.IsPrivileged = false; // Resident = not privileged
+        update.Residents.push_back(entry);
+        BroadcastPacket(update.Write());
+    }
+
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -553,6 +589,17 @@ HousingResult Neighborhood::AddResident(ObjectGuid playerGuid)
 
     TC_LOG_DEBUG("housing", "Neighborhood::AddResident: Player {} joined neighborhood '{}' as resident",
         playerGuid.ToString(), _name);
+
+    // Push roster update to all online members
+    {
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry entry;
+        entry.PlayerGuid = playerGuid;
+        entry.UpdateType = 0; // Added
+        entry.IsPrivileged = false; // Resident = not privileged
+        update.Residents.push_back(entry);
+        BroadcastPacket(update.Write());
+    }
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -621,6 +668,17 @@ HousingResult Neighborhood::EvictPlayer(ObjectGuid playerGuid)
     TC_LOG_DEBUG("housing", "Neighborhood::EvictPlayer: Player {} evicted from neighborhood '{}'",
         playerGuid.ToString(), _name);
 
+    // Push roster update to all online members
+    {
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry entry;
+        entry.PlayerGuid = playerGuid;
+        entry.UpdateType = 2; // Removed
+        entry.IsPrivileged = false;
+        update.Residents.push_back(entry);
+        BroadcastPacket(update.Write());
+    }
+
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -684,6 +742,25 @@ HousingResult Neighborhood::TransferOwnership(ObjectGuid newOwnerGuid)
 
     TC_LOG_DEBUG("housing", "Neighborhood::TransferOwnership: Ownership of neighborhood '{}' transferred from {} to {}",
         _name, previousOwnerGuid.ToString(), newOwnerGuid.ToString());
+
+    // Push roster update for both role changes
+    {
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate update;
+
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry oldOwnerEntry;
+        oldOwnerEntry.PlayerGuid = previousOwnerGuid;
+        oldOwnerEntry.UpdateType = 1; // RoleChanged
+        oldOwnerEntry.IsPrivileged = true; // Demoted to manager, still privileged
+        update.Residents.push_back(oldOwnerEntry);
+
+        WorldPackets::Neighborhood::NeighborhoodRosterResidentUpdate::ResidentEntry newOwnerEntry;
+        newOwnerEntry.PlayerGuid = newOwnerGuid;
+        newOwnerEntry.UpdateType = 1; // RoleChanged
+        newOwnerEntry.IsPrivileged = true; // New owner = privileged
+        update.Residents.push_back(newOwnerEntry);
+
+        BroadcastPacket(update.Write());
+    }
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -967,4 +1044,98 @@ void Neighborhood::BroadcastPacket(WorldPacket const* packet, ObjectGuid exclude
         if (Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid))
             player->SendDirectMessage(packet);
     }
+}
+
+void Neighborhood::RefreshMirrorDataForOnlineMembers() const
+{
+    for (auto const& member : _members)
+    {
+        Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid);
+        if (!player || !player->GetSession())
+            continue;
+
+        // FNeighborhoodMirrorData_C belongs on the Housing/4 entity, NOT the BNetAccount entity.
+        HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
+
+        // Name + Owner
+        mirrorEntity.SetName(_name);
+        mirrorEntity.SetOwnerGUID(_ownerGuid);
+
+        // Houses — rebuild from plots. Add ALL 55 entries so Houses[i] = PlotIndex i.
+        // The client uses the array index as the plot identifier; skipping empty slots
+        // causes the client to show the wrong plots as occupied.
+        mirrorEntity.ClearHouses();
+        for (auto const& plot : _plots)
+        {
+            if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+            else
+                mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+        }
+
+        // Managers
+        mirrorEntity.ClearManagers();
+        for (auto const& m : _members)
+        {
+            if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
+            {
+                ObjectGuid bnetGuid;
+                if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
+                    bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+                mirrorEntity.AddManager(bnetGuid, m.PlayerGuid);
+            }
+        }
+    }
+}
+
+// --- Plot Reservation System ---
+
+bool Neighborhood::ReservePlot(ObjectGuid playerGuid, uint8 plotIndex)
+{
+    if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
+        return false;
+
+    // Plot must be unoccupied
+    if (_plots[plotIndex].IsOccupied())
+        return false;
+
+    // Check if someone else already reserved this plot
+    for (auto const& [guid, res] : _plotReservations)
+    {
+        if (res.PlotIndex == plotIndex && guid != playerGuid)
+            return false;
+    }
+
+    PlotReservation& reservation = _plotReservations[playerGuid];
+    reservation.PlotIndex = plotIndex;
+    reservation.ReserveTime = static_cast<uint32>(GameTime::GetGameTime());
+
+    TC_LOG_DEBUG("housing", "Neighborhood::ReservePlot: Player {} reserved plot {} in neighborhood {}",
+        playerGuid.ToString(), plotIndex, _guid.ToString());
+    return true;
+}
+
+bool Neighborhood::ClearReservation(ObjectGuid playerGuid)
+{
+    auto it = _plotReservations.find(playerGuid);
+    if (it == _plotReservations.end())
+        return false;
+
+    TC_LOG_DEBUG("housing", "Neighborhood::ClearReservation: Player {} cleared reservation for plot {} in neighborhood {}",
+        playerGuid.ToString(), it->second.PlotIndex, _guid.ToString());
+    _plotReservations.erase(it);
+    return true;
+}
+
+bool Neighborhood::HasReservation(ObjectGuid playerGuid) const
+{
+    return _plotReservations.find(playerGuid) != _plotReservations.end();
+}
+
+uint8 Neighborhood::GetReservedPlot(ObjectGuid playerGuid) const
+{
+    auto it = _plotReservations.find(playerGuid);
+    if (it != _plotReservations.end())
+        return it->second.PlotIndex;
+    return INVALID_PLOT_INDEX;
 }

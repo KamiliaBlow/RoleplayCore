@@ -55,6 +55,10 @@ public:
     float GetLocalScale() const { return _scaleLocalSpace; }
     uint8 GetAttachmentFlags() const { return _attachmentFlags; }
 
+    // Movement block Room/Decor data accessors (used by BaseEntity::BuildMovementUpdate)
+    ObjectGuid const& GetRoomHouseGUID() const { return _roomHouseGUID; }
+    ObjectGuid const& GetDecorRoomEntityGUID() const { return _decorRoomEntityGUID; }
+
     // Housing fixture
     void InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComponentID,
         int32 houseExteriorWmoDataID, uint8 exteriorComponentType = 9,
@@ -64,7 +68,7 @@ public:
     // Sniff-verified: retail decor is ALWAYS MeshObject (never GO). TargetGameObjectGUID=empty.
     // roomEntityGuid: the Housing/18 room entity this decor is attached to.
     void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags,
-        ObjectGuid roomEntityGuid = ObjectGuid::Empty);
+        ObjectGuid roomEntityGuid = ObjectGuid::Empty, uint8 sourceType = 0, std::string sourceValue = {});
 
     // Housing room entity (adds FHousingRoom_C + Tag_HousingRoom entity fragments)
     // Creates a room data entity that the client uses to identify the plot's room type.
@@ -104,6 +108,12 @@ private:
     QuaternionData _rotationLocalSpace;
     float _scaleLocalSpace = 1.0f;
     uint8 _attachmentFlags = 0;
+
+    // Movement block Room/Decor data (bits 54/55 in CreateObjectBits)
+    // Room: HouseGUID written when m_updateFlag.Room is set (room entities)
+    // Decor: RoomEntityGUID written when m_updateFlag.Decor is set (decor entities)
+    ObjectGuid _roomHouseGUID;
+    ObjectGuid _decorRoomEntityGUID;
 };
 
 #endif // TRINITYCORE_MESHOBJECT_H

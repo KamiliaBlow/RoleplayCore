@@ -1946,17 +1946,19 @@ struct HousingRoomComponentMeshData : public IsUpdateFieldStructureTag, public H
     void ClearChangesMask();
 };
 
-struct HousingPlayerHouseData : public IsUpdateFieldStructureTag, public HasChangesMask<10>
+struct HousingPlayerHouseData : public IsUpdateFieldStructureTag, public HasChangesMask<12>
 {
     UpdateField<ObjectGuid, 0, 1> BnetAccount;
-    UpdateField<int32, 0, 2> PlotIndex;
-    UpdateField<uint32, 0, 3> Level;
-    UpdateField<uint64, 0, 4> Favor;
-    UpdateField<uint32, 0, 5> InteriorDecorPlacementBudget;
-    UpdateField<uint32, 0, 6> ExteriorDecorPlacementBudget;
-    UpdateField<uint32, 0, 7> ExteriorFixtureBudget;
-    UpdateField<uint32, 0, 8> RoomPlacementBudget;
-    UpdateField<ObjectGuid, 0, 9> EntityGUID;
+    UpdateField<uint32, 0, 2> HouseType;
+    UpdateField<uint32, 0, 3> HouseSize;
+    UpdateField<int32, 0, 4> PlotIndex;
+    UpdateField<uint32, 0, 5> Level;
+    UpdateField<uint64, 0, 6> Favor;
+    UpdateField<uint32, 0, 7> InteriorDecorPlacementBudget;
+    UpdateField<uint32, 0, 8> ExteriorDecorPlacementBudget;
+    UpdateField<uint32, 0, 9> ExteriorFixtureBudget;
+    UpdateField<uint32, 0, 10> RoomPlacementBudget;
+    UpdateField<ObjectGuid, 0, 11> EntityGUID;
 
     using OwnerObject = BaseEntity;
     void WriteCreate(EnumFlag<UpdateFieldFlag> fieldVisibilityFlags, ByteBuffer& data, Player const* receiver, BaseEntity const* owner) const;

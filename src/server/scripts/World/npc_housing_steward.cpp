@@ -24,6 +24,9 @@
 
 enum HousingTutorialData
 {
+    // Quest IDs
+    QUEST_MY_FIRST_HOME             = 91863,
+
     // Quest: "My First Home" (91863) kill credit NPCs
     NPC_KILL_CREDIT_GREET_STEWARD   = 249851,
     NPC_KILL_CREDIT_ASK_STEWARD     = 248857,
@@ -49,19 +52,26 @@ struct npc_housing_steward : public CreatureAI
         // Satisfy "Talk to Lyssabel/Tocho" objective (quest objective 1/2: TALKTO with NPC entry)
         player->TalkedToCreature(me->GetEntry(), me->GetGUID());
 
-        // Show gossip menu with option to ask the steward to join the neighborhood
-        InitGossipMenuFor(player, 0);
-        if (me->IsQuestGiver())
-            player->PrepareQuestMenu(me->GetGUID());
-        AddGossipItemFor(player, GossipOptionNpc::None,
-            "Ask the steward to become your neighbor.",
-            GOSSIP_SENDER_MAIN, GOSSIP_ACTION_ASK_TO_JOIN);
-        SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
-
         TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} greeted steward {} (kill credit {}, talkto {})",
             player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_GREET_STEWARD, me->GetEntry());
 
-        return true;
+        // Only show the custom "Ask the steward to join" gossip when the player is on
+        // "My First Home" (91863) and hasn't yet asked the steward (kill credit 248857).
+        // For all other interactions (including quest 94210 "Feathering the Nest" turn-in),
+        // return false to let the default QuestGiver / gossip pathway proceed.
+        if (player->GetQuestStatus(QUEST_MY_FIRST_HOME) == QUEST_STATUS_INCOMPLETE)
+        {
+            InitGossipMenuFor(player, 0);
+            if (me->IsQuestGiver())
+                player->PrepareQuestMenu(me->GetGUID());
+            AddGossipItemFor(player, GossipOptionNpc::None,
+                "Ask the steward to become your neighbor.",
+                GOSSIP_SENDER_MAIN, GOSSIP_ACTION_ASK_TO_JOIN);
+            SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
+            return true;
+        }
+
+        return false;
     }
 
     bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override

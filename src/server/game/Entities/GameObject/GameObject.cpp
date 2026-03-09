@@ -4297,7 +4297,8 @@ void GameObject::InitHousingCornerstoneData(uint64 cost, int32 plotIndex)
 }
 
 void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid,
-    uint8 flags, ObjectGuid attachParent /*= ObjectGuid::Empty*/)
+    uint8 flags, ObjectGuid attachParent /*= ObjectGuid::Empty*/,
+    uint8 sourceType /*= 0*/, std::string sourceValue /*= {}*/)
 {
     if (m_housingDecorData.has_value())
         return;
@@ -4311,11 +4312,13 @@ void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
         .ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), GetGUID());
 
-    // Set persisted data (house ownership)
+    // Set persisted data (house ownership + source tracking)
     auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
         .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
-    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), uint8(0));
+    SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
+    if (!sourceValue.empty())
+        SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingDecorData));

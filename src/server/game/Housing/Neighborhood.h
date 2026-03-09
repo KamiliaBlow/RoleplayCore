@@ -83,6 +83,16 @@ public:
     bool IsPublic() const { return _isPublic; }
     uint32 GetCreateTime() const { return _createTime; }
 
+    // Guild association
+    uint32 GetGuildId() const { return _guildId; }
+    void SetGuildId(uint32 guildId) { _guildId = guildId; }
+
+    // Plot reservations (in-memory, time-limited holds before purchase)
+    bool ReservePlot(ObjectGuid playerGuid, uint8 plotIndex);
+    bool ClearReservation(ObjectGuid playerGuid);
+    bool HasReservation(ObjectGuid playerGuid) const;
+    uint8 GetReservedPlot(ObjectGuid playerGuid) const;
+
     // Management
     void SetName(std::string const& name);
     void SetPublic(bool isPublic);
@@ -131,6 +141,10 @@ public:
     // Broadcast
     void BroadcastPacket(WorldPacket const* packet, ObjectGuid excludeGuid = ObjectGuid::Empty) const;
 
+    // Rebuild NeighborhoodMirrorData on every online member's Account entity.
+    // Call after any mutation to name, owner, managers, or houses.
+    void RefreshMirrorDataForOnlineMembers() const;
+
 private:
     ObjectGuid _guid;
     std::string _name;
@@ -139,11 +153,20 @@ private:
     int32 _factionRestriction = 0;
     bool _isPublic = false;
     uint32 _createTime = 0;
+    uint32 _guildId = 0;
 
     std::vector<Member> _members;
     std::array<PlotInfo, MAX_NEIGHBORHOOD_PLOTS> _plots{};
     std::vector<PendingInvite> _pendingInvites;
     Optional<PendingOwnershipTransfer> _pendingTransfer;
+
+    // In-memory plot reservations: playerGuid -> {plotIndex, reserveTime}
+    struct PlotReservation
+    {
+        uint8 PlotIndex = 0;
+        uint32 ReserveTime = 0;
+    };
+    std::unordered_map<ObjectGuid, PlotReservation> _plotReservations;
 };
 
 #endif // TRINITYCORE_NEIGHBORHOOD_H

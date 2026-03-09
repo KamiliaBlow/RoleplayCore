@@ -283,12 +283,20 @@ void HousingMap::SpawnPlotGameObjects()
             float hx = plot->HousePosition[0];
             float hy = plot->HousePosition[1];
             float hz = plot->HousePosition[2];
+
+            // Compute facing toward cornerstone (DB2 HouseRotation is (0,0,0) for all plots)
             float hFacing = plot->HouseRotation[2];
+            if (plot->HouseRotation[0] == 0.0f && plot->HouseRotation[1] == 0.0f && plot->HouseRotation[2] == 0.0f)
+                hFacing = std::atan2(plot->CornerstonePosition[1] - hy, plot->CornerstonePosition[0] - hx);
 
             LoadGrid(hx, hy);
 
             Position atPos(hx, hy, hz, hFacing);
-            AreaTrigger* plotAt = AreaTrigger::CreateStaticAreaTrigger({ .Id = 37358, .IsCustom = false }, this, atPos);
+            // Create with addToMap=false so we can set up ALL housing data (entity
+            // fragment, SpellForVisuals, SpellXSpellVisualID) BEFORE the CREATE_OBJECT
+            // packet is sent. The client needs FHousingPlotAreaTrigger_C and
+            // DecalPropertiesId=621 in the initial create to render the plot border decal.
+            AreaTrigger* plotAt = AreaTrigger::CreateStaticAreaTrigger({ .Id = 37358, .IsCustom = false }, this, atPos, -1, false);
             if (plotAt)
             {
                 PhasingHandler::InitDbPhaseShift(plotAt->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
@@ -297,13 +305,27 @@ void HousingMap::SpawnPlotGameObjects()
                 ObjectGuid houseGuid = plotInfo ? plotInfo->HouseGuid : ObjectGuid::Empty;
                 ObjectGuid ownerBnetGuid = plotInfo ? plotInfo->OwnerBnetGuid : ObjectGuid::Empty;
 
+                // Set housing data BEFORE AddToMap so the initial CREATE_OBJECT includes
+                // the FHousingPlotAreaTrigger_C entity fragment, SpellForVisuals=1282351,
+                // and SpellXSpellVisualID=510142.
                 plotAt->InitHousingPlotData(static_cast<uint32>(plot->PlotIndex), ownerGuid, houseGuid, ownerBnetGuid);
 
-                _plotAreaTriggers[static_cast<uint8>(plot->PlotIndex)] = plotAt->GetGUID();
+                if (!AddToMap(plotAt))
+                {
+                    TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: AddToMap failed for plot AT (entry 37358) plot {} at ({:.1f},{:.1f},{:.1f})",
+                        plot->PlotIndex, hx, hy, hz);
+                    delete plotAt;
+                    plotAt = nullptr;
+                }
 
-                TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} AT entry=37358 guid={} at ({:.1f},{:.1f},{:.1f}) owner={}",
-                    plot->PlotIndex, plotAt->GetGUID().ToString(), hx, hy, hz,
-                    ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
+                if (plotAt)
+                {
+                    _plotAreaTriggers[static_cast<uint8>(plot->PlotIndex)] = plotAt->GetGUID();
+
+                    TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} AT entry=37358 guid={} at ({:.1f},{:.1f},{:.1f}) owner={} DecalPropertiesID=621",
+                        plot->PlotIndex, plotAt->GetGUID().ToString(), hx, hy, hz,
+                        ownerGuid.IsEmpty() ? "none" : ownerGuid.ToString());
+                }
             }
             else
             {
@@ -671,8 +693,19 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     QuaternionData rot = houseGo->GetLocalRotation();
                     int32 faction = _neighborhood ? _neighborhood->GetFactionRestriction()
                         : NEIGHBORHOOD_FACTION_ALLIANCE;
+
+                    // Use actual housing data, not hardcoded defaults
+                    int32 lateExtCompID = 141;
+                    int32 lateWmoDataID = 9;
+                    uint32 lateCoreComp = housing->GetCoreExteriorComponentID();
+                    if (lateCoreComp)
+                        lateExtCompID = static_cast<int32>(lateCoreComp);
+                    uint32 lateHouseType = housing->GetHouseType();
+                    if (lateHouseType)
+                        lateWmoDataID = static_cast<int32>(lateHouseType);
+
                     SpawnFullHouseMeshObjects(plotIdx, pos, rot,
-                        housing->GetHouseGuid(), 141, 9, faction);
+                        housing->GetHouseGuid(), lateExtCompID, lateWmoDataID, faction);
 
                     // Also spawn room entity + Geobox if not already present
                     if (_roomEntities.find(plotIdx) == _roomEntities.end())
@@ -1367,34 +1400,53 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         x = targetPlot->HousePosition[0];
         y = targetPlot->HousePosition[1];
         z = targetPlot->HousePosition[2];
-        facing = targetPlot->HouseRotation[2]; // Z euler angle as facing
+
+        // DB2 HouseRotation is (0,0,0) for all plots — compute facing so the
+        // entrance points toward the cornerstone (the plot's interaction point).
+        float hRotX = targetPlot->HouseRotation[0];
+        float hRotY = targetPlot->HouseRotation[1];
+        float hRotZ = targetPlot->HouseRotation[2];
+        if (hRotX == 0.0f && hRotY == 0.0f && hRotZ == 0.0f)
+        {
+            float dx = targetPlot->CornerstonePosition[0] - x;
+            float dy = targetPlot->CornerstonePosition[1] - y;
+            facing = std::atan2(dy, dx);
+        }
+        else
+            facing = hRotZ;
     }
 
     LoadGrid(x, y);
 
-    // Ground-clamp: the DB2 HousePosition Z can be below terrain level.
-    // Snap Z to the terrain height so the house sits on the surface.
+    // Ground-clamp the house Z to the platform surface. The static platform WMO spawns
+    // (GO entry 574432) are loaded from the gameobject table by LoadGrid and registered
+    // in the DynamicMapTree. GetGameObjectFloor finds the platform top surface, which is
+    // the correct elevation for the house. DB2 HousePosition.Z alone places the house
+    // slightly below the platform surface.
     {
-        PhaseShift emptyPhase;
-        PhasingHandler::InitDbPhaseShift(emptyPhase, 0, 0, 0);
-        float groundZ = GetStaticHeight(emptyPhase, x, y, z + 20.0f, true, 50.0f);
-        if (groundZ > INVALID_HEIGHT && std::abs(groundZ - z) > 1.0f)
+        PhaseShift tempPhase;
+        PhasingHandler::InitDbPhaseShift(tempPhase, PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+        float groundZ = GetHeight(tempPhase, x, y, z + 50.0f, true, 100.0f);
+        if (groundZ > INVALID_HEIGHT && groundZ > z - 5.0f)
         {
-            TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Ground-clamping plot {} Z from {:.2f} to {:.2f} (delta={:.2f})",
-                plotIndex, z, groundZ, groundZ - z);
+            TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: plot {} ground-clamped Z from {:.2f} to {:.2f}",
+                plotIndex, z, groundZ);
             z = groundZ;
+        }
+        else
+        {
+            TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: plot {} using DB2 Z={:.2f} (no ground-clamp, height={:.2f})",
+                plotIndex, z, groundZ);
         }
     }
 
-    // Build rotation quaternion from euler angles
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(facing,
-        customPos ? 0.0f : targetPlot->HouseRotation[1],
-        customPos ? 0.0f : targetPlot->HouseRotation[0]);
+    // Build rotation quaternion from the facing angle (yaw only for housing plots,
+    // since DB2 HouseRotation X/Y are always 0 and the computed facing is a pure yaw).
+    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(facing, 0.0f, 0.0f);
 
-    // DO NOT spawn GO 574432 (Housing - Generic - Ground WMO) here.
-    // The gameobject table already has 23 properly-rotated 574432 spawns (one per plot),
-    // loaded by Map::LoadGridObjects. Dynamically spawning another one creates a duplicate
-    // with identity rotation that renders as a brown rectangle on the floor.
+    // Platform WMO (GO entry 574432) is loaded from the static gameobject table (sniff data).
+    // Do NOT dynamically spawn a second platform — it renders visibly on top of the static
+    // one and the static spawn already provides DynamicMapTree collision for ground-clamping.
 
     Position pos(x, y, z, facing);
     Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(plotIndex);
@@ -1437,15 +1489,20 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         SpawnRoomForPlot(plotIndex, pos, rot, plotInfo->HouseGuid);
     }
 
-    // Spawn the front door GO (entry 602702, type Goober, displayId 116971)
-    // Sniff confirms: door is a separate interactive GO, NOT a MeshObject.
-    // The door must be offset from the house center to the front entrance.
-    // Try to get the offset from DB2 ExteriorComponentExitPoint, falling back to 5.5f.
+    // Spawn the front door GO (entry 586576, type Goober, displayId 116973)
+    // The interactive door GO must be at the actual doorway (top of stairs), NOT at
+    // the door mesh origin (which sits at stair base level, ~0.56 below house floor).
+    // Door mesh local offset from base: (9.2805, -3.4555, -0.5611) — mesh origin at stair foot
+    // Adjusted offset: raised Z to door frame level, pulled X back toward actual door threshold.
     GameObject* doorGo = nullptr;
-    uint32 doorEntry = 602702;
-    float doorForwardOffset = 5.5f; // fallback
+    uint32 doorEntry = 586576; // retail "Founder's Point Front Door"
 
-    // Find the door component by scanning the group for one with an exit point
+    // Door interaction GO local-space offset (adjusted from mesh origin to doorway threshold)
+    float doorLocalX = 8.0f;
+    float doorLocalY = -3.4555f;
+    float doorLocalZ = 1.5f;
+
+    // Try to get the offset from DB2 ExteriorComponentExitPoint if available
     int32 groupID = sHousingMgr.GetGroupForComponent(static_cast<uint32>(exteriorComponentID));
     if (groupID != 0)
     {
@@ -1457,20 +1514,25 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
                 ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(compID);
                 if (exitPt)
                 {
-                    // Exit point position is in local space — use the forward (X) component as offset
-                    doorForwardOffset = exitPt->Position[0];
+                    doorLocalX = exitPt->Position[0];
+                    doorLocalY = exitPt->Position[1];
+                    doorLocalZ = exitPt->Position[2];
                     TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door offset from DB2 "
-                        "ExitPoint (comp={}) = {:.2f}",
-                        compID, doorForwardOffset);
+                        "ExitPoint (comp={}) = ({:.2f}, {:.2f}, {:.2f})",
+                        compID, doorLocalX, doorLocalY, doorLocalZ);
                     break;
                 }
             }
         }
     }
 
-    float doorX = x + doorForwardOffset * std::cos(facing);
-    float doorY = y + doorForwardOffset * std::sin(facing);
-    Position doorPos(doorX, doorY, z, facing);
+    // Transform local-space door offset to world space
+    float cosFacing = std::cos(facing);
+    float sinFacing = std::sin(facing);
+    float doorX = x + doorLocalX * cosFacing - doorLocalY * sinFacing;
+    float doorY = y + doorLocalX * sinFacing + doorLocalY * cosFacing;
+    float doorZ = z + doorLocalZ;
+    Position doorPos(doorX, doorY, doorZ, facing);
 
     GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorEntry);
     if (doorTemplate)
@@ -1485,7 +1547,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
             {
                 _houseGameObjects[plotIndex] = doorGo->GetGUID();
                 TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door GO spawned - entry={} guid={} displayId={} at ({:.1f}, {:.1f}, {:.1f}) (house center: {:.1f}, {:.1f}, {:.1f}) for plot {}",
-                    doorEntry, doorGo->GetGUID().ToString(), doorGo->GetDisplayId(), doorX, doorY, z, x, y, z, plotIndex);
+                    doorEntry, doorGo->GetGUID().ToString(), doorGo->GetDisplayId(), doorX, doorY, doorZ, x, y, z, plotIndex);
             }
             else
             {
@@ -1780,10 +1842,90 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
 
             if (totalSpawned > 0)
             {
+                // Check which components were included in the data-driven group.
+                // If missing, spawn them from hardcoded data.
+                bool roofFound = false;
+                bool doorFound = false;
+                bool chimneyFound = false;
+                MeshObject* basePieceDd = nullptr;
+                MeshObject* roofPieceDd = nullptr;
+                auto meshItr = _meshObjects.find(plotIndex);
+                if (meshItr != _meshObjects.end())
+                {
+                    for (ObjectGuid const& guid : meshItr->second)
+                    {
+                        if (MeshObject* mesh = GetMeshObject(guid))
+                        {
+                            if (mesh->GetFileDataID() == 7420602)
+                            { roofFound = true; roofPieceDd = mesh; }
+                            else if (mesh->GetFileDataID() == 7450804)
+                                doorFound = true;
+                            else if (mesh->GetFileDataID() == 6648736)
+                                basePieceDd = mesh;
+                            else if (mesh->GetFileDataID() == 7118952)
+                                chimneyFound = true;
+                        }
+                    }
+                }
+
+                if (factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE)
+                {
+                    if (!roofFound)
+                    {
+                        roofPieceDd = SpawnHouseMeshObject(plotIndex, 7420602, /*isWMO*/ true,
+                            housePos, houseRot, 1.0f,
+                            houseGuid, 1503, houseExteriorWmoDataID,
+                            /*exteriorComponentType*/ 10, /*houseSize*/ 2, /*hookID*/ -1,
+                            ObjectGuid::Empty, /*attachFlags*/ 0);
+                        totalSpawned++;
+                    }
+
+                    if (!doorFound && basePieceDd)
+                    {
+                        SpawnHouseMeshObject(plotIndex, 7450804, /*isWMO*/ true,
+                            Position(9.2805f, -3.4555f, -0.5611f, 0.0f),
+                            QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
+                            houseGuid, 1380, houseExteriorWmoDataID,
+                            /*exteriorComponentType*/ 11, /*houseSize*/ 1, /*hookID*/ 2505,
+                            basePieceDd->GetGUID(), /*attachFlags*/ 3, &housePos);
+                        totalSpawned++;
+                    }
+
+                    // Chimney + windows as children of roof
+                    if (!chimneyFound && roofPieceDd)
+                    {
+                        ObjectGuid roofGuid = roofPieceDd->GetGUID();
+
+                        SpawnHouseMeshObject(plotIndex, 7118952, /*isWMO*/ true,
+                            Position(-3.6472f, -5.6444f, 12.3556f, 0.0f),
+                            QuaternionData(0.0f, 0.0f, -0.7071066f, 0.70710695f), 1.0f,
+                            houseGuid, 1452, houseExteriorWmoDataID,
+                            /*exteriorComponentType*/ 16, /*houseSize*/ 2, /*hookID*/ 14931,
+                            roofGuid, /*attachFlags*/ 3, &housePos);
+
+                        SpawnHouseMeshObject(plotIndex, 7450830, /*isWMO*/ true,
+                            Position(-3.025f, -0.0222f, 11.35f, 0.0f),
+                            QuaternionData(0.0f, 0.0f, -1.0f, 0.0f), 1.0f,
+                            houseGuid, 1448, houseExteriorWmoDataID,
+                            /*exteriorComponentType*/ 14, /*houseSize*/ 2, /*hookID*/ 17202,
+                            roofGuid, /*attachFlags*/ 3, &housePos);
+
+                        SpawnHouseMeshObject(plotIndex, 7450830, /*isWMO*/ true,
+                            Position(3.0305f, -0.0222f, 11.35f, 0.0f),
+                            QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
+                            houseGuid, 1448, houseExteriorWmoDataID,
+                            /*exteriorComponentType*/ 14, /*houseSize*/ 2, /*hookID*/ 14929,
+                            roofGuid, /*attachFlags*/ 3, &housePos);
+
+                        totalSpawned += 3;
+                    }
+                }
+
                 TC_LOG_INFO("housing", "HousingMap::SpawnFullHouseMeshObjects: Data-driven spawn "
-                    "for plot {} group {} — {} MeshObjects (faction={})",
+                    "for plot {} group {} — {} total MeshObjects (faction={}, door={})",
                     plotIndex, groupID, totalSpawned,
-                    factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde");
+                    factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde",
+                    doorFound ? "data-driven" : (factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE ? "hardcoded" : "N/A"));
                 return;
             }
 
@@ -1808,18 +1950,12 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     }
 
     // === ALLIANCE EXTERIOR (Stucco Small) ===
-    // Sniff-verified: Alliance starter house consists of 10 structural MeshObjects.
-    // Two root pieces (base + door) positioned at the house location, and 8 child pieces
-    // attached to roots with local-space offsets.
+    // Two root pieces (base + roof) at the house position, children with local-space offsets.
     //
-    // Parent-child hierarchy:
-    //   Root 0 (base, 6648736) - ExteriorComponentID 141, type 9
-    //     ├── Child: Left side wall (7448531), hookID 2514
-    //     ├── Child: Right side wall (7448531), hookID 2511
-    //     ├── Child: Rear-left corner (7448532), hookID 2512
-    //     ├── Child: Rear-right corner (7448532), hookID 2513
-    //     └── Child: Front-right corner (7448532), hookID 2509
-    //   Root 1 (door, 7420613) - ExteriorComponentID 1505, type 10
+    // Structure:
+    //   Root 0 (base, 6648736) - ExteriorComponentID 141, type 9 (Base)
+    //     └── Child: Door (7450804), ExteriorComponentID 1380, type 11, hookID 2505
+    //   Root 1 (roof, 7420602) - ExteriorComponentID 1503, type 10 (Roof)
     //     ├── Child: Chimney (7118952), hookID 14931
     //     ├── Child: Window back-left (7450830), hookID 17202
     //     └── Child: Window back-right (7450830), hookID 14929
@@ -1831,63 +1967,31 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
         /*exteriorComponentType*/ 9, /*houseSize*/ 2, /*hookID*/ -1,
         ObjectGuid::Empty, /*attachFlags*/ 0);
 
-    // Spawn root piece 1: Door/entrance assembly
-    MeshObject* doorPiece = SpawnHouseMeshObject(plotIndex, 7420613, /*isWMO*/ true,
+    // Spawn root piece 1: Roof (retail sniff: ExteriorComponentID 1503, type 10, fileDataID 7420602)
+    MeshObject* roofPiece = SpawnHouseMeshObject(plotIndex, 7420602, /*isWMO*/ true,
         housePos, houseRot, 1.0f,
-        houseGuid, 1505, houseExteriorWmoDataID,
+        houseGuid, 1503, houseExteriorWmoDataID,
         /*exteriorComponentType*/ 10, /*houseSize*/ 2, /*hookID*/ -1,
         ObjectGuid::Empty, /*attachFlags*/ 0);
 
-    // Children of base piece (root 0) — local-space positions/rotations from sniff
+    // Child of base: Door mesh (retail sniff: ExteriorComponentID 1380, type 11, hookID 2505)
+    // Position and rotation from retail sniff — local space relative to base.
     if (basePiece)
     {
         ObjectGuid baseGuid = basePiece->GetGUID();
 
-        // Left side wall
-        SpawnHouseMeshObject(plotIndex, 7448531, /*isWMO*/ true,
-            Position(0.0417f, -6.9833f, 4.1722f, 0.0f),
-            QuaternionData(0.0f, 0.0f, -0.7071066f, 0.70710695f), 1.0f,
-            houseGuid, 1436, houseExteriorWmoDataID,
-            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 2514,
-            baseGuid, /*attachFlags*/ 3, &housePos);
-
-        // Right side wall
-        SpawnHouseMeshObject(plotIndex, 7448531, /*isWMO*/ true,
-            Position(0.0778f, 7.0028f, 4.1722f, 0.0f),
-            QuaternionData(0.0f, 0.0f, 0.7071066f, 0.70710695f), 1.0f,
-            houseGuid, 1436, houseExteriorWmoDataID,
-            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 2511,
-            baseGuid, /*attachFlags*/ 3, &housePos);
-
-        // Rear-left corner
-        SpawnHouseMeshObject(plotIndex, 7448532, /*isWMO*/ true,
-            Position(-5.3722f, 3.4167f, 4.1444f, 0.0f),
-            QuaternionData(0.0f, 0.0f, -1.0f, 0.0f), 1.0f,
-            houseGuid, 1417, houseExteriorWmoDataID,
-            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 2512,
-            baseGuid, /*attachFlags*/ 3, &housePos);
-
-        // Rear-right corner
-        SpawnHouseMeshObject(plotIndex, 7448532, /*isWMO*/ true,
-            Position(-5.3917f, -3.5084f, 4.1639f, 0.0f),
-            QuaternionData(0.0f, 0.0f, -1.0f, 0.0f), 1.0f,
-            houseGuid, 1417, houseExteriorWmoDataID,
-            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 2513,
-            baseGuid, /*attachFlags*/ 3, &housePos);
-
-        // Front-right corner
-        SpawnHouseMeshObject(plotIndex, 7448532, /*isWMO*/ true,
-            Position(5.3805f, 3.4694f, 4.1639f, 0.0f),
+        SpawnHouseMeshObject(plotIndex, 7450804, /*isWMO*/ true,
+            Position(9.2805f, -3.4555f, -0.5611f, 0.0f),
             QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
-            houseGuid, 1417, houseExteriorWmoDataID,
-            /*exteriorComponentType*/ 12, /*houseSize*/ 2, /*hookID*/ 2509,
+            houseGuid, 1380, houseExteriorWmoDataID,
+            /*exteriorComponentType*/ 11, /*houseSize*/ 1, /*hookID*/ 2505,
             baseGuid, /*attachFlags*/ 3, &housePos);
     }
 
-    // Children of door piece (root 1) — local-space positions/rotations from sniff
-    if (doorPiece)
+    // Children of roof piece — chimney and windows (local-space positions/rotations)
+    if (roofPiece)
     {
-        ObjectGuid doorGuid = doorPiece->GetGUID();
+        ObjectGuid roofGuid = roofPiece->GetGUID();
 
         // Chimney (back-left)
         SpawnHouseMeshObject(plotIndex, 7118952, /*isWMO*/ true,
@@ -1895,7 +1999,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             QuaternionData(0.0f, 0.0f, -0.7071066f, 0.70710695f), 1.0f,
             houseGuid, 1452, houseExteriorWmoDataID,
             /*exteriorComponentType*/ 16, /*houseSize*/ 2, /*hookID*/ 14931,
-            doorGuid, /*attachFlags*/ 3, &housePos);
+            roofGuid, /*attachFlags*/ 3, &housePos);
 
         // Window back-left
         SpawnHouseMeshObject(plotIndex, 7450830, /*isWMO*/ true,
@@ -1903,7 +2007,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             QuaternionData(0.0f, 0.0f, -1.0f, 0.0f), 1.0f,
             houseGuid, 1448, houseExteriorWmoDataID,
             /*exteriorComponentType*/ 14, /*houseSize*/ 2, /*hookID*/ 17202,
-            doorGuid, /*attachFlags*/ 3, &housePos);
+            roofGuid, /*attachFlags*/ 3, &housePos);
 
         // Window back-right
         SpawnHouseMeshObject(plotIndex, 7450830, /*isWMO*/ true,
@@ -1911,7 +2015,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             QuaternionData(0.0f, 0.0f, 0.0f, 1.0f), 1.0f,
             houseGuid, 1448, houseExteriorWmoDataID,
             /*exteriorComponentType*/ 14, /*houseSize*/ 2, /*hookID*/ 14929,
-            doorGuid, /*attachFlags*/ 3, &housePos);
+            roofGuid, /*attachFlags*/ 3, &housePos);
     }
 
     uint32 meshCount = 0;
@@ -1919,10 +2023,8 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     if (meshItr != _meshObjects.end())
         meshCount = static_cast<uint32>(meshItr->second.size());
 
-    TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} alliance MeshObjects for plot {} in neighborhood '{}' "
-        "(base={} door={})",
-        meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?",
-        basePiece ? "OK" : "FAIL", doorPiece ? "OK" : "FAIL");
+    TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: Spawned {} alliance MeshObjects for plot {} in neighborhood '{}'",
+        meshCount, plotIndex, _neighborhood ? _neighborhood->GetName() : "?");
 }
 
 void HousingMap::SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
@@ -2085,15 +2187,18 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
             // Hook position/rotation are local-space offsets relative to the parent
             Position hookPos(hook->Position[0], hook->Position[1], hook->Position[2], 0.0f);
             QuaternionData hookRot;
-            // Hook rotation is in degrees — convert to quaternion
+            // Hook rotation is in degrees — convert to quaternion (XYZ extrinsic Euler)
             static constexpr float DEG_TO_RAD = static_cast<float>(M_PI / 180.0);
             float rx = hook->Rotation[0] * DEG_TO_RAD;
             float ry = hook->Rotation[1] * DEG_TO_RAD;
             float rz = hook->Rotation[2] * DEG_TO_RAD;
-            hookRot.x = std::sin(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
-            hookRot.y = std::cos(rx / 2.0f) * std::sin(ry / 2.0f) * std::cos(rz / 2.0f);
-            hookRot.z = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::sin(rz / 2.0f);
-            hookRot.w = std::cos(rx / 2.0f) * std::cos(ry / 2.0f) * std::cos(rz / 2.0f);
+            float cx = std::cos(rx / 2.0f), sx = std::sin(rx / 2.0f);
+            float cy = std::cos(ry / 2.0f), sy = std::sin(ry / 2.0f);
+            float cz = std::cos(rz / 2.0f), sz = std::sin(rz / 2.0f);
+            hookRot.x = sx * cy * cz - cx * sy * sz;
+            hookRot.y = cx * sy * cz + sx * cy * sz;
+            hookRot.z = cx * cy * sz - sx * sy * cz;
+            hookRot.w = cx * cy * cz + sx * sy * sz;
 
             count += SpawnExtCompTree(plotIndex, childComp->ID,
                 hookPos, hookRot,
@@ -2226,14 +2331,21 @@ MeshObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor con
 
     QuaternionData rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
 
-    // Convert world position to room-local position if we have a room entity
+    // Convert world position to room-local position if we have a room entity.
+    // The client applies the parent's rotation to PositionLocalSpace, so we must
+    // apply the INVERSE rotation when converting world → local.
     float localX = worldX;
     float localY = worldY;
     float localZ = worldZ;
     if (!roomEntityGuid.IsEmpty())
     {
-        localX = worldX - roomWorldPos.GetPositionX();
-        localY = worldY - roomWorldPos.GetPositionY();
+        float dx = worldX - roomWorldPos.GetPositionX();
+        float dy = worldY - roomWorldPos.GetPositionY();
+        float roomFacing = roomWorldPos.GetOrientation();
+        float cosF = std::cos(roomFacing);
+        float sinF = std::sin(roomFacing);
+        localX =  cosF * dx + sinF * dy;
+        localY = -sinF * dx + cosF * dy;
         localZ = worldZ - roomWorldPos.GetPositionZ();
     }
 
@@ -2253,7 +2365,7 @@ MeshObject* HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor con
     }
 
     PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-    mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid);
+    mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
 
     if (!AddToMap(mesh))
     {

@@ -55,6 +55,7 @@ public:
 
     // Queries
     Neighborhood* GetNeighborhoodByOwner(ObjectGuid ownerGuid);
+    Neighborhood* GetNeighborhoodByGuildId(uint32 guildId);
     std::vector<Neighborhood*> GetAllNeighborhoods() const;
     std::vector<Neighborhood*> GetPublicNeighborhoods() const;
     std::vector<Neighborhood*> GetNeighborhoodsForPlayer(ObjectGuid playerGuid) const;

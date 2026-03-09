@@ -1666,7 +1666,7 @@ enum SpellEffectName
     SPELL_EFFECT_321                                = 321,
     SPELL_EFFECT_322                                = 322,
     SPELL_EFFECT_323                                = 323,
-    SPELL_EFFECT_324                                = 324,
+    SPELL_EFFECT_COLLECT_HOUSING_DECOR              = 324,
     SPELL_EFFECT_325                                = 325,
     SPELL_EFFECT_326                                = 326,
     SPELL_EFFECT_327                                = 327,

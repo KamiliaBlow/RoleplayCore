@@ -1769,8 +1769,13 @@ void WorldSession::HandleTutorialFlag(WorldPackets::Misc::TutorialSetFlag& packe
                 SetTutorialInt(i, 0xFFFFFFFF);
             break;
         case TUTORIAL_ACTION_RESET:
+            // Retail sniff shows all 256 tutorial bits set to 1. The client sends RESET
+            // during the housing tutorial flow to wipe bits before re-setting them one by
+            // one. This clears housing mode-unlock bits (38-40), blocking editor modes with
+            // "Mode not available while in the Tutorial." Treat RESET the same as CLEAR
+            // (all bits = 1) so housing and other systems stay unlocked.
             for (uint8 i = 0; i < MAX_ACCOUNT_TUTORIAL_VALUES; ++i)
-                SetTutorialInt(i, 0x00000000);
+                SetTutorialInt(i, 0xFFFFFFFF);
             break;
         default:
             TC_LOG_ERROR("network", "CMSG_TUTORIAL_FLAG received unknown TutorialAction {}.", packet.Action);
