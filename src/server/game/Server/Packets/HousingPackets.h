@@ -2152,6 +2152,57 @@ namespace WorldPackets::Housing
         uint32 MilestoneIndex = 0;
     };
 
+    // IDA-verified: SMSG_INITIATIVE_UPDATE_STATUS carries 1 byte (NeighborhoodInitiativeUpdateStatus)
+    // Sent when initiative state changes: Started, MilestoneCompleted, Completed, Failed
+    class InitiativeUpdateStatus final : public ServerPacket
+    {
+    public:
+        InitiativeUpdateStatus() : ServerPacket(SMSG_INITIATIVE_UPDATE_STATUS) { }
+        WorldPacket const* Write() override;
+        uint8 Status = 0; // NeighborhoodInitiativeUpdateStatus
+    };
+
+    // IDA-verified: SMSG_INITIATIVE_POINTS_UPDATE carries 2 uint32 (current, max)
+    // Sent after progress changes to update the client's progress bar
+    class InitiativePointsUpdate final : public ServerPacket
+    {
+    public:
+        InitiativePointsUpdate() : ServerPacket(SMSG_INITIATIVE_POINTS_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint32 CurrentPoints = 0;
+        uint32 MaxPoints = 0;
+    };
+
+    // IDA-verified: SMSG_INITIATIVE_MILESTONE_UPDATE carries 3 bytes
+    // Sent when milestone state changes (milestoneIndex, reached, flags)
+    class InitiativeMilestoneUpdate final : public ServerPacket
+    {
+    public:
+        InitiativeMilestoneUpdate() : ServerPacket(SMSG_INITIATIVE_MILESTONE_UPDATE) { }
+        WorldPacket const* Write() override;
+        uint8 MilestoneIndex = 0;
+        uint8 Reached = 0;
+        uint8 Flags = 0;
+    };
+
+    // IDA-verified: SMSG_INITIATIVE_CHEST_RESULT carries 1 uint32 (NeighborhoodInitiativeChestResult)
+    class InitiativeChestResult final : public ServerPacket
+    {
+    public:
+        InitiativeChestResult() : ServerPacket(SMSG_INITIATIVE_CHEST_RESULT) { }
+        WorldPacket const* Write() override;
+        uint32 Result = 0; // NeighborhoodInitiativeChestResult
+    };
+
+    // IDA-verified: SMSG_INITIATIVE_TRACKED_UPDATED carries a packed GUID (8 bytes)
+    class InitiativeTrackedUpdated final : public ServerPacket
+    {
+    public:
+        InitiativeTrackedUpdated() : ServerPacket(SMSG_INITIATIVE_TRACKED_UPDATED) { }
+        WorldPacket const* Write() override;
+        ObjectGuid NeighborhoodGUID;
+    };
+
     // ============================================================
     // Photo Sharing SMSG Responses (0x42037x)
     // ============================================================
@@ -2813,9 +2864,6 @@ namespace WorldPackets::Neighborhood
         InitiativeReportProgress(WorldPacket&& packet) : ClientPacket(CMSG_INITIATIVE_REPORT_PROGRESS, std::move(packet)) { }
         void Read() override;
         ObjectGuid NeighborhoodGuid;
-        uint32 InitiativeID = 0;
-        uint32 TaskID = 0;
-        uint32 ProgressDelta = 0;
     };
 
     class GetInitiativeClaimRewardRequest final : public ClientPacket

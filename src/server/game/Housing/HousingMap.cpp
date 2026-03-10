@@ -780,6 +780,15 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         houseInfo.House.AccessFlags, housing ? "yes" : "no");
     player->SendDirectMessage(houseInfoPkt);
 
+    // Send SMSG_INITIATIVE_SERVICE_STATUS proactively so IsInitiativeEnabled() returns
+    // true immediately. Without this, the client waits for a poll response before showing
+    // initiative/endeavor UI elements. Sniff-verified: server responds with 0x80 (enabled).
+    {
+        WorldPackets::Housing::InitiativeServiceStatus initStatus;
+        initStatus.ServiceEnabled = true;
+        player->SendDirectMessage(initStatus.Write());
+    }
+
     // ENTER_PLOT must be sent AFTER SMSG_UPDATE_OBJECT creates the AT on the client.
     // UPDATE_OBJECT is flushed after AddPlayerToMap returns, so sending ENTER_PLOT
     // here synchronously would reference an AT GUID the client doesn't know yet.

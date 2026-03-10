@@ -18,6 +18,7 @@
 #include "WorldSession.h"
 #include "Account.h"
 #include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include "DatabaseEnv.h"
 #include "GameObject.h"
 #include "Guild.h"
@@ -1084,11 +1085,61 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         static constexpr uint32 NPC_KILL_CREDIT_BUY_HOME = 248858;
         player->KilledMonsterCredit(NPC_KILL_CREDIT_BUY_HOME);
 
-        // Mark all tutorials as seen (retail sniff: all 256 bits = 0xFF).
-        // Without this, the client gates cleanup/expert modes behind FrameTutorialAccount bits.
+        // TODO: Replace with quest-driven tutorial progression when the housing tutorial
+        // questline is implemented. See Player.cpp LoadFromDB for full explanation.
+        // Mark all server tutorial flags as seen (retail sniff: all 256 bits = 0xFF).
         for (uint8 i = 0; i < MAX_ACCOUNT_TUTORIAL_VALUES; ++i)
             SetTutorialInt(i, 0xFFFFFFFF);
         SendTutorialsData();
+
+        // Also inject FrameTutorialAccount CVars into GLOBAL_CONFIG_CACHE.
+        // The client's housing UI checks closedInfoFramesAccountWide bit 38
+        // (HousingModesUnlocked) separately from the 256-bit server tutorial flags.
+        {
+            AccountData const* configCache = GetAccountData(GLOBAL_CONFIG_CACHE);
+            std::string configData = configCache ? configCache->Data : "";
+            bool modified = false;
+
+            auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
+            {
+                std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
+                size_t pos = configData.find(setPrefix);
+                if (pos != std::string::npos)
+                {
+                    size_t valStart = pos + setPrefix.size();
+                    size_t valEnd = configData.find('"', valStart);
+                    if (valEnd != std::string::npos)
+                    {
+                        std::string oldVal = configData.substr(valStart, valEnd - valStart);
+                        if (oldVal != value)
+                        {
+                            configData.replace(valStart, valEnd - valStart, value);
+                            modified = true;
+                        }
+                    }
+                }
+                else
+                {
+                    if (!configData.empty() && configData.back() != '\n')
+                        configData += '\n';
+                    configData += "SET ";
+                    configData += cvarName;
+                    configData += " \"";
+                    configData += value;
+                    configData += "\"\n";
+                    modified = true;
+                }
+            };
+
+            ensureCVar("closedInfoFramesAccountWide", "4294967295 4294967295");
+            ensureCVar("housingTutorialsEnabled", "0");
+
+            if (modified)
+            {
+                SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
+                SendAccountDataTimes(player->GetGUID(), GLOBAL_CACHE_MASK);
+            }
+        }
 
         // Retail sequence: FirstTimeDecorAcquisition → BuyHouseResponse → LevelFavor updates
 
@@ -1233,13 +1284,45 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         if (Housing* h = player->GetHousing())
         {
             h->PopulateCatalogStorageEntries();
+            h->SyncUpdateFields();
 
             WorldPackets::Housing::HousingDecorRequestStorageResponse storageResp;
             storageResp.ResultCode = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
             SendPacket(storageResp.Write());
-            GetBattlenetAccount().SendUpdateToPlayer(player);
 
-            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Sent proactive STORAGE_RSP + Account update (CatalogEntries={})",
+            // Send Account + HousingPlayerHouseEntity together so budget data
+            // accompanies storage data for the client's decor count display.
+            {
+                GetBattlenetAccount().BuildUpdateChangesMask();
+                GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
+
+                UpdateData updateData(player->GetMapId());
+                WorldPacket updatePacket;
+
+                if (player->HaveAtClient(&GetBattlenetAccount()))
+                    GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+                else
+                {
+                    GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+                    player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
+                }
+
+                if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
+                    GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
+                else
+                {
+                    GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
+                    player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+                }
+
+                updateData.BuildPacket(&updatePacket);
+                player->SendDirectMessage(&updatePacket);
+
+                GetBattlenetAccount().ClearUpdateMask(false);
+                GetHousingPlayerHouseEntity().ClearUpdateMask(false);
+            }
+
+            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Sent proactive STORAGE_RSP + Account + HouseEntity update (CatalogEntries={})",
                 uint32(h->GetCatalogEntries().size()));
         }
 
@@ -1497,6 +1580,10 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     response.IsPlotOwned = isOwned;
     response.CanPurchase = !isOwned;
     response.NeighborhoodName = neighborhood->GetName();
+
+    // Set IsInitiative when the neighborhood has an active initiative/endeavor
+    uint64 nhLowGuid = neighborhood->GetGuid().GetCounter();
+    response.IsInitiative = (sInitiativeManager.GetActiveInitiative(nhLowGuid) != nullptr);
 
     if (isOwned)
     {
@@ -1944,8 +2031,8 @@ void WorldSession::HandleInitiativeReportProgress(WorldPackets::Neighborhood::In
     if (!player)
         return;
 
-    TC_LOG_DEBUG("housing", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} InitiativeID: {} TaskID: {} Delta: {} Player: {}",
-        packet.NeighborhoodGuid.ToString(), packet.InitiativeID, packet.TaskID, packet.ProgressDelta, player->GetGUID().ToString());
+    TC_LOG_DEBUG("housing", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} Player: {}",
+        packet.NeighborhoodGuid.ToString(), player->GetGUID().ToString());
 
     Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
     if (!neighborhood)
@@ -1958,20 +2045,7 @@ void WorldSession::HandleInitiativeReportProgress(WorldPackets::Neighborhood::In
 
     uint64 nhGuid = neighborhood->GetGuid().GetCounter();
 
-    // Validate that the initiative and task exist
-    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
-    if (!active || active->InitiativeID != packet.InitiativeID)
-    {
-        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
-        SendPacket(response.Write());
-        return;
-    }
-
-    // Apply progress and send updated task info
-    if (packet.ProgressDelta > 0)
-        sInitiativeManager.UpdateTaskProgress(nhGuid, packet.InitiativeID, packet.TaskID, packet.ProgressDelta, player);
-
+    // Client is requesting initiative info for this neighborhood — send current state
     sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
 }
 
@@ -1993,14 +2067,22 @@ void WorldSession::HandleGetInitiativeClaimRewardRequest(WorldPackets::Neighborh
 
     uint64 nhGuid = neighborhood->GetGuid().GetCounter();
 
-    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID))
+    uint64 playerLowGuid = player->GetGUID().GetCounter();
+
+    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID, playerLowGuid))
     {
         sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
         return;
     }
 
-    // Reward claiming acknowledged — actual item/currency rewards would be granted via
-    // InitiativeMilestone DB2 RewardID → reward table. For now, acknowledge success.
+    // Claim the milestone reward — grants items/currency via DB2 reward chain and
+    // persists the claim so it can't be double-claimed
+    if (!sInitiativeManager.ClaimMilestoneReward(nhGuid, packet.InitiativeID, packet.MilestoneIndex, player))
+    {
+        sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
+        return;
+    }
+
     sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_SUCCESS));
 
     // Update favor for the contributing player
@@ -2050,14 +2132,36 @@ void WorldSession::HandleGetInitiativeOpenChestRequest(WorldPackets::Neighborhoo
 
     uint64 nhGuid = neighborhood->GetGuid().GetCounter();
 
-    // Chest opening is a variant of reward claiming tied to milestone completion
-    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID))
+    // Chest opening is a variant of reward claiming tied to milestone completion.
+    // Find the first unclaimed milestone for this player and claim it.
+    uint64 playerLowGuid = player->GetGUID().GetCounter();
+
+    if (!sInitiativeManager.HasUnclaimedRewards(nhGuid, packet.InitiativeID, playerLowGuid))
     {
         sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_GENERIC_FAILURE));
         return;
     }
 
-    sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(HOUSING_RESULT_SUCCESS));
+    // Find the first unclaimed reached milestone and claim it
+    ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
+    bool claimed = false;
+    if (active)
+    {
+        for (auto const& [msIndex, reached] : active->MilestonesReached)
+        {
+            if (!reached)
+                continue;
+            auto claimItr = active->RewardClaims.find(msIndex);
+            if (claimItr == active->RewardClaims.end() || claimItr->second.find(playerLowGuid) == claimItr->second.end())
+            {
+                claimed = sInitiativeManager.ClaimMilestoneReward(nhGuid, packet.InitiativeID, msIndex, player);
+                break;
+            }
+        }
+    }
+
+    sInitiativeManager.SendInitiativeRewardsResult(this, static_cast<uint32>(
+        claimed ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_GENERIC_FAILURE));
 }
 
 void WorldSession::HandleGetInitiativeTaskAcceptRequest(WorldPackets::Neighborhood::GetInitiativeTaskAcceptRequest const& packet)

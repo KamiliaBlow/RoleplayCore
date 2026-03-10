@@ -16,6 +16,7 @@
  */
 
 #include "Spell.h"
+#include "Account.h"
 #include "AccountMgr.h"
 #include "AreaTrigger.h"
 #include "AzeriteEmpoweredItem.h"
@@ -74,6 +75,7 @@
 #include "Pet.h"
 #include "PhasingHandler.h"
 #include "Player.h"
+#include "RealmList.h"
 #include "QuestMgr.h"
 #include "ReputationMgr.h"
 #ifdef ELUNA
@@ -6930,6 +6932,39 @@ void Spell::EffectCollectHousingDecor()
     WorldPackets::Housing::HousingFirstTimeDecorAcquisition decorAcq;
     decorAcq.DecorEntryID = decorEntryId;
     player->SendDirectMessage(decorAcq.Write());
+
+    // If the Account entity's FHousingStorage_C has already been populated (player opened
+    // edit mode), add the new catalog entry directly and send a VALUES_UPDATE so the client's
+    // decor list refreshes without requiring a relog or mode toggle.
+    if (housing->IsStoragePopulated())
+    {
+        Housing::CatalogEntry const* catEntry = nullptr;
+        for (Housing::CatalogEntry const* entry : housing->GetCatalogEntries())
+        {
+            if (entry->DecorEntryId == decorEntryId)
+            {
+                catEntry = entry;
+                break;
+            }
+        }
+        if (catEntry)
+        {
+            // Generate a unique GUID for the new storage entry (same scheme as PopulateCatalogStorageEntries)
+            uint64 catalogGuidBase = player->GetGUID().GetCounter() * 100000;
+            uint32 storageIdx = catEntry->Count > 0 ? catEntry->Count - 1 : 0;
+            uint64 uniqueId = catalogGuidBase + decorEntryId * 100 + storageIdx;
+            ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
+                /*subType*/ 1,
+                /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+                /*arg2*/ decorEntryId,
+                uniqueId);
+
+            Battlenet::Account& account = player->GetSession()->GetBattlenetAccount();
+            account.SetHousingDecorStorageEntry(catalogDecorGuid, ObjectGuid::Empty,
+                catEntry->SourceType, catEntry->SourceValue);
+            account.SendUpdateToPlayer(player);
+        }
+    }
 
     TC_LOG_DEBUG("spells", "Spell::EffectCollectHousingDecor: Player {} learned decor '{}' (ID: {}) from spell {}",
         player->GetName(), decorData->Name, decorEntryId, m_spellInfo->Id);

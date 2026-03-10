@@ -3809,6 +3809,7 @@ void Player::ClearValuesChangesMask()
     m_values.ClearChangesMask(&Player::m_playerData);
     m_values.ClearChangesMask(&Player::m_activePlayerData);
     m_values.ClearChangesMask(&Player::m_playerHouseInfoComponentData);
+    m_values.ClearChangesMask(&Player::m_playerInitiativeComponentData);
     Unit::ClearValuesChangesMask();
 }
 
@@ -18009,7 +18010,7 @@ void Player::_LoadTransmogOutfits(PreparedQueryResult result)
     struct SlotDef { int8 slot; uint8 slotOption; uint8 equipSlot; };
     static const SlotDef fullSlotLayout[30] =
     {
-        // Base armor slots (12) — slot IDs and ORDER match client expectations
+        // Base armor slots (12) ? slot IDs and ORDER match client expectations
         // Equipment slot mapping corrected for TWW
         { 0,  0, EQUIPMENT_SLOT_HEAD },
         { 1,  0, EQUIPMENT_SLOT_SHOULDERS },
@@ -18222,7 +18223,7 @@ void Player::_LoadTransmogOutfits(PreparedQueryResult result)
 
                 if (fullSlotLayout[i].slotOption == 0)
                 {
-                    // Armor slot — read from saved appearances
+                    // Armor slot ? read from saved appearances
                     appearanceId = eqSet.Data.Appearances[fullSlotLayout[i].equipSlot];
                     if (appearanceId)
                         displayType = 1;
@@ -19240,9 +19241,14 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG)))
         _housings.push_back(std::move(housing));
 
+    // TODO: When the housing tutorial questline is implemented, this brute-force approach
+    // (setting all tutorial bits + injecting closedInfoFramesAccountWide / housingTutorialsEnabled
+    // CVars) must be replaced with proper quest-driven tutorial progression. The client Lua UI
+    // sets FrameTutorialAccount bits (e.g. HousingModesUnlocked=38) individually as the player
+    // completes each tutorial step. At that point, remove the blanket CVar injection below and
+    // let the questline handlers set the appropriate closedInfoFramesAccountWide bits on completion.
+    //
     // Mark all tutorials as seen. Retail sniff shows all 256 tutorial bits set to 1 (0xFF bytes).
-    // Without this, the client blocks housing cleanup/expert modes with "Mode not available
-    // while in the tutorial" (FrameTutorialAccount.HousingModesUnlocked = bit 38).
     if (GetSession())
     {
         bool needsUpdate = false;
@@ -19256,6 +19262,66 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         }
         if (needsUpdate)
             GetSession()->SendTutorialsData();
+
+        // The 256-bit server tutorial flags (above) are separate from the client's
+        // FrameTutorialAccount UI flags. The client stores those in the CVar bitfield
+        // "closedInfoFramesAccountWide" within the GLOBAL_CONFIG_CACHE account data.
+        // Without setting bit 38 (HousingModesUnlocked), the housing editor UI keeps
+        // expert/cleanup/layout modes locked with "Tutorial Mode" error.
+        // Also disable housing tutorials entirely via housingTutorialsEnabled=0.
+        AccountData const* configCache = GetSession()->GetAccountData(GLOBAL_CONFIG_CACHE);
+        std::string configData = configCache ? configCache->Data : "";
+        bool configModified = false;
+
+        // Helper lambda: set or replace a CVar value in the config string
+        auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
+        {
+            std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
+            size_t pos = configData.find(setPrefix);
+            if (pos != std::string::npos)
+            {
+                // Replace existing value
+                size_t valStart = pos + setPrefix.size();
+                size_t valEnd = configData.find('"', valStart);
+                if (valEnd != std::string::npos)
+                {
+                    std::string oldVal = configData.substr(valStart, valEnd - valStart);
+                    if (oldVal != value)
+                    {
+                        configData.replace(valStart, valEnd - valStart, value);
+                        configModified = true;
+                    }
+                }
+            }
+            else
+            {
+                // Append new CVar
+                if (!configData.empty() && configData.back() != '\n')
+                    configData += '\n';
+                configData += "SET ";
+                configData += cvarName;
+                configData += " \"";
+                configData += value;
+                configData += "\"\n";
+                configModified = true;
+            }
+        };
+
+        // Mark ALL FrameTutorialAccount bits as seen (48 bits = 2 uint32 words, all 1s)
+        ensureCVar("closedInfoFramesAccountWide", "4294967295 4294967295");
+        // Disable housing tutorial gates entirely
+        ensureCVar("housingTutorialsEnabled", "0");
+
+        if (configModified)
+        {
+            GetSession()->SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
+            // Re-send account data timestamps so the client detects the newer timestamp
+            // and re-fetches GLOBAL_CONFIG_CACHE. Without this, the client uses the stale
+            // data it fetched during auth (before LoadFromDB modified it).
+            GetSession()->SendAccountDataTimes(GetGUID(), GLOBAL_CACHE_MASK);
+            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Injected housing tutorial CVars into GLOBAL_CONFIG_CACHE for account {}",
+                GetSession()->GetAccountId());
+        }
     }
 
     // Always register PlayerHouseInfoComponent_C fragment on the Player entity.
@@ -19304,6 +19370,97 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         {
             mirrorHouse.InitiativeCycleID = static_cast<int32>(sInitiativeManager.GetActiveCycleForInitiative(activeInit->InitiativeID));
             mirrorHouse.InitiativeFavor = sInitiativeManager.GetPlayerContribution(nhGuid, activeInit->InitiativeID, GetGUID().GetCounter());
+        }
+    }
+
+    // Register PlayerInitiativeComponent_C fragment (FragmentID 37) on the Player entity.
+    // The client's C_NeighborhoodInitiative Lua API reads initiative state from this fragment.
+    // Without it, GetNeighborhoodInitiativeInfo() returns nil and the initiative/endeavor UI
+    // never appears. Sniff-verified: all neighborhood players have this fragment.
+    if (!m_playerInitiativeComponentData.has_value())
+    {
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+            .ModifyValue(&UF::PlayerInitiativeComponentData::NeighborhoodGUID), ObjectGuid::Empty);
+        m_entityFragments.Add(WowCS::EntityFragment::PlayerInitiativeComponent_C, false,
+            WowCS::GetRawFragmentData(m_playerInitiativeComponentData));
+    }
+
+    // Populate initiative data for the player's neighborhood
+    if (!_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
+    {
+        ObjectGuid nhGuid = _housings[0]->GetNeighborhoodGuid();
+        uint64 nhLowGuid = nhGuid.GetCounter();
+        ActiveInitiative* activeInit = sInitiativeManager.GetActiveInitiative(nhLowGuid);
+
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+            .ModifyValue(&UF::PlayerInitiativeComponentData::NeighborhoodGUID), nhGuid);
+
+        if (activeInit)
+        {
+            NeighborhoodInitiativeEntry const* initEntry = sNeighborhoodInitiativeStore.LookupEntry(activeInit->InitiativeID);
+            uint32 cycleID = sInitiativeManager.GetActiveCycleForInitiative(activeInit->InitiativeID);
+
+            // Calculate remaining duration from start time + DB2 duration
+            int64 remainingDuration = 0;
+            if (initEntry && initEntry->Duration > 0)
+            {
+                int64 elapsed = static_cast<int64>(GameTime::GetGameTime()) - static_cast<int64>(activeInit->StartTime);
+                remainingDuration = std::max<int64>(0, static_cast<int64>(initEntry->Duration) - elapsed);
+            }
+
+            // Calculate progress in the 0-1000 scale (sniff: ProgressRequired=1000)
+            float progressRequired = 1000.0f;
+            float currentProgress = activeInit->Progress * progressRequired;
+
+            // Find current milestone
+            int32 currentMilestoneID = -1;
+            auto milestones = sInitiativeManager.GetMilestonesForCycle(cycleID);
+            for (auto const& m : milestones)
+            {
+                if (activeInit->Progress < m.ProgressRequired)
+                {
+                    currentMilestoneID = static_cast<int32>(m.MilestoneID);
+                    break;
+                }
+            }
+
+            float playerContribution = static_cast<float>(
+                sInitiativeManager.GetPlayerContribution(nhLowGuid, activeInit->InitiativeID, GetGUID().GetCounter()));
+
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::RemainingDuration), remainingDuration);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentInitiativeID), static_cast<int32>(activeInit->InitiativeID));
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentMilestoneID), currentMilestoneID);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentCycleID), static_cast<int32>(cycleID));
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::ProgressRequired), progressRequired);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentProgress), currentProgress);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::PlayerTotalContribution), playerContribution);
+
+            // Add house GUIDs to the Houses set
+            for (auto const& h : _housings)
+            {
+                if (h && !h->GetHouseGuid().IsEmpty())
+                    InsertSetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                        .ModifyValue(&UF::PlayerInitiativeComponentData::Houses), h->GetHouseGuid());
+            }
+
+            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Populated PlayerInitiativeComponentData: "
+                "InitiativeID={} CycleID={} Progress={:.1f}/{:.0f} Milestone={} Duration={}",
+                activeInit->InitiativeID, cycleID, currentProgress, progressRequired,
+                currentMilestoneID, remainingDuration);
         }
     }
 

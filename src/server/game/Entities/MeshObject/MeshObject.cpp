@@ -181,13 +181,18 @@ void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingDecorData));
 
+    // Retail sniff-verified: decor MeshObjects have exactly these fragments:
+    //   [CGObject(2), FMeshObjectData_C(19), FHousingDecor_C(20),
+    //    FMirroredPositionData_C(31), Tag_MeshObject(221)]
+    // FHousingDecorActor_C (28) is NOT present on any retail entity.
+
     // Retail sniff: HasDecor movement block flag is NEVER set (always False).
     // The room entity GUID is already in the FHousingDecor_C fragment's AttachParentGUID field.
     // Do NOT set m_updateFlag.Decor here — it adds an extra movement block field
     // that the client does not expect.
     _decorRoomEntityGUID = roomEntityGuid;
 
-    TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={} (Decor flag=ON)",
+    TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={} (FHousingDecor_C ON)",
         GetGUID().ToString(), decorGuid.ToString(), houseGuid.ToString(), flags, roomEntityGuid.ToString());
 }
 

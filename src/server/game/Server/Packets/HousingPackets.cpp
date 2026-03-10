@@ -2082,6 +2082,39 @@ WorldPacket const* InitiativeRewardAvailable::Write()
     return &_worldPacket;
 }
 
+WorldPacket const* InitiativeUpdateStatus::Write()
+{
+    _worldPacket << uint8(Status);
+    return &_worldPacket;
+}
+
+WorldPacket const* InitiativePointsUpdate::Write()
+{
+    _worldPacket << uint32(CurrentPoints);
+    _worldPacket << uint32(MaxPoints);
+    return &_worldPacket;
+}
+
+WorldPacket const* InitiativeMilestoneUpdate::Write()
+{
+    _worldPacket << uint8(MilestoneIndex);
+    _worldPacket << uint8(Reached);
+    _worldPacket << uint8(Flags);
+    return &_worldPacket;
+}
+
+WorldPacket const* InitiativeChestResult::Write()
+{
+    _worldPacket << uint32(Result);
+    return &_worldPacket;
+}
+
+WorldPacket const* InitiativeTrackedUpdated::Write()
+{
+    _worldPacket << NeighborhoodGUID;
+    return &_worldPacket;
+}
+
 WorldPacket const* HousingPhotoSharingAuthorizationResult::Write()
 {
     _worldPacket << uint8(Result);
@@ -2748,12 +2781,9 @@ void InitiativeAcceptMilestoneRequest::Read()
 void InitiativeReportProgress::Read()
 {
     _worldPacket >> NeighborhoodGuid;
-    _worldPacket >> InitiativeID;
-    _worldPacket >> TaskID;
-    _worldPacket >> ProgressDelta;
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} InitiativeID: {} TaskID: {} ProgressDelta: {}",
-        NeighborhoodGuid.ToString(), InitiativeID, TaskID, ProgressDelta);
+    TC_LOG_DEBUG("network.opcode", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {}",
+        NeighborhoodGuid.ToString());
 }
 
 void GetInitiativeClaimRewardRequest::Read()

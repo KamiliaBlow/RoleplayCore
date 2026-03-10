@@ -444,6 +444,69 @@ enum HousingDecorModelType : uint8
     HOUSING_DECOR_MODEL_TYPE_WMO    = 2
 };
 
+// NeighborhoodInitiativeUpdateStatus enum — sent via SMSG_INITIATIVE_UPDATE_STATUS
+enum NeighborhoodInitiativeUpdateStatus : uint8
+{
+    NI_UPDATE_STATUS_STARTED                = 0,
+    NI_UPDATE_STATUS_MILESTONE_COMPLETED    = 1,
+    NI_UPDATE_STATUS_COMPLETED              = 2,
+    NI_UPDATE_STATUS_FAILED                 = 3
+};
+
+// NeighborhoodInitiativeChestResult enum — sent via SMSG_INITIATIVE_CHEST_RESULT
+enum NeighborhoodInitiativeChestResult : uint32
+{
+    NI_CHEST_SUCCESS                = 0,
+    NI_CHEST_UNSPECIFIED_FAILURE    = 1,
+    NI_CHEST_NO_HOUSE_FOUND        = 2,
+    NI_CHEST_NO_REWARDS             = 3,
+    NI_CHEST_THROTTLED              = 4,
+    NI_CHEST_SERVICE_DISABLED       = 5
+};
+
+// NeighborhoodInitiativeTaskType enum — from InitiativeTask DB2 TaskType field
+enum NeighborhoodInitiativeTaskType : int32
+{
+    NI_TASK_TYPE_SINGLE                 = 0,
+    NI_TASK_TYPE_REPEATABLE_FINITE      = 1,
+    NI_TASK_TYPE_REPEATABLE_INFINITE    = 2
+};
+
+// NeighborhoodInitiativeCompletionState enum — per-task completion state
+enum NeighborhoodInitiativeCompletionState : uint8
+{
+    NI_COMPLETION_NOT_COMPLETED         = 0,
+    NI_COMPLETION_PLAYER_COMPLETED      = 1,
+    NI_COMPLETION_SYSTEM_ABANDONED      = 2
+};
+
+// NeighborhoodInitiativeFlags enum — from NeighborhoodInitiative DB2 Flags field
+enum NeighborhoodInitiativeFlags : uint32
+{
+    NI_FLAG_DISABLED    = 0x1,
+    NI_FLAG_NO_ABANDON  = 0x2,
+    NI_FLAG_NO_REPEAT   = 0x4
+};
+
+// InitiativeMilestoneFlags enum — from InitiativeMilestone DB2 Flags field
+enum InitiativeMilestoneFlags : int32
+{
+    INITIATIVE_MILESTONE_FLAG_FINAL = 0x1
+};
+
+// InitiativeRewardFlags enum — from InitiativeReward DB2 Flags field
+enum InitiativeRewardFlags : int32
+{
+    INITIATIVE_REWARD_FLAG_PERMANENT_WORLD_STATE = 0x1
+};
+
+// NeighborhoodInitiativeNeighborhoodType enum
+enum NeighborhoodInitiativeNeighborhoodType : uint8
+{
+    NI_NEIGHBORHOOD_TYPE_SINGLETON  = 0,
+    NI_NEIGHBORHOOD_TYPE_POOL       = 1
+};
+
 // HousingFavorUpdateSource enum - 8 values
 enum HousingFavorUpdateSource : uint8
 {

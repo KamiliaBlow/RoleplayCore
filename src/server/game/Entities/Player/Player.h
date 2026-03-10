@@ -3065,6 +3065,9 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         // Housing entity fragment (optional - only set when player has housing data)
         UF::OptionalUpdateField<UF::PlayerHouseInfoComponentData, int32(WowCS::EntityFragment::PlayerHouseInfoComponent_C), 0> m_playerHouseInfoComponentData;
 
+        // Initiative entity fragment (optional - initiative/endeavor state for UI)
+        UF::OptionalUpdateField<UF::PlayerInitiativeComponentData, int32(WowCS::EntityFragment::PlayerInitiativeComponent_C), 0> m_playerInitiativeComponentData;
+
         void SetAreaSpiritHealer(Creature* creature);
         ObjectGuid const& GetSpiritHealerGUID() const { return _areaSpiritHealerGUID; }
         bool CanAcceptAreaSpiritHealFrom(Unit* spiritHealer) const { return spiritHealer->GetGUID() == _areaSpiritHealerGUID; }

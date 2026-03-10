@@ -194,16 +194,12 @@ void HousingMgr::LoadHouseLevelData()
         data.ID = entry->ID;
         data.Level = entry->Level;
         data.QuestID = entry->QuestID;
-        // Budget values from captured game data; interior scales per level, others are constant
-        static constexpr int32 InteriorBudgetByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
-        uint32 lvl = static_cast<uint32>(std::max<int32>(entry->Level, 1));
-        if (lvl <= 5)
-            data.InteriorDecorPlacementBudget = InteriorBudgetByLevel[lvl];
-        else
-            data.InteriorDecorPlacementBudget = 2050 + static_cast<int32>((lvl - 5) * 300); // +300/level extrapolation
-        data.ExteriorDecorPlacementBudget = 200;
-        data.RoomPlacementBudget = 19;
-        data.ExteriorFixtureBudget = 1000;
+        // Budget values will be populated from HouseLevelRewardInfo DB2 (RewardType 38-41)
+        // after LoadHouseLevelRewardInfoData(). Initialize to 0 here; fallbacks applied later.
+        data.InteriorDecorPlacementBudget = 0;
+        data.ExteriorDecorPlacementBudget = 0;
+        data.RoomPlacementBudget = 0;
+        data.ExteriorFixtureBudget = 0;
     }
 
     // Fallback defaults if no DB2 data available
@@ -215,14 +211,10 @@ void HousingMgr::LoadHouseLevelData()
             data.ID = level;
             data.Level = static_cast<int32>(level);
             data.QuestID = 0;
-            static constexpr int32 InteriorBudgetByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
-            if (level <= 5)
-                data.InteriorDecorPlacementBudget = InteriorBudgetByLevel[level];
-            else
-                data.InteriorDecorPlacementBudget = 2050 + static_cast<int32>((level - 5) * 300);
-            data.ExteriorDecorPlacementBudget = 200;
-            data.RoomPlacementBudget = 19;
-            data.ExteriorFixtureBudget = 1000;
+            data.InteriorDecorPlacementBudget = 0;
+            data.ExteriorDecorPlacementBudget = 0;
+            data.RoomPlacementBudget = 0;
+            data.ExteriorFixtureBudget = 0;
         }
     }
 
@@ -876,7 +868,72 @@ void HousingMgr::LoadHouseLevelRewardInfoData()
     for (auto const& [id, reward] : _houseLevelRewardInfoStore)
         _rewardsByLevel[reward.HouseLevelID].push_back(&reward);
 
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseLevelRewardInfoData: Loaded {} HouseLevelRewardInfo entries", uint32(_houseLevelRewardInfoStore.size()));
+    // Wire budget values from HouseLevelRewardInfo into HouseLevelData.
+    // RewardType maps to ExpectedStatType: 38=InteriorDecor, 39=ExteriorDecor, 40=Room, 41=Fixture.
+    // HouseLevelRewardInfo.HouseLevelID references HouseLevelData.ID.
+    uint32 budgetWired = 0;
+    for (auto const& [id, reward] : _houseLevelRewardInfoStore)
+    {
+        auto lvlIt = _houseLevelDataStore.find(reward.HouseLevelID);
+        if (lvlIt == _houseLevelDataStore.end())
+            continue;
+
+        HouseLevelData& levelData = lvlIt->second;
+        switch (reward.RewardType)
+        {
+            case 38: // HouseInteriorDecorBudget
+                levelData.InteriorDecorPlacementBudget = reward.RewardValue;
+                ++budgetWired;
+                break;
+            case 39: // HouseExteriorDecorBudget
+                levelData.ExteriorDecorPlacementBudget = reward.RewardValue;
+                ++budgetWired;
+                break;
+            case 40: // HouseRoomPlacementBudget
+                levelData.RoomPlacementBudget = reward.RewardValue;
+                ++budgetWired;
+                break;
+            case 41: // HouseFixtureBudget
+                levelData.ExteriorFixtureBudget = reward.RewardValue;
+                ++budgetWired;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // Apply fallback budgets for any levels still at 0 (DB2 missing budget rewards)
+    static constexpr int32 FallbackInteriorByLevel[] = { 0, 910, 1155, 1450, 1750, 2050 };
+    for (auto& [id, levelData] : _houseLevelDataStore)
+    {
+        uint32 lvl = static_cast<uint32>(std::max<int32>(levelData.Level, 1));
+        if (levelData.InteriorDecorPlacementBudget <= 0)
+        {
+            if (lvl <= 5)
+                levelData.InteriorDecorPlacementBudget = FallbackInteriorByLevel[lvl];
+            else
+                levelData.InteriorDecorPlacementBudget = 2050 + static_cast<int32>((lvl - 5) * 300);
+        }
+        if (levelData.ExteriorDecorPlacementBudget <= 0)
+            levelData.ExteriorDecorPlacementBudget = 200;
+        if (levelData.RoomPlacementBudget <= 0)
+            levelData.RoomPlacementBudget = 19;
+        if (levelData.ExteriorFixtureBudget <= 0)
+            levelData.ExteriorFixtureBudget = 1000;
+    }
+
+    TC_LOG_INFO("housing", "HousingMgr::LoadHouseLevelRewardInfoData: Loaded {} HouseLevelRewardInfo entries, wired {} budget values from DB2",
+        uint32(_houseLevelRewardInfoStore.size()), budgetWired);
+
+    // Log final budget values per level for verification
+    for (auto const& [id, levelData] : _houseLevelDataStore)
+    {
+        TC_LOG_INFO("housing", "  Level {} (ID {}): Interior={} Exterior={} Room={} Fixture={}{}",
+            levelData.Level, id,
+            levelData.InteriorDecorPlacementBudget, levelData.ExteriorDecorPlacementBudget,
+            levelData.RoomPlacementBudget, levelData.ExteriorFixtureBudget,
+            budgetWired > 0 ? " (from DB2)" : " (fallback)");
+    }
 }
 
 void HousingMgr::LoadNeighborhoodInitiativeData()

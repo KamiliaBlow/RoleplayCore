@@ -875,6 +875,19 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_INITIATIVE, "DELETE FROM neighborhood_initiatives WHERE id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_INITIATIVES, "DELETE FROM neighborhood_initiatives WHERE neighborhoodGuid = ?", CONNECTION_ASYNC);
 
+    // Neighborhood Initiative Task Progress (per-task persistence)
+    PrepareStatement(CHAR_SEL_INITIATIVE_TASK_PROGRESS, "SELECT taskId, progress, status FROM neighborhood_initiative_task_progress WHERE initiativeDbId = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_REP_INITIATIVE_TASK_PROGRESS, "REPLACE INTO neighborhood_initiative_task_progress (initiativeDbId, taskId, progress, status) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+
+    // Neighborhood Initiative Milestones (reached/claimed tracking)
+    PrepareStatement(CHAR_SEL_INITIATIVE_MILESTONES, "SELECT milestoneIndex, reached, reachedTime FROM neighborhood_initiative_milestones WHERE initiativeDbId = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_REP_INITIATIVE_MILESTONE, "REPLACE INTO neighborhood_initiative_milestones (initiativeDbId, milestoneIndex, reached, reachedTime) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+
+    // Neighborhood Initiative Reward Claims (per-player, per-milestone)
+    PrepareStatement(CHAR_SEL_INITIATIVE_REWARD_CLAIMS, "SELECT milestoneIndex, playerGuid, claimTime FROM neighborhood_initiative_reward_claims WHERE initiativeDbId = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_SEL_INITIATIVE_REWARD_CLAIM_PLAYER, "SELECT milestoneIndex FROM neighborhood_initiative_reward_claims WHERE initiativeDbId = ? AND playerGuid = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_INS_INITIATIVE_REWARD_CLAIM, "INSERT IGNORE INTO neighborhood_initiative_reward_claims (initiativeDbId, milestoneIndex, playerGuid, claimTime) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+
     // Neighborhood Initiative Contributions (per-player tracking)
     PrepareStatement(CHAR_INS_INITIATIVE_CONTRIBUTION, "INSERT INTO neighborhood_initiative_contributions (initiativeDbId, playerGuid, taskId, amount, lastUpdated) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount = amount + VALUES(amount), lastUpdated = VALUES(lastUpdated)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_INITIATIVE_CONTRIBUTIONS, "SELECT playerGuid, taskId, amount, lastUpdated FROM neighborhood_initiative_contributions WHERE initiativeDbId = ?", CONNECTION_SYNCH);

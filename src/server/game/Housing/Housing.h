@@ -221,6 +221,7 @@ public:
     // Direct access to placed decor map (for GO spawning)
     std::unordered_map<ObjectGuid, PlacedDecor> const& GetPlacedDecorMap() const { return _placedDecor; }
     bool IsStoragePopulated() const { return _storagePopulated; }
+    void ResetStoragePopulated() { _storagePopulated = false; }
 
     // Populate ALL decor entries (placed + catalog) into the Account entity's FHousingStorage_C.
     // Called on-demand by REQUEST_STORAGE handler. Retail does NOT populate storage at login —

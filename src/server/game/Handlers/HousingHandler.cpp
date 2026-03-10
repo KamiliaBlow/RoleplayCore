@@ -496,32 +496,57 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         player->SetUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
         player->ReplaceAllSilencedSchoolMask(SPELL_SCHOOL_MASK_ALL);
 
-        // 4. Populate FHousingStorage_C on the Account entity if not done yet.
+        // 4. Populate FHousingStorage_C on the Account entity.
         // The client correlates MeshObject FHousingDecor_C.DecorGUID with entries in
         // FHousingStorage_C to build its placed decor list for the targeting system.
         // Without this, the client has no decor to target and selection is impossible.
+        // Reset the populated flag so storage entries are re-pushed on every edit mode
+        // entry — the client may clear its decor list when exiting editor mode, so we
+        // must ensure the Account VALUES_UPDATE always carries the full storage map.
+        housing->ResetStoragePopulated();
         housing->PopulateCatalogStorageEntries();
 
-        // 5. Send Player + Account in a SINGLE SMSG_UPDATE_OBJECT packet.
-        // Sniff-verified: retail sends EditorMode=1 and FHousingStorage_C in the same
-        // UPDATE_OBJECT. The client reads EditorMode from PlayerHouseInfoComponentData
-        // to gate ClickTarget (flag 16) in ClientHousingDecorSystem. Splitting them
-        // into separate packets causes the client to process EditorMode before the
-        // storage data arrives, breaking placed decor targeting.
+        // 4b. Refresh budget values on the HousingPlayerHouseEntity so the client
+        // receives up-to-date max budgets alongside the storage data.
+        housing->SyncUpdateFields();
+
+        // 5. Send Player + Account + HousingPlayerHouseEntity in a SINGLE SMSG_UPDATE_OBJECT.
+        // Sniff-verified: retail sends EditorMode=1, FHousingStorage_C, and budget data
+        // in the same UPDATE_OBJECT. The client reads EditorMode from PlayerHouseInfoComponentData
+        // to gate ClickTarget (flag 16) in ClientHousingDecorSystem and reads budgets +
+        // storage entries together to compute placed/remaining decor counts.
         // NOTE: BaseEntity::SendUpdateToPlayer is const and does NOT call
         // BuildUpdateChangesMask(), so ContentsChangedMask would be 0 and the
         // VALUES_UPDATE empty. We must compute masks explicitly before building.
         {
             player->BuildUpdateChangesMask();
             GetBattlenetAccount().BuildUpdateChangesMask();
+            GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
 
             UpdateData updateData(player->GetMapId());
             WorldPacket updatePacket;
 
             // Player VALUES_UPDATE (EditorMode=1 + UNIT_FLAG_PACIFIED + UNIT_FLAG2_NO_ACTIONS)
             player->BuildValuesUpdateBlockForPlayer(&updateData, player);
-            // Account VALUES_UPDATE (FHousingStorage_C + FHousingPlayerHouse_C + FNeighborhoodMirrorData_C)
-            GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+
+            // Account + HousingPlayerHouseEntity: send CREATE if the client doesn't
+            // have them (they get destroyed during map transfers to the housing map),
+            // otherwise send VALUES_UPDATE.
+            if (player->HaveAtClient(&GetBattlenetAccount()))
+                GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+            else
+            {
+                GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+                player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
+            }
+
+            if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
+                GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
+            else
+            {
+                GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
+                player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+            }
 
             updateData.BuildPacket(&updatePacket);
             player->SendDirectMessage(&updatePacket);
@@ -529,6 +554,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             // Clear change masks after manual send to prevent duplicate sends on next map tick
             player->ClearUpdateMask(false);
             GetBattlenetAccount().ClearUpdateMask(false);
+            GetHousingPlayerHouseEntity().ClearUpdateMask(false);
         }
 
         // Diagnostic: log placed decor GUIDs from Housing vs what's on spawned MeshObjects.
@@ -1011,11 +1037,25 @@ void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::Housi
     response.ResultCode = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
 
-    // 2. Populate catalog (unplaced) entries into Account entity, then send update.
-    //    Retail flow: placed decor is in Account entity from login; catalog entries are
-    //    populated on-demand here. The client reads decor from FHousingStorage_C fragment.
+    // 2. Populate catalog (unplaced) entries into Account entity, refresh budgets,
+    //    then send Account + HousingPlayerHouseEntity together so the client receives
+    //    storage data and budget maxes in a single UPDATE_OBJECT.
     housing->PopulateCatalogStorageEntries();
-    GetBattlenetAccount().SendUpdateToPlayer(player);
+    housing->SyncUpdateFields();
+    {
+        GetBattlenetAccount().BuildUpdateChangesMask();
+        GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
+
+        UpdateData updateData(player->GetMapId());
+        WorldPacket updatePacket;
+        GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        updateData.BuildPacket(&updatePacket);
+        player->SendDirectMessage(&updatePacket);
+
+        GetBattlenetAccount().ClearUpdateMask(false);
+        GetHousingPlayerHouseEntity().ClearUpdateMask(false);
+    }
 
     // 3. Send GET_PLAYER_HOUSES_INFO_RESPONSE
     WorldPackets::Housing::HousingSvcsGetPlayerHousesInfoResponse housesInfoResponse;

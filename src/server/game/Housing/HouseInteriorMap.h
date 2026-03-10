@@ -72,6 +72,10 @@ public:
     /// Despawn a single decor item by its Housing decor GUID.
     void DespawnDecorItem(ObjectGuid decorGuid);
 
+    /// Send post-tutorial aura packets so the client knows the tutorial is complete
+    /// and unlocks all editor modes (expert, cleanup, layout, customize).
+    void SendPostTutorialAuras(Player* player);
+
 private:
     ObjectGuid _owner;
     Player* _loadingPlayer; ///< @workaround Player not in ObjectAccessor during login

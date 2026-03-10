@@ -19,8 +19,10 @@
 #define TRINITYCORE_INITIATIVE_MANAGER_H
 
 #include "Define.h"
+#include "HousingDefines.h"
 #include "ObjectGuid.h"
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -62,6 +64,9 @@ struct ActiveInitiative
 
     // Per-player contribution tracking: playerGuid -> taskId -> amount
     std::unordered_map<uint64, std::unordered_map<uint32, uint32>> PlayerContributions;
+
+    // Per-player reward claims: milestoneIndex -> set of playerGuids who claimed
+    std::unordered_map<uint32, std::set<uint64>> RewardClaims;
 };
 
 // Cached DB2 data for an initiative's tasks
@@ -118,8 +123,9 @@ public:
     // taskType matches InitiativeTask.TaskType: 1=Gathering, 2=Crafting, 3=Combat, 4=Exploration
     void OnPlayerAction(Player* player, int32 taskType, uint32 count = 1);
 
-    // Reward queries
-    bool HasUnclaimedRewards(uint64 neighborhoodGuid, uint32 initiativeID) const;
+    // Reward queries and distribution
+    bool HasUnclaimedRewards(uint64 neighborhoodGuid, uint32 initiativeID, uint64 playerGuid) const;
+    bool ClaimMilestoneReward(uint64 neighborhoodGuid, uint32 initiativeID, uint32 milestoneIndex, Player* player);
 
     // Per-player contribution queries
     uint32 GetPlayerContribution(uint64 neighborhoodGuid, uint32 initiativeID, uint64 playerGuid) const;
@@ -140,13 +146,24 @@ public:
     // Auto-start initiatives for neighborhoods that don't have one
     void CheckAndStartInitiatives();
 
+    // Send IDA-verified status/points update packets
+    void SendInitiativeUpdateStatus(Neighborhood* neighborhood, NeighborhoodInitiativeUpdateStatus status) const;
+    void SendInitiativePointsUpdate(Neighborhood* neighborhood, uint32 currentPoints, uint32 maxPoints) const;
+    void SendInitiativeMilestoneUpdate(Neighborhood* neighborhood, uint8 milestoneIndex, bool reached, uint8 flags) const;
+
 private:
     InitiativeManager() = default;
 
     void PersistInitiative(ActiveInitiative const& initiative);
     void PersistTaskProgress(ActiveInitiative const& initiative);
+    void PersistSingleTaskProgress(uint64 initiativeDbId, uint32 taskId, uint32 progress, uint8 status);
+    void PersistMilestoneReached(uint64 initiativeDbId, uint32 milestoneIndex, uint32 reachedTime);
+    void PersistRewardClaim(uint64 initiativeDbId, uint32 milestoneIndex, uint64 playerGuid);
     void PersistContribution(uint64 initiativeDbId, uint64 playerGuid, uint32 taskId, uint32 amount);
     void CheckMilestones(ActiveInitiative& initiative, Neighborhood* neighborhood);
+    void GrantMilestoneRewards(Player* player, uint32 milestoneID);
+    uint32 SelectWeightedCycle(uint32 initiativeID) const;
+    uint32 CalculateMaxPoints(uint32 initiativeID) const;
 
     // Active initiatives: neighborhoodGuid -> list of active initiatives
     std::unordered_map<uint64, std::vector<std::unique_ptr<ActiveInitiative>>> _activeInitiatives;
@@ -158,6 +175,8 @@ private:
     std::unordered_map<uint32, std::vector<InitiativeMilestoneData>> _cycleMilestones;
     // InitiativeID -> active cycle ID
     std::unordered_map<uint32, uint32> _initiativeActiveCycle;
+    // CycleID -> list of priority entries (for weighted selection)
+    std::unordered_map<uint32, std::vector<std::pair<uint32, int32>>> _cyclePriorities; // cycleID -> [(initiativeID, weight)]
 
     // Update timer
     uint32 _updateTimer = 0;
