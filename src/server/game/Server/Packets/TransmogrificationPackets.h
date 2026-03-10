@@ -21,11 +21,14 @@
 #include "Packet.h"
 #include "ObjectGuid.h"
 #include "PacketUtilities.h"
+#include "EquipmentSet.h"
 
 namespace WorldPackets
 {
     namespace Transmogrification
     {
+        constexpr uint8 TRANSMOG_SECONDARY_SHOULDER_SLOT = EQUIPMENT_SLOT_END + 1;
+
         struct TransmogrifyItem
         {
             int32 ItemModifiedAppearanceID = 0;
@@ -51,6 +54,145 @@ namespace WorldPackets
             bool CurrentSpecOnly = false;
         };
 
+        struct TransmogOutfitSituationEntry
+        {
+            uint32 SituationID = 0;
+            uint32 SpecID = 0;
+            uint32 LoadoutID = 0;
+            uint32 EquipmentSetID = 0;
+        };
+
+        struct TransmogOutfitSlotEntry
+        {
+            // Wire format (verified via WPP sniff + Wago DB2 item lookups, Feb 2026) — 16 bytes per entry:
+            //   byte[0]    = Sequential ordinal (1-14, NOT a meaningful slot identifier)
+            //   byte[1]    = Always 0 (padding)
+            //   bytes[2-5] = AppearanceID (IMAID, uint32 LE)
+            //   bytes[6-7] = ItemAppearance.DisplayType of the IMAID (uint16 LE) — THIS is the routing key
+            //   bytes[8-15]= Reserved (zeros)
+            uint32 AppearanceID = 0;
+            uint8 Flags = 0;          // byte[1] — always 0 in observed packets
+            uint8 SlotIndex = 0;      // byte[0] — sequential ordinal (1-14)
+            uint16 WireDisplayType = 0;
+            uint8 RawBytes[16] = {};
+        };
+
+        class TransmogOutfitNew final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitNew(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_NEW, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            ObjectGuid Npc;
+            uint8 MiddleType = 0;
+            uint8 MiddleFlags = 0;
+            uint32 IconFileDataID = 0;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateInfo final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateInfo(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_INFO, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            ObjectGuid Npc;
+            uint8 MiddleType = 0;
+            uint8 MiddleFlags = 0;
+            uint32 IconFileDataID = 0;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateSlots final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateSlots(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_SLOTS, std::move(packet)) { }
+
+            void Read() override;
+
+            EquipmentSetInfo::EquipmentSetData Set;
+            ObjectGuid Npc;
+            std::vector<TransmogOutfitSlotEntry> Slots;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitUpdateSituations final : public ClientPacket
+        {
+        public:
+            explicit TransmogOutfitUpdateSituations(WorldPacket&& packet) : ClientPacket(CMSG_TRANSMOG_OUTFIT_UPDATE_SITUATIONS, std::move(packet)) { }
+
+            void Read() override;
+
+            ObjectGuid Npc;
+            uint32 SetID = 0;
+            std::vector<TransmogOutfitSituationEntry> Situations;
+            bool ParseSuccess = true;
+            std::string ParseError;
+            std::string DiagnosticReadTrace;
+            size_t PayloadSize = 0;
+            std::string PayloadPreviewHex;
+        };
+
+        class TransmogOutfitInfoUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitInfoUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_INFO_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitNewEntryAdded final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitNewEntryAdded() : ServerPacket(SMSG_TRANSMOG_OUTFIT_NEW_ENTRY_ADDED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitSituationsUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitSituationsUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_SITUATIONS_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
+        class TransmogOutfitSlotsUpdated final : public ServerPacket
+        {
+        public:
+            explicit TransmogOutfitSlotsUpdated() : ServerPacket(SMSG_TRANSMOG_OUTFIT_SLOTS_UPDATED, 0) { }
+
+            WorldPacket const* Write() override;
+
+            uint64 Guid = 0;
+            uint32 SetID = 0;
+        };
+
         class AccountTransmogUpdate final : public ServerPacket
         {
         public:
@@ -62,6 +204,18 @@ namespace WorldPackets
             bool IsSetFavorite = false;
             std::vector<uint32> FavoriteAppearances;
             std::vector<uint32> NewAppearances;
+        };
+
+        class AccountTransmogSetFavoritesUpdate final : public ServerPacket
+        {
+        public:
+            explicit AccountTransmogSetFavoritesUpdate() : ServerPacket(SMSG_ACCOUNT_TRANSMOG_SET_FAVORITES_UPDATE) { }
+
+            WorldPacket const* Write() override;
+
+            bool IsFullUpdate = false;
+            bool IsFavorite = false;
+            std::vector<uint32> TransmogSetIDs;
         };
     }
 }

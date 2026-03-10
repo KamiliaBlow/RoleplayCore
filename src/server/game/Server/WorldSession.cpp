@@ -547,6 +547,12 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
     TC_METRIC_VALUE("processed_packets", processedPackets);
 
+    // TransmogBridge safety net: if HandleTransmogOutfitUpdateSlots deferred
+    // finalization but no TransmogBridge addon message arrived (addon not installed
+    // or message lost), finalize now without overrides — backward compatible.
+    if (_transmogBridgePendingOutfit)
+        FinalizeTransmogBridgePendingOutfit();
+
     _recvQueue.readd(requeuePackets.begin(), requeuePackets.end());
 
     if (!updater.ProcessUnsafe()) // <=> updater is of type MapSessionFilter
@@ -1353,6 +1359,7 @@ public:
         ITEM_APPEARANCES,
         ITEM_FAVORITE_APPEARANCES,
         TRANSMOG_ILLUSIONS,
+        TRANSMOG_SET_FAVORITES,
         WARBAND_SCENES,
         PLAYER_DATA_ELEMENTS_ACCOUNT,
         PLAYER_DATA_FLAGS_ACCOUNT,
@@ -1402,6 +1409,10 @@ public:
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_TRANSMOG_ILLUSIONS);
         stmt->setUInt32(0, battlenetAccountId);
         ok = SetPreparedQuery(TRANSMOG_ILLUSIONS, stmt) && ok;
+
+        stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_TRANSMOG_SET_FAVORITES);
+        stmt->setUInt32(0, battlenetAccountId);
+        ok = SetPreparedQuery(TRANSMOG_SET_FAVORITES, stmt) && ok;
 
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_BNET_WARBAND_SCENES);
         stmt->setUInt32(0, battlenetAccountId);
@@ -1467,6 +1478,7 @@ void WorldSession::InitializeSessionCallback(LoginDatabaseQueryHolder const& hol
     _collectionMgr->LoadAccountMounts(holder.GetPreparedResult(AccountInfoQueryHolder::MOUNTS));
     _collectionMgr->LoadAccountItemAppearances(holder.GetPreparedResult(AccountInfoQueryHolder::ITEM_APPEARANCES), holder.GetPreparedResult(AccountInfoQueryHolder::ITEM_FAVORITE_APPEARANCES));
     _collectionMgr->LoadAccountTransmogIllusions(holder.GetPreparedResult(AccountInfoQueryHolder::TRANSMOG_ILLUSIONS));
+    _collectionMgr->LoadTransmogSetFavorites(holder.GetPreparedResult(AccountInfoQueryHolder::TRANSMOG_SET_FAVORITES));
     _collectionMgr->LoadAccountWarbandScenes(holder.GetPreparedResult(AccountInfoQueryHolder::WARBAND_SCENES));
     LoadPlayerDataAccount(holder.GetPreparedResult(AccountInfoQueryHolder::PLAYER_DATA_ELEMENTS_ACCOUNT), holder.GetPreparedResult(AccountInfoQueryHolder::PLAYER_DATA_FLAGS_ACCOUNT));
 

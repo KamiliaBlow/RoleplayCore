@@ -1,0 +1,5 @@
+## Interface: 120001
+## Title: TransmogBridge
+## Notes: Sends pending transmog selections via addon message (workaround for client serializer bug)
+## Author: RoleplayCore
+TransmogBridge.lua

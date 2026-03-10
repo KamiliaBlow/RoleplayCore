@@ -1,0 +1,6 @@
+## Interface: 120001
+## Title: TransmogSpy - Transmog Debug Logger
+## Notes: Logs all transmog API calls and events for debugging
+## Author: Debug
+## SavedVariables: TransmogSpyDB
+TransmogSpy.lua

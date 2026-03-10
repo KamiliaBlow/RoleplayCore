@@ -25,6 +25,7 @@
 #include "ChatPackets.h"
 #include "DatabaseEnvFwd.h"
 #include "Duration.h"
+#include "EquipmentSet.h"
 #include "IteratorPair.h"
 #include "LockedQueue.h"
 #include "ObjectGuid.h"
@@ -834,6 +835,10 @@ namespace WorldPackets
     namespace Transmogrification
     {
         class TransmogrifyItems;
+        class TransmogOutfitNew;
+        class TransmogOutfitUpdateInfo;
+        class TransmogOutfitUpdateSituations;
+        class TransmogOutfitUpdateSlots;
     }
 
     namespace Vehicle
@@ -1813,6 +1818,33 @@ class TC_GAME_API WorldSession
 
         // Transmogrification
         void HandleTransmogrifyItems(WorldPackets::Transmogrification::TransmogrifyItems& transmogrifyItems);
+        void HandleTransmogOutfitNew(WorldPackets::Transmogrification::TransmogOutfitNew& transmogOutfitNew);
+        void HandleTransmogOutfitUpdateInfo(WorldPackets::Transmogrification::TransmogOutfitUpdateInfo& transmogOutfitUpdateInfo);
+        void HandleTransmogOutfitUpdateSituations(WorldPackets::Transmogrification::TransmogOutfitUpdateSituations& transmogOutfitUpdateSituations);
+        void HandleTransmogOutfitUpdateSlots(WorldPackets::Transmogrification::TransmogOutfitUpdateSlots& transmogOutfitUpdateSlots);
+
+        // TransmogBridge: addon-message-based workaround for 12.x client serializer bug.
+        // The client's CommitAndApplyAllPending C++ serializer omits HEAD/MH/OH/enchants
+        // and sends stale IMAIDs for all other slots. A client addon sends correct IMAIDs
+        // via hybrid snapshot (GetViewedOutfitSlotInfo) + hook overlay (SetPendingTransmog).
+        // HandleTransmogOutfitUpdateSlots defers finalization so the addon message can
+        // merge overrides before save/apply.
+        struct TransmogBridgeOverride
+        {
+            uint8  ClientSlot;   // Client API slot index (0=HEAD, 1=SHOULDER, ..., 13=OH)
+            int32  TransmogID;   // IMAID, 0 = clear appearance
+            int32  IllusionID = 0;   // SpellItemEnchantmentID, 0 = clear illusion
+            bool   HasIllusion = false; // true if addon explicitly provided illusion data
+        };
+        struct TransmogBridgePendingOutfit
+        {
+            EquipmentSetInfo::EquipmentSetData Outfit;
+            bool HasAnyAppearance = false;
+        };
+        void FinalizeTransmogBridgePendingOutfit();
+        std::vector<TransmogBridgeOverride> _transmogBridgeOverrides;
+        std::string _transmogBridgePartialPayload;
+        Optional<TransmogBridgePendingOutfit> _transmogBridgePendingOutfit;
 
         // Miscellaneous
         void HandleSpellClick(WorldPackets::Spells::SpellClick& spellClick);
