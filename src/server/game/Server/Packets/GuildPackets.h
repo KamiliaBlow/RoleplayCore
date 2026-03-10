@@ -445,7 +445,7 @@ namespace WorldPackets
             uint32 OldFlags = 0;
             uint32 TabFlags[GUILD_BANK_MAX_TABS] = { };
             uint32 TabWithdrawItemLimit[GUILD_BANK_MAX_TABS] = { };
-            String<15, Strings::NoHyperlinks> RankName;
+            String<20, Strings::NoHyperlinks> RankName;
         };
 
         class GuildAddRank final : public ClientPacket
@@ -455,7 +455,7 @@ namespace WorldPackets
 
             void Read() override;
 
-            String<15, Strings::NoHyperlinks> Name;
+            String<20, Strings::NoHyperlinks> Name;
             int32 RankOrder = 0;
         };
 
@@ -729,7 +729,7 @@ namespace WorldPackets
 
             ObjectGuid Banker;
             uint8 BankTab = 0;
-            String<15, Strings::NoHyperlinks> Name;
+            String<20, Strings::NoHyperlinks> Name;
             String<127> Icon;
         };
 
