@@ -502,7 +502,7 @@ typedef std::unordered_map<uint32 /*glyphPropertiesId*/, std::vector<ChrSpeciali
 typedef std::unordered_map<uint32 /*itemId*/, ItemChildEquipmentEntry const*> ItemChildEquipmentContainer;
 typedef std::array<ItemClassEntry const*, 21> ItemClassByOldEnumContainer;
 typedef std::unordered_map<uint32, std::vector<ItemLimitCategoryConditionEntry const*>> ItemLimitCategoryConditionContainer;
-typedef std::unordered_map<uint32 /*itemId | appearanceMod << 24*/, ItemModifiedAppearanceEntry const*> ItemModifiedAppearanceByItemContainer;
+typedef std::unordered_map<uint64 /*appearanceMod << 32 | itemId*/, ItemModifiedAppearanceEntry const*> ItemModifiedAppearanceByItemContainer;
 typedef std::unordered_map<uint32, std::vector<ItemSetSpellEntry const*>> ItemSetSpellContainer;
 typedef std::unordered_map<uint32, std::vector<ItemSpecOverrideEntry const*>> ItemSpecOverridesContainer;
 typedef std::unordered_map<uint32, std::unordered_map<uint32, MapDifficultyEntry const*>> MapDifficultyContainer;
@@ -1541,7 +1541,7 @@ void DB2Manager::IndexLoadedStores()
     for (ItemModifiedAppearanceEntry const* appearanceMod : sItemModifiedAppearanceStore)
     {
         ASSERT(appearanceMod->ItemID <= 0xFFFFFF);
-        _itemModifiedAppearancesByItem[appearanceMod->ItemID | (appearanceMod->ItemAppearanceModifierID << 24)] = appearanceMod;
+        _itemModifiedAppearancesByItem[(uint64(appearanceMod->ItemAppearanceModifierID) << 32) | appearanceMod->ItemID] = appearanceMod;
     }
 
     for (ItemSetSpellEntry const* itemSetSpell : sItemSetSpellStore)
@@ -2876,14 +2876,14 @@ uint32 DB2Manager::GetItemDisplayId(uint32 itemId, uint32 appearanceModId) const
 
 ItemModifiedAppearanceEntry const* DB2Manager::GetItemModifiedAppearance(uint32 itemId, uint32 appearanceModId) const
 {
-    auto itr = _itemModifiedAppearancesByItem.find(itemId | (appearanceModId << 24));
+    auto itr = _itemModifiedAppearancesByItem.find((uint64(appearanceModId) << 32) | itemId);
     if (itr != _itemModifiedAppearancesByItem.end())
         return itr->second;
 
     // Fall back to unmodified appearance
     if (appearanceModId)
     {
-        itr = _itemModifiedAppearancesByItem.find(itemId);
+        itr = _itemModifiedAppearancesByItem.find(uint64(itemId));
         if (itr != _itemModifiedAppearancesByItem.end())
             return itr->second;
     }
@@ -2893,7 +2893,11 @@ ItemModifiedAppearanceEntry const* DB2Manager::GetItemModifiedAppearance(uint32 
 
 ItemModifiedAppearanceEntry const* DB2Manager::GetDefaultItemModifiedAppearance(uint32 itemId) const
 {
-    return Trinity::Containers::MapGetValuePtr(_itemModifiedAppearancesByItem, itemId);
+    auto itr = _itemModifiedAppearancesByItem.find(uint64(itemId));
+    if (itr != _itemModifiedAppearancesByItem.end())
+        return itr->second;
+
+    return nullptr;
 }
 
 std::vector<ItemSetSpellEntry const*> const* DB2Manager::GetItemSetSpells(uint32 itemSetId) const

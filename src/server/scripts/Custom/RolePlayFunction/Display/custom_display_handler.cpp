@@ -60,22 +60,7 @@ namespace RoleplayCore
         {DISPLAY_TYPE_MAIN, {DISPLAY_TYPE_OFF, DISPLAY_TYPE_RANGED, DISPLAY_TYPE_SHIELD, DISPLAY_TYPE_MAIN}},
     };
 
-    // Initialization of pair array for appearance modifiers
-    const std::array<std::pair<uint32, uint32>, 76> DisplayHandler::m_valid_appearance_mod_list = {{
-        {0, 9}, {1, 10}, {3, 11}, {4, 12}, {5, 13}, {6, 14}, {7, 15}, {8, 16},
-        {49, 17}, {150, 18}, {151, 19}, {152, 20}, {153, 21}, {154, 22}, {155, 23},
-        {156, 24}, {157, 25}, {158, 26}, {159, 27}, {160, 28}, {161, 29}, {162, 30},
-        {163, 31}, {164, 32}, {165, 0}, {166, 0}, {167, 0}, {168, 0}, {169, 0},
-        {170, 0}, {171, 0}, {172, 0}, {173, 0}, {174, 0}, {175, 0}, {176, 0},
-        {177, 0}, {178, 0}, {179, 0}, {180, 0}, {181, 0}, {182, 0}, {183, 0},
-        {184, 0}, {185, 0}, {186, 0}, {187, 0}, {188, 0}, {189, 0}, {190, 0},
-        {191, 0}, {192, 0}, {193, 0}, {194, 0}, {195, 0}, {196, 0}, {197, 0},
-        {198, 0}, {199, 0}, {200, 0}, {201, 0}, {202, 0}, {203, 0}, {204, 0},
-        {205, 0}, {206, 0}, {207, 0}, {208, 0}, {209, 0}, {210, 0}, {211, 0},
-        {212, 0}, {213, 0}, {214, 0}, {215, 0}, {216, 0}
-    }};
-
-    void DisplayHandler::Display(ChatHandler* handler, DisplayType type, uint32 id, uint8 bonus, bool isSecondary)
+    void DisplayHandler::Display(ChatHandler* handler, DisplayType type, uint32 id, uint32 bonus, bool isSecondary)
     {
         if (!handler || !handler->GetPlayer())
             return;
@@ -112,47 +97,58 @@ namespace RoleplayCore
             return;
         }
 
-        // Optimized search for a suitable appearance modifier
-        auto tryApplyModifiedAppearance = [&](uint32 modType) -> bool {
-            // Check the requested bonus first
-            if (bonus < m_valid_appearance_mod_list.size())
-            {
-                uint32 modID = modType == 1 ?
-                    m_valid_appearance_mod_list[bonus].first :
-                    m_valid_appearance_mod_list[bonus].second;
+        auto applyArtifactAppearance = [&](uint32 artifactAppearanceId) -> bool
+        {
+            if (!item->GetTemplate()->GetArtifactID() || isSecondary)
+                return false;
 
-                if (modID != 0)
-                {
-                    auto modifiedAppearance = sDB2Manager.GetItemModifiedAppearance(id, modID);
-                    if (modifiedAppearance && modifiedAppearance->ItemAppearanceID != 0)
-                    {
-                        return ApplyModifiedAppearance(modifiedAppearance->ID, modifiedAppearance->ItemAppearanceID,
-                                                     item, player, handler, itemSlot, isSecondary);
-                    }
-                }
+            ArtifactAppearanceEntry const* artifactAppearance = sArtifactAppearanceStore.LookupEntry(artifactAppearanceId);
+            if (!artifactAppearance)
+                return false;
+
+            ArtifactAppearanceSetEntry const* artifactAppearanceSet = sArtifactAppearanceSetStore.LookupEntry(artifactAppearance->ArtifactAppearanceSetID);
+            if (!artifactAppearanceSet || artifactAppearanceSet->ArtifactID != item->GetTemplate()->GetArtifactID())
+                return false;
+
+            item->SetAppearanceModId(artifactAppearance->ItemAppearanceModifierID);
+            item->SetModifier(ITEM_MODIFIER_ARTIFACT_APPEARANCE_ID, artifactAppearance->ID);
+            item->SetState(ITEM_CHANGED, player);
+            player->SetVisibleItemSlot(itemSlot, item);
+
+            Item* childItem = player->GetChildItemByGuid(item->GetChildItem());
+            if (childItem)
+            {
+                childItem->SetAppearanceModId(artifactAppearance->ItemAppearanceModifierID);
+                childItem->SetState(ITEM_CHANGED, player);
+                player->SetVisibleItemSlot(childItem->GetSlot(), childItem);
             }
 
-            // If not found, search through all possible modifiers
-            for (const auto& mod : m_valid_appearance_mod_list)
-            {
-                uint32 modID = modType == 1 ? mod.first : mod.second;
-                if (modID == 0)
-                    continue;
-
-                auto modifiedAppearance = sDB2Manager.GetItemModifiedAppearance(id, modID);
-                if (modifiedAppearance && modifiedAppearance->ItemAppearanceID != 0)
-                {
-                    return ApplyModifiedAppearance(modifiedAppearance->ID, modifiedAppearance->ItemAppearanceID,
-                                                 item, player, handler, itemSlot, isSecondary);
-                }
-            }
-
-            return false;
+            return true;
         };
 
-        // First try applying the normal modifier, then the legendary one
-        if (!tryApplyModifiedAppearance(1) && !tryApplyModifiedAppearance(2))
-            handler->SendSysMessage("Target item has no appearance.");
+        if (bonus != 0 && applyArtifactAppearance(bonus))
+            return;
+
+        if (bonus != 0)
+        {
+            if (ItemModifiedAppearanceEntry const* modifiedAppearance = sDB2Manager.GetItemModifiedAppearance(id, bonus))
+                if (modifiedAppearance->ItemAppearanceID != 0)
+                {
+                    ApplyModifiedAppearance(modifiedAppearance->ID, modifiedAppearance->ItemAppearanceID, item, player, handler, itemSlot, isSecondary);
+                    return;
+                }
+        }
+
+        for (ItemModifiedAppearanceEntry const* modifiedAppearance : sItemModifiedAppearanceStore)
+        {
+            if (modifiedAppearance->ItemID != id || modifiedAppearance->ItemAppearanceID == 0)
+                continue;
+
+            if (ApplyModifiedAppearance(modifiedAppearance->ID, modifiedAppearance->ItemAppearanceID, item, player, handler, itemSlot, isSecondary))
+                return;
+        }
+
+        handler->SendSysMessage("Target item has no appearance.");
     }
 
     void DisplayHandler::ResetItem(Item* item)
