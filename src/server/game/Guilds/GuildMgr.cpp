@@ -431,7 +431,7 @@ void GuildMgr::LoadGuilds()
             do
             {
                 Field* fields = result->Fetch();
-                uint64 guildId = fields[53].GetUInt64();
+                uint64 guildId = fields[54].GetUInt64();
 
                 if (Guild* guild = GetGuildById(guildId))
                     guild->LoadBankItemFromDB(fields);
