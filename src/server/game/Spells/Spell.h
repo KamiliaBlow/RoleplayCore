@@ -450,6 +450,7 @@ class TC_GAME_API Spell
         void EffectGrantBattlePetExperience();
         void EffectLearnTransmogIllusion();
         void EffectCraftItem();
+        void EffectEquipTransmogOutfit();
         void EffectModifyAuraStacks();
         void EffectModifyCooldown();
         void EffectModifyCooldowns();
