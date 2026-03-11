@@ -1470,7 +1470,7 @@ struct GameObjectData : public SpawnData
     GOState goState = GO_STATE_ACTIVE;
     uint32 artKit = 0;
 	float size = 0.0f;
-    float visibility = 533.3333f;
+    float visibility = 170.0f;
 };
 
 enum class GameObjectActions : uint32
