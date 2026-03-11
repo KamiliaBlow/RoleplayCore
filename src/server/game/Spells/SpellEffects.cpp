@@ -3129,11 +3129,6 @@ void Spell::EffectScriptEffect()
         {
             switch (m_spellInfo->Id)
             {
-				case 83958: ///< Mobile Banking
-                {
-                    m_caster->CastSpell(m_caster, 88304, true);
-                    break;
-                }
                 // Shadow Flame (All script effects, not just end ones to prevent player from dodging the last triggered spell)
                 case 22539:
                 case 22972:

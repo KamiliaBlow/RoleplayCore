@@ -5797,6 +5797,46 @@ class spell_maghar_orc_racial_ancestors_call : public SpellScript
     }
 };
 
+// 83958 - Mobile Banking (Guild)
+class spell_gen_guild_chest : public SpellScript
+{
+    enum GuildChest
+    {
+        SPELL_SUMMON_CHEST_ALLIANCE = 88304,
+        GOB_GUILD_CHEST_ALLIANCE    = 206602,
+
+        SPELL_SUMMON_CHEST_HORDE    = 88306,
+        GOB_GUILD_CHEST_HORDE       = 206603
+    };
+
+    SpellCastResult CheckRequirement()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || caster->GetTypeId() != TYPEID_PLAYER)
+            return SPELL_FAILED_ERROR;
+
+        if (caster->ToPlayer()->GetReputationRank(1168) < REP_FRIENDLY)
+            return SPELL_FAILED_REPUTATION;
+
+        return SPELL_CAST_OK;
+    }
+
+    void HandleScript(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || caster->GetTypeId() != TYPEID_PLAYER)
+            return;
+
+        caster->CastSpell(caster, caster->ToPlayer()->GetTeamId() == TEAM_ALLIANCE ? SPELL_SUMMON_CHEST_ALLIANCE : SPELL_SUMMON_CHEST_HORDE, true);
+    }
+
+    void Register()
+    {
+        OnCheckCast += SpellCheckCastFn(spell_gen_guild_chest::CheckRequirement);
+        OnEffectLaunch += SpellEffectFn(spell_gen_guild_chest::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
 void AddSC_generic_spell_scripts()
 {
     RegisterSpellScript(spell_gen_absorb0_hitlimit1);
@@ -5992,4 +6032,7 @@ void AddSC_generic_spell_scripts()
     RegisterSpellScript(spell_make_camp);
     RegisterSpellScript(spell_back_camp);
     RegisterSpellScript(spell_maghar_orc_racial_ancestors_call);
+
+    //Guild
+    RegisterSpellScript(spell_gen_guild_chest);
 }
