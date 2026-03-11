@@ -297,12 +297,23 @@ public:
     }
 
     // custom command .barber
-    static bool HandleBarberCommand(ChatHandler* handler)
+    static bool HandleBarberCommand(ChatHandler* handler, Optional<uint32> featureMask)
     {
-        WorldPackets::Misc::EnableBarberShop packet;
-        handler->GetSession()->GetPlayer()->SendDirectMessage(packet.Write());
+        if (!featureMask) {
+            featureMask = 0;
+        }
 
-        return true;
+        if (WorldSession* session = handler->GetSession())
+        {
+            WorldPackets::Misc::EnableBarberShop enableBarberShop;
+            enableBarberShop.CustomizationFeatureMask = 0;
+            session->GetPlayer()->SendDirectMessage(enableBarberShop.Write());
+            return true;
+        }
+
+        handler->SendSysMessage(LANG_USE_BOL);
+        handler->SetSentErrorMessage(true);
+        return false;
     }
 
     // custom command .castgroup
