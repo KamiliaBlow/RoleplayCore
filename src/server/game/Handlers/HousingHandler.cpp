@@ -2969,11 +2969,16 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
         entry.NeighborhoodGUID = neighborhood->GetGuid();
         entry.OwnerGUID = neighborhood->GetOwnerGuid();
         entry.Name = neighborhood->GetName();
-        NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(neighborhood->GetNeighborhoodMapID());
-        uint32 totalPlots = nmData ? nmData->PlotCount : MAX_NEIGHBORHOOD_PLOTS;
-        uint32 availPlots = totalPlots - neighborhood->GetOccupiedPlotCount();
-        entry.SetPlotCounts(availPlots, totalPlots);
-        entry.Field2 = static_cast<uint64>(neighborhood->GetNeighborhoodMapID());
+        // Field1 | Field2 is a BITMASK of occupied plot indices (IDA: client ORs them at offset 520,
+        // then checks (1LL << plotIndex) & bitmask to determine if plot is occupied on the finder map).
+        uint64 occupiedBitmask = 0;
+        for (auto const& plot : neighborhood->GetPlots())
+        {
+            if (plot.IsOccupied() && plot.PlotIndex < 64)
+                occupiedBitmask |= (uint64(1) << plot.PlotIndex);
+        }
+        entry.Field1 = occupiedBitmask;
+        entry.Field2 = 0;
         entry.ExtraFlags = 0x20; // Retail sniff: finder list entries always have ExtraFlags=0x20
 
         // Retail LIST response has an EMPTY Houses array — the client only needs houses in
@@ -2985,8 +2990,15 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
 
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO: {} public neighborhoods available",
-        uint32(publicNeighborhoods.size()));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO: player={} team={} total_public={} sent={}",
+        player->GetName(), playerTeam, uint32(publicNeighborhoods.size()), uint32(response.Entries.size()));
+    for (auto const& entry : response.Entries)
+    {
+        TC_LOG_INFO("housing", "  FINDER_LIST entry: nbGuid={} owner={} name='{}' occupiedBitmask=0x{:016X} "
+            "houses={} extraFlags=0x{:02X}",
+            entry.NeighborhoodGUID.ToString(), entry.OwnerGUID.ToString(), entry.Name,
+            entry.Field1, uint32(entry.Houses.size()), entry.ExtraFlags);
+    }
 }
 
 void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhood const& housingSvcsGetHouseFinderNeighborhood)
@@ -3004,9 +3016,22 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
         return;
     }
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD: '{}' MapID:{} Members:{} Public:{}",
-        neighborhood->GetName(), neighborhood->GetNeighborhoodMapID(),
-        neighborhood->GetMemberCount(), neighborhood->IsPublic());
+    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD: '{}' guid={} MapID:{} Members:{} Public:{} OccupiedPlots:{}",
+        neighborhood->GetName(), neighborhood->GetGuid().ToString(),
+        neighborhood->GetNeighborhoodMapID(),
+        neighborhood->GetMemberCount(), neighborhood->IsPublic(),
+        neighborhood->GetOccupiedPlotCount());
+
+    // Dump all plot states for debugging
+    for (uint8 i = 0; i < MAX_NEIGHBORHOOD_PLOTS; ++i)
+    {
+        auto const& plot = neighborhood->GetPlots()[i];
+        if (plot.IsOccupied())
+        {
+            TC_LOG_INFO("housing", "  PLOT[{}]: occupied owner={} house={} bnet={}",
+                i, plot.OwnerGuid.ToString(), plot.HouseGuid.ToString(), plot.OwnerBnetGuid.ToString());
+        }
+    }
 
     // Build single JamCliHouseFinderNeighborhood with houses array for occupied plots
     WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse response;
@@ -3015,12 +3040,20 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     response.Neighborhood.OwnerGUID = neighborhood->GetOwnerGuid();
     response.Neighborhood.Name = neighborhood->GetName();
 
-    NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(neighborhood->GetNeighborhoodMapID());
-    uint32 totalPlots = nmData ? nmData->PlotCount : MAX_NEIGHBORHOOD_PLOTS;
-    uint32 availPlots = totalPlots - neighborhood->GetOccupiedPlotCount();
-    response.Neighborhood.SetPlotCounts(availPlots, totalPlots);
-    response.Neighborhood.Field2 = static_cast<uint64>(neighborhood->GetNeighborhoodMapID());
+    // Field1 | Field2 is a BITMASK of occupied plot indices (IDA: client ORs them at offset 520,
+    // then checks (1LL << plotIndex) & bitmask to determine if plot is occupied on the finder map).
+    uint64 occupiedBitmask = 0;
+    for (auto const& plot : neighborhood->GetPlots())
+    {
+        if (plot.IsOccupied() && plot.PlotIndex < 64)
+            occupiedBitmask |= (uint64(1) << plot.PlotIndex);
+    }
+    response.Neighborhood.Field1 = occupiedBitmask;
+    response.Neighborhood.Field2 = 0;
     response.Neighborhood.ExtraFlags = 0x20; // Retail sniff: finder detail always has ExtraFlags=0x20
+
+    TC_LOG_INFO("housing", "  DETAIL: occupiedBitmask=0x{:016X} occupiedCount={}",
+        occupiedBitmask, neighborhood->GetOccupiedPlotCount());
 
     for (auto const& plot : neighborhood->GetPlots())
     {
@@ -3031,9 +3064,15 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
         house.HouseGUID = plot.HouseGuid;
         house.OwnerGUID = plot.OwnerGuid;
         house.NeighborhoodGUID = neighborhood->GetGuid();
+        house.HouseLevel = static_cast<uint8>(plot.PlotIndex); // Client uses HouseLevel (offset 48) as hash key for plot lookup
         house.PlotIndex = plot.PlotIndex;
         response.Neighborhood.Houses.push_back(std::move(house));
+
+        TC_LOG_INFO("housing", "  DETAIL_HOUSE: plotIndex={} houseLevel={} houseGuid={} ownerGuid={}",
+            plot.PlotIndex, static_cast<uint8>(plot.PlotIndex), plot.HouseGuid.ToString(), plot.OwnerGuid.ToString());
     }
+
+    TC_LOG_INFO("housing", "  DETAIL: sending {} houses in Houses[] array", uint32(response.Neighborhood.Houses.size()));
     SendPacket(response.Write());
 
     // Populate the Housing/4 entity with this neighborhood's mirror data so the
@@ -3051,6 +3090,19 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
             mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
     }
 
+    // Count what we're sending on the mirror entity
+    uint32 mirrorOccupied = 0;
+    uint32 mirrorEmpty = 0;
+    for (auto const& plot : neighborhood->GetPlots())
+    {
+        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+            ++mirrorOccupied;
+        else
+            ++mirrorEmpty;
+    }
+    TC_LOG_INFO("housing", "  MIRROR: sending {} occupied + {} empty = {} total slots",
+        mirrorOccupied, mirrorEmpty, mirrorOccupied + mirrorEmpty);
+
     mirrorEntity.ClearManagers();
     for (auto const& member : neighborhood->GetMembers())
     {
@@ -3063,6 +3115,8 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
         }
     }
     mirrorEntity.SendUpdateToPlayer(player);
+
+    TC_LOG_INFO("housing", "  MIRROR: update sent to player {}", player->GetName());
 }
 
 void WorldSession::HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& housingSvcsGetBnetFriendNeighborhoods)

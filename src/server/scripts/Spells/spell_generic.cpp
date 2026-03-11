@@ -5832,7 +5832,7 @@ class spell_gen_guild_chest : public SpellScript
 
     void Register()
     {
-        OnCheckCast += SpellCheckCastFn(spell_gen_guild_chest::CheckRequirement);
+        //OnCheckCast += SpellCheckCastFn(spell_gen_guild_chest::CheckRequirement); // No need on Roleplay
         OnEffectLaunch += SpellEffectFn(spell_gen_guild_chest::HandleScript, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
     }
 };
