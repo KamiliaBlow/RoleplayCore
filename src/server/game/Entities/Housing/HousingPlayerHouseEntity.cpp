@@ -81,17 +81,7 @@ void HousingPlayerHouseEntity::SendUpdateToPlayer(Player* player)
 {
     BuildUpdateChangesMask();
     BaseEntity::SendUpdateToPlayer(player);
-    ClearUpdateMask(false);
-}
-
-void HousingPlayerHouseEntity::SetHouseType(uint32 houseType)
-{
-    SetUpdateFieldValue(m_values.ModifyValue(&HousingPlayerHouseEntity::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::HouseType), houseType);
-}
-
-void HousingPlayerHouseEntity::SetHouseSize(uint32 houseSize)
-{
-    SetUpdateFieldValue(m_values.ModifyValue(&HousingPlayerHouseEntity::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::HouseSize), houseSize);
+    ClearUpdateMask(true);
 }
 
 void HousingPlayerHouseEntity::SetPlotIndex(int32 plotIndex)

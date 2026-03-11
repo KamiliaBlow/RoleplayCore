@@ -85,12 +85,6 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
                 _plots[member.PlotIndex].PlotIndex  = member.PlotIndex;
                 _plots[member.PlotIndex].OwnerGuid  = member.PlayerGuid;
 
-                // Resolve HouseGuid from character_housing JOIN (column 4)
-                uint64 houseId = memberFields[4].GetUInt64();
-                if (houseId != 0)
-                    _plots[member.PlotIndex].HouseGuid = ObjectGuid::Create<HighGuid::Housing>(
-                        /*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, houseId);
-
                 // Resolve BNet account GUID from characters.account JOIN (column 5).
                 // The client requires non-zero HouseOwnerBnetAccountGUID on the plot AreaTrigger's
                 // FHousingPlotAreaTrigger_C fragment for IsInsidePlot() validation.
@@ -99,7 +93,13 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
                 {
                     uint32 bnetAccountId = Battlenet::AccountMgr::GetIdByGameAccount(gameAccountId);
                     if (bnetAccountId != 0)
+                    {
                         _plots[member.PlotIndex].OwnerBnetGuid = ObjectGuid::Create<HighGuid::BNetAccount>(bnetAccountId);
+                        // HouseGuid counter MUST match HousingPlayerHouseEntity GUID (WorldSession.cpp),
+                        // which uses battlenetAccountId. Using ch.houseId (DB2 entry) was wrong.
+                        _plots[member.PlotIndex].HouseGuid = ObjectGuid::Create<HighGuid::Housing>(
+                            /*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, uint64(bnetAccountId));
+                    }
                 }
             }
         } while (members->NextRow());

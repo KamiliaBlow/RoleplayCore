@@ -551,10 +551,11 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             updateData.BuildPacket(&updatePacket);
             player->SendDirectMessage(&updatePacket);
 
-            // Clear change masks after manual send to prevent duplicate sends on next map tick
+            // Clear change masks AND remove from _updateObjects to prevent duplicate
+            // VALUES_UPDATE on next map tick (causes "Object update failed" on client).
             player->ClearUpdateMask(false);
-            GetBattlenetAccount().ClearUpdateMask(false);
-            GetHousingPlayerHouseEntity().ClearUpdateMask(false);
+            GetBattlenetAccount().ClearUpdateMask(true);
+            GetHousingPlayerHouseEntity().ClearUpdateMask(true);
         }
 
         // Diagnostic: log placed decor GUIDs from Housing vs what's on spawned MeshObjects.
@@ -1053,8 +1054,8 @@ void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::Housi
         updateData.BuildPacket(&updatePacket);
         player->SendDirectMessage(&updatePacket);
 
-        GetBattlenetAccount().ClearUpdateMask(false);
-        GetHousingPlayerHouseEntity().ClearUpdateMask(false);
+        GetBattlenetAccount().ClearUpdateMask(true);
+        GetHousingPlayerHouseEntity().ClearUpdateMask(true);
     }
 
     // 3. Send GET_PLAYER_HOUSES_INFO_RESPONSE
@@ -1214,6 +1215,47 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
     response.HouseGuid = housing->GetHouseGuid();
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
+
+    // Sync entity data so the client receives budget values when switching to customize mode.
+    // Without this, the client sees 0/0 budgets because the Player entity's EditorMode changed
+    // but the HousingPlayerHouseEntity/Account entity data was never flushed.
+    if (housingFixtureSetEditMode.Active)
+    {
+        housing->ResetStoragePopulated();
+        housing->PopulateCatalogStorageEntries();
+        housing->SyncUpdateFields();
+
+        player->BuildUpdateChangesMask();
+        GetBattlenetAccount().BuildUpdateChangesMask();
+        GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
+
+        UpdateData updateData(player->GetMapId());
+        WorldPacket updatePacket;
+        player->BuildValuesUpdateBlockForPlayer(&updateData, player);
+
+        if (player->HaveAtClient(&GetBattlenetAccount()))
+            GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        else
+        {
+            GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+            player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
+        }
+
+        if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
+            GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        else
+        {
+            GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
+            player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+        }
+
+        updateData.BuildPacket(&updatePacket);
+        player->SendDirectMessage(&updatePacket);
+
+        player->ClearUpdateMask(false);
+        GetBattlenetAccount().ClearUpdateMask(true);
+        GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+    }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_EDITOR_MODE_ACTIVE Active: {}", housingFixtureSetEditMode.Active);
 }
@@ -1575,6 +1617,45 @@ void WorldSession::HandleHousingRoomSetLayoutEditMode(WorldPackets::Housing::Hou
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.Active = housingRoomSetLayoutEditMode.Active;
     SendPacket(response.Write());
+
+    // Sync entity data so the client receives budget values when switching to layout mode.
+    if (housingRoomSetLayoutEditMode.Active)
+    {
+        housing->ResetStoragePopulated();
+        housing->PopulateCatalogStorageEntries();
+        housing->SyncUpdateFields();
+
+        player->BuildUpdateChangesMask();
+        GetBattlenetAccount().BuildUpdateChangesMask();
+        GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
+
+        UpdateData updateData(player->GetMapId());
+        WorldPacket updatePacket;
+        player->BuildValuesUpdateBlockForPlayer(&updateData, player);
+
+        if (player->HaveAtClient(&GetBattlenetAccount()))
+            GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        else
+        {
+            GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+            player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
+        }
+
+        if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
+            GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
+        else
+        {
+            GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
+            player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+        }
+
+        updateData.BuildPacket(&updatePacket);
+        player->SendDirectMessage(&updatePacket);
+
+        player->ClearUpdateMask(false);
+        GetBattlenetAccount().ClearUpdateMask(true);
+        GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+    }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_ROOM_SET_EDITOR_MODE_ACTIVE Active: {}", housingRoomSetLayoutEditMode.Active);
 }

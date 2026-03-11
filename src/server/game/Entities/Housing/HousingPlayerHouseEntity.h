@@ -36,9 +36,7 @@ public:
 
     void SendUpdateToPlayer(Player* player);
 
-    // Housing UpdateField setters
-    void SetHouseType(uint32 houseType);
-    void SetHouseSize(uint32 houseSize);
+    // Housing UpdateField setters (IDA-verified: HouseType/HouseSize not in this fragment)
     void SetPlotIndex(int32 plotIndex);
     void SetLevel(uint32 level);
     void SetFavor(uint64 favor);

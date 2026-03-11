@@ -19400,12 +19400,31 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             NeighborhoodInitiativeEntry const* initEntry = sNeighborhoodInitiativeStore.LookupEntry(activeInit->InitiativeID);
             uint32 cycleID = sInitiativeManager.GetActiveCycleForInitiative(activeInit->InitiativeID);
 
-            // Calculate remaining duration from start time + DB2 duration
-            int64 remainingDuration = 0;
+            // Calculate remaining duration from start time + DB2 duration.
+            // Check both NeighborhoodInitiative.Duration and InitiativeCycle.Duration.
+            // If neither provides a duration, use a 7-day default so the client shows
+            // the endeavor as active rather than expired (Duration=0 ? hidden).
+            // Duration from DB2 is in days ? convert to seconds.
+            // Sniff-verified: RemainingDuration is in seconds (sniff value 972957 ? 11.25 days).
+            int64 durationSec = 0;
             if (initEntry && initEntry->Duration > 0)
+                durationSec = static_cast<int64>(initEntry->Duration) * 86400;
+            else if (cycleID)
             {
-                int64 elapsed = static_cast<int64>(GameTime::GetGameTime()) - static_cast<int64>(activeInit->StartTime);
-                remainingDuration = std::max<int64>(0, static_cast<int64>(initEntry->Duration) - elapsed);
+                InitiativeCycleEntry const* cycleEntry = sInitiativeCycleStore.LookupEntry(cycleID);
+                if (cycleEntry && cycleEntry->Duration > 0)
+                    durationSec = static_cast<int64>(cycleEntry->Duration) * 86400;
+            }
+            if (durationSec <= 0)
+                durationSec = 7 * DAY; // 7-day fallback
+
+            int64 elapsed = static_cast<int64>(GameTime::GetGameTime()) - static_cast<int64>(activeInit->StartTime);
+            int64 remainingDuration = durationSec - elapsed;
+            // If expired, reset start time so the initiative stays active
+            if (remainingDuration <= 0)
+            {
+                activeInit->StartTime = static_cast<uint32>(GameTime::GetGameTime());
+                remainingDuration = durationSec;
             }
 
             // Calculate progress in the 0-1000 scale (sniff: ProgressRequired=1000)
@@ -19461,6 +19480,75 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
                 "InitiativeID={} CycleID={} Progress={:.1f}/{:.0f} Milestone={} Duration={}",
                 activeInit->InitiativeID, cycleID, currentProgress, progressRequired,
                 currentMilestoneID, remainingDuration);
+        }
+    }
+
+    // Pre-populate Housing/4 (NeighborhoodMirrorEntity) and Housing/3 (HousingPlayerHouseEntity)
+    // BEFORE BuildCreateUpdateBlockForPlayer runs. The CREATE block must include the full Houses
+    // array so the client sees occupied plots at the correct indices. If we only populate these
+    // during SendInitialPacketsAfterAddToMap (after CREATE), the client receives an empty Houses
+    // array in CREATE and a DynamicUpdateField UPDATE that grows the array ? causing it to map
+    // houses to indices 0,1,2 instead of their real PlotIndex values (e.g. 7,9,47,51).
+    if (GetSession() && !_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
+    {
+        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(_housings[0]->GetNeighborhoodGuid());
+        if (neighborhood)
+        {
+            // --- Housing/4: NeighborhoodMirrorEntity ---
+            // The entity GUID must match the neighborhood's actual GUID so the client
+            // can associate it with NeighborhoodGUID references in JamCliHouse packets.
+            // WorldSession creates it with battlenetAccountId as placeholder; fix it here.
+            HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
+            mirrorEntity.ResetGuid(neighborhood->GetGuid());
+            mirrorEntity.SetName(neighborhood->GetName());
+            mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
+
+            // Add ALL 55 plot entries so Houses[i] = PlotIndex i
+            mirrorEntity.ClearHouses();
+            for (auto const& plot : neighborhood->GetPlots())
+            {
+                if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                    mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+                else
+                    mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+            }
+
+            // Add managers
+            mirrorEntity.ClearManagers();
+            for (auto const& member : neighborhood->GetMembers())
+            {
+                if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+                {
+                    ObjectGuid bnetGuid;
+                    if (Player* managerPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                        bnetGuid = managerPlayer->GetSession()->GetBattlenetAccountGUID();
+                    mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+                }
+            }
+
+            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Pre-populated Housing/4 mirror entity with {} plots from neighborhood {}",
+                MAX_NEIGHBORHOOD_PLOTS, neighborhood->GetName());
+
+            // --- Housing/3: HousingPlayerHouseEntity ---
+            Housing* housing = _housings[0].get();
+            if (housing && !housing->GetHouseGuid().IsEmpty())
+            {
+                HousingPlayerHouseEntity& houseEntity = GetSession()->GetHousingPlayerHouseEntity();
+                houseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
+                houseEntity.SetEntityGUID(housing->GetHouseGuid());
+                houseEntity.SetPlotIndex(static_cast<int32>(housing->GetPlotIndex()));
+                houseEntity.SetLevel(housing->GetLevel());
+                houseEntity.SetFavor(housing->GetFavor64());
+                houseEntity.SetBudgets(
+                    housing->GetMaxInteriorDecorBudget(),
+                    housing->GetMaxExteriorDecorBudget(),
+                    housing->GetMaxRoomBudget(),
+                    housing->GetMaxFixtureBudget()
+                );
+
+                TC_LOG_DEBUG("housing", "Player::LoadFromDB: Pre-populated Housing/3 house entity: Plot={} Level={} HouseGuid={}",
+                    housing->GetPlotIndex(), housing->GetLevel(), housing->GetHouseGuid().ToString());
+            }
         }
     }
 
@@ -26030,8 +26118,6 @@ void Player::SendInitialPacketsAfterAddToMap()
                 HousingPlayerHouseEntity& houseEntity = GetSession()->GetHousingPlayerHouseEntity();
                 houseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
                 houseEntity.SetEntityGUID(housing->GetHouseGuid());
-                houseEntity.SetHouseType(housing->GetHouseType());
-                houseEntity.SetHouseSize(static_cast<uint32>(housing->GetHouseSize()));
                 houseEntity.SetPlotIndex(static_cast<int32>(housing->GetPlotIndex()));
                 houseEntity.SetLevel(housing->GetLevel());
                 houseEntity.SetFavor(housing->GetFavor64());

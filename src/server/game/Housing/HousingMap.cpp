@@ -496,7 +496,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
     uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
 
-    TC_LOG_ERROR("housing", "SetPlotOwnershipState: Broadcasting WorldState for plot {} "
+    TC_LOG_DEBUG("housing", "SetPlotOwnershipState: Broadcasting WorldState for plot {} "
         "(neighborhoodMapId={}, owned={}, numPlots={})",
         plotIndex, neighborhoodMapId, owned, plots.size());
 
@@ -506,7 +506,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
         {
             if (plotData->WorldState != 0)
             {
-                TC_LOG_ERROR("housing", "SetPlotOwnershipState: Found plot {} with WorldState={}, "
+                TC_LOG_DEBUG("housing", "SetPlotOwnershipState: Found plot {} with WorldState={}, "
                     "broadcasting to {} players",
                     plotIndex, plotData->WorldState,
                     std::distance(GetPlayers().begin(), GetPlayers().end()));
@@ -519,7 +519,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
                         HousingPlotOwnerType ownerType = GetPlotOwnerTypeForPlayer(mapPlayer, plotIndex);
                         mapPlayer->SendUpdateWorldState(plotData->WorldState, static_cast<uint32>(ownerType), false);
 
-                        TC_LOG_ERROR("housing", "SetPlotOwnershipState: Sent WorldState {} = {} ({}) to player {}",
+                        TC_LOG_DEBUG("housing", "SetPlotOwnershipState: Sent WorldState {} = {} ({}) to player {}",
                             plotData->WorldState, uint32(ownerType),
                             ownerType == HOUSING_PLOT_OWNER_SELF ? "SELF" :
                             ownerType == HOUSING_PLOT_OWNER_FRIEND ? "FRIEND" :
@@ -530,7 +530,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
             }
             else
             {
-                TC_LOG_ERROR("housing", "SetPlotOwnershipState: Plot {} matched but WorldState=0, skipping broadcast",
+                TC_LOG_DEBUG("housing", "SetPlotOwnershipState: Plot {} matched but WorldState=0, skipping broadcast",
                     plotIndex);
             }
             break;
@@ -1328,7 +1328,7 @@ void HousingMap::SendPerPlayerPlotWorldStates(Player* player)
             ++friendCount;
     }
 
-    TC_LOG_INFO("housing", "HousingMap::SendPerPlayerPlotWorldStates: Player {} — sent {} WorldState updates "
+    TC_LOG_DEBUG("housing", "HousingMap::SendPerPlayerPlotWorldStates: Player {} — sent {} WorldState updates "
         "(self={}, friend={}, {} plots had no WorldState ID in DB2)",
         player->GetGUID().ToString(), sentCount, selfCount, friendCount, noWsCount);
 }

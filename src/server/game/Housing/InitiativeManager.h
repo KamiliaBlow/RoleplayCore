@@ -134,7 +134,7 @@ public:
 
     // Send packets to a session
     void SendInitiativeServiceStatus(WorldSession* session, bool enabled) const;
-    void SendPlayerInitiativeInfo(WorldSession* session, uint64 neighborhoodGuid) const;
+    void SendPlayerInitiativeInfo(WorldSession* session, ObjectGuid const& neighborhoodGuid, uint64 neighborhoodLowGuid) const;
     void SendActivityLog(WorldSession* session, uint64 neighborhoodGuid) const;
     void SendInitiativeRewardsResult(WorldSession* session, uint32 result) const;
 

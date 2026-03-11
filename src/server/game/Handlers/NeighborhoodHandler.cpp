@@ -377,7 +377,7 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     if (!charter.AddSignature(player->GetGUID()))
     {
         WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_DUPLICATE_CHARTER_SIGNATURE);
         SendPacket(response.Write());
 
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterAddSignature: Player {} could not sign charter {}",
@@ -1058,7 +1058,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     if (!player->HasEnoughMoney(HOUSE_PURCHASE_COST_COPPER))
     {
         WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_CANNOT_AFFORD);
         SendPacket(response.Write());
 
         TC_LOG_DEBUG("housing", "HandleNeighborhoodBuyHouse: Player {} cannot afford house (need {} copper, has {})",
@@ -1318,8 +1318,8 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
                 updateData.BuildPacket(&updatePacket);
                 player->SendDirectMessage(&updatePacket);
 
-                GetBattlenetAccount().ClearUpdateMask(false);
-                GetHousingPlayerHouseEntity().ClearUpdateMask(false);
+                GetBattlenetAccount().ClearUpdateMask(true);
+                GetHousingPlayerHouseEntity().ClearUpdateMask(true);
             }
 
             TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Sent proactive STORAGE_RSP + Account + HouseEntity update (CatalogEntries={})",
@@ -1396,7 +1396,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     if (!player->HasEnoughMoney(HOUSE_MOVE_COST_COPPER))
     {
         WorldPackets::Neighborhood::NeighborhoodMoveHouseResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_CANNOT_AFFORD);
         SendPacket(response.Write());
 
         TC_LOG_DEBUG("housing", "HandleNeighborhoodMoveHouse: Player {} cannot afford move (need {} copper, has {})",
@@ -1710,7 +1710,7 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     if (!neighborhood->IsMember(player->GetGUID()))
     {
         WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_PERMISSION_DENIED);
         SendPacket(response.Write());
 
         TC_LOG_DEBUG("housing", "HandleNeighborhoodGetRoster: Player {} is not a member of neighborhood {}",
@@ -1913,7 +1913,23 @@ void WorldSession::HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::
     TC_LOG_DEBUG("housing", "CMSG_NEIGHBORHOOD_INITIATIVE_SERVICE_STATUS_CHECK for player {}",
         player->GetGUID().ToString());
 
+    // Send initiative service status
     sInitiativeManager.SendInitiativeServiceStatus(this, true);
+
+    // Proactively send initiative data — the client's C_NeighborhoodInitiative singleton
+    // requires SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT to set its isLoaded flag.
+    // Without this, GetNeighborhoodInitiativeInfo() returns nil and the endeavor UI is empty.
+    // Sniff-verified: the live server sends this SMSG proactively (not only in response to
+    // CMSG_INITIATIVE_UPDATE_ACTIVE_NEIGHBORHOOD which the client rarely/never sends).
+    if (Housing* housing = player->GetHousing())
+    {
+        ObjectGuid nhObjGuid = housing->GetNeighborhoodGuid();
+        if (!nhObjGuid.IsEmpty())
+        {
+            uint64 nhGuid = nhObjGuid.GetCounter();
+            sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
+        }
+    }
 }
 
 void WorldSession::HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhood::GetAvailableInitiativeRequest const& getAvailableInitiativeRequest)
@@ -1926,13 +1942,14 @@ void WorldSession::HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhoo
     if (!neighborhood)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
 
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    ObjectGuid nhObjGuid = neighborhood->GetGuid();
+    uint64 nhGuid = nhObjGuid.GetCounter();
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 
     TC_LOG_DEBUG("housing", "CMSG_GET_AVAILABLE_INITIATIVE_REQUEST NeighborhoodGuid: {}, Player: {}",
         getAvailableInitiativeRequest.NeighborhoodGuid.ToString(), player->GetGUID().ToString());
@@ -1977,13 +1994,14 @@ void WorldSession::HandleInitiativeUpdateActiveNeighborhood(WorldPackets::Neighb
         return;
     }
 
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ObjectGuid nhObjGuid = neighborhood->GetGuid();
+    uint64 nhGuid = nhObjGuid.GetCounter();
 
     // Send initiative service status to confirm the service is active
     sInitiativeManager.SendInitiativeServiceStatus(this, true);
 
     // Send current initiative info for the active neighborhood (with real task progress)
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 
     TC_LOG_DEBUG("housing", "SMSG_INITIATIVE_SERVICE_STATUS + SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT sent for NeighborhoodGuid: {}",
         initiativeUpdateActiveNeighborhood.NeighborhoodGuid.ToString());
@@ -2034,19 +2052,11 @@ void WorldSession::HandleInitiativeReportProgress(WorldPackets::Neighborhood::In
     TC_LOG_DEBUG("housing", "CMSG_INITIATIVE_REPORT_PROGRESS NeighborhoodGuid: {} Player: {}",
         packet.NeighborhoodGuid.ToString(), player->GetGUID().ToString());
 
-    Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(packet.NeighborhoodGuid, player);
-    if (!neighborhood)
-    {
-        WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
-        SendPacket(response.Write());
-        return;
-    }
-
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
-
-    // Client is requesting initiative info for this neighborhood — send current state
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    // This is a client-side progress report (e.g. criteria completion tick), NOT a
+    // request for initiative info. Responding with SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT
+    // caused the client to re-report in an infinite loop, stalling the UI.
+    // The initiative data is already delivered via the PlayerInitiativeComponent_C
+    // fragment (Fragment 37) in the player's UPDATE_OBJECT at login.
 }
 
 void WorldSession::HandleGetInitiativeClaimRewardRequest(WorldPackets::Neighborhood::GetInitiativeClaimRewardRequest const& packet)
@@ -2102,7 +2112,7 @@ void WorldSession::HandleGetInitiativeLeaderboardRequest(WorldPackets::Neighborh
     if (!neighborhood)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
@@ -2177,19 +2187,20 @@ void WorldSession::HandleGetInitiativeTaskAcceptRequest(WorldPackets::Neighborho
     if (!neighborhood)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
 
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ObjectGuid nhObjGuid = neighborhood->GetGuid();
+    uint64 nhGuid = nhObjGuid.GetCounter();
 
     // Verify the task exists in the active initiative
     ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
     if (!active)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
@@ -2198,7 +2209,7 @@ void WorldSession::HandleGetInitiativeTaskAcceptRequest(WorldPackets::Neighborho
     if (taskItr == active->TaskProgress.end())
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
@@ -2208,7 +2219,7 @@ void WorldSession::HandleGetInitiativeTaskAcceptRequest(WorldPackets::Neighborho
         taskItr->second.Status = INITIATIVE_TASK_STATUS_IN_PROGRESS;
 
     // Send updated initiative info
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 }
 
 void WorldSession::HandleGetInitiativeTaskAbandonRequest(WorldPackets::Neighborhood::GetInitiativeTaskAbandonRequest const& packet)
@@ -2224,17 +2235,18 @@ void WorldSession::HandleGetInitiativeTaskAbandonRequest(WorldPackets::Neighborh
     if (!neighborhood)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
 
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ObjectGuid nhObjGuid = neighborhood->GetGuid();
+    uint64 nhGuid = nhObjGuid.GetCounter();
     ActiveInitiative* active = sInitiativeManager.GetActiveInitiative(nhGuid);
     if (!active)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
@@ -2249,7 +2261,7 @@ void WorldSession::HandleGetInitiativeTaskAbandonRequest(WorldPackets::Neighborh
     SendPacket(clearPacket.Write());
 
     // Send updated initiative info
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 }
 
 void WorldSession::HandleGetInitiativeTaskProgressRequest(WorldPackets::Neighborhood::GetInitiativeTaskProgressRequest const& packet)
@@ -2265,15 +2277,16 @@ void WorldSession::HandleGetInitiativeTaskProgressRequest(WorldPackets::Neighbor
     if (!neighborhood)
     {
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND);
+        response.HasError = true;
         SendPacket(response.Write());
         return;
     }
 
-    uint64 nhGuid = neighborhood->GetGuid().GetCounter();
+    ObjectGuid nhObjGuid = neighborhood->GetGuid();
+    uint64 nhGuid = nhObjGuid.GetCounter();
 
     // Send current initiative info which includes all task progress
-    sInitiativeManager.SendPlayerInitiativeInfo(this, nhGuid);
+    sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 }
 
 // ============================================================

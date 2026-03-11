@@ -1994,7 +1994,22 @@ WorldPacket const* InitiativeServiceStatus::Write()
 
 WorldPacket const* GetPlayerInitiativeInfoResult::Write()
 {
-    _worldPacket << uint8(Result);
+    _worldPacket << NeighborhoodGUID;
+    _worldPacket.WriteBit(HasError);
+    _worldPacket.WriteBit(HasInitiativeData);
+    _worldPacket.FlushBits();
+
+    if (HasInitiativeData)
+    {
+        _worldPacket << int64(RemainingDuration);
+        _worldPacket << int32(CurrentInitiativeID);
+        _worldPacket << int32(CurrentMilestoneID);
+        _worldPacket << int32(CurrentCycleID);
+        _worldPacket << float(ProgressRequired);
+        _worldPacket << float(CurrentProgress);
+        _worldPacket << float(PlayerTotalContribution);
+    }
+
     _worldPacket << uint32(Tasks.size());
     for (auto const& task : Tasks)
     {
@@ -2003,9 +2018,9 @@ WorldPacket const* GetPlayerInitiativeInfoResult::Write()
         _worldPacket << uint32(task.Status);
     }
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT Result: {} TaskCount: {}", Result, Tasks.size());
-    for (size_t i = 0; i < Tasks.size(); ++i)
-        TC_LOG_DEBUG("network.opcode", "  Task[{}]: TaskID={} Progress={} Status={}", i, Tasks[i].TaskID, Tasks[i].Progress, Tasks[i].Status);
+    TC_LOG_DEBUG("network.opcode", "SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT NH={} Error={} HasData={} InitID={} CycleID={} Progress={:.1f}/{:.0f} Tasks={}",
+        NeighborhoodGUID.ToString(), HasError, HasInitiativeData,
+        CurrentInitiativeID, CurrentCycleID, CurrentProgress, ProgressRequired, Tasks.size());
 
     return &_worldPacket;
 }

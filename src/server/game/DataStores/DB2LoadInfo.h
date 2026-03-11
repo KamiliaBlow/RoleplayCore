@@ -3200,11 +3200,11 @@ struct InitiativeCycleLoadInfo
     static constexpr DB2FieldMeta Fields[6] =
     {
         {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "RewardGroupID" },
         {.IsSigned = true, .Type = FT_INT, .Name = "CycleIndex" },
         {.IsSigned = true, .Type = FT_INT, .Name = "StartDay" },
         {.IsSigned = true, .Type = FT_INT, .Name = "Duration" },
-        {.IsSigned = true, .Type = FT_INT, .Name = "Flags" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "InitiativeID" },
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 6, &InitiativeCycleMeta::Instance, HOTFIX_SEL_INITIATIVE_CYCLE };

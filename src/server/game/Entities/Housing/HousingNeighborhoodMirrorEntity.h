@@ -36,6 +36,9 @@ public:
 
     void SendUpdateToPlayer(Player* player);
 
+    // Reset the entity GUID (must be called before AddToWorld)
+    void ResetGuid(ObjectGuid newGuid) { _Create(newGuid); }
+
     // Neighborhood mirror setters
     void SetName(std::string const& name);
     void SetOwnerGUID(ObjectGuid ownerGuid);

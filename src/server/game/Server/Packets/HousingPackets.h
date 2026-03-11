@@ -56,16 +56,17 @@ namespace WorldPackets::Housing
 
     // IDA-verified wire format for house/resident entries nested inside neighborhood data.
     // Deserializer: Deserialize_ResidentArray (0x7FF724C3EEF0), stride 80 bytes in memory.
-    // Wire: PackedGUID + PackedGUID + PackedGUID + uint8 + uint32 + uint8(bit7=hasOpt) [+ uint64]
+    // Wire order: PackedGUID(House) + PackedGUID(Owner) + PackedGUID(Neighborhood) + uint8 + uint32 + uint8(bit7=hasOpt) [+ uint64]
+    // IDA proof: offset-0 GUID compared vs house records; offset-16 GUID passed to ai_Process_PlayerContextUpdate (name lookup).
     struct JamCliHouse
     {
-        ObjectGuid OwnerGUID;            // offset 0: house owner player GUID
-        ObjectGuid HouseGUID;            // offset 16: house entity GUID
-        ObjectGuid NeighborhoodGUID;     // offset 32: neighborhood GUID (matched by client against SetViewingNeighborhood stored value)
-        uint8 HouseLevel = 0;           // offset 48
-        uint32 PlotIndex = 0;           // offset 72
-        bool HasOptionalField = false;   // offset 64: derived from bit 7 of wire uint8
-        uint64 OptionalValue = 0;        // offset 56: only present if HasOptionalField
+        ObjectGuid HouseGUID;            // wire pos 1, client offset 0: house entity GUID (compared vs HouseInfo records)
+        ObjectGuid OwnerGUID;            // wire pos 2, client offset 16: owner player GUID (used for name lookup)
+        ObjectGuid NeighborhoodGUID;     // wire pos 3, client offset 32: neighborhood GUID
+        uint8 HouseLevel = 0;           // client offset 48
+        uint32 PlotIndex = 0;           // client offset 72
+        bool HasOptionalField = false;   // client offset 64: derived from bit 7 of wire uint8
+        uint64 OptionalValue = 0;        // client offset 56: only present if HasOptionalField
     };
 
     // IDA-verified wire format for neighborhood entries in house finder responses.
@@ -2096,7 +2097,20 @@ namespace WorldPackets::Housing
     public:
         GetPlayerInitiativeInfoResult() : ServerPacket(SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT) { }
         WorldPacket const* Write() override;
-        uint8 Result = 0;
+
+        ObjectGuid NeighborhoodGUID;
+        bool HasError = false;
+        bool HasInitiativeData = false;
+
+        // InitiativeInfo block (only written when HasInitiativeData = true)
+        int64 RemainingDuration = 0;
+        int32 CurrentInitiativeID = 0;
+        int32 CurrentMilestoneID = -1;
+        int32 CurrentCycleID = 0;
+        float ProgressRequired = 0.0f;
+        float CurrentProgress = 0.0f;
+        float PlayerTotalContribution = 0.0f;
+
         std::vector<JamPlayerInitiativeTaskInfo> Tasks;
     };
 

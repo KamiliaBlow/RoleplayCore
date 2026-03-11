@@ -950,7 +950,7 @@ void HousingMgr::LoadNeighborhoodInitiativeData()
         data.RewardCurrencyID = entry->RewardCurrencyID;
     }
 
-    TC_LOG_DEBUG("housing", "HousingMgr::LoadNeighborhoodInitiativeData: Loaded {} NeighborhoodInitiative entries", uint32(_neighborhoodInitiativeStore.size()));
+    TC_LOG_INFO("housing", "HousingMgr::LoadNeighborhoodInitiativeData: Loaded {} NeighborhoodInitiative entries", uint32(_neighborhoodInitiativeStore.size()));
 }
 
 void HousingMgr::LoadRoomComponentData()

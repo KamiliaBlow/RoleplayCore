@@ -75,8 +75,11 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         return false;
 
     Field* fields = housing->Fetch();
-    // Expected columns: houseGuid, neighborhoodGuid, plotIndex, level, favor, settingsFlags, exteriorLocked, houseSize, houseType
-    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, fields[0].GetUInt64());
+    // Expected columns: houseId, neighborhoodGuid, plotIndex, level, favor, settingsFlags, exteriorLocked, houseSize, houseType, ...
+    // fields[0] = houseId (DB2 entry ID) — NOT used as GUID counter.
+    // Housing GUID counter must match HousingPlayerHouseEntity GUID (WorldSession.cpp), which uses battlenetAccountId.
+    uint32 bnetAccountId = _owner->GetSession()->GetBattlenetAccountId();
+    _houseGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 7, uint64(bnetAccountId));
     _neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ sRealmList->GetCurrentRealmId().Realm, /*arg2*/ 0, fields[1].GetUInt64());
     _plotIndex = fields[2].GetUInt8();
     _level = fields[3].GetUInt32();
@@ -2037,8 +2040,7 @@ void Housing::SyncUpdateFields()
     HousingPlayerHouseEntity& houseEntity = _owner->GetSession()->GetHousingPlayerHouseEntity();
     houseEntity.SetBnetAccount(_owner->GetSession()->GetBattlenetAccountGUID());
     houseEntity.SetEntityGUID(_houseGuid);
-    houseEntity.SetHouseType(_houseType);
-    houseEntity.SetHouseSize(static_cast<uint32>(_houseSize));
+    // HouseType and HouseSize are NOT part of this fragment (IDA-verified).
     houseEntity.SetPlotIndex(static_cast<int32>(_plotIndex));
     houseEntity.SetLevel(_level);
     houseEntity.SetFavor(_favor64);
@@ -2051,9 +2053,9 @@ void Housing::SyncUpdateFields()
         GetMaxFixtureBudget()
     );
 
-    TC_LOG_ERROR("network", "Housing::SyncUpdateFields: EntityGUID={} BnetAccount={} HouseType={} HouseSize={} PlotIndex={} Level={} Favor={} Budgets=[{},{},{},{}]",
+    TC_LOG_DEBUG("housing", "Housing::SyncUpdateFields: EntityGUID={} BnetAccount={} PlotIndex={} Level={} Favor={} Budgets=[{},{},{},{}]",
         _houseGuid.ToString(), _owner->GetSession()->GetBattlenetAccountGUID().ToString(),
-        _houseType, _houseSize, _plotIndex, _level, _favor64,
+        _plotIndex, _level, _favor64,
         GetMaxInteriorDecorBudget(), GetMaxExteriorDecorBudget(), GetMaxRoomBudget(), GetMaxFixtureBudget());
 }
 

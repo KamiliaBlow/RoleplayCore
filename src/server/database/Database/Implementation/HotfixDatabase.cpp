@@ -1037,7 +1037,7 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_IMPORT_PRICE_WEAPON, "SELECT MAX(ID) + 1 FROM import_price_weapon", CONNECTION_SYNCH);
 
     // InitiativeCycle.db2
-    PrepareStatement(HOTFIX_SEL_INITIATIVE_CYCLE, "SELECT ID, InitiativeID, CycleIndex, StartDay, Duration, Flags FROM initiative_cycle WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PrepareStatement(HOTFIX_SEL_INITIATIVE_CYCLE, "SELECT ID, RewardGroupID, CycleIndex, StartDay, Duration, InitiativeID FROM initiative_cycle WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_INITIATIVE_CYCLE, "SELECT MAX(ID) + 1 FROM initiative_cycle", CONNECTION_SYNCH);
 
     // InitiativeCyclePriority.db2

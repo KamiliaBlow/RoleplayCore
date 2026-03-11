@@ -46,6 +46,10 @@ void InitiativeManager::Initialize()
     BuildDB2IndexMaps();
     LoadFromDB();
 
+    // Auto-start initiatives for neighborhoods that don't have active ones.
+    // Must run AFTER LoadFromDB() and AFTER sNeighborhoodMgr.Initialize().
+    CheckAndStartInitiatives();
+
     TC_LOG_INFO("housing", "InitiativeManager: Initialized with {} initiative definitions, {} active instances across all neighborhoods",
         uint32(sNeighborhoodInitiativeStore.GetNumRows()), [this]() -> uint32 {
             uint32 count = 0;
@@ -775,15 +779,78 @@ void InitiativeManager::SendInitiativeServiceStatus(WorldSession* session, bool 
     TC_LOG_DEBUG("housing", "InitiativeManager: Sent InitiativeServiceStatus (enabled={})", enabled);
 }
 
-void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, uint64 neighborhoodGuid) const
+void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, ObjectGuid const& neighborhoodGuid, uint64 neighborhoodLowGuid) const
 {
     WorldPackets::Housing::GetPlayerInitiativeInfoResult result;
-    result.Result = static_cast<uint32>(HOUSING_RESULT_SUCCESS);
+    result.NeighborhoodGUID = neighborhoodGuid;
 
-    // Populate with current task progress for the active initiative
-    ActiveInitiative* active = GetActiveInitiative(neighborhoodGuid);
+    ActiveInitiative* active = GetActiveInitiative(neighborhoodLowGuid);
     if (active)
     {
+        result.HasInitiativeData = true;
+
+        uint32 cycleID = GetActiveCycleForInitiative(active->InitiativeID);
+
+        // Compute remaining duration from initiative start + cycle duration.
+        // Sniff-verified: RemainingDuration is in seconds (sniff value 972957 ≈ 11.25 days).
+        // If duration would be 0, use a 7-day fallback so the client shows the initiative
+        // as active (Duration=0 → client treats as expired → empty endeavor list).
+        int64 remainingDuration = 0;
+        {
+            int64 totalDurationSec = 0;
+            if (auto cycleIt = _initiativeActiveCycle.find(active->InitiativeID); cycleIt != _initiativeActiveCycle.end())
+            {
+                if (InitiativeCycleEntry const* cycle = sInitiativeCycleStore.LookupEntry(cycleIt->second))
+                    totalDurationSec = static_cast<int64>(cycle->Duration) * 86400;
+            }
+            // Fallback: if DB2 has no duration, use 7 days
+            if (totalDurationSec <= 0)
+                totalDurationSec = 7 * 86400;
+
+            int64 elapsed = GameTime::GetGameTime() - active->StartTime;
+            remainingDuration = totalDurationSec - elapsed;
+
+            // If expired, reset the start time to now so the initiative stays active
+            if (remainingDuration <= 0)
+            {
+                active->StartTime = static_cast<uint32>(GameTime::GetGameTime());
+                remainingDuration = totalDurationSec;
+            }
+        }
+
+        // Current milestone: find the highest milestone reached.
+        // Sniff-verified: ProgressRequired=1000.0 (the 0-1000 scale, not 0.0-1.0).
+        // active->Progress is stored as 0.0-1.0, so scale it to 0-1000 for comparison
+        // with DB2 milestones (which use the 0-1000 scale).
+        int32 currentMilestoneID = -1;
+        float progressRequired = 1000.0f; // Sniff: always 1000
+        float currentProgress = active->Progress * 1000.0f;
+        auto msIt = _cycleMilestones.find(cycleID);
+        if (msIt != _cycleMilestones.end())
+        {
+            for (auto const& ms : msIt->second)
+            {
+                if (currentProgress >= ms.ProgressRequired)
+                    currentMilestoneID = static_cast<int32>(ms.MilestoneID);
+                if (progressRequired < ms.ProgressRequired)
+                    progressRequired = ms.ProgressRequired;
+            }
+        }
+
+        float playerContribution = 0.0f;
+        if (session->GetPlayer())
+            playerContribution = static_cast<float>(
+                GetPlayerContribution(neighborhoodLowGuid, active->InitiativeID, session->GetPlayer()->GetGUID().GetCounter()));
+
+        result.RemainingDuration = remainingDuration;
+        result.CurrentInitiativeID = static_cast<int32>(active->InitiativeID);
+        result.CurrentMilestoneID = currentMilestoneID;
+        result.CurrentCycleID = static_cast<int32>(cycleID);
+        result.ProgressRequired = progressRequired;
+        result.CurrentProgress = currentProgress;
+        result.PlayerTotalContribution = playerContribution;
+
+        // Populate task progress
         for (auto const& [taskId, taskProgress] : active->TaskProgress)
         {
             WorldPackets::Housing::JamPlayerInitiativeTaskInfo taskInfo;
@@ -795,8 +862,8 @@ void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, uint64 n
     }
 
     session->SendPacket(result.Write());
-    TC_LOG_DEBUG("housing", "InitiativeManager: Sent GetPlayerInitiativeInfoResult with {} tasks for neighborhood {}",
-        uint32(result.Tasks.size()), neighborhoodGuid);
+    TC_LOG_DEBUG("housing", "InitiativeManager: Sent GetPlayerInitiativeInfoResult HasData={} InitID={} Tasks={} for neighborhood {}",
+        result.HasInitiativeData, result.CurrentInitiativeID, uint32(result.Tasks.size()), neighborhoodLowGuid);
 }
 
 void InitiativeManager::SendActivityLog(WorldSession* session, uint64 neighborhoodGuid) const
@@ -940,6 +1007,34 @@ void InitiativeManager::BroadcastRewardAvailable(Neighborhood* neighborhood, uin
 
 void InitiativeManager::CheckAndStartInitiatives()
 {
+    // First, remove any active initiatives that have no tasks or no cycle defined.
+    // Task-less initiatives produce empty endeavor lists.
+    // Cycle-less initiatives produce CycleID=0 in the player fragment, causing the
+    // client's Lua UI to fail displaying the endeavor (no milestones, no duration).
+    for (auto& [nhGuid, initiatives] : _activeInitiatives)
+    {
+        std::erase_if(initiatives, [this](std::unique_ptr<ActiveInitiative> const& init) {
+            if (init->Completed)
+                return false;
+
+            if (_initiativeTasks.find(init->InitiativeID) == _initiativeTasks.end())
+            {
+                TC_LOG_INFO("housing", "InitiativeManager: Removing task-less initiative (DB2 ID {}) from neighborhood {}",
+                    init->InitiativeID, init->NeighborhoodGuid);
+                return true;
+            }
+
+            if (GetActiveCycleForInitiative(init->InitiativeID) == 0)
+            {
+                TC_LOG_INFO("housing", "InitiativeManager: Removing cycle-less initiative (DB2 ID {}) from neighborhood {}",
+                    init->InitiativeID, init->NeighborhoodGuid);
+                return true;
+            }
+
+            return false;
+        });
+    }
+
     // For each neighborhood that doesn't have an active initiative, start one
     for (Neighborhood* neighborhood : sNeighborhoodMgr.GetAllNeighborhoods())
     {
@@ -975,17 +1070,27 @@ void InitiativeManager::CheckAndStartInitiatives()
                 }
             }
 
-            if (!recentlyCompleted)
-            {
-                // Look up cycle priority weight for this initiative's active cycle
-                uint32 cycleID = SelectWeightedCycle(entry->ID);
-                int32 weight = 1; // default equal weight
-                auto prioItr = _cyclePriorities.find(cycleID);
-                if (prioItr != _cyclePriorities.end() && !prioItr->second.empty())
-                    weight = std::max<int32>(1, prioItr->second[0].second);
+            if (recentlyCompleted)
+                continue;
 
-                candidates.emplace_back(entry->ID, weight);
-            }
+            // Skip initiatives that have no tasks defined — they produce empty
+            // endeavor lists and waste a neighborhood's active initiative slot.
+            if (_initiativeTasks.find(entry->ID) == _initiativeTasks.end())
+                continue;
+
+            // Skip initiatives that have no cycle defined — the client requires a
+            // valid CycleID to display milestones, duration, and rewards in the UI.
+            if (GetActiveCycleForInitiative(entry->ID) == 0)
+                continue;
+
+            // Look up cycle priority weight for this initiative's active cycle
+            uint32 cycleID = SelectWeightedCycle(entry->ID);
+            int32 weight = 1; // default equal weight
+            auto prioItr = _cyclePriorities.find(cycleID);
+            if (prioItr != _cyclePriorities.end() && !prioItr->second.empty())
+                weight = std::max<int32>(1, prioItr->second[0].second);
+
+            candidates.emplace_back(entry->ID, weight);
         }
 
         if (!candidates.empty())

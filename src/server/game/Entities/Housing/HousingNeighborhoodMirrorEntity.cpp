@@ -81,7 +81,7 @@ void HousingNeighborhoodMirrorEntity::SendUpdateToPlayer(Player* player)
 {
     BuildUpdateChangesMask();
     BaseEntity::SendUpdateToPlayer(player);
-    ClearUpdateMask(false);
+    ClearUpdateMask(true);
 }
 
 void HousingNeighborhoodMirrorEntity::SetName(std::string const& name)

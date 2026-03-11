@@ -96,7 +96,7 @@ void Account::SendUpdateToPlayer(Player* player)
     // (e.g., FHousingStorage_C populated by PopulateCatalogStorageEntries) are included.
     BuildUpdateChangesMask();
     BaseEntity::SendUpdateToPlayer(player);
-    ClearUpdateMask(false);
+    ClearUpdateMask(true);
 }
 
 void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue)
