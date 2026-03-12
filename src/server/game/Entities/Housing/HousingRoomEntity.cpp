@@ -54,8 +54,11 @@ void HousingRoomEntity::BuildUpdate(UpdateDataMapType& data_map)
 
     // Send to all players on this map
     Map::PlayerList const& players = _map->GetPlayers();
-    for (auto const& [_, player] : players)
-        BuildFieldsUpdate(player, data_map);
+    for (MapReference const& ref : players)
+    {
+        if (Player* player = ref.GetSource())
+            BuildFieldsUpdate(player, data_map);
+    }
 
     ClearUpdateMask(false);
 }
