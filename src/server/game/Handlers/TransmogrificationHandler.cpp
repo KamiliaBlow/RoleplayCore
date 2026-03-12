@@ -410,11 +410,56 @@ void WorldSession::HandleTransmogOutfitUpdateSlots(WorldPackets::Transmogrificat
     {
         bool isSecondary = (outfitSlot.Slot == 2); // Secondary shoulder
 
-        if (outfitSlot.Slot >= 12 && outfitSlot.SlotOption != 1 && outfitSlot.SlotOption != 2)
-            continue;
+        auto isValidWeaponSlotOption = [](int8 slot, uint8 option) -> bool
+        {
+            if (slot == 12) // Main hand weapon options
+            {
+                switch (option)
+                {
+                case 1:
+                case 2:
+                case 3:
+                case 6:
+                case 7:
+                case 8:
+                case 9:
+                case 10:
+                case 11:
+                    return true;
+                default:
+                    return false;
+                }
+            }
 
+            if (slot == 13) // Offhand weapon options
+            {
+                switch (option)
+                {
+                case 1:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                case 8:
+                case 9:
+                case 10:
+                case 11:
+                    return true;
+                default:
+                    return false;
+                }
+            }
+
+            return false;
+        };
+
+        if (outfitSlot.Slot >= 12)
+        {
+            if (!isValidWeaponSlotOption(outfitSlot.Slot, outfitSlot.SlotOption))
+                continue;
+        }
         // For base armor slots, only accept SlotOption 0
-        if (outfitSlot.Slot < 12 && outfitSlot.SlotOption != 0)
+        else if (outfitSlot.SlotOption != 0)
             continue;
 
         uint8 equipSlot = OutfitSlotToEquipmentSlot(outfitSlot.Slot);
