@@ -758,6 +758,9 @@ static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_4    = 16035;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_5    = 16711;
 
+// WS[30906]: Toggled 1 when inside a house interior (MapID=2783), 0 when leaving.
+static constexpr uint32 WORLDSTATE_HOUSING_INTERIOR     = 30906;
+
 // Interval and increment for housing WorldState counter updates
 static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 300;
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT    = 1333;

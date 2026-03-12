@@ -804,6 +804,9 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                 initStatus.ServiceEnabled = true;
                 player->SendDirectMessage(initStatus.Write());
             }
+
+            // Toggle WS[30906]=1 to signal the client that the player is inside a house interior.
+            player->SendUpdateWorldState(WORLDSTATE_HOUSING_INTERIOR, 1);
         }
         else
         {
@@ -828,6 +831,9 @@ void HouseInteriorMap::RemovePlayerFromMap(Player* player, bool remove)
     Housing* housing = player->GetHousing();
     if (housing)
         housing->SetInInterior(false);
+
+    // Toggle WS[30906]=0 to signal the client that the player left the house interior.
+    player->SendUpdateWorldState(WORLDSTATE_HOUSING_INTERIOR, 0);
 
     TC_LOG_ERROR("housing", "HouseInteriorMap::RemovePlayerFromMap: Player {} leaving interior "
         "(owner={}, map={}, instanceId={}, _roomsSpawned={}, roomMeshEntries={}, decorEntries={}, this={})",

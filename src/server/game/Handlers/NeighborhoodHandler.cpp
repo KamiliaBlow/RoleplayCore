@@ -1921,14 +1921,22 @@ void WorldSession::HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::
     // Without this, GetNeighborhoodInitiativeInfo() returns nil and the endeavor UI is empty.
     // Sniff-verified: the live server sends this SMSG proactively (not only in response to
     // CMSG_INITIATIVE_UPDATE_ACTIVE_NEIGHBORHOOD which the client rarely/never sends).
+    ObjectGuid nhObjGuid;
     if (Housing* housing = player->GetHousing())
+        nhObjGuid = housing->GetNeighborhoodGuid();
+
+    // Fallback: if player has no house, find their neighborhood via membership
+    if (nhObjGuid.IsEmpty())
     {
-        ObjectGuid nhObjGuid = housing->GetNeighborhoodGuid();
-        if (!nhObjGuid.IsEmpty())
-        {
-            uint64 nhGuid = nhObjGuid.GetCounter();
-            sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
-        }
+        auto neighborhoods = sNeighborhoodMgr.GetNeighborhoodsForPlayer(player->GetGUID());
+        if (!neighborhoods.empty())
+            nhObjGuid = neighborhoods[0]->GetGuid();
+    }
+
+    if (!nhObjGuid.IsEmpty())
+    {
+        uint64 nhGuid = nhObjGuid.GetCounter();
+        sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
     }
 }
 

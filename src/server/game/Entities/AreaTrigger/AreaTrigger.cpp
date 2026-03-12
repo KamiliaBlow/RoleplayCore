@@ -388,6 +388,19 @@ void AreaTrigger::InitHousingPlotData(uint32 plotId, ObjectGuid ownerGuid, Objec
             .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_4), 1.0f);
     }
 
+    // Set ExtraScaleCurve to match retail: ParameterCurve=0x3F800001, OverrideActive=true.
+    // Sniff-verified across 6 instances in builds 66102/66263 ? all housing plot ATs
+    // have this exact ExtraScaleCurve configuration (all other curve fields remain zero).
+    // This tells the client to flatten the terrain and remove grass within the plot
+    // boundary, preparing the surface for decor placement.
+    {
+        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+            .ModifyValue(&UF::ScaleCurve::ParameterCurve), uint32(0x3F800001));
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+            .ModifyValue(&UF::ScaleCurve::OverrideActive), true);
+    }
+
     TC_LOG_ERROR("housing", "AreaTrigger::InitHousingPlotData: AT {} plot={} owner={} houseGuid={} bnetGuid={}"
         " | SpellForVisuals={} SpellXSpellVisualID={} DecalPropertiesID={}"
         " | ShapeType={} BoundsRadius2D={:.2f} PeriodModifier=({},{})"

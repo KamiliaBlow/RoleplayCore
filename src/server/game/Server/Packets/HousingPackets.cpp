@@ -1646,8 +1646,14 @@ WorldPacket const* HousingSvcsGetHouseFinderInfoResponse::Write()
     for (auto const& entry : Entries)
         WriteJamCliHouseFinderNeighborhood(_worldPacket, entry);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO_RESPONSE Result: {} EntryCount: {}",
-        Result, Entries.size());
+    TC_LOG_INFO("housing", "SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO_RESPONSE Result: {} EntryCount: {} PacketSize: {}",
+        Result, Entries.size(), _worldPacket.size());
+    for (size_t i = 0; i < Entries.size(); ++i)
+    {
+        auto const& e = Entries[i];
+        TC_LOG_INFO("housing", "  LIST_ENTRY[{}]: nbGuid={} houses={} Field1=0x{:016X} Field2={} ExtraFlags=0x{:02X}",
+            i, e.NeighborhoodGUID.ToString(), e.Houses.size(), e.Field1, e.Field2, e.ExtraFlags);
+    }
 
     return &_worldPacket;
 }
@@ -1658,8 +1664,20 @@ WorldPacket const* HousingSvcsGetHouseFinderNeighborhoodResponse::Write()
     _worldPacket << uint8(Result);
     WriteJamCliHouseFinderNeighborhood(_worldPacket, Neighborhood);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE Result: {} Houses: {}",
-        Result, Neighborhood.Houses.size());
+    TC_LOG_INFO("housing", "SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE Result: {} Houses: {} PacketSize: {}",
+        Result, Neighborhood.Houses.size(), _worldPacket.size());
+
+    // Hex dump of the first 256 bytes for wire format verification
+    std::string hexDump;
+    size_t dumpLen = std::min<size_t>(_worldPacket.size(), 256);
+    for (size_t i = 0; i < dumpLen; ++i)
+    {
+        char buf[4];
+        snprintf(buf, sizeof(buf), "%02X ", _worldPacket[i]);
+        hexDump += buf;
+        if ((i + 1) % 32 == 0) hexDump += "\n    ";
+    }
+    TC_LOG_INFO("housing", "  PACKET_HEX (first {} bytes):\n    {}", dumpLen, hexDump);
 
     return &_worldPacket;
 }

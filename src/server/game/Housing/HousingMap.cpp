@@ -729,6 +729,14 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (!Map::AddPlayerToMap(player, initPlayer))
         return false;
 
+    // Force immediate visibility update so all MeshObjects (house pieces, decor) get
+    // CREATE_OBJECT sent to the player NOW, not deferred to the next map tick.
+    // Map::AddPlayerToMap calls UpdateObjectVisibility(false) which only sets
+    // NOTIFY_VISIBILITY_CHANGED — the actual grid visit is deferred until the next
+    // relocation processing tick. Without forcing here, the client won't have MeshObject
+    // entities when entering edit mode, causing an empty Placed Decor list.
+    player->UpdateVisibilityForPlayer();
+
     // === DIAGNOSTIC: Report plot GO state when player enters ===
     {
         TC_LOG_DEBUG("housing", "=== HOUSING DIAGNOSTIC for player {} entering map {} ===", player->GetGUID().ToString(), GetId());
@@ -2451,7 +2459,13 @@ void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
         return;
 
     if (_decorSpawnedPlots.count(plotIndex))
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnAllDecorForPlot: Plot {} already in _decorSpawnedPlots — skipping respawn "
+            "(decorGuidMap.size={} decorGOs[{}].size={})",
+            plotIndex, uint32(_decorGuidToGoGuid.size()),
+            plotIndex, _decorGameObjects.count(plotIndex) ? uint32(_decorGameObjects[plotIndex].size()) : 0);
         return; // Already spawned
+    }
 
     ObjectGuid houseGuid = housing->GetHouseGuid();
     uint32 spawnCount = 0;

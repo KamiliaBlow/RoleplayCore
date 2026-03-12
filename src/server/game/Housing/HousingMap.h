@@ -111,6 +111,9 @@ public:
     // Accessor for diagnostic logging (decor GUID → MeshObject GUID map)
     std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToGoGuid; }
 
+    // Accessor for fixture MeshObjects (plotIndex → vector of MeshObject GUIDs)
+    std::unordered_map<uint8, std::vector<ObjectGuid>> const& GetPlotMeshObjects() const { return _meshObjects; }
+
     // Manual spell packet helpers — called from AddPlayerToMap and at_housing_plot AT script.
     // These spells don't exist in DB2, so CastSpell() silently fails; manual packets are required.
     void SendPostTutorialAuras(Player* player);

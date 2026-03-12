@@ -529,16 +529,14 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             // Player VALUES_UPDATE (EditorMode=1 + UNIT_FLAG_PACIFIED + UNIT_FLAG2_NO_ACTIONS)
             player->BuildValuesUpdateBlockForPlayer(&updateData, player);
 
-            // Account + HousingPlayerHouseEntity: send CREATE if the client doesn't
-            // have them (they get destroyed during map transfers to the housing map),
-            // otherwise send VALUES_UPDATE.
-            if (player->HaveAtClient(&GetBattlenetAccount()))
-                GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
-            else
-            {
-                GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
-                player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
-            }
+            // Account entity: ALWAYS send CREATE (not VALUES_UPDATE) when entering edit mode.
+            // The initial Account CREATE (during login's SendInitSelf) has NO FHousingStorage_C
+            // data. PopulateCatalogStorageEntries() added Decor map entries above, and sending
+            // a VALUES_UPDATE for a MapUpdateField that was empty at CREATE time may not
+            // properly convey the new entries to the client. CREATE includes all current values.
+            // The client handles receiving a second CREATE for an existing entity gracefully.
+            GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+            player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
 
             if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
                 GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
@@ -546,6 +544,30 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             {
                 GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
                 player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+            }
+
+            // Include CREATE for ALL decor MeshObjects in this same UPDATE_OBJECT packet.
+            // The client correlates MeshObject FHousingDecor_C.DecorGUID with Account
+            // FHousingStorage_C entries to build the Placed Decor list. MeshObjects that
+            // were CREATEd via normal grid visibility (separate earlier packet) arrived
+            // BEFORE FHousingStorage_C was populated, so the client doesn't associate them
+            // with decor entries. Re-sending CREATE in this packet (alongside the Account
+            // entity) ensures the client has all data in the same context.
+            if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+            {
+                uint32 meshCreateCount = 0;
+                for (auto const& [decorGuid, meshObjGuid] : housingMap->GetDecorGuidMap())
+                {
+                    MeshObject* meshObj = housingMap->GetMeshObject(meshObjGuid);
+                    if (!meshObj || !meshObj->IsInWorld())
+                        continue;
+
+                    meshObj->BuildCreateUpdateBlockForPlayer(&updateData, player);
+                    player->m_clientGUIDs.insert(meshObjGuid);
+                    ++meshCreateCount;
+                }
+                if (meshCreateCount > 0)
+                    TC_LOG_ERROR("housing", "  EditMode: Force-sent {} decor MeshObject CREATEs to player {}", meshCreateCount, player->GetGUID().ToString());
             }
 
             updateData.BuildPacket(&updatePacket);
@@ -564,33 +586,50 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
         {
             uint32 meshDecorCount = 0;
+            uint32 meshInWorld = 0;
+            uint32 meshHasFrag = 0;
+            uint32 meshAtClient = 0;
             for (auto const& [decorGuid, meshObjGuid] : housingMap->GetDecorGuidMap())
             {
                 MeshObject* meshObj = housingMap->GetMeshObject(meshObjGuid);
-                ObjectGuid meshDecorGuid;
-                if (meshObj && meshObj->HasHousingDecorData())
-                    meshDecorGuid = *meshObj->m_housingDecorData->DecorGUID;
+                bool inWorld = meshObj && meshObj->IsInWorld();
+                bool hasFrag = meshObj && meshObj->HasHousingDecorData();
+                bool atClient = player->m_clientGUIDs.count(meshObjGuid) > 0;
+                if (inWorld) ++meshInWorld;
+                if (hasFrag) ++meshHasFrag;
+                if (atClient) ++meshAtClient;
 
-                TC_LOG_INFO("housing", "  [DIAG] MeshDecor: mapKey={} meshGuid={} fragmentDecorGuid={} hasFrag={} inWorld={}",
-                    decorGuid.ToString(), meshObjGuid.ToString(),
-                    meshDecorGuid.ToString(),
-                    meshObj ? meshObj->HasHousingDecorData() : false,
-                    meshObj ? meshObj->IsInWorld() : false);
+                TC_LOG_ERROR("housing", "  [DIAG] MeshDecor: decorKey={} meshGuid={} inWorld={} hasFrag={} atClient={}",
+                    decorGuid.ToString(), meshObjGuid.ToString(), inWorld, hasFrag, atClient);
                 ++meshDecorCount;
             }
 
             // Also log the placed decor GUIDs from the Housing object (what's in the Account storage)
+            uint32 exteriorCount = 0;
+            uint32 matchCount = 0;
             for (auto const& [decorGuid, decor] : housing->GetPlacedDecorMap())
             {
+                bool isExterior = decor.RoomGuid.IsEmpty();
                 bool hasMeshObject = housingMap->GetDecorGuidMap().count(decorGuid) > 0;
-                TC_LOG_INFO("housing", "  [DIAG] HousingDecor: decorGuid={} entryId={} exterior={} hasMesh={}",
-                    decorGuid.ToString(), decor.DecorEntryId,
-                    decor.RoomGuid.IsEmpty(), hasMeshObject);
+                if (isExterior) ++exteriorCount;
+                if (isExterior && hasMeshObject) ++matchCount;
+                TC_LOG_ERROR("housing", "  [DIAG] HousingDecor: decorGuid={} entryId={} exterior={} hasMesh={}",
+                    decorGuid.ToString(), decor.DecorEntryId, isExterior, hasMeshObject);
             }
 
-            TC_LOG_INFO("housing", "  [DIAG] Summary: meshDecor={} housingPlaced={} storagePop={}",
-                meshDecorCount, uint32(housing->GetPlacedDecorMap().size()),
+            TC_LOG_ERROR("housing", "  [DIAG] Summary: meshTracked={} meshInWorld={} meshHasFrag={} meshAtClient={} "
+                "housingPlaced={} exterior={} matched={} storagePop={}",
+                meshDecorCount, meshInWorld, meshHasFrag, meshAtClient,
+                uint32(housing->GetPlacedDecorMap().size()), exteriorCount, matchCount,
                 housing->IsStoragePopulated());
+        }
+
+        // Play the plot boundary spell visual on the player's plot AT.
+        // This activates the glowing border decal around the plot when in edit mode.
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            if (AreaTrigger* plotAt = housingMap->GetPlotAreaTrigger(housing->GetPlotIndex()))
+                plotAt->PlaySpellVisual(510142);
         }
 
         TC_LOG_DEBUG("housing", "  EditMode ENTER: PlayerGUID={} BNetAccountGuid={}",
@@ -1209,16 +1248,31 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         return;
     }
 
-    housing->SetEditorMode(housingFixtureSetEditMode.Active ? HOUSING_EDITOR_MODE_CUSTOMIZE : HOUSING_EDITOR_MODE_NONE);
+    // Client enum HouseEditorMode: 4=Customize (interior), 6=ExteriorCustomization (fixture).
+    // The "Edit House Exterior" button sends this opcode — must use mode 6 so the client's
+    // C_HouseEditor.IsHouseEditorModeActive(Enum.HouseEditorMode.ExteriorCustomization) returns true.
+    housing->SetEditorMode(housingFixtureSetEditMode.Active ? HOUSING_EDITOR_MODE_EXTERIOR_CUSTOMIZATION : HOUSING_EDITOR_MODE_NONE);
+
+    // The response FixtureGuid must be the root fixture MeshObject GUID for the player's plot.
+    // The client compares this GUID against its stored "current exterior root" to determine
+    // enter vs exit state. An empty GUID causes the client to never enter fixture edit mode.
+    ObjectGuid fixtureGuid;
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+    {
+        uint8 plotIndex = housing->GetPlotIndex();
+        auto const& meshMap = housingMap->GetPlotMeshObjects();
+        auto meshItr = meshMap.find(plotIndex);
+        if (meshItr != meshMap.end() && !meshItr->second.empty())
+            fixtureGuid = meshItr->second.front(); // First MeshObject = root fixture (componentType=9)
+    }
 
     WorldPackets::Housing::HousingFixtureSetEditModeResponse response;
     response.HouseGuid = housing->GetHouseGuid();
+    response.FixtureGuid = fixtureGuid;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
 
-    // Sync entity data so the client receives budget values when switching to customize mode.
-    // Without this, the client sees 0/0 budgets because the Player entity's EditorMode changed
-    // but the HousingPlayerHouseEntity/Account entity data was never flushed.
+    // Sync entity data so the client receives budget/storage values when switching to fixture mode.
     if (housingFixtureSetEditMode.Active)
     {
         housing->ResetStoragePopulated();
@@ -1233,13 +1287,9 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         WorldPacket updatePacket;
         player->BuildValuesUpdateBlockForPlayer(&updateData, player);
 
-        if (player->HaveAtClient(&GetBattlenetAccount()))
-            GetBattlenetAccount().BuildValuesUpdateBlockForPlayer(&updateData, player);
-        else
-        {
-            GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
-            player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
-        }
+        // Always CREATE Account entity (same reasoning as decor edit mode)
+        GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&updateData, player);
+        player->m_clientGUIDs.insert(GetBattlenetAccount().GetGUID());
 
         if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
             GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
@@ -1247,6 +1297,25 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         {
             GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
             player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
+        }
+
+        // Include CREATE for all fixture MeshObjects in same packet (same pattern as decor edit)
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint8 plotIndex = housing->GetPlotIndex();
+            auto const& meshMap = housingMap->GetPlotMeshObjects();
+            auto meshItr = meshMap.find(plotIndex);
+            if (meshItr != meshMap.end())
+            {
+                for (ObjectGuid const& meshGuid : meshItr->second)
+                {
+                    MeshObject* meshObj = housingMap->GetMeshObject(meshGuid);
+                    if (!meshObj || !meshObj->IsInWorld())
+                        continue;
+                    meshObj->BuildCreateUpdateBlockForPlayer(&updateData, player);
+                    player->m_clientGUIDs.insert(meshGuid);
+                }
+            }
         }
 
         updateData.BuildPacket(&updatePacket);
@@ -1257,7 +1326,9 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         GetHousingPlayerHouseEntity().ClearUpdateMask(true);
     }
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_EDITOR_MODE_ACTIVE Active: {}", housingFixtureSetEditMode.Active);
+    TC_LOG_ERROR("housing", "CMSG_HOUSING_FIXTURE_SET_EDITOR_MODE_ACTIVE Active: {} FixtureGuid: {} EditorMode: {}",
+        housingFixtureSetEditMode.Active, fixtureGuid.ToString(),
+        housingFixtureSetEditMode.Active ? 6 : 0);
 }
 
 void WorldSession::HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::HousingFixtureSetCoreFixture const& housingFixtureSetCoreFixture)

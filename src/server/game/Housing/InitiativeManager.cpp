@@ -801,7 +801,7 @@ void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, ObjectGu
             if (auto cycleIt = _initiativeActiveCycle.find(active->InitiativeID); cycleIt != _initiativeActiveCycle.end())
             {
                 if (InitiativeCycleEntry const* cycle = sInitiativeCycleStore.LookupEntry(cycleIt->second))
-                    totalDurationSec = static_cast<int64>(cycle->Duration) * 86400;
+                    totalDurationSec = static_cast<int64>(cycle->Duration); // DB2 Duration is already in seconds
             }
             // Fallback: if DB2 has no duration, use 7 days
             if (totalDurationSec <= 0)

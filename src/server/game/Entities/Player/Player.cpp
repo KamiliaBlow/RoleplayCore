@@ -19386,9 +19386,20 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     }
 
     // Populate initiative data for the player's neighborhood
+    // Try housing first, then fall back to neighborhood membership
+    ObjectGuid initNhGuid;
     if (!_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
+        initNhGuid = _housings[0]->GetNeighborhoodGuid();
+    else
     {
-        ObjectGuid nhGuid = _housings[0]->GetNeighborhoodGuid();
+        auto neighborhoods = sNeighborhoodMgr.GetNeighborhoodsForPlayer(GetGUID());
+        if (!neighborhoods.empty())
+            initNhGuid = neighborhoods[0]->GetGuid();
+    }
+
+    if (!initNhGuid.IsEmpty())
+    {
+        ObjectGuid nhGuid = initNhGuid;
         uint64 nhLowGuid = nhGuid.GetCounter();
         ActiveInitiative* activeInit = sInitiativeManager.GetActiveInitiative(nhLowGuid);
 
@@ -19403,17 +19414,17 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             // Calculate remaining duration from start time + DB2 duration.
             // Check both NeighborhoodInitiative.Duration and InitiativeCycle.Duration.
             // If neither provides a duration, use a 7-day default so the client shows
-            // the endeavor as active rather than expired (Duration=0 ? hidden).
-            // Duration from DB2 is in days ? convert to seconds.
-            // Sniff-verified: RemainingDuration is in seconds (sniff value 972957 ? 11.25 days).
+            // the endeavor as active rather than expired (Duration=0 - hidden).
+            // DB2 Duration is already in seconds (NOT days).
+            // Sniff-verified: RemainingDuration is in seconds (sniff value 972957 - 11.25 days).
             int64 durationSec = 0;
             if (initEntry && initEntry->Duration > 0)
-                durationSec = static_cast<int64>(initEntry->Duration) * 86400;
+                durationSec = static_cast<int64>(initEntry->Duration);
             else if (cycleID)
             {
                 InitiativeCycleEntry const* cycleEntry = sInitiativeCycleStore.LookupEntry(cycleID);
                 if (cycleEntry && cycleEntry->Duration > 0)
-                    durationSec = static_cast<int64>(cycleEntry->Duration) * 86400;
+                    durationSec = static_cast<int64>(cycleEntry->Duration);
             }
             if (durationSec <= 0)
                 durationSec = 7 * DAY; // 7-day fallback

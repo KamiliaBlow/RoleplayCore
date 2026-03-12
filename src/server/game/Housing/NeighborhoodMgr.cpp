@@ -126,6 +126,33 @@ void NeighborhoodMgr::LoadFromDB()
     } while (result->NextRow());
 
     TC_LOG_INFO("server.loading", ">> Loaded {} neighborhoods in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
+
+    // Debug dump all neighborhoods and their plot states
+    for (auto const& [guid, neighborhood] : _neighborhoods)
+    {
+        TC_LOG_INFO("housing", "NEIGHBORHOOD_DUMP: guid={} name='{}' mapId={} faction={} public={} "
+            "members={} occupiedPlots={} owner={}",
+            guid.ToString(), neighborhood->GetName(), neighborhood->GetNeighborhoodMapID(),
+            neighborhood->GetFactionRestriction(), neighborhood->IsPublic(),
+            neighborhood->GetMemberCount(), neighborhood->GetOccupiedPlotCount(),
+            neighborhood->GetOwnerGuid().ToString());
+
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            TC_LOG_INFO("housing", "  MEMBER: player={} role={} plotIndex={} houseGuid={}",
+                member.PlayerGuid.ToString(), member.Role, member.PlotIndex, member.HouseGuid.ToString());
+        }
+
+        for (uint8 i = 0; i < MAX_NEIGHBORHOOD_PLOTS; ++i)
+        {
+            auto const& plot = neighborhood->GetPlots()[i];
+            if (plot.IsOccupied())
+            {
+                TC_LOG_INFO("housing", "  PLOT[{}]: owner={} house={} bnet={}",
+                    i, plot.OwnerGuid.ToString(), plot.HouseGuid.ToString(), plot.OwnerBnetGuid.ToString());
+            }
+        }
+    }
 }
 
 Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, int32 factionRestriction, bool isPublic /*= false*/)
