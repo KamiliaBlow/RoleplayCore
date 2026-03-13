@@ -167,15 +167,6 @@ public:
         SendTimeSync();
     }
 
-    static void UnfreezeTime()
-    {
-        m_timeFreezed = false;
-        m_timeTransitioning = false;
-
-        SaveStaticTimeToDB();
-        SendTimeSync();
-    }
-
     static void SendTimeSync()
     {
         WowTime custom;
@@ -195,16 +186,8 @@ public:
         custom.SetMonthDay(m_staticMonthDay);
         timePacket.GameTime = custom;
         timePacket.ServerTime = custom;
-
-        // Normal game time speed (1 minute game time = ~1 second real time)
-        static float const NormalTimeSpeed = 0.01666667f;
-        // Frozen time speed - stops sun/moon visual movement
-        static float const FrozenTimeSpeed = 0.0f;
-
-        // When time is frozen, set speed to 0 to stop visual time progression
-        // This stops sun/moon movement but doesn't affect game mechanics
-        // (mechanics use GameTime::GetGameTime() which is independent)
-        timePacket.NewSpeed = m_timeFreezed ? FrozenTimeSpeed : NormalTimeSpeed;
+        static float const TimeSpeed = 0.01666667f;
+        timePacket.NewSpeed = TimeSpeed;
 
         sWorld->SendGlobalMessage(timePacket.Write());
     }
@@ -262,7 +245,7 @@ public:
             { "npcmoveto",       rbac::RBAC_PERM_COMMAND_NPC_MOVE,      false,      &HandleNpcMoveTo,           ""},
             { "npcguidsay",      rbac::RBAC_PERM_COMMAND_NPC_SAY,       false,      &HandleNpcGuidSay,          ""},
             { "npcguidyell",     rbac::RBAC_PERM_COMMAND_NPC_YELL,      false,      &HandleNpcGuidYell,         ""},
-            { "settime",         rbac::RBAC_PERM_COMMAND_NPC_YELL,      false,      &HandleSetTimeCommand,      "<hour> <minute> [instant|smooth|unfreeze] <ms shift>"},
+            { "settime",         rbac::RBAC_PERM_COMMAND_NPC_YELL,      false,      &HandleSetTimeCommand,      "<hour> <minute> [instant|smooth] <ms shift>"},
             { "typing",          typimgCommandTable },
         };
 
@@ -525,22 +508,10 @@ public:
     // custom command .settime
     static bool HandleSetTimeCommand(ChatHandler* handler, Optional<uint32> hour, Optional<uint32> minute, Optional<std::string> mode, Optional<uint32> speedMs)
     {
-        std::string modeStr = mode ? *mode : "instant";
-
-        // .settime 999 - reset to server time (unfreeze)
         if (hour && *hour == 999)
         {
             StaticTimeManager::ResetToServerTime();
-            handler->PSendSysMessage("Time reset to server time (unfrozen).");
-            return true;
-        }
-
-        // .settime unfreeze - just unfreeze without changing time
-        // This works even without hour/minute parameters
-        if (modeStr == "unfreeze")
-        {
-            StaticTimeManager::UnfreezeTime();
-            handler->PSendSysMessage("Time unfrozen - now follows server time.");
+            handler->PSendSysMessage("Time reset to server time.");
             return true;
         }
 
@@ -552,6 +523,8 @@ public:
             handler->SendSysMessage("Incorrect time. Use hours 0-23, minutes 0-59.");
             return false;
         }
+
+        std::string modeStr = mode ? *mode : "instant";
 
         if (modeStr == "smooth")
         {
@@ -589,20 +562,18 @@ public:
     {
         StaticTimeManager::Update(diff);
 
-        // Only send periodic sync when time is NOT frozen
-        // When frozen (speed = 0), client time stays fixed and doesn't drift
-        // so we don't need to constantly resync
-        if (!StaticTimeManager::IsTimeFreezed())
-        {
-            static uint32 timeCheckTimer = 0;
-            timeCheckTimer += diff;
+        static uint32 timeCheckTimer = 0;
+        timeCheckTimer += diff;
 
-            if (timeCheckTimer >= 30 * IN_MILLISECONDS)
+        if (timeCheckTimer >= 30 * IN_MILLISECONDS)
+        {
+            if (StaticTimeManager::IsTimeFreezed())
             {
                 StaticTimeManager::SendTimeSync();
-                timeCheckTimer = 0;
             }
         }
+
+        timeCheckTimer = 0;
     }
 };
 

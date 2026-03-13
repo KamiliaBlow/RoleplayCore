@@ -637,6 +637,14 @@ public:
 
                 object->SetDestructibleState(GameObjectDestructibleState(*objectState));
                 break;
+            case 6:
+                if (*objectState > GO_JUST_DEACTIVATED)
+                {
+                    handler->PSendSysMessage("Invalid LootState value %u. Valid values: 0 (NOT_READY), 1 (READY), 2 (ACTIVATED), 3 (JUST_DEACTIVATED)", *objectState);
+                    return false;
+                }
+                object->SetLootState(LootState(*objectState));
+                break;
             default:
                 break;
         }
