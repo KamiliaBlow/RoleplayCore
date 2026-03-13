@@ -75,7 +75,7 @@ public:
             { "add",            HandleGameObjectAddCommand,       rbac::RBAC_PERM_COMMAND_GOBJECT_ADD,            Console::No },
             { "set phase",      HandleGameObjectSetPhaseCommand,  rbac::RBAC_PERM_COMMAND_GOBJECT_SET_PHASE,      Console::No },
             { "set state",      HandleGameObjectSetStateCommand,  rbac::RBAC_PERM_COMMAND_GOBJECT_SET_STATE,      Console::No },
-			{ "set scale",          HandleGameObjectSetScaleCommand,  rbac::RBAC_PERM_COMMAND_GOBJECT_SET_SCALE,      Console::No },
+            { "set scale",      HandleGameObjectSetScaleCommand,  rbac::RBAC_PERM_COMMAND_GOBJECT_SET_SCALE,      Console::No },
             { "visibility",     HandleGameVisibilityCommand,      rbac::RBAC_PERM_COMMAND_GOBJECT_DELETE,         Console::No },       
         };
         static ChatCommandTable commandTable =
@@ -157,6 +157,8 @@ public:
         /// @todo is it really necessary to add both the real and DB table guid here ?
         sObjectMgr->AddGameobjectToGrid(ASSERT_NOTNULL(sObjectMgr->GetGameObjectData(spawnId)));
 
+        player->SetLastTargetedGO(spawnId);
+
         handler->PSendSysMessage(LANG_GAMEOBJECT_ADD, *objectId, objectInfo->name.c_str(), std::to_string(spawnId).c_str(), player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
         return true;
     }
@@ -174,9 +176,13 @@ public:
             return false;
         }
 
-        player->SummonGameObject(objectId, *player, QuaternionData::fromEulerAnglesZYX(player->GetOrientation(), 0.0f, 0.0f), spawntm);
+        if (GameObject* tempGob = player->SummonGameObject(objectId, *player, QuaternionData::fromEulerAnglesZYX(player->GetOrientation(), 0.0f, 0.0f), spawntm))
+        {
+            player->SetLastTargetedGO(tempGob->GetGUID().GetCounter());
+            return true;
+        }
 
-        return true;
+        return false;
     }
 
     static bool HandleGameObjectTargetCommand(ChatHandler* handler, Optional<Variant<GameObjectEntry, std::string_view>> objectId)
@@ -276,6 +282,8 @@ public:
         }
 
         GameObject* target = handler->GetObjectFromPlayerMapByDbGuid(guidLow);
+
+        player->SetLastTargetedGO(guidLow);
 
         handler->PSendSysMessage(LANG_GAMEOBJECT_DETAIL, std::to_string(guidLow).c_str(), objectInfo->name.c_str(), std::to_string(guidLow).c_str(), id, x, y, z, mapId, o, phaseId, phaseGroup);
 
@@ -609,6 +617,7 @@ public:
         {
             case 0:
                 object->SetGoState(GOState(*objectState));
+                object->SaveToDB();
                 break;
             case 1:
                 object->SetGoType(GameobjectTypes(*objectState));

@@ -1248,14 +1248,14 @@ bool GameObject::Create(uint32 entry, Map* map, Position const& pos, QuaternionD
     return true;
 }
 
-GameObject* GameObject::CreateGameObject(uint32 entry, Map* map, Position const& pos, QuaternionData const& rotation, uint32 animProgress, GOState goState, uint32 artKit /*= 0*/)
+GameObject* GameObject::CreateGameObject(uint32 entry, Map* map, Position const& pos, QuaternionData const& rotation, uint32 animProgress, GOState goState, uint32 artKit /*= 0*/, float size /*= -1.0f*/)
 {
     GameObjectTemplate const* goInfo = sObjectMgr->GetGameObjectTemplate(entry);
     if (!goInfo)
         return nullptr;
 
     GameObject* go = new GameObject();
-    if (!go->Create(entry, map, pos, rotation, animProgress, goState, artKit, false, 0))
+    if (!go->Create(entry, map, pos, rotation, animProgress, goState, artKit, false, 0, size))
     {
         delete go;
         return nullptr;

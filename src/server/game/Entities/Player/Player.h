@@ -2923,6 +2923,9 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         uint32 GetLastTargetedGO() { return _lastTargetedGO; }
         void SetLastTargetedGO(uint32 lastTargetedGO) { _lastTargetedGO = lastTargetedGO; }
 
+        uint64 GetLastTargetedGO2() { return _lastTargetedGO2; }
+        void SetLastTargetedGO2(uint64 lastTargetedGO2) { _lastTargetedGO2 = lastTargetedGO2; }
+
         void SendPlayerChoice(ObjectGuid sender, int32 choiceId);
 
         bool MeetPlayerCondition(uint32 conditionId) const;
@@ -3416,6 +3419,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         bool overrideScreenFlash;
 
         uint32 _lastTargetedGO;
+        uint64 _lastTargetedGO2;
 
         std::unique_ptr<Garrison> _garrison;
         std::vector<std::unique_ptr<Housing>> _housings;
