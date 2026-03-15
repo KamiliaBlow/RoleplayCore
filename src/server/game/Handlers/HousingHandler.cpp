@@ -1792,12 +1792,18 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
                 housingMap->DespawnSingleMeshObject(plotIndex, oldMesh->GetGUID());
             }
 
-            // Spawn default component back at this hook (DB2 default)
-            ExteriorComponentEntry const* defaultComp = sHousingMgr.GetComponentAtHook(static_cast<int32>(removedHookID), housing->GetCoreExteriorComponentID());
-            if (defaultComp)
+            // Spawn default component back at this hook (DB2 default by type + wmoDataID)
+            ExteriorComponentHookEntry const* hookEntry = sExteriorComponentHookStore.LookupEntry(removedHookID);
+            if (hookEntry)
             {
-                housingMap->SpawnFixtureAtHook(plotIndex, removedHookID, defaultComp->ID,
-                    housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player);
+                uint32 defaultCompID = sHousingMgr.GetDefaultFixtureForType(
+                    static_cast<uint8>(hookEntry->ExteriorComponentTypeID),
+                    static_cast<uint32>(housing->GetHouseType()));
+                if (defaultCompID)
+                {
+                    housingMap->SpawnFixtureAtHook(plotIndex, removedHookID, defaultCompID,
+                        housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player);
+                }
             }
         }
 

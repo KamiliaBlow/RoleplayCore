@@ -1854,9 +1854,10 @@ struct ExteriorComponentGroupXHookEntry
 
 struct ExteriorComponentHookEntry
 {
-    uint32 ID;
+    // Field order must match LoadInfo: Position, Rotation, ID, TypeID, CompID
     std::array<float, 3> Position;
     std::array<float, 3> Rotation;
+    uint32 ID;
     int32 ExteriorComponentTypeID;
     uint32 ExteriorComponentID;             // ParentIndexField - must be unsigned
 };

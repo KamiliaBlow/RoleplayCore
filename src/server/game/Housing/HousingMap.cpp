@@ -19,7 +19,9 @@
 #include "Account.h"
 #include "HousingPlayerHouseEntity.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <limits>
 #include <set>
 #include "AreaTrigger.h"
 #include "EventProcessor.h"
@@ -384,21 +386,24 @@ void HousingMap::SpawnPlotGameObjects()
         TC_LOG_DEBUG("housing", "HousingMap::SpawnPlotGameObjects: Plot {} using ExteriorComponentID={}, WmoDataID={}",
             plotIdx, exteriorComponentID, houseExteriorWmoDataID);
 
-        // Build fixture override map from player's saved fixture selections
-        FixtureOverrideMap fixtureOverrides;
-        if (housing)
-            fixtureOverrides = housing->GetFixtureOverrideMap();
+        // Build fixture + root override maps from player's saved fixture selections.
+        // Always pass rootOverrides when housing exists — the map controls which root types spawn.
+        // nullptr = no housing data (unowned plot), spawn all roots.
+        // Non-null = only spawn types present in the map.
+        FixtureOverrideMap fixtureOverrides = housing->GetFixtureOverrideMap();
         FixtureOverrideMap const* overridesPtr = fixtureOverrides.empty() ? nullptr : &fixtureOverrides;
+        RootOverrideMap rootOverrides = housing->GetRootComponentOverrides();
+        RootOverrideMap const* rootOvrPtr = &rootOverrides;
 
         GameObject* houseGo = nullptr;
-        if (housing && housing->HasCustomPosition())
+        if (housing->HasCustomPosition())
         {
             Position customPos = housing->GetHousePosition();
-            houseGo = SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr);
+            houseGo = SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
         }
         else
         {
-            houseGo = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr);
+            houseGo = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
         }
         ++houseCount;
         if (houseGo)
@@ -675,15 +680,17 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
             auto fixtureOverrides = housing->GetFixtureOverrideMap();
             FixtureOverrideMap const* overridesPtr = fixtureOverrides.empty() ? nullptr : &fixtureOverrides;
+            auto rootOverrides = housing->GetRootComponentOverrides();
+            RootOverrideMap const* rootOvrPtr = &rootOverrides;
 
             GameObject* go = nullptr;
             if (housing->HasCustomPosition())
             {
                 Position customPos = housing->GetHousePosition();
-                go = SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr);
+                go = SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
             }
             else
-                go = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr);
+                go = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
 
             TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: SpawnHouseForPlot result for plot {}: {}",
                 plotIdx, go ? go->GetGUID().ToString() : "FAILED");
@@ -712,8 +719,14 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     int32 lateExtCompID = static_cast<int32>(housing->GetCoreExteriorComponentID());
                     int32 lateWmoDataID = static_cast<int32>(housing->GetHouseType());
 
+                    auto lateFixtureOvr = housing->GetFixtureOverrideMap();
+                    FixtureOverrideMap const* lateFixturePtr = lateFixtureOvr.empty() ? nullptr : &lateFixtureOvr;
+                    auto lateRootOvr = housing->GetRootComponentOverrides();
+                    RootOverrideMap const* lateRootPtr = &lateRootOvr;
+
                     SpawnFullHouseMeshObjects(plotIdx, pos, rot,
-                        housing->GetHouseGuid(), lateExtCompID, lateWmoDataID, faction);
+                        housing->GetHouseGuid(), lateExtCompID, lateWmoDataID, faction,
+                        lateFixturePtr, lateRootPtr);
 
                     // Also spawn room entity + Geobox if not already present
                     if (_roomEntities.find(plotIdx) == _roomEntities.end())
@@ -1506,7 +1519,8 @@ void HousingMap::RemovePlayerHousing(ObjectGuid playerGuid)
 
 GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* customPos,
     int32 exteriorComponentID, int32 houseExteriorWmoDataID,
-    FixtureOverrideMap const* fixtureOverrides /*= nullptr*/)
+    FixtureOverrideMap const* fixtureOverrides /*= nullptr*/,
+    RootOverrideMap const* rootOverrides /*= nullptr*/)
 {
     if (!_neighborhood)
         return nullptr;
@@ -1626,7 +1640,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
             faction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde");
 
         SpawnFullHouseMeshObjects(plotIndex, pos, rot, plotInfo->HouseGuid,
-            exteriorComponentID, houseExteriorWmoDataID, faction, fixtureOverrides);
+            exteriorComponentID, houseExteriorWmoDataID, faction, fixtureOverrides, rootOverrides);
 
         // Spawn room entity + component mesh with Geobox for this plot.
         // The client uses the MeshObject Geobox to validate decor placement bounds.
@@ -1634,41 +1648,130 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         SpawnRoomForPlot(plotIndex, pos, rot, plotInfo->HouseGuid);
     }
 
-    // Spawn the front door GO (entry 586576, type Goober, displayId 116973)
-    // The interactive door GO must be at the actual doorway (top of stairs), NOT at
-    // the door mesh origin (which sits at stair base level, ~0.56 below house floor).
-    // Door mesh local offset from base: (9.2805, -3.4555, -0.5611) — mesh origin at stair foot
-    // Adjusted offset: raised Z to door frame level, pulled X back toward actual door threshold.
+    // Spawn the front door interactive GO.
+    // The door's GO entry and position come from DB2:
+    //   1. Resolve the default door component (Type=11) for this house's WMO data
+    //   2. Get the door component's GameObjectID for the GO entry
+    //   3. Find the door hook on the base component for the hook offset
+    //   4. Get the ExitPoint on the door component for the interaction offset
+    //   5. World position = house pos + hook offset + exit point offset
     GameObject* doorGo = nullptr;
-    uint32 doorEntry = 586576; // retail "Founder's Point Front Door"
+    uint32 doorEntry = 0;
+    float doorLocalX = 0.0f;
+    float doorLocalY = 0.0f;
+    float doorLocalZ = 0.0f;
 
-    // Door interaction GO local-space offset (adjusted from mesh origin to doorway threshold)
-    float doorLocalX = 8.0f;
-    float doorLocalY = -3.4555f;
-    float doorLocalZ = 1.5f;
-
-    // Try to get the offset from DB2 ExteriorComponentExitPoint if available
-    int32 groupID = sHousingMgr.GetGroupForComponent(static_cast<uint32>(exteriorComponentID));
-    if (groupID != 0)
+    // Resolve door component from DB2.
+    // Use the actually-spawned base component (from rootOverrides) for hook lookups,
+    // not the raw coreExtCompID which may differ after migration/override.
+    uint32 actualBaseCompID = static_cast<uint32>(exteriorComponentID);
+    if (rootOverrides)
     {
-        std::vector<uint32> const* groupComps = sHousingMgr.GetComponentsInGroup(groupID);
-        if (groupComps)
+        auto baseOvr = rootOverrides->find(HOUSING_FIXTURE_TYPE_BASE);
+        if (baseOvr != rootOverrides->end())
+            actualBaseCompID = baseOvr->second;
+    }
+
+    uint32 doorCompID = 0;
+    uint32 doorHookID = 0;  // Track which hook the door is at (for position)
+    {
+        // Find the door hook that has the main entrance.
+        // Priority: 1) player's fixture override on any door hook
+        //           2) best front-center door hook (smallest |X|, most negative Y)
+        auto const* baseHooks = sHousingMgr.GetHooksOnComponent(actualBaseCompID);
+        if (baseHooks)
         {
-            for (uint32 compID : *groupComps)
+            // First: check for player fixture override on any door hook
+            if (fixtureOverrides)
             {
-                ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(compID);
-                if (exitPt)
+                for (ExteriorComponentHookEntry const* hook : *baseHooks)
                 {
-                    doorLocalX = exitPt->Position[0];
-                    doorLocalY = exitPt->Position[1];
-                    doorLocalZ = exitPt->Position[2];
-                    TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door offset from DB2 "
-                        "ExitPoint (comp={}) = ({:.2f}, {:.2f}, {:.2f})",
-                        compID, doorLocalX, doorLocalY, doorLocalZ);
+                    if (hook && hook->ExteriorComponentTypeID == 11)
+                    {
+                        auto ovrItr = fixtureOverrides->find(hook->ID);
+                        if (ovrItr != fixtureOverrides->end())
+                        {
+                            doorCompID = ovrItr->second;
+                            doorHookID = hook->ID;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Second: find the best front-center door hook (same heuristic as SpawnExtCompTree)
+            if (!doorHookID)
+            {
+                float bestScore = std::numeric_limits<float>::max();
+                for (ExteriorComponentHookEntry const* hook : *baseHooks)
+                {
+                    if (!hook || hook->ExteriorComponentTypeID != 11)
+                        continue;
+                    float score = std::abs(hook->Position[0]) * 2.0f + hook->Position[1];
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        doorHookID = hook->ID;
+                    }
+                }
+            }
+        }
+    }
+    if (!doorCompID && houseExteriorWmoDataID > 0)
+        doorCompID = sHousingMgr.GetDefaultFixtureForType(11 /*Door*/, static_cast<uint32>(houseExteriorWmoDataID));
+
+    ExteriorComponentEntry const* doorComp = doorCompID ? sExteriorComponentStore.LookupEntry(doorCompID) : nullptr;
+    if (doorComp)
+    {
+        doorEntry = doorComp->GameObjectID > 0 ? static_cast<uint32>(doorComp->GameObjectID) : 0;
+
+        // Door position: start from the door component's Position (local-space offset from base)
+        doorLocalX = doorComp->Position[0];
+        doorLocalY = doorComp->Position[1];
+        doorLocalZ = doorComp->Position[2];
+
+        // Use the selected door hook's position for door GO placement
+        auto const* baseHooks = sHousingMgr.GetHooksOnComponent(actualBaseCompID);
+        if (baseHooks && doorHookID)
+        {
+            for (ExteriorComponentHookEntry const* hook : *baseHooks)
+            {
+                if (hook && hook->ID == doorHookID)
+                {
+                    // Hook position provides the attachment point on the base
+                    doorLocalX = hook->Position[0];
+                    doorLocalY = hook->Position[1];
+                    doorLocalZ = hook->Position[2];
+
+                    // Add ExitPoint offset (interaction point relative to door)
+                    ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(doorCompID);
+                    if (exitPt)
+                    {
+                        doorLocalX += exitPt->Position[0];
+                        doorLocalY += exitPt->Position[1];
+                        doorLocalZ += exitPt->Position[2];
+                    }
+
+                    TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door comp={} entry={} "
+                        "hook=({:.2f},{:.2f},{:.2f}) exitPt=({:.2f},{:.2f},{:.2f}) "
+                        "final=({:.2f},{:.2f},{:.2f})",
+                        doorCompID, doorEntry,
+                        hook->Position[0], hook->Position[1], hook->Position[2],
+                        exitPt ? exitPt->Position[0] : 0.0f,
+                        exitPt ? exitPt->Position[1] : 0.0f,
+                        exitPt ? exitPt->Position[2] : 0.0f,
+                        doorLocalX, doorLocalY, doorLocalZ);
                     break;
                 }
             }
         }
+    }
+
+    if (!doorEntry)
+    {
+        TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: No door component found "
+            "for plot {} (extComp={}, wmoData={}) — door GO will not spawn",
+            plotIndex, exteriorComponentID, houseExteriorWmoDataID);
     }
 
     // Transform local-space door offset to world space
@@ -1679,36 +1782,40 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     float doorZ = z + doorLocalZ;
     Position doorPos(doorX, doorY, doorZ, facing);
 
-    GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorEntry);
-    if (doorTemplate)
+    if (doorEntry)
     {
-        doorGo = GameObject::CreateGameObject(doorEntry, this, doorPos, rot, 255, GO_STATE_READY);
-        if (doorGo)
+        GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorEntry);
+        if (doorTemplate)
         {
-            doorGo->SetFlag(GO_FLAG_NODESPAWN);
-            PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-
-            if (AddToMap(doorGo))
+            doorGo = GameObject::CreateGameObject(doorEntry, this, doorPos, rot, 255, GO_STATE_READY);
+            if (doorGo)
             {
-                _houseGameObjects[plotIndex] = doorGo->GetGUID();
-                TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door GO spawned - entry={} guid={} displayId={} at ({:.1f}, {:.1f}, {:.1f}) (house center: {:.1f}, {:.1f}, {:.1f}) for plot {}",
-                    doorEntry, doorGo->GetGUID().ToString(), doorGo->GetDisplayId(), doorX, doorY, doorZ, x, y, z, plotIndex);
+                doorGo->SetFlag(GO_FLAG_NODESPAWN);
+                PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+
+                if (AddToMap(doorGo))
+                {
+                    _houseGameObjects[plotIndex] = doorGo->GetGUID();
+                    TC_LOG_DEBUG("housing", "HousingMap::SpawnHouseForPlot: Door GO spawned - entry={} guid={} "
+                        "at ({:.1f}, {:.1f}, {:.1f}) (house center: {:.1f}, {:.1f}, {:.1f}) for plot {}",
+                        doorEntry, doorGo->GetGUID().ToString(), doorX, doorY, doorZ, x, y, z, plotIndex);
+                }
+                else
+                {
+                    TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Door GO AddToMap FAILED for plot {}", plotIndex);
+                    delete doorGo;
+                    doorGo = nullptr;
+                }
             }
             else
             {
-                TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Door GO AddToMap FAILED for plot {}", plotIndex);
-                delete doorGo;
-                doorGo = nullptr;
+                TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: CreateGameObject FAILED for door entry {} at plot {}", doorEntry, plotIndex);
             }
         }
         else
         {
-            TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: CreateGameObject FAILED for door entry {} at plot {}", doorEntry, plotIndex);
+            TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Door GO template {} NOT FOUND for plot {}", doorEntry, plotIndex);
         }
-    }
-    else
-    {
-        TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Door GO template {} NOT FOUND - door will not spawn for plot {}", doorEntry, plotIndex);
     }
 
     return doorGo;
@@ -1938,13 +2045,13 @@ MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, 
     // Generate a unique fixture GUID per fixture. The client uses FHousingFixture_C::Guid
     // to identify individual fixtures — if all fixtures share the same GUID (houseGuid),
     // the client can't distinguish them and reports "Fixture not found".
-    // Use subType=5 (fixture), realm, hookID-or-componentID, houseGuid counter.
-    uint32 fixtureArg2 = (exteriorComponentHookID > 0)
-        ? static_cast<uint32>(exteriorComponentHookID)
-        : static_cast<uint32>(exteriorComponentID);
+    // Use subType=5 (fixture), realm, sequential counter, houseGuid counter.
+    // Generate a unique fixture GUID using a monotonic counter.
+    static std::atomic<uint32> s_fixtureCounter{1};
+    uint32 fixtureSeq = s_fixtureCounter.fetch_add(1, std::memory_order_relaxed);
     ObjectGuid fixtureGuid = ObjectGuid::Create<HighGuid::Housing>(
         /*subType*/ 5, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
-        /*arg2*/ fixtureArg2, houseGuid.GetCounter());
+        /*arg2*/ fixtureSeq, houseGuid.GetCounter());
 
     // Look up the parent fixture's unique GUID for AttachParentGUID field.
     // The client uses this to build the fixture hierarchy tree — without it,
@@ -1985,26 +2092,25 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     QuaternionData const& houseRot, ObjectGuid houseGuid,
     int32 exteriorComponentID, int32 houseExteriorWmoDataID,
     int32 factionRestriction /*= NEIGHBORHOOD_FACTION_ALLIANCE*/,
-    FixtureOverrideMap const* fixtureOverrides /*= nullptr*/)
+    FixtureOverrideMap const* fixtureOverrides /*= nullptr*/,
+    RootOverrideMap const* rootOverrides /*= nullptr*/)
 {
     // === DATA-DRIVEN EXTERIOR SPAWNING ===
-    // Try to build the house from DB2 ExteriorComponent tree first.
-    // If the data-driven approach yields 0 meshes, fall back to hardcoded methods.
+    // Build the house from DB2 ExteriorComponent tree.
+    // A house consists of multiple independent root components (Base type=9, Roof type=10, etc.)
+    // all sharing the same HouseExteriorWmoDataID. Each root is spawned independently at the
+    // house position, and each has its own hook children (doors on base, chimney/windows on roof).
+    //
+    // Root selection per type:
+    //   1. Check rootOverrides (player's explicit choice for that type)
+    //   2. Use coreExtCompID for the core type
+    //   3. Fall back to DB2 default (Flags & 0x1 IsDefault)
 
     uint32 coreExtCompID = static_cast<uint32>(exteriorComponentID);
-    int32 groupID = sHousingMgr.GetGroupForComponent(coreExtCompID);
-
     ExteriorComponentEntry const* coreComp = sExteriorComponentStore.LookupEntry(coreExtCompID);
+
     if (coreComp && coreComp->ModelFileDataID > 0 && coreComp->HouseExteriorWmoDataID > 0)
     {
-        // A house consists of multiple independent root components (Base type=9, Roof type=10, etc.)
-        // all sharing the same HouseExteriorWmoDataID. Each root is spawned independently at the
-        // house position, and each has its own hook children (doors on base, chimney/windows on roof).
-        //
-        // Among roots of the same type, there may be variants (e.g. multiple roof styles). The
-        // coreExtCompID tells us which base variant is selected; for other types we pick the
-        // default (Flags & 0x1 IsDefault) or first available.
-
         uint32 wmoDataID = coreComp->HouseExteriorWmoDataID;
         auto const* rootComps = sHousingMgr.GetRootComponentsForWmoData(wmoDataID);
         uint32 totalSpawned = 0;
@@ -2025,28 +2131,36 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             {
                 uint32 selectedCompID = 0;
 
-                if (type == coreComp->Type)
+                // 1. Check player's root overrides for this type
+                if (rootOverrides)
                 {
-                    // For the base type, use the player's selected coreExtCompID
-                    selectedCompID = coreExtCompID;
-                }
-                else
-                {
-                    // For other types (roof, etc.), pick IsDefault or first available
-                    // TODO: check fixture overrides for player-selected roof variant
-                    for (uint32 id : compIDs)
+                    auto ovrItr = rootOverrides->find(type);
+                    if (ovrItr != rootOverrides->end())
+                        selectedCompID = ovrItr->second;
+                    else
                     {
-                        ExteriorComponentEntry const* rc = sExteriorComponentStore.LookupEntry(id);
-                        if (!rc) continue;
-                        if (!selectedCompID)
-                            selectedCompID = id; // fallback: first available
-                        if (rc->Flags & 0x1)
-                        {
-                            selectedCompID = id; // prefer IsDefault
-                            break;
-                        }
+                        // Type not in fixtures DB → not unlocked yet, skip it
+                        TC_LOG_DEBUG("housing", "SpawnFullHouseMeshObjects: Skipping root type={} — not in fixtures",
+                            type);
+                        continue;
                     }
                 }
+
+                // 2. For the core type, use the player's selected coreExtCompID
+                if (!selectedCompID && type == coreComp->Type)
+                    selectedCompID = coreExtCompID;
+
+                // 3. Fall back to DB2 default for this type + wmoDataID
+                if (!selectedCompID)
+                {
+                    uint32 defaultID = sHousingMgr.GetDefaultFixtureForType(type, wmoDataID);
+                    if (defaultID)
+                        selectedCompID = defaultID;
+                }
+
+                // 4. Last resort: first available in the list
+                if (!selectedCompID && !compIDs.empty())
+                    selectedCompID = compIDs[0];
 
                 if (selectedCompID)
                 {
@@ -2074,14 +2188,15 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             return;
         }
 
-        TC_LOG_WARN("housing", "HousingMap::SpawnFullHouseMeshObjects: Data-driven spawn "
-            "yielded 0 meshes for plot {} wmoDataID {} — falling back to hardcoded",
-            plotIndex, wmoDataID);
+        TC_LOG_ERROR("housing", "HousingMap::SpawnFullHouseMeshObjects: Data-driven spawn "
+            "yielded 0 meshes for plot {} wmoDataID {} coreComp {} — no DB2 data available",
+            plotIndex, wmoDataID, coreExtCompID);
+        return;
     }
     else if (!coreComp)
     {
-        TC_LOG_DEBUG("housing", "HousingMap::SpawnFullHouseMeshObjects: ExteriorComponent {} not found "
-            "— using hardcoded spawn for plot {}", exteriorComponentID, plotIndex);
+        TC_LOG_ERROR("housing", "HousingMap::SpawnFullHouseMeshObjects: ExteriorComponent {} not found "
+            "— cannot spawn house for plot {}", exteriorComponentID, plotIndex);
     }
 
     // === HARDCODED FALLBACK ===
@@ -2320,10 +2435,36 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     // Use worldPos for children: root's worldPos is itself, child's is the root's position
     Position const* childWorldPos = worldPos ? worldPos : &pos;
 
-    std::set<uint32> spawnedChildComps; // track to avoid double-spawning
-
     // Recurse into hooks on this component
     auto const* hooks = sHousingMgr.GetHooksOnComponent(extCompID);
+    TC_LOG_INFO("housing", "SpawnExtCompTree: comp={} has {} hooks, fixtureOverrides={}",
+        extCompID, hooks ? uint32(hooks->size()) : 0, fixtureOverrides != nullptr);
+
+    // Pre-scan: find the best door hook for auto-resolution (center-front entrance).
+    // The front entrance is the door hook closest to center X with the most negative Y.
+    // This ensures the main entrance is selected, not a side/back door.
+    uint32 bestDoorHookID = 0;
+    if (hooks)
+    {
+        float bestScore = std::numeric_limits<float>::max();
+        for (ExteriorComponentHookEntry const* hook : *hooks)
+        {
+            if (!hook || hook->ExteriorComponentTypeID != HOUSING_FIXTURE_TYPE_DOOR)
+                continue;
+            // Skip hooks that already have a player fixture override
+            if (fixtureOverrides && fixtureOverrides->count(hook->ID))
+                continue;
+            // Score: prefer center X (small |X|) and front-facing (negative Y).
+            // Weight X more heavily to prefer center entrance over side entrances.
+            float score = std::abs(hook->Position[0]) * 2.0f + hook->Position[1];
+            if (score < bestScore)
+            {
+                bestScore = score;
+                bestDoorHookID = hook->ID;
+            }
+        }
+    }
+
     if (hooks)
     {
         for (ExteriorComponentHookEntry const* hook : *hooks)
@@ -2331,7 +2472,9 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
             if (!hook)
                 continue;
 
-            // Find what component attaches at this hook — check player fixture overrides first
+            // Find what component attaches at this hook:
+            //   1. Check player's fixture overrides (hookID → componentID)
+            //   2. Fall back to DB2 default for Door — only at the best front-center hook
             ExteriorComponentEntry const* childComp = nullptr;
             if (fixtureOverrides)
             {
@@ -2340,18 +2483,30 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
                     childComp = sExteriorComponentStore.LookupEntry(overrideItr->second);
             }
             if (!childComp)
-                childComp = sHousingMgr.GetComponentAtHook(static_cast<int32>(hook->ID), extCompID);
+            {
+                // Only auto-resolve the ONE best door hook (front-center entrance).
+                // All other hook types (Window, Chimney, Dormer, etc.) require explicit
+                // fixture overrides and are unlocked via house level progression.
+                if (hook->ID == bestDoorHookID && bestDoorHookID != 0)
+                {
+                    uint32 defaultCompID = sHousingMgr.GetDefaultFixtureForType(
+                        static_cast<uint8>(hook->ExteriorComponentTypeID),
+                        static_cast<uint32>(houseExteriorWmoDataID));
+                    if (defaultCompID)
+                        childComp = sExteriorComponentStore.LookupEntry(defaultCompID);
+                }
+            }
             if (!childComp)
                 continue;
 
-            spawnedChildComps.insert(childComp->ID);
-
-            TC_LOG_DEBUG("housing", "SpawnExtCompTree: parent={} hook={} (type={}) → child comp {} '{}' (ParentComp={}, ModelFDID={})",
+            TC_LOG_INFO("housing", "SpawnExtCompTree: parent={} hook={} (type={}) → child comp {} '{}' (ParentComp={}, ModelFDID={})",
                 extCompID, hook->ID, hook->ExteriorComponentTypeID, childComp->ID,
                 childComp->Name[DEFAULT_LOCALE] ? childComp->Name[DEFAULT_LOCALE] : "",
                 childComp->ParentComponentID, childComp->ModelFileDataID);
 
-            // Hook position/rotation are local-space offsets relative to the parent
+            // Hook position/rotation are the local-space coordinates where the child
+            // mesh attaches on the parent. Use hook position directly as the child's
+            // PositionLocalSpace — the client handles the attachment via AttachParentGUID.
             Position hookPos(hook->Position[0], hook->Position[1], hook->Position[2], 0.0f);
             QuaternionData hookRot;
             // Hook rotation is in degrees — convert to quaternion (XYZ extrinsic Euler)
@@ -2375,47 +2530,10 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
         }
     }
 
-    // Also walk children linked via ExteriorComponent.ParentComponentID.
-    // These are components (e.g. roofs) where ParentComponentID references this component.
-    // They may not have hooks defining their position — use the child's Position field as offset.
-    auto const* children = sHousingMgr.GetChildComponents(extCompID);
-    if (children)
-    {
-        for (uint32 childCompID : *children)
-        {
-            if (spawnedChildComps.count(childCompID))
-                continue; // already spawned via hook
-
-            ExteriorComponentEntry const* childComp = sExteriorComponentStore.LookupEntry(childCompID);
-            if (!childComp || childComp->ModelFileDataID <= 0)
-                continue;
-
-            // Only spawn if this is a default component (or if there's no default, take first)
-            // Skip non-default variants — fixture overrides handle those
-            if (!(childComp->Flags & 0x1))
-                continue;
-
-            TC_LOG_INFO("housing", "SpawnExtCompTree: parent={} → ParentComponentID child comp {} '{}' "
-                "(type={}, ModelFDID={}, Pos=({:.1f},{:.1f},{:.1f}))",
-                extCompID, childComp->ID,
-                childComp->Name[DEFAULT_LOCALE] ? childComp->Name[DEFAULT_LOCALE] : "",
-                childComp->Type, childComp->ModelFileDataID,
-                childComp->Position[0], childComp->Position[1], childComp->Position[2]);
-
-            // Child's Position field is local-space offset from parent
-            Position childPos(childComp->Position[0], childComp->Position[1], childComp->Position[2], 0.0f);
-            QuaternionData childRot; // identity rotation
-            childRot.x = 0.0f;
-            childRot.y = 0.0f;
-            childRot.z = 0.0f;
-            childRot.w = 1.0f;
-
-            count += SpawnExtCompTree(plotIndex, childCompID,
-                childPos, childRot,
-                houseGuid, houseExteriorWmoDataID,
-                meshGuid, childWorldPos, depth + 1, fixtureOverrides);
-        }
-    }
+    // NOTE: ExteriorComponent.ParentComponentID links are color/dye variants of the same shape,
+    // NOT structural children. They share the same mesh with a different dye (Field_011).
+    // These are NOT spawned as additional meshes — the player's fixture selection determines
+    // which variant is used, handled via GetRootComponentOverrides() / fixture overrides.
 
     return count;
 }

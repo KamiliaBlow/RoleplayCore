@@ -160,6 +160,7 @@ public:
     std::vector<Fixture const*> GetFixtures() const;
     std::unordered_map<uint32, uint32> GetFixtureOverrideMap() const;
     uint32 GetCoreExteriorComponentID() const;
+    std::unordered_map<uint8, uint32> GetRootComponentOverrides() const;
 
     // Catalog operations
     HousingResult AddToCatalog(uint32 decorEntryId, uint8 sourceType = DECOR_SOURCE_STANDARD, std::string sourceValue = {});
@@ -240,6 +241,9 @@ private:
     // Immediate DB persistence helpers
     void PersistRoomToDB(ObjectGuid roomGuid, Room const& room);
     void PersistFixtureToDB(uint32 fixturePointId, uint32 optionId);
+
+    // Populate starter fixtures (Base + Roof) on house creation
+    void PopulateStarterFixtures();
 
     Player* _owner;
     ObjectGuid _houseGuid;

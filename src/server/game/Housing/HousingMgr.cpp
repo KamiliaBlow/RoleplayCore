@@ -26,12 +26,15 @@
 #include "Neighborhood.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "RaceMask.h"
 #include "Random.h"
+#include "SharedDefines.h"
 #include "SocialMgr.h"
 #include "StringFormat.h"
 #include "Timer.h"
 #include "World.h"
 #include <algorithm>
+#include <unordered_set>
 
 namespace
 {
@@ -1261,44 +1264,72 @@ int32 HousingMgr::GetTextureIdForComponentType(uint8 componentType) const
 void HousingMgr::BuildExteriorComponentIndexes()
 {
     _hooksByExtComp.clear();
-    _extCompByHookId.clear();
     _exitPointByExtComp.clear();
     _groupByExtComp.clear();
     _extCompsByGroup.clear();
     _childrenByExtComp.clear();
     _rootCompsByWmoDataId.clear();
+    _defaultFixtureByTypeWmo.clear();
 
-    // 1. Build hook index: which hooks are parented to each component
-    //    Note: store iteration only yields a subset of entries due to DB2 ParentIndexField
-    //    sparse indexing. Use LookupEntry(i) over GetNumRows() to reach all entries.
-    for (uint32 i = 0; i < sExteriorComponentHookStore.GetNumRows(); ++i)
+    // 1. Build hook index: which hooks are parented to each component.
+    //    ExteriorComponentHook has IndexField=2 (ID in data) and ParentIndexField=4.
+    //    Use the store's range-based iterator which correctly iterates unique entries.
+    for (ExteriorComponentHookEntry const* hook : sExteriorComponentHookStore)
     {
-        ExteriorComponentHookEntry const* hook = sExteriorComponentHookStore.LookupEntry(i);
         if (!hook)
             continue;
         _hooksByExtComp[hook->ExteriorComponentID].push_back(hook);
     }
-
     // 1a. Build child index and root-by-WMO index from ExteriorComponent.
-    //     ParentComponentID > 0 → child of that component.
-    //     ParentComponentID == 0 → root component, indexed by HouseExteriorWmoDataID.
-    //     ExteriorComponent uses ParentIndexField (HouseExteriorWmoDataID), so use
-    //     LookupEntry over GetNumRows() to reach all entries.
-    for (uint32 i = 0; i < sExteriorComponentStore.GetNumRows(); ++i)
+    //     ParentComponentID > 0 → color/dye variant of that component.
+    //     ParentComponentID == 0 → base variant, and if the Type is a structural root,
+    //     it's indexed by HouseExteriorWmoDataID for independent spawning.
+    //
+    //     Structural root check: look up ExteriorComponentType by comp->Type.
+    //     Only types with ParentComponentType == 0 are structural roots (Base=9, Roof=10).
+    //     Types like Door(11), Window(12), Chimney(16) have ParentComponentType > 0
+    //     and are spawned as hook children, NOT as independent roots.
+    //
+    //     ExteriorComponent uses ParentIndexField (HouseExteriorWmoDataID).
+    //     Use range-based iterator, NOT LookupEntry(i), which maps by parent ID.
+    std::unordered_set<uint8> structuralRootTypes;
+    for (ExteriorComponentEntry const* comp : sExteriorComponentStore)
     {
-        ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(i);
         if (!comp)
             continue;
 
         if (comp->ParentComponentID > 0)
             _childrenByExtComp[static_cast<uint32>(comp->ParentComponentID)].push_back(comp->ID);
 
-        // Root components (ParentComponentID=0) with a model, indexed by WMO data ID
         if (comp->ParentComponentID == 0 && comp->ModelFileDataID > 0 && comp->HouseExteriorWmoDataID > 0)
-            _rootCompsByWmoDataId[comp->HouseExteriorWmoDataID].push_back(comp->ID);
-    }
+        {
+            // Check if this component's Type is a structural root.
+            // ExteriorComponentType DB2: Base(9) and Roof(10) have ParentComponentType=0.
+            // All fixture types (Door=11, Window=12, etc.) have ParentComponentType > 0.
+            // Try DB2 lookup first; fall back to known root types if store is unreliable.
+            bool isStructuralRoot = false;
+            ExteriorComponentTypeEntry const* typeEntry = sExteriorComponentTypeStore.LookupEntry(comp->Type);
+            if (typeEntry)
+                isStructuralRoot = (typeEntry->ParentComponentType == 0);
+            else
+                isStructuralRoot = (comp->Type == 9 || comp->Type == 10); // Base, Roof
 
-    // 1b. Build group indexes from ExteriorComponentXGroup (needed by step 2)
+            if (isStructuralRoot)
+            {
+                _rootCompsByWmoDataId[comp->HouseExteriorWmoDataID].push_back(comp->ID);
+                structuralRootTypes.insert(comp->Type);
+            }
+        }
+    }
+    TC_LOG_DEBUG("housing", "HousingMgr: structural root types: ({})",
+        [&]() {
+            std::string s;
+            for (uint8 t : structuralRootTypes)
+                s += (s.empty() ? "" : ",") + std::to_string(t);
+            return s.empty() ? "none" : s;
+        }());
+
+    // 1c. Build group indexes from ExteriorComponentXGroup (for UI fixture panels)
     for (ExteriorComponentXGroupEntry const* xg : sExteriorComponentXGroupStore)
     {
         if (!xg)
@@ -1309,78 +1340,38 @@ void HousingMgr::BuildExteriorComponentIndexes()
         _extCompsByGroup[groupID].push_back(compID);
     }
 
-    // 2. Build reverse lookup: hookID → default component that should be placed there.
-    //    Chain: ExteriorComponentGroupXHook maps (GroupID → HookID), meaning
-    //    "this group of components can be installed at this hook."
-    //    For each hook, we find which groups link to it, then pick the IsDefault
-    //    component from those groups with matching ExteriorComponentTypeID.
+    // 2. Build fixture resolution index: (componentType, wmoDataID) → default component ID.
+    //    For each hook on a parent component, the fixture that goes there is determined by:
+    //      - Hook's ExteriorComponentTypeID (e.g., Door=11, Window=12, Chimney=16)
+    //      - Parent component's HouseExteriorWmoDataID (e.g., 9=Human, 55=NightElf)
+    //    The default fixture is the root component (ParentComponentID==0) with matching
+    //    Type and WmoDataID that has Flags & 0x1 (IsDefault).
     //
-    //    NOTE: Hook IDs are NOT globally unique — the ExteriorComponentHook DB2
-    //    uses ExteriorComponentID as a ParentIndexField, so multiple parent
-    //    components can share the same hook ID. The _extCompByHookId map uses
-    //    a composite key (hookID, parentCompID) to disambiguate.
-
-    // Step 2a: Build reverse index from GroupXHook: hookID → list of groupIDs
-    std::unordered_map<int32, std::vector<int32>> groupsByHookId; // hookID → [groupID, ...]
-    for (ExteriorComponentGroupXHookEntry const* gxh : sExteriorComponentGroupXHookStore)
+    //    This replaces the old GroupXHook→Group→XGroup chain which was incorrect —
+    //    groups are for UI organization, not fixture resolution.
+    for (ExteriorComponentEntry const* comp : sExteriorComponentStore)
     {
-        if (!gxh)
-            continue;
-        groupsByHookId[gxh->ExteriorComponentHookID].push_back(gxh->ExteriorComponentGroupID);
-    }
-
-    // Step 2b: For each hookID in GroupXHook, look up the hook entry via LookupEntry
-    //          (store iteration only yields a subset; LookupEntry reaches all 23k+ entries)
-    for (auto const& [hookId, groupList] : groupsByHookId)
-    {
-        ExteriorComponentHookEntry const* hook = sExteriorComponentHookStore.LookupEntry(hookId);
-        if (!hook)
+        if (!comp || comp->ParentComponentID != 0 || comp->HouseExteriorWmoDataID == 0)
             continue;
 
-        int32 hookType = hook->ExteriorComponentTypeID;
-        int32 parentCompID = hook->ExteriorComponentID;
-        int64 compositeKey = (int64(hookId) << 32) | uint32(parentCompID);
-        ExteriorComponentEntry const* bestComp = nullptr;
-        ExteriorComponentEntry const* fallbackComp = nullptr;
+        // Key includes size so different house sizes get the right defaults
+        uint64 key = (uint64(comp->Type) << 40) | (uint64(comp->HouseExteriorWmoDataID) << 8) | comp->Size;
+        bool isDefault = (comp->Flags & 0x1) != 0;
 
-        // Find default component from linked groups
-        for (int32 groupID : groupList)
+        auto existing = _defaultFixtureByTypeWmo.find(key);
+        if (existing == _defaultFixtureByTypeWmo.end())
         {
-            auto compItr = _extCompsByGroup.find(groupID);
-            if (compItr == _extCompsByGroup.end())
-                continue;
-
-            for (uint32 compID : compItr->second)
-            {
-                ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(compID);
-                if (!comp || comp->Type != hookType)
-                    continue;
-
-                if (!fallbackComp)
-                    fallbackComp = comp;
-
-                if (comp->Flags & 0x1) // IsDefaultFixture
-                {
-                    bestComp = comp;
-                    break;
-                }
-            }
-            if (bestComp)
-                break;
+            // First component for this (type, wmo, size) — insert it
+            _defaultFixtureByTypeWmo[key] = comp->ID;
         }
-
-        if (!bestComp)
-            bestComp = fallbackComp;
-
-        if (bestComp)
+        else if (isDefault)
         {
-            _extCompByHookId[compositeKey] = bestComp;
-            TC_LOG_DEBUG("housing", "HookID {} (parent={}, type={}) → comp {} '{}' (Flags=0x{:X}, group-resolved)",
-                hook->ID, parentCompID, hookType, bestComp->ID,
-                bestComp->Name[DEFAULT_LOCALE] ? bestComp->Name[DEFAULT_LOCALE] : "",
-                bestComp->ParentComponentID, bestComp->Flags);
+            // This component is the default — override any non-default already stored
+            _defaultFixtureByTypeWmo[key] = comp->ID;
         }
     }
+
+    TC_LOG_DEBUG("housing", "HousingMgr: Built _defaultFixtureByTypeWmo with {} entries", uint32(_defaultFixtureByTypeWmo.size()));
 
     // 3. Build exit point index
     for (ExteriorComponentExitPointEntry const* exitPt : sExteriorComponentExitPointStore)
@@ -1391,8 +1382,8 @@ void HousingMgr::BuildExteriorComponentIndexes()
     }
 
     TC_LOG_INFO("housing", "HousingMgr::BuildExteriorComponentIndexes: "
-        "hooks={} compByHook={} exitPoints={} groups={} compsInGroups={} parentChildren={} wmoRoots={}",
-        uint32(_hooksByExtComp.size()), uint32(_extCompByHookId.size()),
+        "hooks={} fixtureByTypeWmo={} exitPoints={} groups={} compsInGroups={} parentChildren={} wmoRoots={}",
+        uint32(_hooksByExtComp.size()), uint32(_defaultFixtureByTypeWmo.size()),
         uint32(_exitPointByExtComp.size()), uint32(_groupByExtComp.size()),
         uint32(_extCompsByGroup.size()), uint32(_childrenByExtComp.size()),
         uint32(_rootCompsByWmoDataId.size()));
@@ -1405,11 +1396,43 @@ std::vector<ExteriorComponentHookEntry const*> const* HousingMgr::GetHooksOnComp
     return itr != _hooksByExtComp.end() ? &itr->second : nullptr;
 }
 
-ExteriorComponentEntry const* HousingMgr::GetComponentAtHook(int32 hookID, uint32 parentCompID) const
+uint32 HousingMgr::GetDefaultFixtureForType(uint8 componentType, uint32 wmoDataID, uint8 houseSize /*= 0*/) const
 {
-    int64 compositeKey = (int64(hookID) << 32) | uint32(parentCompID);
-    auto itr = _extCompByHookId.find(compositeKey);
-    return itr != _extCompByHookId.end() ? itr->second : nullptr;
+    // Try exact size match first
+    if (houseSize > 0)
+    {
+        uint64 key = (uint64(componentType) << 40) | (uint64(wmoDataID) << 8) | houseSize;
+        auto itr = _defaultFixtureByTypeWmo.find(key);
+        if (itr != _defaultFixtureByTypeWmo.end())
+            return itr->second;
+    }
+
+    // Fallback: scan all sizes for this (type, wmo) — useful when caller doesn't know the size
+    for (uint8 sz = 1; sz <= 4; ++sz)
+    {
+        if (sz == houseSize)
+            continue; // already tried
+        uint64 key = (uint64(componentType) << 40) | (uint64(wmoDataID) << 8) | sz;
+        auto itr = _defaultFixtureByTypeWmo.find(key);
+        if (itr != _defaultFixtureByTypeWmo.end())
+            return itr->second;
+    }
+
+    // Also try size=0 in case any components have Size=0
+    uint64 key = (uint64(componentType) << 40) | (uint64(wmoDataID) << 8);
+    auto itr = _defaultFixtureByTypeWmo.find(key);
+    return itr != _defaultFixtureByTypeWmo.end() ? itr->second : 0;
+}
+
+uint32 HousingMgr::GetRacialWmoDataID(uint8 race, uint32 teamId)
+{
+    switch (race)
+    {
+        case RACE_NIGHTELF: return 55;  // Woodland
+        case RACE_BLOODELF: return 56;  // Engraved
+        default:
+            return (teamId == HORDE) ? 87 : 9; // Orc / Human
+    }
 }
 
 ExteriorComponentExitPointEntry const* HousingMgr::GetExitPoint(uint32 extCompID) const

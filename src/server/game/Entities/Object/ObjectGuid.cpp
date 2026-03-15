@@ -705,6 +705,7 @@ namespace
             {
                 case 1:
                 case 4:
+                case 5:
                     ctx.advance_to(AppendComponent<no_padding, dec>(ctx, subType));
                     ctx.advance_to(AppendComponent<no_padding, dec>(ctx, uint32(guid.GetRawValue(1) >> 32) & 0xFFFF));
                     ctx.advance_to(AppendComponent<no_padding, dec>(ctx, uint32(guid.GetRawValue(1)) & 0xFFFFFFFF));
@@ -742,6 +743,7 @@ namespace
             {
                 case 1:
                 case 4:
+                case 5:
                     if (!ParseComponent<dec>(guidString, &arg1)
                         || !ParseComponent<dec>(guidString, &arg2)
                         || !ParseComponent<hex>(guidString, &arg3)
@@ -1055,6 +1057,7 @@ ObjectGuid ObjectGuidFactory::CreateHousing(uint32 subType, uint32 arg1, uint32 
     {
         case 1:
         case 4:
+        case 5: // Fixture GUIDs: same format as neighborhood/house GUIDs
             return ObjectGuid(uint64((uint64(HighGuid::Housing) << 58)
                 | (uint64(subType & 0x1F) << 53)
                 | (uint64(arg1 & 0xFFFF) << 32)

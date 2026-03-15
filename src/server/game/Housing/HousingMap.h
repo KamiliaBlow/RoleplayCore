@@ -60,11 +60,16 @@ public:
     // When provided, SpawnExtCompTree uses these instead of the DB2 default component at each hook.
     using FixtureOverrideMap = std::unordered_map<uint32 /*hookID*/, uint32 /*extCompID*/>;
 
+    // Root override map: componentType → componentID from player's root fixture selections
+    // (e.g., player chose a specific roof variant). When provided, SpawnFullHouseMeshObjects
+    // uses these instead of the DB2 default root for that type.
+    using RootOverrideMap = std::unordered_map<uint8 /*componentType*/, uint32 /*compID*/>;
+
     // House structure GO management
-    // Sniff-verified defaults: ExteriorComponentID=141 (Stucco Base), HouseExteriorWmoDataID=9 (Human theme)
     GameObject* SpawnHouseForPlot(uint8 plotIndex, Position const* customPos,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID,
-        FixtureOverrideMap const* fixtureOverrides = nullptr);
+        FixtureOverrideMap const* fixtureOverrides = nullptr,
+        RootOverrideMap const* rootOverrides = nullptr);
     void DespawnHouseForPlot(uint8 plotIndex);
     GameObject* GetHouseGameObject(uint8 plotIndex);
     int8 GetPlotIndexForHouseGO(ObjectGuid goGuid) const;
@@ -83,7 +88,8 @@ public:
         QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID,
         int32 factionRestriction = NEIGHBORHOOD_FACTION_ALLIANCE,
-        FixtureOverrideMap const* fixtureOverrides = nullptr);
+        FixtureOverrideMap const* fixtureOverrides = nullptr,
+        RootOverrideMap const* rootOverrides = nullptr);
     void SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
         QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID);
