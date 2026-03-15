@@ -3468,7 +3468,7 @@ class spell_warl_diabolic_ritual_passive : public AuraScript
             }
         }
 
-        // No Diabolic Ritual active — apply one from the cycle
+        // No Diabolic Ritual active - apply one from the cycle
         uint32 cycleIndex = target->Variables.GetValue<uint32>("DiabolicRitualCycle");
         uint32 ritualSpell = RitualSpells[cycleIndex % 3];
 
@@ -4581,6 +4581,7 @@ void AddSC_warlock_spell_scripts()
     RegisterCreatureAI(npc_warl_dimensional_rift_chaos_tear);
     RegisterCreatureAI(npc_warl_dimensional_rift_shadowy_tear);
 
+    //New
     new spell_warl_fear();
     new spell_warl_fear_buff();
     RegisterSpellScript(spell_warl_corruption_effect);
