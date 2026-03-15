@@ -404,7 +404,7 @@ Neighborhood* NeighborhoodMgr::FindOrCreatePublicNeighborhood(uint32 teamId)
 
     for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
     {
-        int32 flags = data.FactionRestriction;
+        int32 flags = data.Flags;
         bool isAlliance = (flags & 0x1) != 0;
         bool isHorde = (flags & 0x2) != 0;
         bool canSystemGenerate = (flags & 0x4) != 0;
@@ -480,7 +480,7 @@ void NeighborhoodMgr::VerifyNeighborhoodFactions()
         if (it == allMaps.end())
             continue;
 
-        int32 mapFlags = it->second.FactionRestriction;
+        int32 mapFlags = it->second.Flags;
         bool mapIsAlliance = (mapFlags & 0x1) != 0;
         bool mapIsHorde = (mapFlags & 0x2) != 0;
 
@@ -538,7 +538,7 @@ void NeighborhoodMgr::EnsurePublicNeighborhoods()
     // Find system-generatable NeighborhoodMap entries for missing factions
     for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
     {
-        int32 flags = data.FactionRestriction;
+        int32 flags = data.Flags;
         bool isAlliance = (flags & 0x1) != 0;
         bool isHorde = (flags & 0x2) != 0;
         bool canSystemGenerate = (flags & 0x4) != 0;
@@ -869,7 +869,7 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
         uint32 targetMapId = 0;
         for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
         {
-            int32 flags = data.FactionRestriction;
+            int32 flags = data.Flags;
             bool isAlliance = (flags & 0x1) != 0;
             bool isHorde = (flags & 0x2) != 0;
             bool canSystemGenerate = (flags & 0x4) != 0;

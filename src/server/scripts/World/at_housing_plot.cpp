@@ -25,7 +25,9 @@
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "ObjectAccessor.h"
+#include "UpdateData.h"
 #include "PhasingHandler.h"
 #include "Player.h"
 #include "WorldSession.h"
@@ -91,6 +93,73 @@ struct at_housing_plot : AreaTriggerAI
             housingMap->SendPlotEnterSpellPackets(player, static_cast<uint8>(plotId));
         }
 
+        // Re-send HouseStatusResponse + GetPlayerPermissionsResponse after ENTER_PLOT.
+        // The client's ENTER_PLOT handler (vtable[22]) resets the editor state including
+        // the stored HouseGuid, so we must re-establish it via HouseStatusResponse (vtable[25])
+        // then arm the editor gate check via GetPlayerPermissionsResponse (vtable[24]).
+        // Without this sequence, the editor gate check (a1[76] && a1[72]) is always false
+        // and no editor mode (Decor, Room, Fixture) can be activated.
+        if (!ownerGuid.IsEmpty())
+        {
+            Player* plotOwner = (isOwnPlot) ? player : ObjectAccessor::FindPlayer(ownerGuid);
+            Housing const* ownerHousing = plotOwner ? plotOwner->GetHousing() : nullptr;
+
+            if (ownerHousing)
+            {
+                // HouseStatusResponse: restores HouseGuid on client after vtable[22] cleared it
+                WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
+                statusResponse.HouseGuid = ownerHousing->GetHouseGuid();
+                statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
+                statusResponse.OwnerPlayerGuid = ownerGuid;
+                statusResponse.NeighborhoodGuid = ownerHousing->GetNeighborhoodGuid();
+                statusResponse.Status = 0;
+                statusResponse.FlagByte = 0xE0; // bit7=houseEditing, bit6=plotEntry, bit5=houseEntry
+                player->SendDirectMessage(statusResponse.Write());
+
+                // GetPlayerPermissionsResponse: arms the editor gate (vtable[24] sets a1[72..76])
+                WorldPackets::Housing::HousingGetPlayerPermissionsResponse permResponse;
+                permResponse.HouseGuid = ownerHousing->GetHouseGuid();
+                permResponse.ResultCode = 0;
+                permResponse.PermissionFlags = isOwnPlot ? 0xE0 : 0x40; // owner=all, visitor=plotEntry only
+                player->SendDirectMessage(permResponse.Write());
+
+                TC_LOG_DEBUG("housing", "at_housing_plot: Sent HouseStatus+Permissions for player {} (own={}, flags=0x{:X})",
+                    player->GetGUID().ToString(), isOwnPlot, isOwnPlot ? 0xE0 : 0x40);
+            }
+        }
+
+        // Re-CREATE the player's exterior root MeshObject so the client's
+        // Tag_HouseExteriorRoot singleton points to THIS plot's root.
+        // With multiple occupied plots, the singleton retains whichever root
+        // was created last during SpawnPlotGameObjects(). Re-sending CREATE
+        // for our root forces the client's fragment 225 handler to overwrite
+        // the singleton, guaranteeing GUID match in the fixture response handler.
+        if (isOwnPlot)
+        {
+            auto const& meshMap = housingMap->GetPlotMeshObjects();
+            auto meshItr = meshMap.find(static_cast<uint8>(plotId));
+            if (meshItr != meshMap.end())
+            {
+                for (ObjectGuid const& meshGuid : meshItr->second)
+                {
+                    MeshObject* meshObj = housingMap->GetMeshObject(meshGuid);
+                    if (meshObj && meshObj->IsExteriorRoot() && meshObj->IsInWorld())
+                    {
+                        UpdateData updateData(player->GetMapId());
+                        meshObj->BuildCreateUpdateBlockForPlayer(&updateData, player);
+                        player->m_clientGUIDs.insert(meshGuid);
+                        WorldPacket updatePacket;
+                        updateData.BuildPacket(&updatePacket);
+                        player->SendDirectMessage(&updatePacket);
+
+                        TC_LOG_DEBUG("housing", "at_housing_plot: Re-CREATE root MeshObject {} for plot {} (singleton refresh)",
+                            meshGuid.ToString(), plotId);
+                        break;
+                    }
+                }
+            }
+        }
+
         // Cosmetic phase shift: when entering own plot, remove 16 cosmetic phases
         // after a ~10 second delay (sniff-verified retail behavior).
         // Only applies to the plot owner, not visitors.
@@ -147,6 +216,26 @@ struct at_housing_plot : AreaTriggerAI
         // Notify the client that the player has left the plot
         WorldPackets::Neighborhood::NeighborhoodPlayerLeavePlot leavePlot;
         player->SendDirectMessage(leavePlot.Write());
+
+        // Send HouseStatusResponse with FlagByte=0x00 to clear all editing contexts (Decor, Room, Fixture).
+        // Without this, the editor buttons remain visible after leaving the plot.
+        if (isOwnPlot)
+        {
+            if (Housing const* housing = player->GetHousing())
+            {
+                WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
+                statusResponse.HouseGuid = housing->GetHouseGuid();
+                statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
+                statusResponse.OwnerPlayerGuid = player->GetGUID();
+                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+                statusResponse.Status = 0;
+                statusResponse.FlagByte = 0x00; // Clear all editing contexts
+                player->SendDirectMessage(statusResponse.Write());
+
+                TC_LOG_DEBUG("housing", "at_housing_plot: Sent FlagByte=0x00 HouseStatusResponse for plot owner {} leaving plot",
+                    player->GetGUID().ToString());
+            }
+        }
 
         // Cosmetic phase shift: when leaving own plot, restore 16 cosmetic phases
         // after a ~10 second delay (sniff-verified retail behavior).

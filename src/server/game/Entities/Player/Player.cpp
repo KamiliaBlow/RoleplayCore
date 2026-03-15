@@ -18,6 +18,7 @@
 #include "Player.h"
 #include "AreaTrigger.h"
 #include "Account.h"
+#include "QueryPackets.h"
 #include "HousingNeighborhoodMirrorEntity.h"
 #include "HousingPlayerHouseEntity.h"
 #include "AccountMgr.h"
@@ -15608,9 +15609,6 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
     sScriptMgr->OnQuestStatusChange(this, quest_id);
     sScriptMgr->OnQuestStatusChange(this, quest, oldStatus, QUEST_STATUS_REWARDED);
 
-    // Housing initiative: exploration task (TaskType=4)
-    sInitiativeManager.OnPlayerAction(this, 4, 1);
-
     // Housing level progression: quest-based level-up
     if (Housing* housing = GetHousing())
         housing->OnQuestCompleted(quest_id);
@@ -16979,9 +16977,6 @@ void Player::KilledMonsterCredit(uint32 entry, ObjectGuid guid /*= ObjectGuid::E
     UpdateCriteria(CriteriaType::KillCreature, real_entry, addKillCount, 0, killed);
 
     UpdateQuestObjectiveProgress(QUEST_OBJECTIVE_MONSTER, entry, 1, guid);
-
-    // Housing initiative: combat task (TaskType=3)
-    sInitiativeManager.OnPlayerAction(this, 3, addKillCount);
 }
 
 void Player::KilledPlayerCredit(ObjectGuid victimGuid)
@@ -19417,15 +19412,10 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             // the endeavor as active rather than expired (Duration=0 - hidden).
             // DB2 Duration is already in seconds (NOT days).
             // Sniff-verified: RemainingDuration is in seconds (sniff value 972957 - 11.25 days).
+            // Duration comes from NeighborhoodInitiative DB2 (not InitiativeCycle ? that has HouseXPCap)
             int64 durationSec = 0;
             if (initEntry && initEntry->Duration > 0)
                 durationSec = static_cast<int64>(initEntry->Duration);
-            else if (cycleID)
-            {
-                InitiativeCycleEntry const* cycleEntry = sInitiativeCycleStore.LookupEntry(cycleID);
-                if (cycleEntry && cycleEntry->Duration > 0)
-                    durationSec = static_cast<int64>(cycleEntry->Duration);
-            }
             if (durationSec <= 0)
                 durationSec = 7 * DAY; // 7-day fallback
 
@@ -19447,7 +19437,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             auto milestones = sInitiativeManager.GetMilestonesForCycle(cycleID);
             for (auto const& m : milestones)
             {
-                if (activeInit->Progress < m.ProgressRequired)
+                if (activeInit->Progress < m.RequiredContributionAmount)
                 {
                     currentMilestoneID = static_cast<int32>(m.MilestoneID);
                     break;
@@ -26084,8 +26074,9 @@ void Player::SendInitialPacketsAfterAddToMap()
                 statusResponse.OwnerPlayerGuid = GetGUID();
                 statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
                 statusResponse.Status = 0;
+                statusResponse.FlagByte = 0xE0; // bit7=houseEditing, bit6=plotEntry, bit5=houseEntry (sniff-verified owner value)
             }
-            // No house: all fields stay at defaults (empty GUIDs, Status=0).
+            // No house: all fields stay at defaults (empty GUIDs, Status=0, FlagByte=0).
             SendDirectMessage(statusResponse.Write());
 
             // FNeighborhoodMirrorData_C belongs on the Housing/4 entity (separate from BNetAccount).
@@ -26196,7 +26187,31 @@ void Player::SendInitialPacketsAfterAddToMap()
                 rosterResponse.GroupOwnerGuid.GetRawValue(0), rosterResponse.GroupOwnerGuid.GetRawValue(1),
                 rosterResponse.NeighborhoodName, rosterResponse.Members.size(), loginRosterPkt->size());
 
-            TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - sent HouseStatus + roster + NeighborhoodMirrorData (Neighborhood: '{}' {}, Members: {}, Plots: {}, HasHouse: {})",
+            // Proactively send player name responses for ALL occupied plot owners.
+            // The client's GetNeighborhoodPlotName() reads OwnerGUID from the mirror
+            // entity's Houses[] array, then looks up the player name from the NameCache.
+            // If the name isn't cached (e.g. plot owner is offline), the function falls
+            // back to showing just the plot number. By pushing names here, we ensure
+            // the NameCache is populated before the world map is opened.
+            {
+                WorldPackets::Query::QueryPlayerNamesResponse nameResponse;
+                for (auto const& plot : neighborhood->GetPlots())
+                {
+                    if (!plot.IsOccupied() || plot.OwnerGuid.IsEmpty())
+                        continue;
+
+                    WorldPackets::Query::NameCacheLookupResult& entry = nameResponse.Players.emplace_back();
+                    GetSession()->BuildNameQueryData(plot.OwnerGuid, entry);
+                }
+                if (!nameResponse.Players.empty())
+                {
+                    SendDirectMessage(nameResponse.Write());
+                    TC_LOG_DEBUG("housing", "Player {} housing map enter: pre-pushed {} plot owner names to NameCache",
+                        GetGUID().ToString(), nameResponse.Players.size());
+                }
+            }
+
+            TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - sent HouseStatus + roster + names + NeighborhoodMirrorData (Neighborhood: '{}' {}, Members: {}, Plots: {}, HasHouse: {})",
                 GetGUID().ToString(), GetMapId(), neighborhood->GetName(), neighborhood->GetGuid().ToString(),
                 members.size(), neighborhood->GetOccupiedPlotCount(), housing ? "yes" : "no");
         }

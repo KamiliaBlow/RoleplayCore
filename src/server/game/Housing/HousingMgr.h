@@ -108,8 +108,8 @@ struct HouseThemeData
 {
     uint32 ID = 0;
     std::string Name;
-    int32 ThemeSetID = 0;
-    int32 UiModelSceneID = 0;
+    int32 Flags = 0;                // DB2: Flags
+    int32 ParentThemeID = 0;        // DB2: ParentThemeID FK->HouseTheme
 };
 
 struct HouseDecorThemeSetData
@@ -125,9 +125,9 @@ struct NeighborhoodMapData
     uint32 ID = 0;
     float Origin[3] = {};           // DB2: Position[3]
     int32 MapID = 0;                // DB2: MapID
-    float Radius = 0.0f;            // DB2: Radius
-    uint32 PlotCount = 0;           // DB2: PlotCount
-    int32 FactionRestriction = 0;   // DB2: FactionRestriction (bitmask: 0x1=Alliance, 0x2=Horde, 0x4=SystemGenerate)
+    float EntryRotation = 0.0f;     // DB2: EntryRotation
+    uint32 UiTextureKitID = 0;      // DB2: UiTextureKitID
+    int32 Flags = 0;                // DB2: Flags (bitmask: 0x1=Alliance, 0x2=Horde, 0x4=SystemGenerate)
 };
 
 struct NeighborhoodPlotData
@@ -162,11 +162,11 @@ struct NeighborhoodNameGenData
 struct HouseDecorMaterialData
 {
     uint32 ID = 0;
-    uint64 MaterialGUID = 0;
-    int32 HouseDecorID = 0;
-    int32 MaterialIndex = 0;
-    int32 DefaultDyeID = 0;
-    int32 AllowedDyeMask = 0;
+    uint64 WMOMaterialReference = 0;    // DB2: WMOMaterialReference
+    int32 MaterialTextureIndex = 0;     // DB2: MaterialTextureIndex
+    int32 HouseThemeID = 0;             // DB2: HouseThemeID FK->HouseTheme
+    int32 TextureAFileDataID = 0;       // DB2: TextureAFileDataID FK->FileData
+    int32 TextureBFileDataID = 0;       // DB2: TextureBFileDataID FK->FileData
 };
 
 struct HouseExteriorWmoData
@@ -181,9 +181,9 @@ struct HouseLevelRewardInfoData
     uint32 ID = 0;
     std::string Name;
     std::string Description;
-    int32 HouseLevelID = 0;
-    int32 RewardType = 0;
-    int32 RewardValue = 0;
+    int32 HouseLevelDataID = 0;         // DB2: HouseLevelDataID FK->HouseLevelData
+    int32 Field_4 = 0;                  // DB2: Field_12_0_0_63967_004
+    int32 IconFileDataID = 0;           // DB2: IconFileDataID FK->FileData
 };
 
 struct NeighborhoodInitiativeData
@@ -201,26 +201,26 @@ struct DecorCategoryData
 {
     uint32 ID = 0;
     std::string Name;
-    int32 IconFileDataID = 0;
-    int32 DisplayIndex = 0;
+    int32 UiTextureAtlasElementID = 0;  // DB2: UiTextureAtlasElementID
+    int32 OrderIndex = 0;               // DB2: OrderIndex
 };
 
 struct DecorSubcategoryData
 {
     uint32 ID = 0;
     std::string Name;
-    int32 IconFileDataID = 0;
+    int32 UiTextureAtlasElementID = 0;  // DB2: UiTextureAtlasElementID
     int32 DecorCategoryID = 0;
-    int32 DisplayIndex = 0;
+    int32 OrderIndex = 0;               // DB2: OrderIndex
 };
 
 struct DecorDyeSlotData
 {
     uint32 ID = 0;
-    int32 SlotIndex = 0;
+    int32 DyeColorCategoryID = 0;       // DB2: DyeColorCategoryID FK->DyeColorCategory
     int32 HouseDecorID = 0;
-    int32 DyeChannelType = 0;
-    int32 DefaultDyeRecordID = 0;
+    int32 OrderIndex = 0;               // DB2: OrderIndex
+    int32 Channel = 0;                  // DB2: Channel
 };
 
 class TC_GAME_API HousingMgr
@@ -256,7 +256,7 @@ public:
     std::vector<DecorSubcategoryData const*> GetSubcategoriesForCategory(uint32 categoryId) const;
     std::vector<uint32> GetDecorIdsForSubcategory(uint32 subcategoryId) const;
     std::vector<DecorDyeSlotData const*> GetDyeSlotsForDecor(uint32 houseDecorId) const;
-    std::vector<HouseDecorMaterialData const*> GetMaterialsForDecor(uint32 houseDecorId) const;
+    std::vector<HouseDecorMaterialData const*> GetMaterialsForTheme(uint32 houseThemeId) const;
     std::vector<HouseLevelRewardInfoData const*> GetRewardsForLevel(uint32 houseLevelId) const;
 
     // Neighborhood plot lookups
@@ -330,9 +330,11 @@ public:
 
     // ExteriorComponent indexed lookups
     std::vector<ExteriorComponentHookEntry const*> const* GetHooksOnComponent(uint32 extCompID) const;
-    ExteriorComponentEntry const* GetComponentAtHook(int32 hookID) const;
+    ExteriorComponentEntry const* GetComponentAtHook(int32 hookID, uint32 parentCompID) const;
     ExteriorComponentExitPointEntry const* GetExitPoint(uint32 extCompID) const;
     int32 GetGroupForComponent(uint32 extCompID) const;
+    std::vector<uint32> const* GetChildComponents(uint32 parentCompID) const;
+    std::vector<uint32> const* GetRootComponentsForWmoData(uint32 wmoDataID) const;
     std::vector<uint32> const* GetComponentsInGroup(int32 groupID) const;
 
     // Find the first HouseRoom entry with visual components (not the base room 18)
@@ -391,7 +393,7 @@ private:
     std::unordered_map<uint32 /*neighborhoodMapId*/, std::vector<NeighborhoodPlotData const*>> _plotsByMap;
     std::unordered_map<uint32 /*neighborhoodMapId*/, std::vector<NeighborhoodNameGenData>> _nameGenByMap;
     std::unordered_map<uint32 /*level*/, HouseLevelData const*> _levelDataByLevel;
-    std::unordered_map<uint32 /*houseDecorId*/, std::vector<HouseDecorMaterialData const*>> _materialsByDecor;
+    std::unordered_map<uint32 /*houseThemeId*/, std::vector<HouseDecorMaterialData const*>> _materialsByTheme;
     std::unordered_map<uint32 /*houseLevelId*/, std::vector<HouseLevelRewardInfoData const*>> _rewardsByLevel;
     std::unordered_map<uint32 /*categoryId*/, std::vector<DecorSubcategoryData const*>> _subcategoriesByCategory;
     std::unordered_map<uint32 /*subcategoryId*/, std::vector<uint32 /*houseDecorId*/>> _decorsBySubcategory;
@@ -432,10 +434,12 @@ private:
 
     // ExteriorComponent indexes
     std::unordered_map<uint32 /*extCompID*/, std::vector<ExteriorComponentHookEntry const*>> _hooksByExtComp;
-    std::unordered_map<int32 /*hookID*/, ExteriorComponentEntry const*> _extCompByHookId;
+    std::unordered_map<int64 /*(hookID<<32)|parentCompID*/, ExteriorComponentEntry const*> _extCompByHookId;
     std::unordered_map<uint32 /*extCompID*/, ExteriorComponentExitPointEntry const*> _exitPointByExtComp;
     std::unordered_map<uint32 /*extCompID*/, int32 /*groupID*/> _groupByExtComp;
     std::unordered_map<int32 /*groupID*/, std::vector<uint32 /*extCompID*/>> _extCompsByGroup;
+    std::unordered_map<uint32 /*parentCompID*/, std::vector<uint32 /*childCompID*/>> _childrenByExtComp;
+    std::unordered_map<uint32 /*wmoDataID*/, std::vector<uint32 /*compID*/>> _rootCompsByWmoDataId;
 };
 
 #define sHousingMgr HousingMgr::Instance()

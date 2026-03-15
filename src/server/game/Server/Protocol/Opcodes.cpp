@@ -503,7 +503,7 @@ void OpcodeTable::InitializeClientOpcodes()
     DEFINE_HANDLER(CMSG_GET_INITIATIVE_TASK_PROGRESS_REQUEST,               STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGetInitiativeTaskProgressRequest);
     DEFINE_HANDLER(CMSG_GET_ITEM_PURCHASE_DATA,                             STATUS_LOGGEDIN,  PROCESS_INPLACE,      &WorldSession::HandleGetItemPurchaseData);
     DEFINE_HANDLER(CMSG_GET_LANDING_PAGE_SHIPMENTS,                         STATUS_UNHANDLED, PROCESS_INPLACE,      &WorldSession::Handle_NULL);
-    DEFINE_HANDLER(CMSG_GET_LAST_CATALOG_FETCH,                             STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
+    DEFINE_HANDLER(CMSG_GET_LAST_CATALOG_FETCH,                             STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleGetLastCatalogFetch);
     DEFINE_HANDLER(CMSG_GET_MIRROR_IMAGE_DATA,                              STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleMirrorImageDataRequest);
     DEFINE_HANDLER(CMSG_GET_PVP_OPTIONS_ENABLED,                            STATUS_LOGGEDIN,  PROCESS_INPLACE,      &WorldSession::HandleGetPVPOptionsEnabled);
     DEFINE_HANDLER(CMSG_GET_RAF_ACCOUNT_INFO,                               STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
@@ -1170,7 +1170,7 @@ void OpcodeTable::InitializeClientOpcodes()
     DEFINE_HANDLER(CMSG_UPDATE_ACCOUNT_DATA,                                STATUS_AUTHED,    PROCESS_THREADUNSAFE, &WorldSession::HandleUpdateAccountData);
     DEFINE_HANDLER(CMSG_UPDATE_AREA_TRIGGER_VISUAL,                         STATUS_LOGGEDIN,  PROCESS_INPLACE,      &WorldSession::HandleUpdateAreaTriggerVisual);
     DEFINE_HANDLER(CMSG_UPDATE_CRAFTING_NPC_RECIPES,                        STATUS_UNHANDLED, PROCESS_INPLACE,      &WorldSession::Handle_NULL);
-    DEFINE_HANDLER(CMSG_UPDATE_LAST_CATALOG_FETCH,                          STATUS_UNHANDLED, PROCESS_THREADUNSAFE, &WorldSession::Handle_NULL);
+    DEFINE_HANDLER(CMSG_UPDATE_LAST_CATALOG_FETCH,                          STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleUpdateLastCatalogFetch);
     DEFINE_HANDLER(CMSG_UPDATE_MISSILE_TRAJECTORY,                          STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleUpdateMissileTrajectory);
     DEFINE_HANDLER(CMSG_UPDATE_RAID_TARGET,                                 STATUS_LOGGEDIN,  PROCESS_THREADUNSAFE, &WorldSession::HandleUpdateRaidTargetOpcode);
     DEFINE_HANDLER(CMSG_UPDATE_SPELL_VISUAL,                                STATUS_LOGGEDIN,  PROCESS_INPLACE,      &WorldSession::HandleUpdateAuraVisual);

@@ -67,6 +67,7 @@ enum InventoryResult : uint8;
 enum class StableResult : uint8;
 enum class TabardVendorType : int32;
 
+class Housing;
 class HousingNeighborhoodMirrorEntity;
 class HousingPlayerHouseEntity;
 
@@ -444,6 +445,8 @@ namespace WorldPackets
         class HousingDecorRedeemDeferredDecor;
         class HousingDecorStartPlacingNewDecor;
         class HousingDecorCatalogCreateSearcher;
+        class GetLastCatalogFetch;
+        class UpdateLastCatalogFetch;
         class HousingFixtureSetEditMode;
         class HousingFixtureSetCoreFixture;
         class HousingFixtureCreateFixture;
@@ -1624,8 +1627,11 @@ class TC_GAME_API WorldSession
         void HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::HousingDecorRedeemDeferredDecor const& housingDecorRedeemDeferredDecor);
         void HandleHousingDecorStartPlacingNewDecor(WorldPackets::Housing::HousingDecorStartPlacingNewDecor const& housingDecorStartPlacingNewDecor);
         void HandleHousingDecorCatalogCreateSearcher(WorldPackets::Housing::HousingDecorCatalogCreateSearcher const& housingDecorCatalogCreateSearcher);
+        void HandleGetLastCatalogFetch(WorldPackets::Housing::GetLastCatalogFetch const& getLastCatalogFetch);
+        void HandleUpdateLastCatalogFetch(WorldPackets::Housing::UpdateLastCatalogFetch const& updateLastCatalogFetch);
 
         // Housing - Fixture System
+        void SendFixtureUpdateObject(Player* player, Housing* housing);
         void HandleHousingFixtureSetEditMode(WorldPackets::Housing::HousingFixtureSetEditMode const& housingFixtureSetEditMode);
         void HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::HousingFixtureSetCoreFixture const& housingFixtureSetCoreFixture);
         void HandleHousingFixtureCreateFixture(WorldPackets::Housing::HousingFixtureCreateFixture const& housingFixtureCreateFixture);

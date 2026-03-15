@@ -18,6 +18,7 @@
 #include "WorldSession.h"
 #include "Account.h"
 #include "HousingNeighborhoodMirrorEntity.h"
+#include "QueryPackets.h"
 #include "HousingPlayerHouseEntity.h"
 #include "DatabaseEnv.h"
 #include "GameObject.h"
@@ -1254,10 +1255,13 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         {
             housingMap->SetPlotOwnershipState(resolvedPlotIndex, true);
 
-            // Spawn the house structure GO at DB2 default position
-            // Uses sniff-verified defaults: ExteriorComponentID=141, WmoDataID=9
-            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Calling SpawnHouseForPlot for plot {}", resolvedPlotIndex);
-            GameObject* houseGo = housingMap->SpawnHouseForPlot(resolvedPlotIndex);
+            // Spawn the house using the player's Housing data
+            Housing const* buyHousing = player->GetHousing();
+            int32 buyExtCompID = buyHousing ? static_cast<int32>(buyHousing->GetCoreExteriorComponentID()) : 0;
+            int32 buyWmoDataID = buyHousing ? static_cast<int32>(buyHousing->GetHouseType()) : 0;
+            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Calling SpawnHouseForPlot for plot {} (extComp={}, wmoData={})",
+                resolvedPlotIndex, buyExtCompID, buyWmoDataID);
+            GameObject* houseGo = housingMap->SpawnHouseForPlot(resolvedPlotIndex, nullptr, buyExtCompID, buyWmoDataID);
             TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: SpawnHouseForPlot result: {}",
                 houseGo ? houseGo->GetGUID().ToString() : "FAILED/NULL");
         }
@@ -1425,7 +1429,18 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
             }
 
             housingMap->SetPlotOwnershipState(targetPlotIndex, true);
-            housingMap->SpawnHouseForPlot(targetPlotIndex);
+            if (Housing const* h = player->GetHousing())
+            {
+                auto fixtureOverrides = h->GetFixtureOverrideMap();
+                housingMap->SpawnHouseForPlot(targetPlotIndex, nullptr,
+                    static_cast<int32>(h->GetCoreExteriorComponentID()),
+                    static_cast<int32>(h->GetHouseType()),
+                    fixtureOverrides.empty() ? nullptr : &fixtureOverrides);
+            }
+            else
+            {
+                TC_LOG_ERROR("housing", "HandleNeighborhoodMoveHouse: No Housing object for player — cannot spawn house at plot {}", targetPlotIndex);
+            }
         }
 
         if (Housing const* housing = player->GetHousing())
@@ -1780,6 +1795,26 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
         }
     }
     mirrorEntity.SendUpdateToPlayer(player);
+
+    // Pre-push player names for all plot owners so the client can format
+    // plot names via HOUSING_HOUSE_NAME_FORMAT without waiting for async name queries.
+    {
+        WorldPackets::Query::QueryPlayerNamesResponse nameResponse;
+        for (auto const& plot : neighborhood->GetPlots())
+        {
+            if (!plot.IsOccupied() || plot.OwnerGuid.IsEmpty())
+                continue;
+
+            WorldPackets::Query::NameCacheLookupResult& entry = nameResponse.Players.emplace_back();
+            BuildNameQueryData(plot.OwnerGuid, entry);
+        }
+        if (!nameResponse.Players.empty())
+        {
+            SendPacket(nameResponse.Write());
+            TC_LOG_DEBUG("housing", "HandleNeighborhoodGetRoster: pre-pushed {} plot owner names to NameCache",
+                nameResponse.Players.size());
+        }
+    }
 
     TC_LOG_ERROR("housing", "=== SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE (0x5C0012) [handler] ===\n"
         "  Result={}, Members={}, NeighborhoodName='{}'\n"

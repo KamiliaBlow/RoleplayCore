@@ -17,6 +17,7 @@
 
 #include "CriteriaHandler.h"
 #include "ArenaTeamMgr.h"
+#include "InitiativeManager.h"
 #include "AzeriteItem.h"
 #include "BattlePetMgr.h"
 #include "Battleground.h"
@@ -503,6 +504,10 @@ void CriteriaHandler::UpdateCriteria(Criteria const* criteria, uint64 miscValue1
     if (CriteriaDataSet const* data = sCriteriaMgr->GetCriteriaDataSet(criteria))
         if (!data->Meets(referencePlayer, ref, uint32(miscValue1), uint32(miscValue2)))
             return;
+
+    // Housing initiative hook: notify InitiativeManager when validated criteria fires
+    if (referencePlayer)
+        sInitiativeManager.OnCriteriaProgress(referencePlayer, criteria->ID);
 
     switch (CriteriaType(criteria->Entry->Type))
     {

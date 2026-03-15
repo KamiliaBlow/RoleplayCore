@@ -17,6 +17,7 @@
 
 #include "InitiativeManager.h"
 #include "CharacterDatabase.h"
+#include "CriteriaHandler.h"
 #include "Housing.h"
 #include "DB2Stores.h"
 #include "Item.h"
@@ -50,6 +51,9 @@ void InitiativeManager::Initialize()
     // Must run AFTER LoadFromDB() and AFTER sNeighborhoodMgr.Initialize().
     CheckAndStartInitiatives();
 
+    // Build reverse index from CriteriaID -> initiative tasks for O(1) matching
+    BuildCriteriaIndex();
+
     TC_LOG_INFO("housing", "InitiativeManager: Initialized with {} initiative definitions, {} active instances across all neighborhoods",
         uint32(sNeighborhoodInitiativeStore.GetNumRows()), [this]() -> uint32 {
             uint32 count = 0;
@@ -78,9 +82,9 @@ void InitiativeManager::BuildDB2IndexMaps()
 
         InitiativeTaskData taskData;
         taskData.TaskID = taskEntry->ID;
-        taskData.TaskType = taskEntry->TaskType;
-        taskData.TargetCount = taskEntry->TargetCount;
         taskData.CriteriaTreeID = taskEntry->CriteriaTreeID;
+        taskData.QuestID = taskEntry->QuestID;
+        taskData.ProgressContributionAmount = taskEntry->ProgressContributionAmount;
         taskData.SortOrder = xTask->SortOrder;
 
         _initiativeTasks[xTask->NeighborhoodInitiativeID].push_back(taskData);
@@ -101,17 +105,17 @@ void InitiativeManager::BuildDB2IndexMaps()
 
         InitiativeMilestoneData data;
         data.MilestoneID = milestone->ID;
-        data.MilestoneIndex = milestone->MilestoneIndex;
-        data.ProgressRequired = milestone->ProgressRequired;
-        data.Flags = milestone->Flags;
+        data.MilestoneOrderIndex = milestone->MilestoneOrderIndex;
+        data.RequiredContributionAmount = milestone->RequiredContributionAmount;
+        data.Field_3 = milestone->Field_3;
 
-        _cycleMilestones[milestone->InitiativeCycleID].push_back(data);
+        _cycleMilestones[milestone->NeighborhoodInitiativeID].push_back(data);
     }
 
     // Sort milestones by index within each cycle
     for (auto& [cycleId, milestones] : _cycleMilestones)
         std::sort(milestones.begin(), milestones.end(), [](InitiativeMilestoneData const& a, InitiativeMilestoneData const& b) {
-            return a.MilestoneIndex < b.MilestoneIndex;
+            return a.MilestoneOrderIndex < b.MilestoneOrderIndex;
         });
 
     // Build InitiativeID -> active CycleID map (pick lowest CycleIndex as the "active" cycle)
@@ -215,7 +219,7 @@ void InitiativeManager::LoadFromDB()
             // Initialize defaults from progress float
             auto const& milestones = GetMilestonesForCycle(cycleID);
             for (auto const& milestone : milestones)
-                initiative->MilestonesReached[milestone.MilestoneIndex] = (initiative->Progress >= milestone.ProgressRequired);
+                initiative->MilestonesReached[milestone.MilestoneOrderIndex] = (initiative->Progress >= milestone.RequiredContributionAmount);
 
             // Overwrite with persisted milestone state
             if (initiative->DbId)
@@ -391,7 +395,7 @@ ActiveInitiative* InitiativeManager::StartInitiative(uint64 neighborhoodGuid, ui
     {
         auto const& milestones = GetMilestonesForCycle(cycleID);
         for (auto const& milestone : milestones)
-            initiative->MilestonesReached[milestone.MilestoneIndex] = false;
+            initiative->MilestonesReached[milestone.MilestoneOrderIndex] = false;
     }
 
     // Persist to database
@@ -409,6 +413,9 @@ ActiveInitiative* InitiativeManager::StartInitiative(uint64 neighborhoodGuid, ui
 
     ActiveInitiative* ptr = initiative.get();
     _activeInitiatives[neighborhoodGuid].push_back(std::move(initiative));
+
+    // Rebuild criteria reverse index now that a new initiative is active
+    BuildCriteriaIndex();
 
     // Broadcast initiative started status to neighborhood members
     ObjectGuid nhObjGuid = ObjectGuid::Create<HighGuid::Housing>(4, 0, 0, neighborhoodGuid);
@@ -481,6 +488,9 @@ void InitiativeManager::CompleteInitiative(uint64 neighborhoodGuid, uint32 initi
                 SendInitiativePointsUpdate(neighborhood, maxPoints, maxPoints);
             }
 
+            // Rebuild criteria index since this initiative's tasks are no longer active
+            BuildCriteriaIndex();
+
             TC_LOG_INFO("housing", "InitiativeManager::CompleteInitiative: Initiative {} completed in neighborhood {}",
                 initiativeID, neighborhoodGuid);
             return;
@@ -523,9 +533,9 @@ void InitiativeManager::UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initi
     if (taskProgress.Status == INITIATIVE_TASK_STATUS_COMPLETE)
         return;
 
-    // Get target count from DB2
+    // Get contribution weight from DB2 (ProgressContributionAmount = how much each completion contributes)
     InitiativeTaskEntry const* taskEntry = sInitiativeTaskStore.LookupEntry(taskID);
-    int32 targetCount = taskEntry ? taskEntry->TargetCount : 1;
+    int32 targetCount = taskEntry ? taskEntry->ProgressContributionAmount : 1;
     if (targetCount <= 0)
         targetCount = 1;
 
@@ -643,12 +653,70 @@ void InitiativeManager::ClearTaskCriteria(uint64 neighborhoodGuid, uint32 initia
         taskID, initiativeID, neighborhoodGuid);
 }
 
-void InitiativeManager::OnPlayerAction(Player* player, int32 taskType, uint32 count /*= 1*/)
+void InitiativeManager::BuildCriteriaIndex()
+{
+    _criteriaToTasks.clear();
+
+    uint32 linkCount = 0;
+    uint32 missingTreeCount = 0;
+
+    for (auto const& [nhGuid, initiatives] : _activeInitiatives)
+    {
+        for (auto const& initiative : initiatives)
+        {
+            if (initiative->Completed)
+                continue;
+
+            auto tasksItr = _initiativeTasks.find(initiative->InitiativeID);
+            if (tasksItr == _initiativeTasks.end())
+                continue;
+
+            for (auto const& task : tasksItr->second)
+            {
+                if (task.CriteriaTreeID <= 0)
+                    continue;
+
+                // Walk the CriteriaTree to find all leaf Criteria entries
+                CriteriaTree const* tree = sCriteriaMgr->GetCriteriaTree(static_cast<uint32>(task.CriteriaTreeID));
+                if (!tree)
+                {
+                    ++missingTreeCount;
+                    TC_LOG_DEBUG("housing", "InitiativeManager::BuildCriteriaIndex: CriteriaTree {} not found for task {} (initiative {})",
+                        task.CriteriaTreeID, task.TaskID, initiative->InitiativeID);
+                    continue;
+                }
+
+                CriteriaMgr::WalkCriteriaTree(tree, [&](CriteriaTree const* node)
+                {
+                    if (node->Criteria)
+                    {
+                        CriteriaTaskLink link;
+                        link.NeighborhoodGuid = nhGuid;
+                        link.InitiativeID = initiative->InitiativeID;
+                        link.TaskID = task.TaskID;
+                        _criteriaToTasks[node->Criteria->ID].push_back(link);
+                        ++linkCount;
+                    }
+                });
+            }
+        }
+    }
+
+    TC_LOG_INFO("housing", "InitiativeManager::BuildCriteriaIndex: Built {} criteria->task links ({} missing trees)",
+        linkCount, missingTreeCount);
+}
+
+void InitiativeManager::OnCriteriaProgress(Player* player, uint32 criteriaId)
 {
     if (!player)
         return;
 
-    // Early bail: player must have an active housing with a neighborhood
+    // Look up the reverse index — is this criteria referenced by any initiative task?
+    auto itr = _criteriaToTasks.find(criteriaId);
+    if (itr == _criteriaToTasks.end())
+        return;
+
+    // Player must have housing with a neighborhood
     Housing* housing = player->GetHousing();
     if (!housing)
         return;
@@ -659,33 +727,31 @@ void InitiativeManager::OnPlayerAction(Player* player, int32 taskType, uint32 co
 
     uint64 nhLowGuid = neighborhoodGuid.GetCounter();
 
-    // Find active initiative for this neighborhood
-    auto itr = _activeInitiatives.find(nhLowGuid);
-    if (itr == _activeInitiatives.end())
-        return;
-
-    for (auto& initiative : itr->second)
+    for (auto const& link : itr->second)
     {
-        if (initiative->Completed)
+        // Only credit tasks for THIS player's neighborhood
+        if (link.NeighborhoodGuid != nhLowGuid)
             continue;
 
-        // Find matching tasks by TaskType
-        auto tasksItr = _initiativeTasks.find(initiative->InitiativeID);
-        if (tasksItr == _initiativeTasks.end())
+        // Find the active initiative and verify the task isn't already complete
+        auto initItr = _activeInitiatives.find(nhLowGuid);
+        if (initItr == _activeInitiatives.end())
             continue;
 
-        for (auto const& task : tasksItr->second)
+        for (auto& initiative : initItr->second)
         {
-            if (task.TaskType != taskType)
+            if (initiative->InitiativeID != link.InitiativeID || initiative->Completed)
                 continue;
 
-            // Check task is not already complete
-            auto progressItr = initiative->TaskProgress.find(task.TaskID);
+            auto progressItr = initiative->TaskProgress.find(link.TaskID);
             if (progressItr != initiative->TaskProgress.end() && progressItr->second.Status == INITIATIVE_TASK_STATUS_COMPLETE)
                 continue;
 
-            // Update progress
-            UpdateTaskProgress(nhLowGuid, initiative->InitiativeID, task.TaskID, count, player);
+            // Credit 1 unit of progress to the community task
+            UpdateTaskProgress(nhLowGuid, link.InitiativeID, link.TaskID, 1, player);
+
+            TC_LOG_DEBUG("housing", "InitiativeManager::OnCriteriaProgress: Player {} ({}) contributed to task {} via criteria {} (initiative {}, neighborhood {})",
+                player->GetName(), player->GetGUID().ToString(), link.TaskID, criteriaId, link.InitiativeID, nhLowGuid);
         }
     }
 }
@@ -752,7 +818,7 @@ bool InitiativeManager::ClaimMilestoneReward(uint64 neighborhoodGuid, uint32 ini
             auto const& milestones = GetMilestonesForCycle(cycleID);
             for (auto const& ms : milestones)
             {
-                if (static_cast<uint32>(ms.MilestoneIndex) == milestoneIndex)
+                if (static_cast<uint32>(ms.MilestoneOrderIndex) == milestoneIndex)
                 {
                     GrantMilestoneRewards(player, ms.MilestoneID);
                     break;
@@ -797,13 +863,12 @@ void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, ObjectGu
         // as active (Duration=0 → client treats as expired → empty endeavor list).
         int64 remainingDuration = 0;
         {
+            // Duration comes from NeighborhoodInitiative DB2 (not InitiativeCycle — that has HouseXPCap)
             int64 totalDurationSec = 0;
-            if (auto cycleIt = _initiativeActiveCycle.find(active->InitiativeID); cycleIt != _initiativeActiveCycle.end())
-            {
-                if (InitiativeCycleEntry const* cycle = sInitiativeCycleStore.LookupEntry(cycleIt->second))
-                    totalDurationSec = static_cast<int64>(cycle->Duration); // DB2 Duration is already in seconds
-            }
-            // Fallback: if DB2 has no duration, use 7 days
+            NeighborhoodInitiativeEntry const* initEntry = sNeighborhoodInitiativeStore.LookupEntry(active->InitiativeID);
+            if (initEntry && initEntry->Duration > 0)
+                totalDurationSec = static_cast<int64>(initEntry->Duration);
+            // Fallback: if NeighborhoodInitiative has no duration, use 7 days
             if (totalDurationSec <= 0)
                 totalDurationSec = 7 * 86400;
 
@@ -830,10 +895,10 @@ void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, ObjectGu
         {
             for (auto const& ms : msIt->second)
             {
-                if (currentProgress >= ms.ProgressRequired)
+                if (currentProgress >= ms.RequiredContributionAmount)
                     currentMilestoneID = static_cast<int32>(ms.MilestoneID);
-                if (progressRequired < ms.ProgressRequired)
-                    progressRequired = ms.ProgressRequired;
+                if (progressRequired < ms.RequiredContributionAmount)
+                    progressRequired = ms.RequiredContributionAmount;
             }
         }
 
@@ -1204,46 +1269,42 @@ void InitiativeManager::GrantMilestoneRewards(Player* player, uint32 milestoneID
         if (!reward)
             continue;
 
-        // Grant based on reward type
-        if (reward->CurrencyID > 0 && reward->RewardAmount > 0)
+        // Grant based on reward fields
+        // DB2 fields: Money(int64), DecorID(FK->HouseDecor), DecorQuantity, Field_6, Favor, RewardQuestID(FK->QuestV2)
+
+        // Grant decor items if DecorID is set
+        if (reward->DecorID > 0 && reward->DecorQuantity > 0)
         {
-            player->ModifyCurrency(reward->CurrencyID, reward->RewardAmount, CurrencyGainSource::QuestReward);
-            TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {} currency {} to player {}",
-                reward->RewardAmount, reward->CurrencyID, player->GetGUID().ToString());
+            // TODO: Grant housing decor when decor inventory system is implemented
+            TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Would grant {}x decor {} to player {}",
+                reward->DecorQuantity, reward->DecorID, player->GetGUID().ToString());
         }
 
-        if (reward->ItemID > 0 && reward->RewardAmount > 0)
-        {
-            // Add item(s) to player's inventory
-            ItemPosCountVec dest;
-            InventoryResult msg = player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, reward->ItemID, reward->RewardAmount);
-            if (msg == EQUIP_ERR_OK)
-            {
-                if (Item* item = player->StoreNewItem(dest, reward->ItemID, true))
-                    player->SendNewItem(item, reward->RewardAmount, true, false);
-
-                TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {}x item {} to player {}",
-                    reward->RewardAmount, reward->ItemID, player->GetGUID().ToString());
-            }
-            else
-            {
-                // Send by mail if inventory is full
-                player->SendEquipError(msg, nullptr, nullptr, reward->ItemID);
-                TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Player {} inventory full for item {}, sending by mail",
-                    player->GetGUID().ToString(), reward->ItemID);
-            }
-        }
-
-        // If reward has favor/general amount but no specific currency/item, treat as favor
-        if (reward->CurrencyID == 0 && reward->ItemID == 0 && reward->RewardAmount > 0)
+        // Grant favor if set
+        if (reward->Favor > 0)
         {
             Housing* housing = player->GetHousing();
             if (housing)
             {
-                housing->AddFavor(static_cast<uint64>(reward->RewardAmount), HOUSING_FAVOR_SOURCE_INITIATIVE_CHEST);
+                housing->AddFavor(static_cast<uint64>(reward->Favor), HOUSING_FAVOR_SOURCE_INITIATIVE_CHEST);
                 TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {} favor to player {}",
-                    reward->RewardAmount, player->GetGUID().ToString());
+                    reward->Favor, player->GetGUID().ToString());
             }
+        }
+
+        // Grant money if set
+        if (reward->Money > 0)
+        {
+            player->ModifyMoney(reward->Money);
+            TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {} copper to player {}",
+                reward->Money, player->GetGUID().ToString());
+        }
+
+        // Complete reward quest if set
+        if (reward->RewardQuestID > 0)
+        {
+            TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Reward quest {} for player {}",
+                reward->RewardQuestID, player->GetGUID().ToString());
         }
     }
 }
@@ -1346,24 +1407,24 @@ void InitiativeManager::CheckMilestones(ActiveInitiative& initiative, Neighborho
     auto const& milestones = GetMilestonesForCycle(cycleID);
     for (auto const& milestone : milestones)
     {
-        bool wasReached = initiative.MilestonesReached[milestone.MilestoneIndex];
-        bool isReached = (initiative.Progress >= milestone.ProgressRequired);
+        bool wasReached = initiative.MilestonesReached[milestone.MilestoneOrderIndex];
+        bool isReached = (initiative.Progress >= milestone.RequiredContributionAmount);
 
         if (isReached && !wasReached)
         {
-            initiative.MilestonesReached[milestone.MilestoneIndex] = true;
-            PersistMilestoneReached(initiative.DbId, milestone.MilestoneIndex, static_cast<uint32>(GameTime::GetGameTime()));
+            initiative.MilestonesReached[milestone.MilestoneOrderIndex] = true;
+            PersistMilestoneReached(initiative.DbId, milestone.MilestoneOrderIndex, static_cast<uint32>(GameTime::GetGameTime()));
 
             if (neighborhood)
             {
-                BroadcastRewardAvailable(neighborhood, initiative.InitiativeID, milestone.MilestoneIndex);
+                BroadcastRewardAvailable(neighborhood, initiative.InitiativeID, milestone.MilestoneOrderIndex);
                 SendInitiativeUpdateStatus(neighborhood, NI_UPDATE_STATUS_MILESTONE_COMPLETED);
-                SendInitiativeMilestoneUpdate(neighborhood, static_cast<uint8>(milestone.MilestoneIndex), true,
-                    static_cast<uint8>(milestone.Flags));
+                SendInitiativeMilestoneUpdate(neighborhood, static_cast<uint8>(milestone.MilestoneOrderIndex), true,
+                    static_cast<uint8>(milestone.Field_3));
             }
 
             TC_LOG_INFO("housing", "InitiativeManager: Milestone {} reached for initiative {} (progress={:.2f}, required={:.2f})",
-                milestone.MilestoneIndex, initiative.InitiativeID, initiative.Progress, milestone.ProgressRequired);
+                milestone.MilestoneOrderIndex, initiative.InitiativeID, initiative.Progress, milestone.RequiredContributionAmount);
         }
     }
 }
@@ -1415,11 +1476,11 @@ uint32 InitiativeManager::SelectWeightedCycle(uint32 initiativeID) const
 
 uint32 InitiativeManager::CalculateMaxPoints(uint32 initiativeID) const
 {
-    // Max points = sum of all task TargetCounts (sniff-verified: ProgressRequired=1000.0f scale)
+    // Max points = sum of all task ProgressContributionAmounts
     uint32 maxPoints = 0;
     auto const& tasks = GetTasksForInitiative(initiativeID);
     for (auto const& task : tasks)
-        maxPoints += static_cast<uint32>(std::max<int32>(1, task.TargetCount));
+        maxPoints += static_cast<uint32>(std::max<int32>(1, task.ProgressContributionAmount));
     return maxPoints;
 }
 

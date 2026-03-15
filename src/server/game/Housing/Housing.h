@@ -156,8 +156,9 @@ public:
 
     // Fixture operations
     HousingResult SelectFixtureOption(uint32 fixturePointId, uint32 optionId);
-    HousingResult RemoveFixture(uint32 fixturePointId);
+    HousingResult RemoveFixture(uint32 componentID, uint32* outHookID = nullptr);
     std::vector<Fixture const*> GetFixtures() const;
+    std::unordered_map<uint32, uint32> GetFixtureOverrideMap() const;
     uint32 GetCoreExteriorComponentID() const;
 
     // Catalog operations

@@ -29,15 +29,23 @@ namespace WorldPackets::Housing
 
 void HouseExteriorCommitPosition::Read()
 {
+    // Wire format (from client decompilation): Bool HasPosition + ObjectGuid HouseGuid + [position data]
+    // When HasPosition=true, the remaining fields contain the new position and rotation.
+    _worldPacket >> Bits<1>(HasPosition);
     _worldPacket >> HouseGuid;
-    _worldPacket >> PlotGuid;
-    _worldPacket >> PositionX;
-    _worldPacket >> PositionY;
-    _worldPacket >> PositionZ;
-    _worldPacket >> Facing;
+    if (HasPosition)
+    {
+        _worldPacket >> PositionX;
+        _worldPacket >> PositionY;
+        _worldPacket >> PositionZ;
+        _worldPacket >> RotationX;
+        _worldPacket >> RotationY;
+        _worldPacket >> RotationZ;
+        _worldPacket >> RotationW;
+    }
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSE_EXTERIOR_COMMIT_POSITION HouseGuid: {} PlotGuid: {} Pos: ({}, {}, {}) Facing: {:.2f}",
-        HouseGuid.ToString(), PlotGuid.ToString(), PositionX, PositionY, PositionZ, Facing);
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION HouseGuid: {} HasPos: {} Pos: ({}, {}, {}) Rot: ({}, {}, {}, {})",
+        HouseGuid.ToString(), HasPosition, PositionX, PositionY, PositionZ, RotationX, RotationY, RotationZ, RotationW);
 }
 
 // --- Decor System ---
@@ -221,21 +229,31 @@ void HousingFixtureSetEditMode::Read()
 
 void HousingFixtureSetCoreFixture::Read()
 {
+    // Diagnostic: log raw packet bytes before parsing
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE raw packet: size={} rpos={}", _worldPacket.size(), _worldPacket.rpos());
+    {
+        std::string hexDump;
+        for (std::size_t i = _worldPacket.rpos(); i < _worldPacket.size() && i < _worldPacket.rpos() + 40; ++i)
+            hexDump += fmt::format("{:02X} ", _worldPacket[i]);
+        TC_LOG_INFO("housing", "  raw bytes: {}", hexDump);
+    }
+
     _worldPacket >> FixtureGuid;
     _worldPacket >> ExteriorComponentID;
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE FixtureGuid: {} ExteriorComponentID: {}", FixtureGuid.ToString(), ExteriorComponentID);
+    TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_CORE_FIXTURE parsed: FixtureGuid={} ExteriorComponentID={} (rpos after={})",
+        FixtureGuid.ToString(), ExteriorComponentID, _worldPacket.rpos());
 }
 
 void HousingFixtureCreateFixture::Read()
 {
     _worldPacket >> AttachParentGuid;
-    _worldPacket >> RoomGuid;
-    _worldPacket >> ExteriorComponentType;
+    _worldPacket >> HookEntityGuid;
     _worldPacket >> ExteriorComponentHookID;
+    _worldPacket >> ExteriorComponentID;
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_FIXTURE_CREATE AttachParentGuid: {} RoomGuid: {} ExteriorComponentType: {} HookID: {}",
-        AttachParentGuid.ToString(), RoomGuid.ToString(), ExteriorComponentType, ExteriorComponentHookID);
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_FIXTURE_CREATE AttachParentGuid: {} HookEntity: {} HookID: {} ComponentID: {}",
+        AttachParentGuid.ToString(), HookEntityGuid.ToString(), ExteriorComponentHookID, ExteriorComponentID);
 }
 
 void HousingFixtureDeleteFixture::Read()
@@ -695,12 +713,14 @@ WorldPacket const* InvalidateNeighborhoodName::Write()
 
 WorldPacket const* HouseExteriorLockResponse::Write()
 {
+    _worldPacket << FixtureEntityGuid;
+    _worldPacket << EditorPlayerGuid;
     _worldPacket << uint8(Result);
-    _worldPacket << HouseGuid;
-    _worldPacket.WriteBit(Locked);
+    _worldPacket.WriteBit(Active);
     _worldPacket.FlushBits();
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE Result: {} HouseGuid: {} Locked: {}", Result, HouseGuid.ToString(), Locked);
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE FixtureEntity: {} EditorPlayer: {} Result: {} Active: {}",
+        FixtureEntityGuid.ToString(), EditorPlayerGuid.ToString(), Result, Active);
 
     return &_worldPacket;
 }
@@ -740,6 +760,16 @@ WorldPacket const* HouseInteriorLeaveHouseResponse::Write()
 // ============================================================
 // Housing Decor SMSG Responses (0x51xxxx)
 // ============================================================
+
+WorldPacket const* LastCatalogFetchResponse::Write()
+{
+    // Sniff-verified: 8-byte payload = uint64 Unix timestamp (build 66337)
+    _worldPacket << uint64(Timestamp);
+
+    TC_LOG_DEBUG("network.opcode", "SMSG_LAST_CATALOG_FETCH_RESPONSE Timestamp: {}", Timestamp);
+
+    return &_worldPacket;
+}
 
 WorldPacket const* HousingDecorSetEditModeResponse::Write()
 {
@@ -941,13 +971,13 @@ WorldPacket const* HousingDecorPlacementPreviewResponse::Write()
 
 WorldPacket const* HousingFixtureSetEditModeResponse::Write()
 {
-    // IDA case 5373952: PackedGUID + PackedGUID + uint8(Result)
+    // Sniff-verified (build 66337): PackedGUID(HouseGuid, always empty) + PackedGUID(EditorPlayerGuid) + uint8(Result)
     _worldPacket << HouseGuid;
-    _worldPacket << FixtureGuid;
+    _worldPacket << EditorPlayerGuid;
     _worldPacket << uint8(Result);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE HouseGuid: {} FixtureGuid: {} Result: {}",
-        HouseGuid.ToString(), FixtureGuid.ToString(), Result);
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE HouseGuid: {} EditorPlayer: {} Result: {}",
+        HouseGuid.ToString(), EditorPlayerGuid.ToString(), Result);
 
     return &_worldPacket;
 }

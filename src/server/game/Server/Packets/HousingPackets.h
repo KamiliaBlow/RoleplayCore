@@ -106,12 +106,15 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
+        bool HasPosition = false;
         ObjectGuid HouseGuid;
-        ObjectGuid PlotGuid;
         float PositionX = 0.0f;
         float PositionY = 0.0f;
         float PositionZ = 0.0f;
-        float Facing = 0.0f;
+        float RotationX = 0.0f;
+        float RotationY = 0.0f;
+        float RotationZ = 0.0f;
+        float RotationW = 1.0f;
     };
 
     class HouseExteriorLock final : public ClientPacket
@@ -308,6 +311,29 @@ namespace WorldPackets::Housing
         ObjectGuid Owner;
     };
 
+    class GetLastCatalogFetch final : public ClientPacket
+    {
+    public:
+        explicit GetLastCatalogFetch(WorldPacket&& packet) : ClientPacket(CMSG_GET_LAST_CATALOG_FETCH, std::move(packet)) { }
+        void Read() override { }
+    };
+
+    class UpdateLastCatalogFetch final : public ClientPacket
+    {
+    public:
+        explicit UpdateLastCatalogFetch(WorldPacket&& packet) : ClientPacket(CMSG_UPDATE_LAST_CATALOG_FETCH, std::move(packet)) { }
+        void Read() override { }
+    };
+
+    class LastCatalogFetchResponse final : public ServerPacket
+    {
+    public:
+        LastCatalogFetchResponse() : ServerPacket(SMSG_LAST_CATALOG_FETCH_RESPONSE) { }
+        WorldPacket const* Write() override;
+        // Sniff-verified: 8-byte payload = uint64 Unix timestamp
+        uint64 Timestamp = 0;
+    };
+
     class HousingDecorUpdateDyeSlot final : public ClientPacket
     {
     public:
@@ -387,10 +413,10 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid AttachParentGuid;
-        ObjectGuid RoomGuid;
-        uint32 ExteriorComponentType = 0;
-        uint32 ExteriorComponentHookID = 0;
+        ObjectGuid AttachParentGuid;         // Housing/3 exterior root entity
+        ObjectGuid HookEntityGuid;            // Housing/4 hook point entity on the house
+        uint32 ExteriorComponentHookID = 0;   // DB2 ExteriorComponentHook row ID (which hook point)
+        uint32 ExteriorComponentID = 0;       // DB2 ExteriorComponent row ID (which component to install)
     };
 
     class HousingFixtureDeleteFixture final : public ClientPacket
@@ -1063,9 +1089,12 @@ namespace WorldPackets::Housing
     public:
         HouseExteriorLockResponse() : ServerPacket(SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE) { }
         WorldPacket const* Write() override;
+        // Sniff-verified wire format (build 66337, 19 bytes):
+        //   PackedGUID(FixtureEntityGuid) + PackedGUID(EditorPlayerGuid) + uint8(Result) + Bits<1>(Active) + FlushBits
+        ObjectGuid FixtureEntityGuid;   // Housing/3 fixture entity (exterior root)
+        ObjectGuid EditorPlayerGuid;    // Player performing the edit
         uint8 Result = 0;
-        ObjectGuid HouseGuid;
-        bool Locked = false;
+        bool Active = false;
     };
 
     class HouseExteriorSetHousePositionResponse final : public ServerPacket
@@ -1257,9 +1286,10 @@ namespace WorldPackets::Housing
     public:
         HousingFixtureSetEditModeResponse() : ServerPacket(SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE) { }
         WorldPacket const* Write() override;
-        // IDA case 5373952: PackedGUID + PackedGUID + uint8(Result)
-        ObjectGuid HouseGuid;
-        ObjectGuid FixtureGuid;
+        // Sniff-verified (build 66337): PackedGUID(HouseGuid, always empty) + PackedGUID(EditorPlayerGuid) + uint8(Result)
+        // Client compares EditorPlayerGuid against stored reference: match → enter, mismatch/empty → exit
+        ObjectGuid HouseGuid;           // Always empty in sniff
+        ObjectGuid EditorPlayerGuid;    // Player GUID on enter, empty on exit
         uint8 Result = 0;
     };
 

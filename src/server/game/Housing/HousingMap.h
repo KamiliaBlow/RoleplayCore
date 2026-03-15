@@ -56,10 +56,15 @@ public:
     void AddPlayerHousing(ObjectGuid playerGuid, Housing* housing);
     void RemovePlayerHousing(ObjectGuid playerGuid);
 
+    // Fixture override map: hookID → ExteriorComponentID from player's fixture selections.
+    // When provided, SpawnExtCompTree uses these instead of the DB2 default component at each hook.
+    using FixtureOverrideMap = std::unordered_map<uint32 /*hookID*/, uint32 /*extCompID*/>;
+
     // House structure GO management
     // Sniff-verified defaults: ExteriorComponentID=141 (Stucco Base), HouseExteriorWmoDataID=9 (Human theme)
-    GameObject* SpawnHouseForPlot(uint8 plotIndex, Position const* customPos = nullptr,
-        int32 exteriorComponentID = 141, int32 houseExteriorWmoDataID = 9);
+    GameObject* SpawnHouseForPlot(uint8 plotIndex, Position const* customPos,
+        int32 exteriorComponentID, int32 houseExteriorWmoDataID,
+        FixtureOverrideMap const* fixtureOverrides = nullptr);
     void DespawnHouseForPlot(uint8 plotIndex);
     GameObject* GetHouseGameObject(uint8 plotIndex);
     int8 GetPlotIndexForHouseGO(ObjectGuid goGuid) const;
@@ -77,15 +82,26 @@ public:
     void SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& housePos,
         QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID,
-        int32 factionRestriction = NEIGHBORHOOD_FACTION_ALLIANCE);
+        int32 factionRestriction = NEIGHBORHOOD_FACTION_ALLIANCE,
+        FixtureOverrideMap const* fixtureOverrides = nullptr);
     void SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
         QuaternionData const& houseRot, ObjectGuid houseGuid,
         int32 exteriorComponentID, int32 houseExteriorWmoDataID);
     uint32 SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
         Position const& pos, QuaternionData const& rot,
         ObjectGuid houseGuid, int32 houseExteriorWmoDataID,
-        ObjectGuid parentGuid, Position const* worldPos, int32 depth = 0);
+        ObjectGuid parentGuid, Position const* worldPos, int32 depth = 0,
+        FixtureOverrideMap const* fixtureOverrides = nullptr,
+        int32 hookIDOverride = -1);
     void DespawnAllMeshObjectsForPlot(uint8 plotIndex);
+
+    // Targeted fixture mesh operations (no full house rebuild)
+    // Finds and removes the MeshObject at the given hookID for a plot, sends DESTROY to nearby players.
+    MeshObject* FindMeshObjectByHookID(uint8 plotIndex, int32 hookID);
+    void DespawnSingleMeshObject(uint8 plotIndex, ObjectGuid meshGuid);
+    // Spawn a single fixture component at a hook and send CREATE to a specific player.
+    MeshObject* SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint32 componentID,
+        ObjectGuid houseGuid, int32 houseExteriorWmoDataID, Player* target);
 
     // Room entity management (provides Geobox for client OutsidePlotBounds check)
     void SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,

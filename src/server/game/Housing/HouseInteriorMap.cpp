@@ -16,6 +16,8 @@
  */
 
 #include "HouseInteriorMap.h"
+#include "Account.h"
+#include "HousingPlayerHouseEntity.h"
 #include "DB2Stores.h"
 #include "DBCEnums.h"
 #include "GameObjectData.h"
@@ -789,6 +791,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
             statusResponse.OwnerPlayerGuid = player->GetGUID();
             statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
             statusResponse.Status = 1; // Interior
+            statusResponse.FlagByte = 0xC0; // bit7=Decor, bit6=Room only — Fixture context managed by dedicated ENTER/EXIT response
             player->SendDirectMessage(statusResponse.Write());
 
             // Send post-tutorial auras so the client unlocks all editor modes.
@@ -796,6 +799,57 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
             // The exterior (HousingMap) sends them via SendPostTutorialAuras —
             // the interior must do the same or the editor remains locked.
             SendPostTutorialAuras(player);
+
+            // Populate FHousingStorage_C (decor/catalog) and budget fields, then send
+            // Account entity CREATE + HousingPlayerHouseEntity so the client has the
+            // full housing context. Without this, C_HouseEditor.GetHouseEditorModeAvailability()
+            // fails and the edit toolbar never appears.
+            // Mirrors the exterior map's deferred ENTER_PLOT logic (HousingMap.cpp ~912-958).
+            {
+                housing->PopulateCatalogStorageEntries();
+                housing->SyncUpdateFields();
+
+                WorldSession* session = player->GetSession();
+
+                UpdateData storageUpdate(player->GetMapId());
+                WorldPacket storagePacket;
+
+                // Account entity as CREATE (includes FHousingStorage_C with placed decor map)
+                session->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
+                player->m_clientGUIDs.insert(session->GetBattlenetAccount().GetGUID());
+
+                // HousingPlayerHouseEntity (budgets, house level, etc.)
+                if (player->HaveAtClient(&session->GetHousingPlayerHouseEntity()))
+                    session->GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&storageUpdate, player);
+                else
+                {
+                    session->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
+                    player->m_clientGUIDs.insert(session->GetHousingPlayerHouseEntity().GetGUID());
+                }
+
+                // Bundle interior decor MeshObject CREATEs so the client can correlate
+                // FHousingDecor_C.DecorGUID with FHousingStorage_C entries.
+                uint32 meshCreateCount = 0;
+                for (auto const& [decorGuid, meshObjGuid] : _decorGuidToObjGuid)
+                {
+                    MeshObject* meshObj = GetMeshObject(meshObjGuid);
+                    if (!meshObj || !meshObj->IsInWorld())
+                        continue;
+
+                    meshObj->BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
+                    player->m_clientGUIDs.insert(meshObjGuid);
+                    ++meshCreateCount;
+                }
+
+                storageUpdate.BuildPacket(&storagePacket);
+                player->SendDirectMessage(&storagePacket);
+
+                session->GetBattlenetAccount().ClearUpdateMask(true);
+                session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+
+                TC_LOG_DEBUG("housing", "HouseInteriorMap::AddPlayerToMap: Sent Account CREATE + {} decor MeshObject CREATEs + budget for player {}",
+                    meshCreateCount, player->GetGUID().ToString());
+            }
 
             // Send SMSG_INITIATIVE_SERVICE_STATUS so IsInitiativeEnabled() returns true
             // in interior. Sniff-verified: server responds with 0x80 (enabled).

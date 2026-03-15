@@ -196,15 +196,26 @@ void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
         GetGUID().ToString(), decorGuid.ToString(), houseGuid.ToString(), flags, roomEntityGuid.ToString());
 }
 
-void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComponentID,
+void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, ObjectGuid fixtureGuid,
+    ObjectGuid parentFixtureGuid, int32 exteriorComponentID,
     int32 houseExteriorWmoDataID, uint8 exteriorComponentType /*= 9*/,
-    uint8 houseSize /*= 2*/, int32 exteriorComponentHookID /*= -1*/)
+    uint8 houseSize /*= 2*/, int32 exteriorComponentHookID /*= -1*/, bool isRoot /*= false*/)
 {
     if (m_housingFixtureData.has_value())
         return;
 
-    // Uses the same m_housingFixtureData declared on Object (Object.h:167)
-    // Sniff-verified field values (11.2 retail MeshObject with FHousingFixture_C)
+    // FHousingFixture_C fragment (ID 34, 96 bytes, 11 fields with HasChangesMask<11>).
+    // Field order must match the client's CREATE deserializer:
+    //   [0] ExteriorComponentID  (CompressedUInt32)
+    //   [1] HouseExteriorWmoDataID (CompressedUInt32)
+    //   [2] ExteriorComponentHookID (CompressedUInt32, defaults -1)
+    //   [3] HouseGUID (PackedGUID128)
+    //   [4] AttachParentGUID (PackedGUID128) — parent fixture in hierarchy
+    //   [5] Guid (PackedGUID128) — unique per fixture, for client identification
+    //   [6] GameObjectGUID (PackedGUID128) — always empty
+    //   [7] ExteriorComponentType (uint8)
+    //   [8] Field_59 (uint8)
+    //   [9] Size (uint8)
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
         .ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), exteriorComponentID);
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
@@ -213,9 +224,15 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComp
         .ModifyValue(&UF::HousingFixtureData::ExteriorComponentHookID), exteriorComponentHookID);
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
         .ModifyValue(&UF::HousingFixtureData::HouseGUID), houseGuid);
-    // Guid must be a Housing-type GUID (client crashes with non-Housing GUIDs here)
+    // AttachParentGUID: the parent fixture's unique GUID in the hierarchy.
+    // Root pieces have empty parent. Child pieces point to their parent root's fixture GUID.
+    // The client uses this to build the fixture tree and resolve hook point ownership.
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Guid), houseGuid);
+        .ModifyValue(&UF::HousingFixtureData::AttachParentGUID), parentFixtureGuid);
+    // Guid: unique per fixture — the client uses this to identify individual fixtures.
+    // Must be a Housing-type GUID (client crashes with non-Housing GUIDs here).
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
+        .ModifyValue(&UF::HousingFixtureData::Guid), fixtureGuid);
     // GameObjectGUID: sniff confirms empty for all fixture pieces
     SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
         .ModifyValue(&UF::HousingFixtureData::ExteriorComponentType), exteriorComponentType);
@@ -227,14 +244,34 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComp
     m_entityFragments.Add(WowCS::EntityFragment::FHousingFixture_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingFixtureData));
 
-    // Also add the Tag_HouseExteriorPiece tag fragment (sniff-verified on retail MeshObjects)
-    m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorPiece, IsInWorld());
+    // Cache for targeted fixture lookup and hierarchy traversal
+    _exteriorComponentHookID = exteriorComponentHookID;
+    _exteriorComponentID = exteriorComponentID;
+    _fixtureGuid = fixtureGuid;
 
-    TC_LOG_DEBUG("housing", "MeshObject::InitHousingFixtureData: guid={} houseGuid={} "
-        "exteriorComponentID={} wmoDataID={} hookID={} componentType={} size={}",
-        GetGUID().ToString(), houseGuid.ToString(),
-        exteriorComponentID, houseExteriorWmoDataID, exteriorComponentHookID,
-        exteriorComponentType, houseSize);
+    // Root pieces get Tag_HouseExteriorRoot (225), child pieces get Tag_HouseExteriorPiece (224).
+    // The client uses Tag_HouseExteriorRoot to identify the fixture GUID for edit mode enter/exit.
+    _isExteriorRoot = isRoot;
+    if (isRoot)
+        m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorRoot, IsInWorld());
+    else
+        m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorPiece, IsInWorld());
+
+    TC_LOG_DEBUG("housing", "MeshObject::InitHousingFixtureData: meshGuid={} fixtureGuid={} "
+        "parentFixtureGuid={} houseGuid={} extCompID={} wmoDataID={} hookID={} type={} size={} isRoot={}",
+        GetGUID().ToString(), fixtureGuid.ToString(), parentFixtureGuid.ToString(),
+        houseGuid.ToString(), exteriorComponentID, houseExteriorWmoDataID,
+        exteriorComponentHookID, exteriorComponentType, houseSize, isRoot);
+}
+
+void MeshObject::UpdateExteriorComponentID(int32 id)
+{
+    if (!m_housingFixtureData.has_value())
+        return;
+
+    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
+        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), id);
+    _exteriorComponentID = id;
 }
 
 void MeshObject::InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID,

@@ -72,6 +72,9 @@ public:
     /// Despawn a single decor item by its Housing decor GUID.
     void DespawnDecorItem(ObjectGuid decorGuid);
 
+    /// Get the interior decor GUID → MeshObject GUID map (for edit mode CREATEs).
+    std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToObjGuid; }
+
     /// Send post-tutorial aura packets so the client knows the tutorial is complete
     /// and unlocks all editor modes (expert, cleanup, layout, customize).
     void SendPostTutorialAuras(Player* player);
