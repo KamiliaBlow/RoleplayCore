@@ -19,8 +19,6 @@ enum AdvancedFlyingSpells
     SPELL_SKYRIDING_BASICS      = 376777,
     SPELL_SWITCH_FLIGHT_STYLE   = 436854,
     SPELL_VIGOR                 = 372773,
-    SPELL_LIFT_OFF_2            = 372610,
-    SPELL_LIFT_OFF_3            = 386451,
     SPELL_SURGE_FORWARD         = 372608,
     SPELL_WHIRLING_SURGE        = 361584,
 };

@@ -2621,7 +2621,7 @@ namespace WorldPackets::Neighborhood
     public:
         NeighborhoodPlayerEnterPlot() : ServerPacket(SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT) { }
         WorldPacket const* Write() override;
-        ObjectGuid PlotAreaTriggerGuid;
+        ObjectGuid NeighborhoodEntityGuid; // Housing entity GUID for client entity table tracking (populates NeighborhoodSystem+24)
     };
 
     class NeighborhoodPlayerLeavePlot final : public ServerPacket

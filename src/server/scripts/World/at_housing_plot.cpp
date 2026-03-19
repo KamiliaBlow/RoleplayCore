@@ -25,11 +25,10 @@
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
-#include "MeshObject.h"
 #include "ObjectAccessor.h"
-#include "UpdateData.h"
 #include "PhasingHandler.h"
 #include "Player.h"
+#include "UpdateData.h"
 #include "WorldSession.h"
 
 struct at_housing_plot : AreaTriggerAI
@@ -84,9 +83,32 @@ struct at_housing_plot : AreaTriggerAI
             // Track which plot the player is on
             housingMap->SetPlayerCurrentPlot(player->GetGUID(), static_cast<uint8>(plotId));
 
-            // Send ENTER_PLOT notification
+            // Retail pattern: UPDATE_OBJECT (VALUES on AT) at same timestamp as ENTER_PLOT.
+            // The client's ENTER_PLOT handler looks up the AT GUID in the entity table and
+            // stores the entity handle at NeighborhoodSystem+24. The fixture manager then
+            // reads HouseGUID from the AT's FHousingPlotAreaTrigger_C fragment (at offset +24).
+            //
+            // Ensure the AT entity + its FHousingPlotAreaTrigger_C data is on the client
+            // BEFORE sending ENTER_PLOT, otherwise the entity table lookup fails.
+            {
+                UpdateData atUpdate(player->GetMapId());
+                if (player->HaveAtClient(at))
+                    at->BuildValuesUpdateBlockForPlayer(&atUpdate, player);
+                else
+                {
+                    at->BuildCreateUpdateBlockForPlayer(&atUpdate, player);
+                    player->m_clientGUIDs.insert(at->GetGUID());
+                }
+                if (atUpdate.HasData())
+                {
+                    WorldPacket atPacket;
+                    atUpdate.BuildPacket(&atPacket);
+                    player->SendDirectMessage(&atPacket);
+                }
+            }
+
             WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
-            enterPlot.PlotAreaTriggerGuid = at->GetGUID();
+            enterPlot.NeighborhoodEntityGuid = at->GetGUID();
             player->SendDirectMessage(enterPlot.Write());
 
             // Send manual spell packets (spells 1239847, 469226, 1266699 don't exist in DB2)
@@ -125,45 +147,6 @@ struct at_housing_plot : AreaTriggerAI
 
                 TC_LOG_DEBUG("housing", "at_housing_plot: Sent HouseStatus+Permissions for player {} (own={}, flags=0x{:X})",
                     player->GetGUID().ToString(), isOwnPlot, isOwnPlot ? 0xE0 : 0x40);
-            }
-        }
-
-        // Send CREATE_BASIC_HOUSE_RESPONSE to trigger the fixture manager rebuild,
-        // then re-CREATE ALL fixture MeshObjects so the CREATE callback can match
-        // their HouseGUID against the fixture manager's now-populated state+96/+104.
-        if (isOwnPlot)
-        {
-            WorldPackets::Housing::HousingFixtureCreateBasicHouseResponse fixtureInit;
-            fixtureInit.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
-            player->SendDirectMessage(fixtureInit.Write());
-
-            auto const& meshMap = housingMap->GetPlotMeshObjects();
-            auto meshItr = meshMap.find(static_cast<uint8>(plotId));
-            if (meshItr != meshMap.end())
-            {
-                UpdateData fixtureUpdate(player->GetMapId());
-                uint32 fixtureCreateCount = 0;
-
-                for (ObjectGuid const& meshGuid : meshItr->second)
-                {
-                    MeshObject* meshObj = housingMap->GetMeshObject(meshGuid);
-                    if (meshObj && meshObj->IsInWorld() && meshObj->m_housingFixtureData.has_value())
-                    {
-                        meshObj->BuildCreateUpdateBlockForPlayer(&fixtureUpdate, player);
-                        player->m_clientGUIDs.insert(meshGuid);
-                        ++fixtureCreateCount;
-                    }
-                }
-
-                if (fixtureCreateCount > 0)
-                {
-                    WorldPacket fixturePacket;
-                    fixtureUpdate.BuildPacket(&fixturePacket);
-                    player->SendDirectMessage(&fixturePacket);
-                }
-
-                TC_LOG_DEBUG("housing", "at_housing_plot: Re-CREATE {} fixture MeshObjects for plot {} (post-rebuild)",
-                    fixtureCreateCount, plotId);
             }
         }
 

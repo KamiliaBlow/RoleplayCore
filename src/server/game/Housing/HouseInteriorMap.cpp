@@ -72,7 +72,9 @@ HouseInteriorMap::HouseInteriorMap(uint32 id, time_t expiry, uint32 instanceId, 
 
 void HouseInteriorMap::InitVisibilityDistance()
 {
-    m_VisibleDistance = sWorld->getFloatConfig(CONFIG_MAX_VISIBILITY_DISTANCE_INSTANCE);
+    // House interiors are small single-room spaces. Use maximum visibility so
+    // all room entities, decor, and furniture are CREATEd immediately on entry.
+    m_VisibleDistance = MAX_VISIBILITY_DISTANCE;
     m_VisibilityNotifyPeriod = sWorld->getIntConfig(CONFIG_VISIBILITY_NOTIFY_PERIOD_INSTANCE);
 }
 

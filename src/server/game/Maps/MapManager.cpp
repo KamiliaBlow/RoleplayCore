@@ -179,6 +179,63 @@ HousingMap* MapManager::CreateHousing(uint32 mapId, uint32 instanceId, uint32 ne
     return map;
 }
 
+void MapManager::PreloadHousingMaps()
+{
+    uint32 oldMSTime = getMSTime();
+    uint32 count = 0;
+
+    for (Neighborhood* neighborhood : sNeighborhoodMgr.GetAllNeighborhoods())
+    {
+        uint32 mapId = neighborhood->GetNeighborhoodMapID();
+        uint32 instanceId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+
+        if (FindMap_i(mapId, instanceId))
+            continue; // already loaded
+
+        // Validate map exists in DB2 and is actually a housing neighborhood map
+        MapEntry const* mapEntry = sMapStore.LookupEntry(mapId);
+        if (!mapEntry)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Map {} does not exist in Map.db2 ? skipping neighborhood '{}' (instanceId={})",
+                mapId, neighborhood->GetName(), instanceId);
+            continue;
+        }
+
+        if (mapEntry->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Map {} '{}' is type {} (expected {}=MAP_HOUSE_NEIGHBORHOOD) ? skipping neighborhood '{}'. Fix the neighborhoodMapID in the database!",
+                mapId, mapEntry->MapName[DEFAULT_LOCALE], mapEntry->InstanceType, MAP_HOUSE_NEIGHBORHOOD, neighborhood->GetName());
+            continue;
+        }
+
+        HousingMap* map = CreateHousing(mapId, instanceId, instanceId);
+        if (!map)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Failed to create map {} instanceId {} for neighborhood '{}'",
+                mapId, instanceId, neighborhood->GetName());
+            continue;
+        }
+
+        // Register in the map store (same as CreateMap does)
+        Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId() }];
+        ptr.reset(map);
+        map->SetWeakPtr(ptr);
+
+        sScriptMgr->OnCreateMap(map);
+
+        // Load all grid cells so every entity (ATs, GOs, MeshObjects) is fully spawned.
+        // This prevents crashes when other systems (GameEventMgr, etc.) iterate the map
+        // and ensures all entities are ready before any player connects.
+        map->LoadAllCells();
+
+        ++count;
+        TC_LOG_INFO("housing", "MapManager::PreloadHousingMaps: Pre-loaded neighborhood '{}' (map={} instanceId={}) with all cells",
+            neighborhood->GetName(), mapId, instanceId);
+    }
+
+    TC_LOG_INFO("server.loading", ">> Pre-loaded {} housing neighborhood maps in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
+}
+
 HouseInteriorMap* MapManager::CreateHouseInterior(uint32 mapId, uint32 instanceId, Player* owner)
 {
     HouseInteriorMap* map = new HouseInteriorMap(mapId, i_gridCleanUpDelay, instanceId, owner->GetGUID());

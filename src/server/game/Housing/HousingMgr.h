@@ -424,6 +424,7 @@ private:
     void BuildRoomComponentTextureIndex();
     void DumpExteriorComponentDiagnostics();
     void DumpRoomComponentTextureDiagnostics();
+    void EnsureDoorGameObjectTemplates();
 
     // Base room entry ID — exterior geobox (from DB2 IsBaseRoom flag scan, fallback 18)
     uint32 _baseRoomEntryId = 0;

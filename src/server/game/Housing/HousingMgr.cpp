@@ -76,6 +76,7 @@ void HousingMgr::Initialize()
     BuildRoomComponentTextureIndex();
     DumpExteriorComponentDiagnostics();
     DumpRoomComponentTextureDiagnostics();
+    EnsureDoorGameObjectTemplates();
 
     // Initialize global DB ID generators from MAX(id) in character_housing_rooms/decor.
     // Must happen before any Housing objects are loaded to prevent cross-player ID collisions.
@@ -1259,6 +1260,51 @@ int32 HousingMgr::GetTextureIdForComponentType(uint8 componentType) const
 {
     auto itr = _textureByComponentType.find(componentType);
     return itr != _textureByComponentType.end() ? itr->second : 0;
+}
+
+void HousingMgr::EnsureDoorGameObjectTemplates()
+{
+    // Auto-create missing GO templates for door components referenced in DB2.
+    // ExteriorComponent entries with Type=11 (Door) have a GameObjectID for the
+    // clickable entrance GO. If the template doesn't exist, create one based on
+    // the known working template (entry 586576, type 10/GOOBER).
+    uint32 created = 0;
+
+    GameObjectTemplate const* referenceTemplate = sObjectMgr->GetGameObjectTemplate(586576);
+    uint32 referenceDisplayId = referenceTemplate ? referenceTemplate->displayId : 116973;
+
+    for (ExteriorComponentEntry const* entry : sExteriorComponentStore)
+    {
+        if (!entry || entry->Type != 11 || entry->GameObjectID <= 0) // Type 11 = Door
+            continue;
+
+        uint32 goEntry = static_cast<uint32>(entry->GameObjectID);
+        if (sObjectMgr->GetGameObjectTemplate(goEntry))
+            continue; // already exists
+
+        // Create a GOOBER template (type=10) — clickable interaction object for house entry
+        std::string name = entry->Name[DEFAULT_LOCALE] ? entry->Name[DEFAULT_LOCALE] : "Housing Door";
+
+        // Insert directly into ObjectMgr's in-memory store (no DB write needed — these are derived from DB2)
+        // Sniff-verified retail values: Lock=4296 (Opening cast bar), autoClose=3000ms, startOpen=1
+        GameObjectTemplate& goTemplate = sObjectMgr->GetGameObjectTemplateStoreForHotfix()[goEntry];
+        goTemplate.entry = goEntry;
+        goTemplate.type = GAMEOBJECT_TYPE_GOOBER;
+        goTemplate.displayId = referenceDisplayId;
+        goTemplate.name = name;
+        goTemplate.size = 1.0f;
+        goTemplate.goober.open = 4296;          // Lock_ ID for "Opening" cast bar
+        goTemplate.goober.autoClose = 3000;     // 3 seconds auto-close
+        goTemplate.goober.startOpen = 1;        // start in open state
+        goTemplate.InitializeQueryData();
+
+        ++created;
+        TC_LOG_INFO("housing", "HousingMgr::EnsureDoorGameObjectTemplates: Created GO template {} ('{}') for door comp {}",
+            goEntry, name, entry->ID);
+    }
+
+    if (created)
+        TC_LOG_INFO("server.loading", ">> Auto-created {} missing door GO templates from ExteriorComponent DB2", created);
 }
 
 void HousingMgr::BuildExteriorComponentIndexes()

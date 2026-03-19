@@ -94,7 +94,7 @@ namespace
             SPELL_CAST_SOURCE_NORMAL, player->GetMapId(), spellId,
             player->GetMap()->GenerateLowGuid<HighGuid::Cast>());
 
-        // 1. SMSG_AURA_UPDATE ? apply the aura (CastID must match spell packets)
+        // 1. SMSG_AURA_UPDATE — apply the aura (CastID must match spell packets)
         {
             WorldPackets::Spells::AuraUpdate auraUpdate;
             auraUpdate.UpdateAll = false;
@@ -123,12 +123,12 @@ namespace
             spellStart.Cast.SpellID = spellId;
             spellStart.Cast.CastFlags = spellStartCastFlags;
             spellStart.Cast.CastTime = 0;
-            // Target.Flags = 0 (Self) ? default
+            // Target.Flags = 0 (Self) — default
 
             player->SendDirectMessage(spellStart.Write());
         }
 
-        // 3. SMSG_SPELL_GO (CombatLogServerPacket ? has LogData)
+        // 3. SMSG_SPELL_GO (CombatLogServerPacket — has LogData)
         {
             WorldPackets::Spells::SpellGo spellGo;
             spellGo.Cast.CasterGUID = player->GetGUID();
@@ -176,7 +176,7 @@ namespace
     {
         uint32 warnings = HOUSING_WARNING_NONE;
 
-        // Check expansion access ? housing requires The War Within (expansion 10)
+        // Check expansion access — housing requires The War Within (expansion 10)
         if (player->GetSession()->GetExpansion() < HOUSING_REQUIRED_EXPANSION)
             warnings |= HOUSING_WARNING_EXPANSION_REQUIRED;
 
@@ -353,7 +353,7 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
     statusResponse.OwnerPlayerGuid = player->GetGUID();
     statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
     statusResponse.Status = 0;
-    statusResponse.FlagByte = 0xC0; // bit7=Decor, bit6=Room only ? Fixture context managed by dedicated ENTER/EXIT response
+    statusResponse.FlagByte = 0xC0; // bit7=Decor, bit6=Room only — Fixture context managed by dedicated ENTER/EXIT response
     SendPacket(statusResponse.Write());
 
     // Teleport player back to the neighborhood map at the plot's visitor landing point.
@@ -393,30 +393,82 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
     if (neighborhoodMapId == 0)
         neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(worldMapId);
 
-    // Get the plot's visitor landing position (TeleportPosition) for the exit point
+    // Compute exit position: house center + door hook offset + exit point offset.
+    // This places the player in front of the door they entered through.
     float exitX = 0.0f, exitY = 0.0f, exitZ = 0.0f, exitO = 0.0f;
-    bool foundPlot = false;
+    bool foundExitPoint = false;
 
     if (neighborhoodMapId != 0)
     {
         std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
         for (NeighborhoodPlotData const* plot : plots)
         {
-            if (plot->PlotIndex == static_cast<int32>(plotIndex))
+            if (plot->PlotIndex != static_cast<int32>(plotIndex))
+                continue;
+
+            float hx = plot->HousePosition[0];
+            float hy = plot->HousePosition[1];
+            float hz = plot->HousePosition[2];
+
+            // Compute house facing (same as SpawnHouseForPlot / RespawnDoorGOAtHook)
+            float hFacing = plot->HouseRotation[2];
+            if (plot->HouseRotation[0] == 0.0f && plot->HouseRotation[1] == 0.0f && plot->HouseRotation[2] == 0.0f)
+                hFacing = std::atan2(plot->CornerstonePosition[1] - hy, plot->CornerstonePosition[0] - hx);
+
+            // Find the door hook + exit point from the player's fixture overrides
+            auto fixtureOverrides = housing->GetFixtureOverrideMap();
+            uint32 baseCompID = static_cast<uint32>(housing->GetCoreExteriorComponentID());
+            auto const* baseHooks = sHousingMgr.GetHooksOnComponent(baseCompID);
+            if (baseHooks)
+            {
+                for (ExteriorComponentHookEntry const* hook : *baseHooks)
+                {
+                    if (!hook || hook->ExteriorComponentTypeID != HOUSING_FIXTURE_TYPE_DOOR)
+                        continue;
+                    auto ovrItr = fixtureOverrides.find(hook->ID);
+                    if (ovrItr == fixtureOverrides.end())
+                        continue;
+
+                    // Door hook found — use hook position + exit point offset
+                    float localX = hook->Position[0];
+                    float localY = hook->Position[1];
+                    float localZ = hook->Position[2];
+
+                    ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(ovrItr->second);
+                    if (exitPt)
+                    {
+                        localX += exitPt->Position[0];
+                        localY += exitPt->Position[1];
+                        localZ += exitPt->Position[2];
+                    }
+
+                    float cosFacing = std::cos(hFacing);
+                    float sinFacing = std::sin(hFacing);
+                    exitX = hx + localX * cosFacing - localY * sinFacing;
+                    exitY = hy + localX * sinFacing + localY * cosFacing;
+                    exitZ = hz + localZ;
+                    exitO = hFacing;
+                    foundExitPoint = true;
+                    break;
+                }
+            }
+
+            // Fallback: use plot's TeleportPosition if no door exit point found
+            if (!foundExitPoint)
             {
                 exitX = plot->TeleportPosition[0];
                 exitY = plot->TeleportPosition[1];
                 exitZ = plot->TeleportPosition[2];
                 exitO = plot->TeleportFacing;
-                foundPlot = true;
-                break;
+                foundExitPoint = true;
             }
+            break;
         }
     }
 
-    if (!foundPlot)
+    if (!foundExitPoint)
     {
-        // Fallback: use neighborhood center
+        // Last resort: use neighborhood center
         NeighborhoodMapData const* mapData = sHousingMgr.GetNeighborhoodMapData(neighborhoodMapId);
         if (mapData)
         {
@@ -424,7 +476,7 @@ void WorldSession::HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInt
             exitY = mapData->Origin[1];
             exitZ = mapData->Origin[2];
         }
-        TC_LOG_WARN("housing", "CMSG_HOUSE_INTERIOR_LEAVE_HOUSE: No plot data for plotIndex {}, "
+        TC_LOG_WARN("housing", "CMSG_HOUSE_INTERIOR_LEAVE_HOUSE: No exit point for plotIndex {}, "
             "using neighborhood center", plotIndex);
     }
 
@@ -487,7 +539,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         }
     }
 
-    // Set edit mode via UpdateField ? client needs both the UpdateField change AND the SMSG response
+    // Set edit mode via UpdateField — client needs both the UpdateField change AND the SMSG response
     housing->SetEditorMode(targetMode);
 
     // Wire format: PackedGUID HouseGuid + PackedGUID BNetAccountGuid
@@ -500,8 +552,8 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
     if (housingDecorSetEditMode.Active)
     {
         // --- Edit mode ENTER ---
-        // Packet order: AURA_UPDATE(1263303) ? SPELL_START(1263303) ? SPELL_GO(1263303)
-        //   ? EDIT_MODE_RESPONSE ? UPDATE_OBJECT(EditorMode=1 + BNetAccount/FHousingStorage_C)
+        // Packet order: AURA_UPDATE(1263303) → SPELL_START(1263303) → SPELL_GO(1263303)
+        //   → EDIT_MODE_RESPONSE → UPDATE_OBJECT(EditorMode=1 + BNetAccount/FHousingStorage_C)
 
         // 1. Apply edit mode aura + spell cast packets (spell 1263303)
         if (sSpellMgr->GetSpellInfo(SPELL_HOUSING_EDIT_MODE_AURA, DIFFICULTY_NONE))
@@ -510,7 +562,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         }
         else
         {
-            // Spell not in DB2 ? send manual AURA_UPDATE + SPELL_START + SPELL_GO
+            // Spell not in DB2 — send manual AURA_UPDATE + SPELL_START + SPELL_GO
             SendManualHousingSpellPackets(player, SPELL_HOUSING_EDIT_MODE_AURA,
                 /*auraSlot=*/51, /*auraActiveFlags=*/15,
                 /*spellStartCastFlags=*/CAST_FLAG_PENDING | CAST_FLAG_HAS_TRAJECTORY | CAST_FLAG_UNKNOWN_3 | CAST_FLAG_UNKNOWN_4,  // 15
@@ -542,7 +594,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         // FHousingStorage_C to build its placed decor list for the targeting system.
         // Without this, the client has no decor to target and selection is impossible.
         // Reset the populated flag so storage entries are re-pushed on every edit mode
-        // entry ? the client may clear its decor list when exiting editor mode, so we
+        // entry — the client may clear its decor list when exiting editor mode, so we
         // must ensure the Account VALUES_UPDATE always carries the full storage map.
         housing->ResetStoragePopulated();
         housing->PopulateCatalogStorageEntries();
@@ -582,7 +634,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             // ALWAYS send CREATE for HousingPlayerHouseEntity when entering edit mode.
             // Same reasoning as Account entity above: the initial CREATE during login may
             // not have had budget values populated yet, and VALUES_UPDATE only includes
-            // changed fields ? which may be empty if the values haven't changed since last
+            // changed fields — which may be empty if the values haven't changed since last
             // sync. CREATE includes ALL current field values (budgets, level, favor, etc.).
             GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
             player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
@@ -707,7 +759,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
     else
     {
         // --- Edit mode EXIT ---
-        // Packet order: AURA_UPDATE ? EDIT_MODE_RESPONSE ? UPDATE_OBJECT
+        // Packet order: AURA_UPDATE → EDIT_MODE_RESPONSE → UPDATE_OBJECT
 
         // 1. Remove edit mode aura
         if (sSpellMgr->GetSpellInfo(SPELL_HOUSING_EDIT_MODE_AURA, DIFFICULTY_NONE))
@@ -716,7 +768,7 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
         }
         else
         {
-            // Spell not in DB2 ? send aura removal manually (empty AuraData = HasAura=False)
+            // Spell not in DB2 — send aura removal manually (empty AuraData = HasAura=False)
             WorldPackets::Spells::AuraUpdate auraUpdate;
             auraUpdate.UpdateAll = false;
             auraUpdate.UnitGUID = player->GetGUID();
@@ -811,7 +863,7 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
         TC_LOG_DEBUG("housing", "CMSG_HOUSING_DECOR_PLACE: No pending placement for DecorGuid {}, extracted EntryId {} from GUID", housingDecorPlace.DecorGuid.ToString(), decorEntryId);
     }
 
-    // Client sends Euler angles (via TaggedPosition<XYZ> Rotation) ? convert to quaternion
+    // Client sends Euler angles (via TaggedPosition<XYZ> Rotation) — convert to quaternion
     float yaw = housingDecorPlace.Rotation.Pos.GetPositionX();
     float pitch = housingDecorPlace.Rotation.Pos.GetPositionY();
     float roll = housingDecorPlace.Rotation.Pos.GetPositionZ();
@@ -881,7 +933,7 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
         return;
     }
 
-    // Client sends Euler angles (via TaggedPosition<XYZ> Rotation) ? convert to quaternion
+    // Client sends Euler angles (via TaggedPosition<XYZ> Rotation) — convert to quaternion
     float yaw = housingDecorMove.Rotation.Pos.GetPositionX();
     float pitch = housingDecorMove.Rotation.Pos.GetPositionY();
     float roll = housingDecorMove.Rotation.Pos.GetPositionZ();
@@ -1156,7 +1208,7 @@ void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::Housi
     // 2. Populate catalog (unplaced) entries into Account entity, refresh budgets,
     //    then send Account + HousingPlayerHouseEntity + decor MeshObjects in a SINGLE
     //    UPDATE_OBJECT. The Account must be sent as CREATE (not VALUES_UPDATE) because
-    //    the initial login CREATE had an empty FHousingStorage_C.Decor MapUpdateField ?
+    //    the initial login CREATE had an empty FHousingStorage_C.Decor MapUpdateField —
     //    a VALUES_UPDATE for an initially-empty map field does not deliver new keys.
     //    Decor MeshObjects are bundled so the client can correlate FHousingDecor_C.DecorGUID
     //    with FHousingStorage_C entries in one pass.
@@ -1278,7 +1330,7 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
 
     // Generate a unique Housing GUID for the newly redeemed decor item.
     // Sniff-verified format: subType=1, arg1=realmId, arg2=decorEntryId, counter=unique
-    // subType=0 hits the default case in ObjectGuidFactory::CreateHousing ? returns Empty!
+    // subType=0 hits the default case in ObjectGuidFactory::CreateHousing → returns Empty!
     uint64 catalogGuidBase = player->GetGUID().GetCounter() * 100000;
     uint32 instanceIndex = 0;
     for (auto const* entry : housing->GetCatalogEntries())
@@ -1320,7 +1372,7 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
     // Persist the new catalog entry to DB (crash safety)
     if (instanceIndex == 0)
     {
-        // First copy of this decor ? INSERT new row
+        // First copy of this decor — INSERT new row
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_CATALOG);
         uint8 idx = 0;
         stmt->setUInt64(idx++, player->GetGUID().GetCounter());
@@ -1332,7 +1384,7 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
     }
     else
     {
-        // Additional copy ? UPDATE existing row count
+        // Additional copy — UPDATE existing row count
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
         stmt->setUInt32(0, instanceIndex + 1);
         stmt->setUInt64(1, player->GetGUID().GetCounter());
@@ -1340,7 +1392,7 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
         CharacterDatabase.Execute(stmt);
     }
 
-    TC_LOG_ERROR("housing", "    Player {} redeemed decor entry={} ? GUID={} (SourceType=3, Seq={}, instanceIdx={})",
+    TC_LOG_ERROR("housing", "    Player {} redeemed decor entry={} → GUID={} (SourceType=3, Seq={}, instanceIdx={})",
         player->GetGUID().ToString(), decorEntryId, decorGuid.ToString(), sequenceIndex, instanceIndex);
 }
 
@@ -1486,10 +1538,10 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
 
     // ======================================================================
     // Sniff-verified retail packet sequence (build 66337):
-    //   #10161 S->C SMSG_UPDATE_OBJECT (56B)                ? editor mode field change
-    //   #10163 S->C SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE (19B) ? FixtureEntityGUID + PlayerGUID + Active
-    //   #10164 S->C SMSG_MOVE_SET_COMPOUND_STATE (32B)      ? ROOT + DISABLE_GRAVITY (enter) or UNROOT + ENABLE_GRAVITY (exit)
-    //   #10170 S->C SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE (11B) ? Empty + PlayerGUID + Result
+    //   #10161 S->C SMSG_UPDATE_OBJECT (56B)                — editor mode field change
+    //   #10163 S->C SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE (19B) — FixtureEntityGUID + PlayerGUID + Active
+    //   #10164 S->C SMSG_MOVE_SET_COMPOUND_STATE (32B)      — ROOT + DISABLE_GRAVITY (enter) or UNROOT + ENABLE_GRAVITY (exit)
+    //   #10170 S->C SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE (11B) — Empty + PlayerGUID + Result
     //   (second UPDATE_OBJECT follows)
     // ======================================================================
 
@@ -1504,7 +1556,7 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         }
     }
 
-    // 1) UPDATE_OBJECT ? editor mode field change
+    // 1) UPDATE_OBJECT — editor mode field change
     {
         player->BuildUpdateChangesMask();
         UpdateData updateData(player->GetMapId());
@@ -1515,7 +1567,7 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         player->ClearUpdateMask(false);
     }
 
-    // 2) SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE ? tells client the fixture entity is locked for editing
+    // 2) SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE — tells client the fixture entity is locked for editing
     {
         WorldPackets::Housing::HouseExteriorLockResponse lockResponse;
         lockResponse.FixtureEntityGuid = fixtureEntityGuid;
@@ -1525,7 +1577,7 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         SendPacket(lockResponse.Write());
     }
 
-    // 3) SMSG_MOVE_SET_COMPOUND_STATE ? root + disable gravity on enter, unroot + enable gravity on exit
+    // 3) SMSG_MOVE_SET_COMPOUND_STATE — root + disable gravity on enter, unroot + enable gravity on exit
     //    Also update server-side movement flags so movement validation stays consistent.
     {
         if (entering)
@@ -1559,17 +1611,17 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
 
     // 4) SMSG_HOUSING_FIXTURE_SET_EDIT_MODE_RESPONSE
     //    HouseGuid always empty. EditorPlayerGuid = player on enter, empty on exit.
-    //    Client compares EditorPlayerGuid against stored reference: match ? enter, empty ? exit.
+    //    Client compares EditorPlayerGuid against stored reference: match → enter, empty → exit.
     {
         WorldPackets::Housing::HousingFixtureSetEditModeResponse response;
-        // HouseGuid intentionally left empty ? sniff-verified: always 00 00
+        // HouseGuid intentionally left empty — sniff-verified: always 00 00
         if (entering)
             response.EditorPlayerGuid = player->GetGUID();
         response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
         SendPacket(response.Write());
     }
 
-    // 5) Second UPDATE_OBJECT ? sniff-verified: carries unit flags (PACIFIED, NO_ACTIONS,
+    // 5) Second UPDATE_OBJECT — sniff-verified: carries unit flags (PACIFIED, NO_ACTIONS,
     //    SilencedSchoolMask) that were set above. Client expects this after the response.
     {
         player->BuildUpdateChangesMask();
@@ -1579,6 +1631,64 @@ void WorldSession::HandleHousingFixtureSetEditMode(WorldPackets::Housing::Housin
         updateData.BuildPacket(&updatePacket);
         player->SendDirectMessage(&updatePacket);
         player->ClearUpdateMask(false);
+    }
+
+    // 6) Re-CREATE fixture entities now that the client's fixture manager is active.
+    //
+    // At plot entry, FlagByte=0xE0 sets multiple HouseStatus bits → the cascade function
+    // defaults to state=0 → vf5(0) → state+1048=0. CREATE_BASIC_HOUSE_RESPONSE is gated
+    // on state+1048!=0, so the rebuild never runs and state+96/+104 (house GUID) stays empty.
+    // Fixture entity CREATEs from plot entry fire the CREATE callback, but it compares the
+    // entity's FHousingFixture_C::HouseGUID against the empty state+96/+104 → mismatch → skip.
+    //
+    // Now the client has processed EDIT_MODE_RESPONSE: state+1048=6, rebuild has run,
+    // state+96/+104 is populated. Send CREATE_BASIC_HOUSE_RESPONSE (teardown+rebuild for
+    // a clean slate) then re-CREATE all fixture MeshObjects. The CREATE callback will
+    // match house GUIDs → create HousingFixturePointFrame objects → fire
+    // HOUSING_FIXTURE_POINT_FRAME_ADDED Lua events → UI populates hook points.
+    if (entering)
+    {
+        // CREATE_BASIC_HOUSE_RESPONSE — now that state+1048=6, the handler passes
+        // the gate check and runs teardown+rebuild for a clean fixture manager state.
+        {
+            WorldPackets::Housing::HousingFixtureCreateBasicHouseResponse fixtureInit;
+            fixtureInit.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+            SendPacket(fixtureInit.Write());
+        }
+
+        // Re-CREATE all fixture MeshObjects for the player's plot.
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            uint8 plotIndex = housing->GetPlotIndex();
+            auto const& meshMap = housingMap->GetPlotMeshObjects();
+            auto meshItr = meshMap.find(plotIndex);
+            if (meshItr != meshMap.end())
+            {
+                UpdateData fixtureUpdate(player->GetMapId());
+                uint32 fixtureCreateCount = 0;
+
+                for (ObjectGuid const& meshGuid : meshItr->second)
+                {
+                    MeshObject* meshObj = housingMap->GetMeshObject(meshGuid);
+                    if (meshObj && meshObj->IsInWorld() && meshObj->m_housingFixtureData.has_value())
+                    {
+                        meshObj->BuildCreateUpdateBlockForPlayer(&fixtureUpdate, player);
+                        player->m_clientGUIDs.insert(meshGuid);
+                        ++fixtureCreateCount;
+                    }
+                }
+
+                if (fixtureCreateCount > 0)
+                {
+                    WorldPacket fixturePacket;
+                    fixtureUpdate.BuildPacket(&fixturePacket);
+                    player->SendDirectMessage(&fixturePacket);
+                }
+
+                TC_LOG_DEBUG("housing", "HandleHousingFixtureSetEditMode: Re-CREATE {} fixture MeshObjects for plot {}",
+                    fixtureCreateCount, plotIndex);
+            }
+        }
     }
 }
 
@@ -1619,7 +1729,8 @@ void WorldSession::HandleHousingFixtureSetCoreFixture(WorldPackets::Housing::Hou
         componentEntry->Type, componentEntry->Size, componentEntry->Flags,
         componentEntry->ParentComponentID, componentEntry->HouseExteriorWmoDataID);
 
-    HousingResult result = housing->SelectFixtureOption(componentID, 0);
+    std::vector<uint32> removedHookIDs;
+    HousingResult result = housing->SelectFixtureOption(componentID, 0, &removedHookIDs);
 
     WorldPackets::Housing::HousingFixtureSetCoreFixtureResponse response;
     response.Result = static_cast<uint8>(result);
@@ -1705,7 +1816,8 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
         compEntry->ID, compEntry->Name[DEFAULT_LOCALE] ? compEntry->Name[DEFAULT_LOCALE] : "", compEntry->Type, compEntry->Size,
         compEntry->Flags, compEntry->ParentComponentID, compEntry->ModelFileDataID);
 
-    HousingResult result = housing->SelectFixtureOption(hookID, componentID);
+    std::vector<uint32> removedHookIDs;
+    HousingResult result = housing->SelectFixtureOption(hookID, componentID, &removedHookIDs);
 
     // Spawn the fixture BEFORE sending the response so we can populate FixtureGuid.
     // The client's CREATE_FIXTURE_RESPONSE handler uses this GUID to identify the new entity.
@@ -1716,11 +1828,22 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
         collectionUpdate.FixtureID = componentID;
         SendPacket(collectionUpdate.Write());
 
-        // Despawn old mesh at hook point and spawn the new fixture component
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
         {
             uint8 plotIndex = housing->GetPlotIndex();
 
+            // Despawn meshes at ALL conflict hooks (old door at different hook, or old fixture at same hook)
+            for (uint32 removedHook : removedHookIDs)
+            {
+                if (MeshObject* conflictMesh = housingMap->FindMeshObjectByHookID(plotIndex, static_cast<int32>(removedHook)))
+                {
+                    TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE: Despawning conflict mesh {} at hook {}",
+                        conflictMesh->GetGUID().ToString(), removedHook);
+                    housingMap->DespawnSingleMeshObject(plotIndex, conflictMesh->GetGUID());
+                }
+            }
+
+            // Despawn any mesh at the target hook
             if (MeshObject* oldMesh = housingMap->FindMeshObjectByHookID(plotIndex, static_cast<int32>(hookID)))
             {
                 TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE: Despawning old mesh {} at hook {}",
@@ -1728,10 +1851,34 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
                 housingMap->DespawnSingleMeshObject(plotIndex, oldMesh->GetGUID());
             }
 
+            // Spawn new fixture mesh
             MeshObject* newMesh = housingMap->SpawnFixtureAtHook(plotIndex, hookID, componentID,
                 housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player);
             if (newMesh)
                 newFixtureGuid = newMesh->GetFixtureGuid();
+
+            // If this is a door (type=11), respawn the clickable door GO at the hook position.
+            // Also respawn if a door was displaced from a different hook.
+            TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_CREATE_FIXTURE: compType={} hookID={} componentID={} removedHooks={}",
+                compEntry->Type, hookID, componentID, uint32(removedHookIDs.size()));
+            if (compEntry->Type == HOUSING_FIXTURE_TYPE_DOOR)
+            {
+                housingMap->RespawnDoorGOAtHook(plotIndex, hookID, componentID, housing, player);
+            }
+            else
+            {
+                // Check if we displaced a door — if so, the door GO needs to be removed
+                for (uint32 removedHook : removedHookIDs)
+                {
+                    ExteriorComponentHookEntry const* removedHookEntry = sExteriorComponentHookStore.LookupEntry(removedHook);
+                    if (removedHookEntry && removedHookEntry->ExteriorComponentTypeID == HOUSING_FIXTURE_TYPE_DOOR)
+                    {
+                        // Door was removed — despawn the door GO (no new door to spawn)
+                        housingMap->DespawnDoorGO(plotIndex);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -1767,12 +1914,32 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
     }
 
     uint32 componentID = housingFixtureDeleteFixture.ExteriorComponentID;
+    uint32 originalID = componentID; // preserve original for RemoveFixture key lookup
 
-    // Validate ExteriorComponentID against DB2 store
+    // The client may send either an ExteriorComponentID or an ExteriorComponentHookID
+    // depending on the fixture type. Try the ExteriorComponent store first, then fall back
+    // to resolving via ExteriorComponentHook → ExteriorComponent for DB2 validation.
     ExteriorComponentEntry const* componentEntry = sExteriorComponentStore.LookupEntry(componentID);
     if (!componentEntry)
     {
-        TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE ExteriorComponentID {} not found in DB2", componentID);
+        // Try as a HookID — resolve to the parent ExteriorComponentID for validation only.
+        // Keep originalID as the hookID for RemoveFixture (fixtures are keyed by hookID).
+        ExteriorComponentHookEntry const* hookEntry = sExteriorComponentHookStore.LookupEntry(componentID);
+        if (hookEntry)
+        {
+            componentEntry = sExteriorComponentStore.LookupEntry(hookEntry->ExteriorComponentID);
+            if (componentEntry)
+            {
+                TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE: Resolved hookID {} → ExteriorComponentID {} (using hookID as key)",
+                    componentID, hookEntry->ExteriorComponentID);
+                // DON'T overwrite componentID — keep the hookID for RemoveFixture
+            }
+        }
+    }
+
+    if (!componentEntry)
+    {
+        TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE ExteriorComponentID/HookID {} not found in DB2", componentID);
         WorldPackets::Housing::HousingFixtureDeleteFixtureResponse response;
         response.Result = static_cast<uint8>(HOUSING_RESULT_FIXTURE_NOT_FOUND);
         SendPacket(response.Write());
@@ -1782,8 +1949,10 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_FIXTURE_DELETE_FIXTURE DB2 lookup: ExteriorComponentID={}, Name='{}', Type={}, Flags={}",
         componentID, componentEntry->Name[DEFAULT_LOCALE] ? componentEntry->Name[DEFAULT_LOCALE] : "", componentEntry->Type, componentEntry->Flags);
 
+    // Use originalID (hookID when client sent a hook, componentID otherwise) for fixture lookup.
+    // RemoveFixture searches by key first (hookID), then by OptionId (componentID).
     uint32 removedHookID = 0;
-    HousingResult result = housing->RemoveFixture(componentID, &removedHookID);
+    HousingResult result = housing->RemoveFixture(originalID, &removedHookID);
 
     WorldPackets::Housing::HousingFixtureDeleteFixtureResponse response;
     response.Result = static_cast<uint8>(result);
@@ -1806,19 +1975,11 @@ void WorldSession::HandleHousingFixtureDeleteFixture(WorldPackets::Housing::Hous
                 housingMap->DespawnSingleMeshObject(plotIndex, oldMesh->GetGUID());
             }
 
-            // Spawn default component back at this hook (DB2 default by type + wmoDataID)
-            ExteriorComponentHookEntry const* hookEntry = sExteriorComponentHookStore.LookupEntry(removedHookID);
-            if (hookEntry)
-            {
-                uint32 defaultCompID = sHousingMgr.GetDefaultFixtureForType(
-                    static_cast<uint8>(hookEntry->ExteriorComponentTypeID),
-                    static_cast<uint32>(housing->GetHouseType()));
-                if (defaultCompID)
-                {
-                    housingMap->SpawnFixtureAtHook(plotIndex, removedHookID, defaultCompID,
-                        housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player);
-                }
-            }
+            // Do NOT spawn a default fixture back — the user selected "None" to remove it.
+            // The hook point should remain empty so the client shows the fixture point UI again.
+            // If this was a door, also remove the door GO.
+            if (componentEntry && componentEntry->Type == HOUSING_FIXTURE_TYPE_DOOR)
+                housingMap->DespawnDoorGO(plotIndex);
         }
 
         // Sniff-verified: UPDATE_OBJECT follows the response
@@ -1961,7 +2122,7 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
         housingMap->SpawnAllDecorForPlot(plotIndex, housing);
     }
 
-    // Sniff-verified packet order: SMSG response ? UPDATE_OBJECT (~228B)
+    // Sniff-verified packet order: SMSG response → UPDATE_OBJECT (~228B)
     WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.HouseExteriorTypeID = wmoDataID;
@@ -2460,7 +2621,7 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         return;
     }
 
-    // Housing warning gate ? check expansion access, level requirements
+    // Housing warning gate — check expansion access, level requirements
     uint32 housingWarnings = ShouldShowHousingWarning(player);
     if (housingWarnings != HOUSING_WARNING_NONE)
     {
@@ -2483,7 +2644,7 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         return;
     }
 
-    // Use the client's PlotIndex directly ? the client sends its internal plot ID
+    // Use the client's PlotIndex directly — the client sends its internal plot ID
     // which may differ from our DB2 PlotIndex values (sequential 0-54 in our SQL
     // vs the actual retail DB2 PlotIndex values the client uses).
     uint8 plotIndex = housingSvcsNeighborhoodReservePlot.PlotIndex;
@@ -2740,7 +2901,7 @@ void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::H
         return;
     }
 
-    // Ownership check ? only the house owner can change settings
+    // Ownership check — only the house owner can change settings
     if (housingSvcsUpdateHouseSettings.HouseGuid != housing->GetHouseGuid())
     {
         WorldPackets::Housing::HousingSvcsUpdateHouseSettingsResponse response;
@@ -3056,7 +3217,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
     if (!player)
         return;
 
-    // Housing warning gate ? check expansion access, level requirements
+    // Housing warning gate — check expansion access, level requirements
     uint32 housingWarnings = ShouldShowHousingWarning(player);
     if (housingWarnings != HOUSING_WARNING_NONE)
     {
@@ -3083,7 +3244,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
 
     // Step 1: Find or create a tutorial neighborhood for the player's faction.
     // The tutorial only needs a neighborhood to exist so the map instance can be
-    // created. It does NOT grant membership ? that happens when the player buys a plot.
+    // created. It does NOT grant membership — that happens when the player buys a plot.
     Neighborhood* neighborhood = sNeighborhoodMgr.FindOrCreatePublicNeighborhood(player->GetTeam());
 
     if (neighborhood)
@@ -3091,7 +3252,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
         TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_START_TUTORIAL: Player {} assigned to neighborhood '{}' ({})",
             player->GetGUID().ToString(), neighborhood->GetName(), neighborhood->GetGuid().ToString());
 
-        // Send empty house status ? the player has no house yet during tutorial.
+        // Send empty house status — the player has no house yet during tutorial.
         // HouseStatus=1 would tell the client "you own a house" which prevents
         // the Cornerstone purchase UI from showing. Neighborhood context is
         // provided separately via SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE
@@ -3120,7 +3281,7 @@ void WorldSession::HandleHousingSvcsStartTutorial(WorldPackets::Housing::Housing
         QuestStatus status = player->GetQuestStatus(QUEST_MY_FIRST_HOME);
         if (status == QUEST_STATUS_NONE)
         {
-            // Quest not in log and not yet rewarded ? safe to add
+            // Quest not in log and not yet rewarded — safe to add
             if (player->CanAddQuest(quest, true))
             {
                 player->AddQuestAndCheckCompletion(quest, nullptr);
@@ -3165,7 +3326,7 @@ void WorldSession::HandleHousingSvcsSetTutorialState(WorldPackets::Housing::Hous
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_SET_TUTORIAL_STATE Player: {} TutorialFlags: {}",
         player->GetGUID().ToString(), housingSvcsSetTutorialState.TutorialFlags);
 
-    // Tutorial state is volatile per-session ? the client tracks tutorial progress
+    // Tutorial state is volatile per-session — the client tracks tutorial progress
     // and sends state updates. No server-side persistence required; the tutorial
     // quest (91863) completion is the authoritative progression marker.
 }
@@ -3179,7 +3340,7 @@ void WorldSession::HandleHousingSvcsCompleteTutorialStep(WorldPackets::Housing::
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_COMPLETE_TUTORIAL_STEP Player: {} StepIndex: {}",
         player->GetGUID().ToString(), housingSvcsCompleteTutorialStep.StepIndex);
 
-    // Tutorial step completion is informational ? the actual progression is
+    // Tutorial step completion is informational — the actual progression is
     // driven by quest objectives (91863). The client advances its own tutorial
     // state machine; we just acknowledge receipt.
 }
@@ -3240,7 +3401,7 @@ void WorldSession::HandleHousingDecorConfirmPreviewPlacement(WorldPackets::Housi
 
     // Preview placement confirmation is an ACK from the client after
     // receiving HousingDecorPlacementPreviewResponse with no restrictions.
-    // The actual placement is committed via PlaceDecor/MoveDecor CMSGs ?
+    // The actual placement is committed via PlaceDecor/MoveDecor CMSGs —
     // this opcode just signals the client is proceeding with the placement.
     // No server-side action or response needed.
 }
@@ -3285,7 +3446,7 @@ void WorldSession::HandleHousingSvcsAcceptNeighborhoodOwnership(WorldPackets::Ho
         rosterUpdate.Residents.push_back({ previousOwnerGuid, 1 /*RoleChanged*/, true /*demoted to manager, still privileged*/ });
         neighborhood->BroadcastPacket(rosterUpdate.Write());
 
-        // Ownership change is a major data change ? request client to reload housing data
+        // Ownership change is a major data change — request client to reload housing data
         WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
         SendPacket(reloadData.Write());
 
@@ -3345,7 +3506,7 @@ void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housin
     if (!housing)
     {
         WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse response;
-        SendPacket(response.Write()); // empty array ? no Result byte in wire format
+        SendPacket(response.Write()); // empty array — no Result byte in wire format
         return;
     }
 
@@ -3414,7 +3575,7 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
         entry.Field2 = 0;
         entry.ExtraFlags = 0x20; // Retail sniff: finder list entries always have ExtraFlags=0x20
 
-        // Retail LIST response has an EMPTY Houses array ? the client only needs houses in
+        // Retail LIST response has an EMPTY Houses array — the client only needs houses in
         // the DETAIL response (HandleHousingSvcsGetHouseFinderNeighborhood). Populating
         // Houses here causes the client to not render occupied plot markers on the finder map.
 
@@ -3665,7 +3826,7 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
 
         if (plotInfo && plotInfo->OwnerGuid != player->GetGUID())
         {
-            // Visiting someone else's plot ? return that plot's house data
+            // Visiting someone else's plot — return that plot's house data
             response.HouseGuid = plotInfo->HouseGuid;
             response.AccountGuid = plotInfo->OwnerBnetGuid; // BNetAccount GUID of plot owner
             response.OwnerPlayerGuid = plotInfo->OwnerGuid; // Plot owner's Player GUID
@@ -3735,7 +3896,7 @@ void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::Hous
         }
         else
         {
-            // Visitor on another player's plot ? check stored settings
+            // Visitor on another player's plot — check stored settings
             response.ResultCode = 0;
             response.PermissionFlags = 0x00;
 
@@ -3793,7 +3954,7 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
 
     if (currentPlot >= 0 && housingMap && housingMap->GetNeighborhood())
     {
-        // Player is on a specific plot ? return info about THAT plot's house
+        // Player is on a specific plot — return info about THAT plot's house
         Neighborhood* neighborhood = housingMap->GetNeighborhood();
         Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(currentPlot));
 
@@ -3822,7 +3983,7 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     }
     else if (Housing* housing = player->GetHousing())
     {
-        // Not on any tracked plot ? fall back to player's own house data
+        // Not on any tracked plot — fall back to player's own house data
         response.House.HouseGuid = housing->GetHouseGuid();
         response.House.OwnerGuid = player->GetGUID();
         response.House.NeighborhoodGuid = housing->GetNeighborhoodGuid();
@@ -3997,7 +4158,7 @@ void WorldSession::HandleHousingPhotoSharingCompleteAuthorization(WorldPackets::
     }
 
     // Track authorization state on the Housing object (per-session, volatile).
-    // Actual screenshot hosting requires an external CDN ? server only tracks the auth grant.
+    // Actual screenshot hosting requires an external CDN — server only tracks the auth grant.
     housing->SetPhotoSharingAuthorized(true);
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     SendPacket(response.Write());
@@ -4179,7 +4340,7 @@ void WorldSession::HandleGetLastCatalogFetch(WorldPackets::Housing::GetLastCatal
 {
     // Sniff-verified (build 66337): retail DOES respond with SMSG_LAST_CATALOG_FETCH_RESPONSE
     // containing a uint64 Unix timestamp. This corrects the earlier finding that "retail never
-    // responds" ? that was from an older build. Build 66337 sends it 5-6 times per session.
+    // responds" — that was from an older build. Build 66337 sends it 5-6 times per session.
     TC_LOG_DEBUG("housing", "CMSG_GET_LAST_CATALOG_FETCH from player {}",
         GetPlayer() ? GetPlayer()->GetGUID().ToString() : "null");
 
@@ -4225,7 +4386,7 @@ void WorldSession::HandleHousingRequestEditorAvailability(WorldPackets::Housing:
 }
 
 // ============================================================
-// Phase 7 ? Decor Handlers
+// Phase 7 — Decor Handlers
 // ============================================================
 
 void WorldSession::HandleHousingDecorUpdateDyeSlot(WorldPackets::Housing::HousingDecorUpdateDyeSlot const& housingDecorUpdateDyeSlot)
@@ -4414,7 +4575,7 @@ void WorldSession::HandleHousingDecorPlacementPreview(WorldPackets::Housing::Hou
 }
 
 // ============================================================
-// Phase 7 ? Fixture Handlers
+// Phase 7 — Fixture Handlers
 // ============================================================
 
 void WorldSession::HandleHousingFixtureCreateBasicHouse(WorldPackets::Housing::HousingFixtureCreateBasicHouse const& housingFixtureCreateBasicHouse)
@@ -4477,7 +4638,7 @@ void WorldSession::HandleHousingFixtureCreateBasicHouse(WorldPackets::Housing::H
         return;
     }
 
-    // Player has Housing object but no house GUID ? shouldn't happen in normal flow.
+    // Player has Housing object but no house GUID — shouldn't happen in normal flow.
     // The house should have been created via HandleNeighborhoodBuyHouse.
     WorldPackets::Housing::HousingFixtureCreateBasicHouseResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_PLOT_NOT_FOUND);
@@ -4568,7 +4729,7 @@ void WorldSession::HandleHousingFixtureDeleteHouse(WorldPackets::Housing::Housin
 }
 
 // ============================================================
-// Phase 7 ? Housing Services Handlers
+// Phase 7 — Housing Services Handlers
 // ============================================================
 
 void WorldSession::HandleHousingSvcsRequestPermissionsCheck(WorldPackets::Housing::HousingSvcsRequestPermissionsCheck const& /*housingSvcsRequestPermissionsCheck*/)
@@ -4580,7 +4741,7 @@ void WorldSession::HandleHousingSvcsRequestPermissionsCheck(WorldPackets::Housin
     TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_REQUEST_PERMISSIONS_CHECK Player: {}",
         player->GetGUID().ToString());
 
-    // Server-push trigger ? no direct response needed
+    // Server-push trigger — no direct response needed
     // Permissions are checked and sent proactively when the player's housing state changes
 }
 
@@ -4749,7 +4910,7 @@ void WorldSession::HandleHousingSvcsChangeHouseCosmeticOwner(WorldPackets::Housi
     // Only the house owner can change the cosmetic owner
     if (!housing || housing->GetHouseGuid() != housingSvcsChangeHouseCosmeticOwner.HouseGuid)
     {
-        TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER: Permission denied ? not house owner");
+        TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER: Permission denied — not house owner");
         return;
     }
 
@@ -4887,7 +5048,7 @@ void WorldSession::HandleHousingSvcsGuildAppendNeighborhood(WorldPackets::Housin
     // Only the neighborhood owner or manager can append it to a guild
     if (!neighborhood->IsOwner(player->GetGUID()) && !neighborhood->IsManager(player->GetGUID()))
     {
-        TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD: Permission denied ? not owner/manager");
+        TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD: Permission denied — not owner/manager");
         return;
     }
 
@@ -4960,7 +5121,7 @@ void WorldSession::HandleHousingSvcsGuildRenameNeighborhood(WorldPackets::Housin
             }
             else
             {
-                TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD: Permission denied ? not owner/manager");
+                TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD: Permission denied — not owner/manager");
                 return;
             }
         }
@@ -5043,7 +5204,7 @@ void WorldSession::HandleHousingSvcsGuildGetHousingInfo(WorldPackets::Housing::H
 }
 
 // ============================================================
-// Phase 7 ? Housing System Handlers
+// Phase 7 — Housing System Handlers
 // ============================================================
 
 void WorldSession::HandleHousingSystemHouseStatusQuery(WorldPackets::Housing::HousingSystemHouseStatusQuery const& /*housingSystemHouseStatusQuery*/)
@@ -5064,7 +5225,7 @@ void WorldSession::HandleHousingSystemHouseStatusQuery(WorldPackets::Housing::Ho
         response.OwnerPlayerGuid = player->GetGUID();
         response.NeighborhoodGuid = housing->GetNeighborhoodGuid();
         response.Status = 1; // Active
-        response.FlagByte = 0xC0; // bit7=Decor, bit6=Room only ? Fixture context managed by dedicated ENTER/EXIT response
+        response.FlagByte = 0xC0; // bit7=Decor, bit6=Room only — Fixture context managed by dedicated ENTER/EXIT response
     }
     else
     {

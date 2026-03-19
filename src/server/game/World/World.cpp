@@ -1942,6 +1942,9 @@ bool World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading initiative info...");
     sInitiativeManager.Initialize();
 
+    TC_LOG_INFO("server.loading", "Pre-loading housing neighborhood maps...");
+    sMapMgr->PreloadHousingMaps();
+
     ///- Handle outdated emails (delete/return)
     TC_LOG_INFO("server.loading", "Returning old mails...");
     sObjectMgr->ReturnOrDeleteOldMails(false);

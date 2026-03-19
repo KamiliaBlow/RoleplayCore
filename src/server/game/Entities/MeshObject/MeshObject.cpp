@@ -320,6 +320,27 @@ void MeshObject::AddRoomMeshObject(ObjectGuid meshObjectGuid)
         GetGUID().ToString(), meshObjectGuid.ToString());
 }
 
+void MeshObject::AddRoomDoor(int32 roomComponentID, Position const& offset, uint8 roomComponentType, ObjectGuid attachedRoomGuid)
+{
+    if (!m_housingRoomData.has_value())
+        return;
+
+    // For a fresh dynamic array entry, populate fields via the mutable reference's ModifyValue
+    // which returns a setter that marks the change mask and writes the underlying value.
+    auto&& doorRef = AddDynamicUpdateFieldValue(m_values.ModifyValue(&Object::m_housingRoomData, 0)
+        .ModifyValue(&UF::HousingRoomData::Doors));
+    doorRef.ModifyValue(&UF::HousingDoorData::RoomComponentID).SetValue(roomComponentID);
+    doorRef.ModifyValue(&UF::HousingDoorData::RoomComponentOffset).SetValue(
+        TaggedPosition<Position::XYZ>(offset.GetPositionX(), offset.GetPositionY(), offset.GetPositionZ()));
+    doorRef.ModifyValue(&UF::HousingDoorData::RoomComponentType).SetValue(roomComponentType);
+    doorRef.ModifyValue(&UF::HousingDoorData::AttachedRoomGUID).SetValue(attachedRoomGuid);
+
+    TC_LOG_DEBUG("housing", "MeshObject::AddRoomDoor: room={} componentID={} type={} offset=({:.1f},{:.1f},{:.1f}) attachedRoom={}",
+        GetGUID().ToString(), roomComponentID, roomComponentType,
+        offset.GetPositionX(), offset.GetPositionY(), offset.GetPositionZ(),
+        attachedRoomGuid.ToString());
+}
+
 void MeshObject::InitHousingRoomComponentData(ObjectGuid roomGuid,
     int32 roomComponentOptionID, int32 roomComponentID,
     uint8 roomComponentType, int32 field24,

@@ -108,6 +108,7 @@ class TC_GAME_API MapManager
         }
 
         void InitializeVisibilityDistanceInfo();
+        void PreloadHousingMaps();
 
         /* statistics */
         uint32 GetNumInstances() const;

@@ -1694,7 +1694,7 @@ std::vector<Housing::Room const*> Housing::GetRooms() const
     return result;
 }
 
-HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionId)
+HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionId, std::vector<uint32>* removedHookIDs /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -1726,7 +1726,10 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
             return HOUSING_RESULT_GENERIC_FAILURE;
         }
 
-        // Enforce one door per base component: if placing a door, check no other hook already has one
+        // Enforce one door (entrance) per house: if placing a door, remove any existing door at other hooks.
+        // Also remove any existing fixture at the TARGET hook (only one fixture per hook).
+        std::vector<uint32> conflictHooks;
+
         if (compEntry->Type == HOUSING_FIXTURE_TYPE_DOOR)
         {
             for (auto const& [pointId, fixture] : _fixtures)
@@ -1736,11 +1739,37 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
                 ExteriorComponentEntry const* existingComp = sExteriorComponentStore.LookupEntry(fixture.OptionId);
                 if (existingComp && existingComp->Type == HOUSING_FIXTURE_TYPE_DOOR)
                 {
-                    TC_LOG_DEBUG("housing", "SelectFixtureOption: door already exists at hook {} (comp {}), rejecting new door at hook {}",
+                    TC_LOG_INFO("housing", "SelectFixtureOption: replacing existing door at hook {} (comp {}) — moving entrance to hook {}",
                         pointId, fixture.OptionId, fixturePointId);
-                    return HOUSING_RESULT_GENERIC_FAILURE;
+                    conflictHooks.push_back(pointId);
                 }
             }
+        }
+
+        // If the target hook already has a different fixture, remove it
+        auto existingAtHook = _fixtures.find(fixturePointId);
+        if (existingAtHook != _fixtures.end() && existingAtHook->second.OptionId != 0
+            && existingAtHook->second.OptionId != optionId)
+        {
+            TC_LOG_INFO("housing", "SelectFixtureOption: removing existing fixture (comp {}) at hook {} to place new comp {}",
+                existingAtHook->second.OptionId, fixturePointId, optionId);
+            conflictHooks.push_back(fixturePointId);
+        }
+
+        // Remove all conflicting fixtures (data + DB)
+        for (uint32 conflictHookId : conflictHooks)
+        {
+            _fixtures.erase(conflictHookId);
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE);
+            stmt->setUInt64(0, _owner->GetGUID().GetCounter());
+            stmt->setUInt32(1, conflictHookId);
+            CharacterDatabase.Execute(stmt);
+            if (_fixtureWeightUsed > 0)
+                --_fixtureWeightUsed;
+
+            // Signal the removed hookID to the caller for mesh despawning
+            if (removedHookIDs)
+                removedHookIDs->push_back(conflictHookId);
         }
     }
     else

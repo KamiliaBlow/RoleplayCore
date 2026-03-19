@@ -71,6 +71,8 @@ public:
         FixtureOverrideMap const* fixtureOverrides = nullptr,
         RootOverrideMap const* rootOverrides = nullptr);
     void DespawnHouseForPlot(uint8 plotIndex);
+    void RespawnDoorGOAtHook(uint8 plotIndex, uint32 hookID, uint32 doorComponentID, Housing const* housing, Player* player = nullptr);
+    void DespawnDoorGO(uint8 plotIndex);
     GameObject* GetHouseGameObject(uint8 plotIndex);
     int8 GetPlotIndexForHouseGO(ObjectGuid goGuid) const;
     uint32 GetHouseGameObjectCount() const { return static_cast<uint32>(_houseGameObjects.size()); }

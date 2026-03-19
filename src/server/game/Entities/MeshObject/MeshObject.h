@@ -87,6 +87,11 @@ public:
     // Must call InitHousingRoomData() first.
     void AddRoomMeshObject(ObjectGuid meshObjectGuid);
 
+    // Add a door/hookpoint entry to the room's Doors dynamic array.
+    // Must call InitHousingRoomData() first. The client's HousingRoomSystem
+    // reads these entries to create fixture-hookpoint links.
+    void AddRoomDoor(int32 roomComponentID, Position const& offset, uint8 roomComponentType, ObjectGuid attachedRoomGuid);
+
     // Housing room component mesh (adds FHousingRoomComponentMesh_C fragment, sets IsRoom + Geobox)
     // The client uses the Geobox for its OutsidePlotBounds collision check.
     void InitHousingRoomComponentData(ObjectGuid roomGuid,

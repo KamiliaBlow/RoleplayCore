@@ -2488,9 +2488,9 @@ WorldPacket const* NeighborhoodCharterSignatureRemovedNotification::Write()
 
 WorldPacket const* NeighborhoodPlayerEnterPlot::Write()
 {
-    _worldPacket << PlotAreaTriggerGuid;
+    _worldPacket << NeighborhoodEntityGuid;
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT PlotAreaTriggerGuid: {}", PlotAreaTriggerGuid.ToString());
+    TC_LOG_DEBUG("network.opcode", "SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT NeighborhoodEntityGuid: {}", NeighborhoodEntityGuid.ToString());
 
     return &_worldPacket;
 }
