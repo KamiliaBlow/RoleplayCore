@@ -3447,6 +3447,7 @@ struct MapEntry
 
     EnumFlag<MapFlags> GetFlags() const { return static_cast<MapFlags>(Flags[0]); }
     EnumFlag<MapFlags2> GetFlags2() const { return static_cast<MapFlags2>(Flags[1]); }
+    EnumFlag<MapFlags3> GetFlags3() const { return static_cast<MapFlags3>(Flags[2]); }
 };
 
 struct MapChallengeModeEntry
