@@ -779,7 +779,9 @@ void Roleplay::CreateCustomNpcFromPlayer(Player* player, std::string const& key)
                 for (ItemModifiedAppearanceEntry const* appearanceMod : sItemModifiedAppearanceStore)
                 {
                     if ((uint32)appearanceMod->ItemID == pItem->GetEntry() && appearanceMod->OrderIndex == 0) {
-                        displayId = sDB2Manager.GetItemDisplayId(pItem->GetEntry(), appearanceMod->ItemAppearanceModifierID);
+                        if (ItemAppearanceEntry const* itemAppearance = sItemAppearanceStore.LookupEntry(appearanceMod->ItemAppearanceID))
+                            displayId = itemAppearance->ItemDisplayInfoID;
+
                         break;
                     }
                 }

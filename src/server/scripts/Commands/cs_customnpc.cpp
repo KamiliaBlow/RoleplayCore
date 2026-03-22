@@ -8,6 +8,7 @@
 #include "Player.h" // EquipmentSlots
 #include "SharedDefines.h" // Gender
 #include "Creature.h" // Creature
+#include "TransmogMgr.h"
 #include "TemporarySummon.h"
 #include "Transport.h"
 #include "PhasingHandler.h"
@@ -315,7 +316,12 @@ public:
             }
         }
 
-        uint32 displayId = sDB2Manager.GetItemDisplayId(item->GetId(), modAppearanceId.value_or(0));
+        uint32 displayId = 0;
+
+        if (ItemModifiedAppearanceEntry const* modifiedAppearance = TransmogMgr::GetItemModifiedAppearance(item->GetId(), modAppearanceId.value_or(0)))
+            if (ItemAppearanceEntry const* itemAppearance = sItemAppearanceStore.LookupEntry(modifiedAppearance->ItemAppearanceID))
+                displayId = itemAppearance->ItemDisplayInfoID;
+
         sRoleplay->SetCustomNpcOutfitEquipmentSlot(name, variation, slot, displayId);
         handler->PSendSysMessage("Armor equipped to custom NPC %s, model variation '%u'!", name, variation);
         return true;

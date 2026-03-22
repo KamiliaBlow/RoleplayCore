@@ -37,7 +37,162 @@ void TransmogrifyItems::Read()
     for (TransmogrifyItem& item : Items)
         _worldPacket >> item;
 
+    _worldPacket.ResetBitPos();
     _worldPacket >> Bits<1>(CurrentSpecOnly);
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, TransmogOutfitDataInfo& transmogOutfitDataInfo)
+{
+    data.ResetBitPos();
+    data >> As<uint8>(transmogOutfitDataInfo.SetType);
+    data >> transmogOutfitDataInfo.Icon;
+    data >> SizedString::BitsSize<8>(transmogOutfitDataInfo.Name);
+    data >> Bits<1>(transmogOutfitDataInfo.SituationsEnabled);
+
+    data >> SizedString::Data(transmogOutfitDataInfo.Name);
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, TransmogOutfitDataInfo const& transmogOutfitDataInfo)
+{
+    data << As<uint8>(transmogOutfitDataInfo.SetType);
+    data << uint32(transmogOutfitDataInfo.Icon);
+    data << SizedString::BitsSize<8>(transmogOutfitDataInfo.Name);
+    data << Bits<1>(transmogOutfitDataInfo.SituationsEnabled);
+    data.FlushBits();
+
+    data << SizedString::Data(transmogOutfitDataInfo.Name);
+
+    return data;
+}
+
+void TransmogOutfitNew::Read()
+{
+    _worldPacket >> Npc;
+    _worldPacket >> As<uint8>(Source);
+    _worldPacket >> Info;
+}
+
+WorldPacket const* TransmogOutfitNewEntryAdded::Write()
+{
+    _worldPacket << uint32(TransmogOutfitID);
+
+    return &_worldPacket;
+}
+
+void TransmogOutfitUpdateInfo::Read()
+{
+    _worldPacket >> OutfitID;
+    _worldPacket >> Npc;
+    _worldPacket >> Info;
+}
+
+WorldPacket const* TransmogOutfitInfoUpdated::Write()
+{
+    _worldPacket << uint32(TransmogOutfitID);
+    _worldPacket << *OutfitInfo;
+
+    return &_worldPacket;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, TransmogOutfitSituationInfo& transmogOutfitSituationInfo)
+{
+    data >> transmogOutfitSituationInfo.SituationID;
+    data >> transmogOutfitSituationInfo.SpecID;
+    data >> transmogOutfitSituationInfo.LoadoutID;
+    data >> transmogOutfitSituationInfo.EquipmentSetID;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, TransmogOutfitSituationInfo const& transmogOutfitSituationInfo)
+{
+    data << uint32(transmogOutfitSituationInfo.SituationID);
+    data << uint32(transmogOutfitSituationInfo.SpecID);
+    data << uint32(transmogOutfitSituationInfo.LoadoutID);
+    data << uint32(transmogOutfitSituationInfo.EquipmentSetID);
+
+    return data;
+}
+
+void TransmogOutfitUpdateSituations::Read()
+{
+    _worldPacket >> OutfitID;
+    _worldPacket >> Npc;
+    _worldPacket >> Size<uint32>(Situations);
+    for (TransmogOutfitSituationInfo& situation : Situations)
+        _worldPacket >> situation;
+
+    _worldPacket.ResetBitPos();
+    _worldPacket >> Bits<1>(SituationsEnabled);
+}
+
+WorldPacket const* TransmogOutfitSituationsUpdated::Write()
+{
+    _worldPacket << uint32(TransmogOutfitID);
+    _worldPacket << Size<uint32>(Situations);
+
+    for (TransmogOutfitSituationInfo const& situation : Situations)
+        _worldPacket << situation;
+
+    _worldPacket << Bits<1>(SituationsEnabled);
+    _worldPacket.FlushBits();
+
+    return &_worldPacket;
+}
+
+ByteBuffer& operator>>(ByteBuffer& data, TransmogOutfitSlotData& transmogOutfitSlotData)
+{
+    data >> As<int8>(transmogOutfitSlotData.Slot);
+    data >> As<uint8>(transmogOutfitSlotData.SlotOption);
+    data >> transmogOutfitSlotData.ItemModifiedAppearanceID;
+    data >> As<uint8>(transmogOutfitSlotData.AppearanceDisplayType);
+    data >> transmogOutfitSlotData.SpellItemEnchantmentID;
+    data >> As<uint8>(transmogOutfitSlotData.IllusionDisplayType);
+    data >> transmogOutfitSlotData.Flags;
+
+    return data;
+}
+
+ByteBuffer& operator<<(ByteBuffer& data, TransmogOutfitSlotData const& transmogOutfitSlotData)
+{
+    data << As<int8>(transmogOutfitSlotData.Slot);
+    data << As<uint8>(transmogOutfitSlotData.SlotOption);
+    data << uint32(transmogOutfitSlotData.ItemModifiedAppearanceID);
+    data << As<uint8>(transmogOutfitSlotData.AppearanceDisplayType);
+    data << uint32(transmogOutfitSlotData.SpellItemEnchantmentID);
+    data << As<uint8>(transmogOutfitSlotData.IllusionDisplayType);
+    data << uint32(transmogOutfitSlotData.Flags);
+
+    return data;
+}
+
+void TransmogOutfitUpdateSlots::Read()
+{
+    _worldPacket >> OutfitID;
+    _worldPacket >> Size<uint32>(Slots);
+    _worldPacket >> Npc;
+    _worldPacket >> Cost;
+
+    for (TransmogOutfitSlotData& slot : Slots)
+        _worldPacket >> slot;
+
+    _worldPacket.ResetBitPos();
+    _worldPacket >> Bits<1>(UseAvailableDiscount);
+
+    std::ranges::sort(Slots, std::ranges::less(), [](TransmogOutfitSlotData const& slot) { return std::pair(slot.Slot, slot.SlotOption); });
+}
+
+WorldPacket const* TransmogOutfitSlotsUpdated::Write()
+{
+    _worldPacket << uint32(TransmogOutfitID);
+    _worldPacket << Size<uint32>(Slots);
+
+    for (TransmogOutfitSlotData const& slot : Slots)
+        _worldPacket << slot;
+
+    return &_worldPacket;
 }
 
 WorldPacket const* AccountTransmogUpdate::Write()
@@ -52,104 +207,6 @@ WorldPacket const* AccountTransmogUpdate::Write()
     if (!NewAppearances.empty())
         _worldPacket.append(NewAppearances.data(), NewAppearances.size());
 
-    return &_worldPacket;
-}
-
-ByteBuffer& operator>>(ByteBuffer& data, TransmogOutfitSlot& slot)
-{
-    data >> slot.Slot;
-    data >> slot.SlotOption;
-    data >> slot.ItemModifiedAppearanceID;
-    data >> slot.AppearanceDisplayType;
-    data >> slot.SpellItemEnchantmentID;
-    data >> slot.IllusionDisplayType;
-    data >> slot.Flags;
-    return data;
-}
-
-ByteBuffer& operator<<(ByteBuffer& data, TransmogOutfitSlot const& slot)
-{
-    data << slot.Slot;
-    data << slot.SlotOption;
-    data << slot.ItemModifiedAppearanceID;
-    data << slot.AppearanceDisplayType;
-    data << slot.SpellItemEnchantmentID;
-    data << slot.IllusionDisplayType;
-    data << slot.Flags;
-    return data;
-}
-
-void TransmogOutfitUpdateSlots::Read()
-{
-    _worldPacket >> OutfitID;
-    uint32 slotCount;
-    _worldPacket >> slotCount;
-    _worldPacket >> Npc;
-
-    // Skip 8 bytes of extra header between GUID and slot data
-    _worldPacket.rpos(_worldPacket.rpos() + 8);
-
-    uint32 clampedSlotCount = std::min(slotCount, MAX_OUTFIT_SLOTS);
-    Slots.resize(clampedSlotCount);
-    for (uint32 i = 0; i < clampedSlotCount; ++i)
-    {
-        _worldPacket >> Slots[i];
-    }
-    // 1 trailing byte remains in the packet (boolean flag, unused)
-}
-
-
-WorldPacket const* TransmogOutfitSlotsUpdated::Write()
-{
-    _worldPacket << OutfitID;
-    _worldPacket << uint32(Slots.size());
-    for (TransmogOutfitSlot const& slot : Slots)
-        _worldPacket << slot;
-
-    return &_worldPacket;
-}
-
-void TransmogOutfitNew::Read()
-{
-    _worldPacket >> Npc;
-
-    // Skip 2 unknown header bytes (index/flags)
-    _worldPacket.rpos(_worldPacket.rpos() + 2);
-
-    _worldPacket >> Icon;
-
-    // Name length is encoded as uint16 with high bit as a flag
-    uint16 nameInfo;
-    _worldPacket >> nameInfo;
-    uint16 nameLength = nameInfo & 0x7FFF;
-    Name = _worldPacket.ReadString(nameLength);
-}
-
-void ClearNewAppearance::Read()
-{
-    _worldPacket >> ItemModifiedAppearanceID;
-}
-
-void TransmogOutfitUpdateInfo::Read()
-{
-    _worldPacket >> Npc;
-    _worldPacket >> OutfitID;
-    _worldPacket >> Icon;
-    uint32 nameLength = _worldPacket.ReadBits(7);
-    _worldPacket.ResetBitPos();
-    Name = _worldPacket.ReadString(nameLength);
-    TC_LOG_DEBUG("network", "TransmogOutfitUpdateInfo::Read - Npc={}, OutfitID={}, Icon={}, NameLength={}, Name='{}'", Npc.ToString(), OutfitID, Icon, nameLength, Name);
-}
-
-WorldPacket const* TransmogOutfitInfoUpdated::Write()
-{
-    _worldPacket << OutfitID;
-    return &_worldPacket;
-}
-
-WorldPacket const* TransmogOutfitNewEntryAdded::Write()
-{
-    _worldPacket << OutfitID;
     return &_worldPacket;
 }
 }

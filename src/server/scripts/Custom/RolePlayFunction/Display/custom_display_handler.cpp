@@ -1,4 +1,5 @@
 #include "custom_display_handler.h"
+#include "TransmogMgr.h"
 
 namespace RoleplayCore
 {
@@ -131,7 +132,7 @@ namespace RoleplayCore
 
         if (bonus != 0)
         {
-            if (ItemModifiedAppearanceEntry const* modifiedAppearance = sDB2Manager.GetItemModifiedAppearance(id, bonus))
+            if (ItemModifiedAppearanceEntry const* modifiedAppearance = TransmogMgr::GetItemModifiedAppearance(id, bonus))
                 if (modifiedAppearance->ItemAppearanceID != 0)
                 {
                     ApplyModifiedAppearance(modifiedAppearance->ID, modifiedAppearance->ItemAppearanceID, item, player, handler, itemSlot, isSecondary);
