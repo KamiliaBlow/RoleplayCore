@@ -397,7 +397,7 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
         _LoadAuras(holder.GetPreparedResult(PetLoadQueryHolder::AURAS), holder.GetPreparedResult(PetLoadQueryHolder::AURA_EFFECTS), timediff);
 
         // load action bar, if data broken will fill later by default spells.
-        if (!isTemporarySummon)
+        if (!isTemporarySummon && !IsAnimalCompanion())
         {
             _LoadSpells(holder.GetPreparedResult(PetLoadQueryHolder::SPELLS));
             GetSpellHistory()->LoadFromDB<Pet>(holder.GetPreparedResult(PetLoadQueryHolder::COOLDOWNS), holder.GetPreparedResult(PetLoadQueryHolder::CHARGES));
@@ -409,20 +409,24 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
             CastPetAuras(current);
         }
 
-        TC_LOG_DEBUG("entities.pet", "New Pet has {}", GetGUID().ToString());
-
-        uint16 specId = specializationId;
-        if (ChrSpecializationEntry const* petSpec = sChrSpecializationStore.LookupEntry(specId))
-            specId = sDB2Manager.GetChrSpecializationByIndex(owner->HasAuraType(SPELL_AURA_OVERRIDE_PET_SPECS) ? PET_SPEC_OVERRIDE_CLASS_INDEX : 0, petSpec->OrderIndex)->ID;
-
-        SetSpecialization(specId);
-
-        // The SetSpecialization function will run these functions if the pet's spec is not 0
-        if (!GetSpecialization())
+        //Animal Companion don't have any spell for player
+        if (!IsAnimalCompanion())
         {
-            CleanupActionBar();                                     // remove unknown spells from action bar after load
+            TC_LOG_DEBUG("entities.pet", "New Pet has {}", GetGUID().ToString());
 
-            owner->PetSpellInitialize();
+            uint16 specId = specializationId;
+            if (ChrSpecializationEntry const* petSpec = sChrSpecializationStore.LookupEntry(specId))
+                specId = sDB2Manager.GetChrSpecializationByIndex(owner->HasAuraType(SPELL_AURA_OVERRIDE_PET_SPECS) ? PET_SPEC_OVERRIDE_CLASS_INDEX : 0, petSpec->OrderIndex)->ID;
+
+            SetSpecialization(specId);
+
+            // The SetSpecialization function will run these functions if the pet's spec is not 0
+            if (!GetSpecialization())
+            {
+                CleanupActionBar();                                     // remove unknown spells from action bar after load
+
+                owner->PetSpellInitialize();
+            }
         }
 
         SetGroupUpdateFlag(GROUP_UPDATE_PET_FULL);
@@ -449,13 +453,19 @@ bool Pet::LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool c
     return true;
 }
 
-void Pet::SavePetToDB(PetSaveMode mode)
+void Pet::SavePetToDB(PetSaveMode mode, bool stampeded /*= false*/)
 {
     if (!GetEntry())
         return;
 
     // save only fully controlled creature
     if (!isControlled())
+        return;
+
+    if (stampeded)
+        return;
+
+    if (IsInStampeded() || IsAnimalCompanion())
         return;
 
     // not save not player pets
@@ -649,7 +659,7 @@ void Pet::Update(uint32 diff)
 
             if (isControlled())
             {
-                if (owner->GetPetGUID() != GetGUID())
+                if (owner->GetPetGUID() != GetGUID() && !IsInStampeded() && !IsAnimalCompanion())
                 {
                     TC_LOG_ERROR("entities.pet", "Pet {} is not pet of owner {}, removed", GetEntry(), GetOwner()->GetName());
                     ASSERT(getPetType() != HUNTER_PET, "Unexpected unlinked pet found for owner %s", owner->GetSession()->GetPlayerInfo().c_str());
@@ -709,9 +719,9 @@ void Pet::Update(uint32 diff)
     Creature::Update(diff);
 }
 
-void Pet::Remove(PetSaveMode mode, bool returnreagent)
+void Pet::Remove(PetSaveMode mode, bool returnreagent, bool stampeded)
 {
-    GetOwner()->RemovePet(this, mode, returnreagent);
+    GetOwner()->RemovePet(this, mode, returnreagent, stampeded);
 }
 
 void Pet::GivePetXP(uint32 xp)

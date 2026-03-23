@@ -213,6 +213,7 @@ class TC_GAME_API AuraEffect
         void HandleModCharm(AuraApplication const* aurApp, uint8 mode, bool apply) const;
         void HandleCharmConvert(AuraApplication const* aurApp, uint8 mode, bool apply) const;
         void HandleAuraControlVehicle(AuraApplication const* aurApp, uint8 mode, bool apply) const;
+        void HandleAuraAnimalCompanion(AuraApplication const* aurApp, uint8 mode, bool apply) const;
         //  modify speed
         void HandleAuraModIncreaseSpeed(AuraApplication const* aurApp, uint8 mode, bool apply) const;
         void HandleAuraModIncreaseMountedSpeed(AuraApplication const* aurApp, uint8 mode, bool apply) const;

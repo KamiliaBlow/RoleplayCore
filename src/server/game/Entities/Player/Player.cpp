@@ -22903,7 +22903,7 @@ Pet* Player::GetPet() const
     return nullptr;
 }
 
-void Player::RemovePet(Pet* pet, PetSaveMode mode, bool returnreagent)
+void Player::RemovePet(Pet* pet, PetSaveMode mode, bool returnreagent, bool stampeded /*= false*/)
 {
     if (!pet)
         pet = GetPet();
@@ -22954,11 +22954,32 @@ void Player::RemovePet(Pet* pet, PetSaveMode mode, bool returnreagent)
 
     pet->CombatStop();
 
+    if (pet->IsAnimalCompanion())
+        SetAnimalCompanion(ObjectGuid::Empty);
+
     // exit areatriggers before saving to remove auras applied by them
     pet->ExitAllAreaTriggers();
 
+    // Stampeded/animal companion pets are not in PetStable, skip all stable logic
+    if (pet->IsInStampeded() || pet->IsAnimalCompanion())
+    {
+        SetMinion(pet, false, true);
+        pet->AddObjectToRemoveList();
+        pet->m_removed = true;
+
+        if (pet->isControlled())
+        {
+            WorldPackets::Pet::PetSpells petSpellsPacket;
+            SendDirectMessage(petSpellsPacket.Write());
+
+            if (GetGroup())
+                SetGroupUpdateFlag(GROUP_UPDATE_FLAG_PET);
+        }
+        return;
+    }
+
     // only if current pet in slot
-    pet->SavePetToDB(mode);
+    pet->SavePetToDB(mode, stampeded);
 
     PetStable::PetInfo const* currentPet = m_petStable->GetCurrentPet();
     ASSERT(currentPet && currentPet->PetNumber == pet->GetCharmInfo()->GetPetNumber());
@@ -31825,11 +31846,13 @@ Guild const* Player::GetGuild() const
     return guildId ? sGuildMgr->GetGuildById(guildId) : nullptr;
 }
 
-Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float y, float z, float ang, uint32 duration, bool* isNew /*= nullptr*/)
+Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float y, float z, float ang, uint32 duration, bool* isNew /*= nullptr*/, bool stampeded /*= false*/, bool animalCompanion /*= false*/, std::function<void(Pet*, bool)> callBack /*[](Pet*, bool) {}*/)
 {
     PetStable& petStable = GetOrInitPetStable();
 
     Pet* pet = new Pet(this, SUMMON_PET);
+    pet->SetStampeded(stampeded);
+    pet->SetAnimalCompanion(animalCompanion);
 
     if (pet->LoadPetFromDB(this, entry, 0, false, slot))
     {
@@ -31839,6 +31862,7 @@ Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float 
         if (isNew)
             *isNew = false;
 
+        callBack(pet, true);
         return pet;
     }
 
@@ -31846,6 +31870,7 @@ Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float 
     if (!entry)
     {
         delete pet;
+        callBack(nullptr, false);
         return nullptr;
     }
 
@@ -31856,6 +31881,7 @@ Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float 
     {
         TC_LOG_ERROR("misc", "Player::SummonPet: Pet ({}, Entry: {}) not summoned. Suggested coordinates aren't valid (X: {} Y: {})", pet->GetGUID().ToString(), pet->GetEntry(), pet->GetPositionX(), pet->GetPositionY());
         delete pet;
+        callBack(nullptr, false);
         return nullptr;
     }
 
@@ -31910,6 +31936,8 @@ Pet* Player::SummonPet(uint32 entry, Optional<PetSaveMode> slot, float x, float 
 
     if (isNew)
         *isNew = true;
+
+    callBack(pet, true);
 
     return pet;
 }

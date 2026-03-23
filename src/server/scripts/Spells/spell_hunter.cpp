@@ -1662,6 +1662,35 @@ class spell_hun_kill_command : public SpellScript
 
                 pet->CastSpell(GetExplTargetUnit(), SPELL_HUNTER_KILL_COMMAND_CHARGE, true);
 
+                if (player)
+                {
+                    ObjectGuid animalCompanionGuid = player->GetAnimalCompanion();
+                    if (!animalCompanionGuid.IsEmpty() && animalCompanionGuid.IsPet())
+                    {
+                        if (Pet* animalCompanion = ObjectAccessor::GetPet(*player, animalCompanionGuid))
+                        {
+                            Unit* animalCompanionTarget = GetExplTargetUnit();
+                            if (!animalCompanionTarget)
+                                animalCompanionTarget = pet->GetVictim();
+
+                            if (!animalCompanionTarget)
+                                return;
+
+                            animalCompanion->CastSpell(animalCompanionTarget, SPELL_HUNTER_KILL_COMMAND_TRIGGER, true);
+
+                            if (animalCompanion->GetVictim())
+                            {
+                                animalCompanion->AttackStop();
+                                animalCompanion->ToCreature()->AI()->AttackStart(animalCompanionTarget);
+                            }
+                            else
+                                animalCompanion->ToCreature()->AI()->AttackStart(animalCompanionTarget);
+
+                            animalCompanion->CastSpell(animalCompanionTarget, SPELL_HUNTER_KILL_COMMAND_CHARGE, true);
+                        }
+                    }
+                }
+
                 //191384 Aspect of the Beast
                 if (GetCaster()->HasAura(AspectoftheBeast))
                 {
@@ -2514,9 +2543,24 @@ class spell_hun_call_pet : public SpellScript
         return SPELL_CAST_OK;
     }
 
+    void HandleAfterCast() const
+    {
+        Unit* caster = GetCaster();
+        Unit::AuraEffectList const& animalCompanion = caster->GetAuraEffectsByType(SPELL_AURA_ANIMAL_COMPANION);
+        for (AuraEffect const* aurEff : animalCompanion)
+        {
+            if (uint32 triggerSpell = aurEff->GetSpellEffectInfo().TriggerSpell)
+            {
+                if (sSpellMgr->GetSpellInfo(triggerSpell, DIFFICULTY_NONE))
+                    caster->CastSpell(caster, triggerSpell, true);
+            }
+        }
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_hun_call_pet::CheckCast);
+        AfterCast += SpellCastFn(spell_hun_call_pet::HandleAfterCast);
     }
 };
 

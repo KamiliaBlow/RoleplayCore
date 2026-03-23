@@ -45,7 +45,8 @@ enum PetSaveMode : int16
     PET_SAVE_LAST_ACTIVE_SLOT  = PET_SAVE_FIRST_ACTIVE_SLOT + MAX_ACTIVE_PETS,
     PET_SAVE_FIRST_STABLE_SLOT =  5,
     PET_SAVE_LAST_STABLE_SLOT  = PET_SAVE_FIRST_STABLE_SLOT + MAX_PET_STABLES, // last in DB stable slot index
-    PET_SAVE_NOT_IN_SLOT       = -1                         // for avoid conflict with stable size grow will use negative value
+    PET_SAVE_NOT_IN_SLOT       = -1,                         // for avoid conflict with stable size grow will use negative value
+    PET_SAVE_DISMISS           =  2,                         // Saves everything like it is atm, removes auras and current = false
 };
 
 constexpr bool IsActivePetSlot(PetSaveMode slot)

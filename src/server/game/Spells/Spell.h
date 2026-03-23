@@ -442,6 +442,7 @@ class TC_GAME_API Spell
         void EffectJumpCharge();
         void EffectLearnTransmogSet();
         void EffectRespecAzeriteEmpoweredItem();
+        void EffectSummonStabledPet();
         void EffectLearnAzeriteEssencePower();
         void EffectCreatePrivateConversation();
         void EffectApplyMountEquipment();

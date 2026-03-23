@@ -62,9 +62,9 @@ class TC_GAME_API Pet final : public Guardian
         static std::pair<PetStable::PetInfo const*, PetSaveMode> GetLoadPetInfo(PetStable const& stable, uint32 petEntry, uint32 petnumber, Optional<PetSaveMode> slot);
         bool LoadPetFromDB(Player* owner, uint32 petEntry, uint32 petnumber, bool current, Optional<PetSaveMode> forcedSlot = {});
         bool IsLoading() const override { return m_loading;}
-        void SavePetToDB(PetSaveMode mode);
+        void SavePetToDB(PetSaveMode mode, bool stampeded = false);
         void FillPetInfo(PetStable::PetInfo* petInfo, Optional<ReactStates> forcedReactState = {}) const;
-        void Remove(PetSaveMode mode, bool returnreagent = false);
+        void Remove(PetSaveMode mode, bool returnreagent = false, bool stampeded = false);
         static void DeleteFromDB(uint32 petNumber);
 
         void setDeathState(DeathState s) override;                   // overwrite virtual Creature::setDeathState and Unit::setDeathState
@@ -146,6 +146,15 @@ class TC_GAME_API Pet final : public Guardian
 
         std::string GetDebugInfo() const override;
 
+        //Animal Companion
+        bool IsAnimalCompanion() { return m_animalCompanion; }
+        void SetAnimalCompanion(bool animalCompanion) { m_animalCompanion = animalCompanion; }
+        //Stampeded
+        bool IsInStampeded() { return m_stampeded; }
+        void SetStampeded(bool stampeded) { m_stampeded = stampeded; }
+
+        float GetFollowAngle() const override { return m_animalCompanion ? static_cast<float>(-M_PI / 2) : static_cast<float>(M_PI / 2); }
+
     protected:
         PetType m_petType;
         int32   m_duration;                                 // time until unsummon (used mostly for summoned guardians and not used for controlled pets)
@@ -158,6 +167,9 @@ class TC_GAME_API Pet final : public Guardian
         uint16 m_petSpecialization;
 
     private:
+        bool m_stampeded = false;
+        bool m_animalCompanion = false;
+
         void SaveToDB(uint32, std::vector<Difficulty> const&) override              // override of Creature::SaveToDB     - must not be called
         {
             ABORT();
