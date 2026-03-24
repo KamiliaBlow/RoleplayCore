@@ -516,7 +516,8 @@ public:
 
     static bool HandleDebugUpdateWorldStateCommand(ChatHandler* handler, uint32 variable, uint32 value)
     {
-        handler->GetPlayer()->SendUpdateWorldState(variable, value);
+        Map* map = handler->GetPlayer()->GetMap();
+        map->SetWorldStateValue(variable, value, false);
         return true;
     }
 

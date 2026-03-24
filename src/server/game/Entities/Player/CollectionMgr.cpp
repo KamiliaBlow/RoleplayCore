@@ -560,7 +560,8 @@ void CollectionMgr::LoadAccountItemAppearances(PreparedQueryResult knownAppearan
         168665, // Hidden Bracers
         158329, // Hidden Gloves
         143539, // Hidden Belt
-        168664  // Hidden Boots
+        168664, // Hidden Boots
+        216696  // Hidden Pants
     };
 
     for (uint32 hiddenItem : hiddenAppearanceItems)
