@@ -947,4 +947,21 @@ void ChromieTimeSelectExpansion::Read()
 {
     _worldPacket >> ExpansionID;
 }
+
+void RequestStoreFrontInfoUpdate::Read()
+{
+    _worldPacket >> StoreFrontID;
+    uint32 currencyCount = _worldPacket.read<uint32>();
+    CurrencyIDs.resize(currencyCount);
+    for (uint32 i = 0; i < currencyCount; ++i)
+        _worldPacket >> CurrencyIDs[i];
+}
+
+WorldPacket const* AccountStoreFrontUpdate::Write()
+{
+    _worldPacket << StoreFrontID;
+    _worldPacket << Result;
+    _worldPacket << Unknown;
+    return &_worldPacket;
+}
 }

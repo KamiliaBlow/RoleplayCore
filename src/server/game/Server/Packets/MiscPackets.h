@@ -1053,8 +1053,8 @@ namespace WorldPackets
             bool ForceToast = false;    ///< Ignores ITEM_FLAG3_DO_NOT_TOAST
             uint32 CurrencyID = 0;
         };
-		
-		class LegendaryCraftingOpenNpc  final : public ServerPacket
+
+         class LegendaryCraftingOpenNpc  final : public ServerPacket
         {
         public:
             explicit LegendaryCraftingOpenNpc() : ServerPacket(SMSG_RUNEFORGE_LEGENDARY_CRAFTING_OPEN_NPC, 16) {}
@@ -1182,8 +1182,8 @@ namespace WorldPackets
             uint8 unk;
             uint32 CovenantID;
         };
-		
-		class ChromieTimeSelectExpansion final : public ClientPacket
+
+        class ChromieTimeSelectExpansion final : public ClientPacket
         {
         public:
             explicit ChromieTimeSelectExpansion(WorldPacket&& packet) : ClientPacket(CMSG_CHROMIE_TIME_SELECT_EXPANSION, std::move(packet)) { }
@@ -1199,6 +1199,29 @@ namespace WorldPackets
             ChromieTimeSelectExpansionSuccess() : ServerPacket(SMSG_CHROMIE_TIME_SELECT_EXPANSION_SUCCESS, 0) { }
 
             WorldPacket const* Write() override { return &_worldPacket; }
+        };
+
+        class RequestStoreFrontInfoUpdate final : public ClientPacket
+        {
+        public:
+            explicit RequestStoreFrontInfoUpdate(WorldPacket&& packet) : ClientPacket(CMSG_REQUEST_STORE_FRONT_INFO_UPDATE, std::move(packet)) { }
+
+            void Read() override;
+
+            uint32 StoreFrontID = 0;
+            std::vector<uint32> CurrencyIDs;
+        };
+
+        class AccountStoreFrontUpdate final : public ServerPacket
+        {
+        public:
+            AccountStoreFrontUpdate() : ServerPacket(SMSG_ACCOUNT_STORE_FRONT_UPDATE, 12) { }
+
+            WorldPacket const* Write() override;
+
+            uint32 StoreFrontID = 0;
+            int32 Result = 0;
+            uint32 Unknown = 0;
         };
     }
 }

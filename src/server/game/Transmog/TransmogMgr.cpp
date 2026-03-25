@@ -232,16 +232,21 @@ ItemModifiedAppearanceEntry const* TransmogMgr::GetItemModifiedAppearance(uint32
     if (itr != ItemModifiedAppearancesByItem.end())
         return itr->second;
 
-    // Fall back to unmodified appearance
-    if (appearanceModId)
-        return GetDefaultItemModifiedAppearance(itemId);
-
-    return nullptr;
+    return GetDefaultItemModifiedAppearance(itemId);
 }
 
 ItemModifiedAppearanceEntry const* TransmogMgr::GetDefaultItemModifiedAppearance(uint32 itemId)
 {
-    return Trinity::Containers::MapGetValuePtr(ItemModifiedAppearancesByItem, { itemId, 0 });
+    if (ItemModifiedAppearanceEntry const* entry = Trinity::Containers::MapGetValuePtr(ItemModifiedAppearancesByItem, { itemId, 0 }))
+        return entry;
+
+    for (ItemModifiedAppearanceEntry const* appearanceMod : sItemModifiedAppearanceStore)
+    {
+        if (appearanceMod->ItemID == itemId && appearanceMod->OrderIndex == 0)
+            return appearanceMod;
+    }
+
+    return nullptr;
 }
 
 TransmogIllusionEntry const* TransmogMgr::GetTransmogIllusionForSpellItemEnchantment(uint32 spellItemEnchantmentId)

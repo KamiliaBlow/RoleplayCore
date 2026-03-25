@@ -1192,7 +1192,7 @@ void WorldSession::HandleCloseInteraction(WorldPackets::Misc::CloseInteraction& 
         if (Creature* creature = _player->GetMap()->GetCreature(closeInteraction.SourceGuid))
             creature->SendMirrorSound(_player, 1);
 #endif
-	
+        
     if (_player->PlayerTalkClass->GetInteractionData().IsLaunchedByQuest)
         _player->PlayerTalkClass->GetInteractionData().IsLaunchedByQuest = false;
     else if (_player->PlayerTalkClass->GetInteractionData().SourceGuid == closeInteraction.SourceGuid)
@@ -1370,4 +1370,13 @@ void WorldSession::HandleChromieTimeSelectExpansion(WorldPackets::Misc::ChromieT
 
     // Send success response
     player->SendDirectMessage(WorldPackets::Misc::ChromieTimeSelectExpansionSuccess().Write());
+}
+
+void WorldSession::HandleRequestStoreFrontInfoUpdate(WorldPackets::Misc::RequestStoreFrontInfoUpdate& packet)
+{
+    WorldPackets::Misc::AccountStoreFrontUpdate response;
+    response.StoreFrontID = packet.StoreFrontID;
+    response.Result = 0;  // Success
+    response.Unknown = 0;
+    SendPacket(response.Write());
 }

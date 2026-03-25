@@ -189,6 +189,13 @@ void PetCancelAura::Read()
     _worldPacket >> SpellID;
 }
 
+void SetPetSpecializationClient::Read()
+{
+    _worldPacket >> PetNumber;
+    _worldPacket >> SpecID;
+    _worldPacket >> PetGUID;
+}
+
 WorldPacket const* SetPetSpecialization::Write()
 {
     _worldPacket << uint16(SpecID);

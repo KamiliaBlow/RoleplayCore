@@ -226,6 +226,18 @@ namespace WorldPackets
             int32 SpellID = 0;
         };
 
+        class SetPetSpecializationClient final : public ClientPacket
+        {
+        public:
+            explicit SetPetSpecializationClient(WorldPacket&& packet) : ClientPacket(CMSG_SET_PET_SPECIALIZATION, std::move(packet)) { }
+
+            void Read() override;
+
+            uint32 PetNumber = 0;
+            uint16 SpecID = 0;
+            ObjectGuid PetGUID;
+        };
+
         class SetPetSpecialization final : public ServerPacket
         {
         public:

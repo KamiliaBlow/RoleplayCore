@@ -20,6 +20,7 @@
 #include "Common.h"
 #include "CreatureAI.h"
 #include "DatabaseEnv.h"
+#include "DB2Stores.h"
 #include "Group.h"
 #include "Log.h"
 #include "Map.h"
@@ -36,6 +37,7 @@
 #include "SpellMgr.h"
 #include "SpellPackets.h"
 #include "PetAI.h"
+#include "UpdateFields.h"
 #include "Util.h"
 
 void WorldSession::HandleDismissCritter(WorldPackets::Pet::DismissCritter& packet)
@@ -805,4 +807,57 @@ void WorldSession::HandleRequestPetInfo(WorldPackets::Pet::RequestPetInfo& /*req
         else
             _player->CharmSpellInitialize();
     }
+}
+
+void WorldSession::HandleSetPetSpecialization(WorldPackets::Pet::SetPetSpecializationClient& packet)
+{
+    uint32 specID = packet.SpecID;
+    uint32 petNumber = packet.PetNumber;
+
+    ChrSpecializationEntry const* specEntry = sChrSpecializationStore.LookupEntry(specID);
+    if (!specEntry || specEntry->ClassID != 0)
+        return;
+
+    PetStable* petStable = _player->GetPetStable();
+    if (!petStable)
+        return;
+
+    if (Pet* currentPet = _player->GetPet())
+    {
+        if (currentPet->GetCharmInfo() && currentPet->GetCharmInfo()->GetPetNumber() == petNumber)
+            currentPet->SetSpecialization(specID);
+    }
+
+    auto updatePetSpec = [&](auto& pets, uint8 maxCount) {
+        for (uint8 i = 0; i < maxCount; ++i)
+            if (pets[i] && pets[i]->PetNumber == petNumber)
+                return pets[i]->SpecializationId = specID, true;
+        return false;
+    };
+
+    updatePetSpec(petStable->ActivePets, MAX_ACTIVE_PETS) || updatePetSpec(petStable->StabledPets, MAX_PET_STABLES);
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_PET_SPEC);
+    stmt->setUInt16(0, specID);
+    stmt->setUInt32(1, petNumber);
+    stmt->setUInt64(2, _player->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    if (_player->m_activePlayerData->PetStable.has_value())
+    {
+        int32 ufIndex = _player->m_activePlayerData->PetStable->Pets.FindIndexIf([petNumber](UF::StablePetInfo const& p) {
+            return p.PetNumber == petNumber;
+        });
+
+        if (ufIndex >= 0)
+        {
+            auto ufStable = _player->m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::PetStable, 0);
+            auto ufPet = ufStable.ModifyValue(&UF::StableInfo::Pets, ufIndex);
+            _player->SetUpdateFieldValue(ufPet.ModifyValue(&UF::StablePetInfo::Specialization), specID);
+        }
+    }
+
+    WorldPackets::Pet::SetPetSpecialization specPacket;
+    specPacket.SpecID = specID;
+    SendPacket(specPacket.Write());
 }
