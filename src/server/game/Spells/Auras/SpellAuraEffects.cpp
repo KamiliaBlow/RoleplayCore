@@ -3413,7 +3413,7 @@ void AuraEffect::HandleAuraControlVehicle(AuraApplication const* aurApp, uint8 m
     }
 }
 
-void AuraEffect::HandleAuraAnimalCompanion(AuraApplication const* aurApp, uint8 mode, bool apply) const
+void AuraEffect::HandleAuraAnimalCompanion(AuraApplication const* /*aurApp*/, uint8 mode, bool apply) const
 {
     if (!(mode & AURA_EFFECT_HANDLE_CHANGE_AMOUNT_MASK))
         return;

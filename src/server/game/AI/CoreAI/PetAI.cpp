@@ -59,6 +59,23 @@ void PetAI::UpdateAI(uint32 diff)
 
     Unit* owner = me->GetCharmerOrOwner();
 
+    // Sync Animal Companion react state with the main pet
+    if (Pet* pet = me->ToPet())
+    {
+        if (pet->IsAnimalCompanion() && owner && owner->IsPlayer())
+        {
+            if (Pet* mainPet = owner->ToPlayer()->GetPet())
+            {
+                if (mainPet->GetReactState() != me->GetReactState())
+                {
+                    me->SetReactState(mainPet->GetReactState());
+                    if (me->GetReactState() == REACT_PASSIVE)
+                        me->AttackStop();
+                }
+            }
+        }
+    }
+
     if (_updateAlliesTimer <= diff)
         // UpdateAllies self set update timer
         UpdateAllies();
