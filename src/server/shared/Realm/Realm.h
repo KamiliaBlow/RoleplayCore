@@ -73,6 +73,8 @@ inline constexpr ::RealmFlags ConvertLegacyRealmFlags(RealmFlags legacyRealmFlag
     ::RealmFlags realmFlags = ::RealmFlags::None;
     if (legacyRealmFlags & REALM_FLAG_VERSION_MISMATCH)
         realmFlags |= ::RealmFlags::VersionMismatch;
+    if (legacyRealmFlags & REALM_FLAG_OFFLINE)
+        realmFlags |= ::RealmFlags::Hidden;
     return realmFlags;
 }
 

@@ -2759,6 +2759,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void EnablePetControlsOnDismount();
         void UnsummonPetTemporaryIfAny();
         void ResummonPetTemporaryUnSummonedIfAny();
+        void ResummonAnimalCompanionIfAny();
         void UnsummonBattlePetTemporaryIfAny(bool onFlyingMount = false);
         void ResummonBattlePetTemporaryUnSummonedIfAny();
         bool IsPetNeedBeTemporaryUnsummoned() const;

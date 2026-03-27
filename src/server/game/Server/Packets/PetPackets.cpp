@@ -244,4 +244,10 @@ WorldPacket const* PetDismissSound::Write()
 
     return &_worldPacket;
 }
+
+void SetPetFavorite::Read()
+{
+    _worldPacket >> Slot;
+    _worldPacket >> Bits<1>(Favorite);
+}
 }

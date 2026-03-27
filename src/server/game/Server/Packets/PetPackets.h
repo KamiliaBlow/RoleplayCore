@@ -324,6 +324,17 @@ namespace WorldPackets
             uint32 DisplayID = 0;
             TaggedPosition<Position::XYZ> ModelPosition;
         };
+
+        class SetPetFavorite final : public ClientPacket
+        {
+        public:
+            explicit SetPetFavorite(WorldPacket&& packet) : ClientPacket(CMSG_SET_PET_FAVORITE, std::move(packet)) { }
+
+            void Read() override;
+
+            uint8 Slot = 0;
+            bool Favorite = false;
+        };
     }
 }
 

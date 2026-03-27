@@ -924,7 +924,7 @@ LearnResult ValidateConfig(WorldPackets::Traits::TraitConfig& traitConfig, Playe
                 continue;
 
             SpentCurrency* spentAmount = Trinity::Containers::MapGetValuePtr(*spentCurrencies, traitCurrencyId);
-            if (!spentAmount || spentAmount->Total > *grantedAmount)
+            if (!spentAmount || spentAmount->Total != *grantedAmount)
                 return LearnResult::UnspentTalentPoints;
         }
 
@@ -940,7 +940,7 @@ LearnResult ValidateConfig(WorldPackets::Traits::TraitConfig& traitConfig, Playe
                     continue;
 
                 SpentCurrency* spentAmount = Trinity::Containers::MapGetValuePtr(*spentCurrencies, subTreeCurrency->ID);
-                if (!spentAmount || spentAmount->Total > *grantedAmount)
+                if (!spentAmount || spentAmount->Total != *grantedAmount)
                     return LearnResult::UnspentTalentPoints;
             }
         }

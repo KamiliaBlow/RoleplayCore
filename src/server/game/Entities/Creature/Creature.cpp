@@ -572,11 +572,7 @@ bool Creature::InitEntry(uint32 entry, CreatureData const* data /*= nullptr*/)
     SetEntry(entry);
     m_creatureDifficulty = creatureInfo->GetDifficulty(!IsPet() ? GetMap()->GetDifficultyID() : DIFFICULTY_NONE);
 
-    // FakePlayers: Use trainer_class as player race if set
-    if (creatureInfo->trainer_class > 0 && creatureInfo->trainer_class <= 52)
-        SetRace(creatureInfo->trainer_class);
-    else
-        SetRace(RACE_NONE);
+    SetRace(RACE_NONE);
 
     // known valid are: CLASS_WARRIOR, CLASS_PALADIN, CLASS_ROGUE, CLASS_MAGE
     SetClass(uint8(creatureInfo->unit_class));

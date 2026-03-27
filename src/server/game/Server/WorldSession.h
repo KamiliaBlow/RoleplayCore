@@ -780,6 +780,7 @@ namespace WorldPackets
         class PetAction;
         class PetCancelAura;
         class PetSetAction;
+        class SetPetFavorite;
     }
 
     namespace Petition
@@ -1977,6 +1978,7 @@ class TC_GAME_API WorldSession
         void HandlePetActionHelper(Unit* pet, ObjectGuid guid1, uint32 spellid, uint16 flag, ObjectGuid guid2, Position const& pos);
         void HandleQueryPetName(WorldPackets::Query::QueryPetName& packet);
         void HandlePetSetAction(WorldPackets::Pet::PetSetAction& packet);
+        void HandleSetPetFavorite(WorldPackets::Pet::SetPetFavorite& packet);
         void HandlePetAbandon(WorldPackets::Pet::PetAbandon& packet);
         void HandlePetAbandonByNumber(WorldPackets::Pet::PetAbandonByNumber const& petAbandonByNumber);
         void HandlePetRename(WorldPackets::Pet::PetRename& packet);

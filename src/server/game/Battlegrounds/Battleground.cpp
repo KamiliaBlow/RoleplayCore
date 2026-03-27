@@ -885,6 +885,7 @@ void Battleground::RemovePlayerAtLeave(ObjectGuid guid, bool Transport, bool Sen
                 // unsummon current and summon old pet if there was one and there isn't a current pet
                 player->RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT);
                 player->ResummonPetTemporaryUnSummonedIfAny();
+                player->ResummonAnimalCompanionIfAny();
             }
 
             if (SendPacket && bgQueueTypeId)

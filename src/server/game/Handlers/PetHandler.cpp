@@ -936,3 +936,59 @@ void WorldSession::HandleSetPetSpecialization(WorldPackets::Pet::SetPetSpecializ
     specPacket.SpecID = specID;
     SendPacket(specPacket.Write());
 }
+
+void WorldSession::HandleSetPetFavorite(WorldPackets::Pet::SetPetFavorite& packet)
+{
+    if ((!_player->GetStableMaster().IsEmpty() && !CheckStableMaster(_player->GetStableMaster()))
+        || (_player->GetStableMaster().IsEmpty() && !_player->HasAuraType(SPELL_AURA_OPEN_STABLE) && !_player->IsGameMaster()))
+    {
+        SendPetStableResult(StableResult::NotStableMaster);
+        return;
+    }
+
+    PetStable* petStable = _player->GetPetStable();
+    if (!petStable)
+    {
+        SendPetStableResult(StableResult::InternalError);
+        return;
+    }
+
+    PetStable::PetInfo* petInfo = nullptr;
+    if (packet.Slot < MAX_ACTIVE_PETS)
+        petInfo = petStable->ActivePets[packet.Slot] ? &*petStable->ActivePets[packet.Slot] : nullptr;
+    else if (packet.Slot < MAX_ACTIVE_PETS + MAX_PET_STABLES)
+        petInfo = petStable->StabledPets[packet.Slot - MAX_ACTIVE_PETS] ? &*petStable->StabledPets[packet.Slot - MAX_ACTIVE_PETS] : nullptr;
+
+    if (!petInfo)
+    {
+        SendPetStableResult(StableResult::NotFound);
+        return;
+    }
+
+    if (_player->m_activePlayerData->PetStable.has_value())
+    {
+        int32 ufIndex = _player->m_activePlayerData->PetStable->Pets.FindIndexIf([petInfo](UF::StablePetInfo const& p) {
+            return p.PetNumber == petInfo->PetNumber;
+        });
+
+        if (ufIndex >= 0)
+        {
+            auto ufStable = _player->m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::PetStable, 0);
+            auto ufPet = ufStable.ModifyValue(&UF::StableInfo::Pets, ufIndex);
+            auto flagsSetter = ufPet.ModifyValue(&UF::StablePetInfo::PetFlags);
+            if (packet.Favorite)
+                _player->SetUpdateFieldFlagValue(flagsSetter, PET_STABLE_FAVORITE);
+            else
+                _player->RemoveUpdateFieldFlagValue(flagsSetter, PET_STABLE_FAVORITE);
+        }
+    }
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_PET_FAVORITE);
+    stmt->setBool(0, packet.Favorite);
+    stmt->setUInt32(1, petInfo->PetNumber);
+    stmt->setUInt64(2, _player->GetGUID().GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    petInfo->IsFavorite = packet.Favorite;
+    SendPetStableResult(StableResult::FavoriteToggle);
+}
