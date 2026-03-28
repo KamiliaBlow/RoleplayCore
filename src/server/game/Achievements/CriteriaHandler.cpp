@@ -4950,6 +4950,33 @@ void CriteriaMgr::LoadCriteriaData()
     TC_LOG_INFO("server.loading", ">> Loaded {} additional criteria data in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
+void CriteriaMgr::ReloadQuestObjectiveLinks()
+{
+    // Build new quest objective lookup from current quest templates
+    std::unordered_map<uint32 /*criteriaTreeID*/, QuestObjective const*> questObjectiveCriteriaTreeIds;
+    for (auto const& [questId, quest] : sObjectMgr->GetQuestTemplates())
+    {
+        for (QuestObjective const& objective : quest->Objectives)
+        {
+            if (objective.Type != QUEST_OBJECTIVE_CRITERIA_TREE)
+                continue;
+
+            if (objective.ObjectID)
+                questObjectiveCriteriaTreeIds[objective.ObjectID] = &objective;
+        }
+    }
+
+    // Re-link all criteria trees that have quest objectives
+    for (auto& [treeId, criteriaTree] : _criteriaTrees)
+    {
+        if (!criteriaTree->QuestObjective)
+            continue;
+
+        auto itr = questObjectiveCriteriaTreeIds.find(criteriaTree->Entry->ID);
+        criteriaTree->QuestObjective = (itr != questObjectiveCriteriaTreeIds.end()) ? itr->second : nullptr;
+    }
+}
+
 CriteriaTree const* CriteriaMgr::GetCriteriaTree(uint32 criteriaTreeId) const
 {
     auto itr = _criteriaTrees.find(criteriaTreeId);
