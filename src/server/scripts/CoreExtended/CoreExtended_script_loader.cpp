@@ -5,6 +5,7 @@
 // Info: Call Repack scripts here
 
 void AddSC_zone_elwyn_forest();
+void AddSC_zone_westfall();
 void AddSC_zone_gilneas_city1();
 void AddSC_duskwood_custom();
 
@@ -17,6 +18,7 @@ void AddSC_zone_tirisfal_glades();
 void AddCoreExtendedScripts()
 {
     AddSC_zone_elwyn_forest();
+    AddSC_zone_westfall();
 
     AddSC_zone_gilneas_city1();
     AddSC_duskwood_custom();

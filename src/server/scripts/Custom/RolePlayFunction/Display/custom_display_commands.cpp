@@ -13,7 +13,7 @@ namespace RoleplayCore
     public:
         DisplayCommands() : CommandScript("player_display_commands") { }
 
-        ChatCommandTable GetCommands() const override
+        std::span<ChatCommandBuilder const> GetCommands() const override
         {
             static ChatCommandTable displayCommandTable =
             {

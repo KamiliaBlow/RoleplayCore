@@ -10,7 +10,7 @@ namespace Noblegarden
     public:
         EffectsCommands() : CommandScript("player_effects_commands") { }
 
-        ChatCommandTable GetCommands() const override
+        std::span<ChatCommandBuilder const> GetCommands() const override
         {
             static ChatCommandTable effectSelfCommandTable =
             {

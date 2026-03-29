@@ -397,8 +397,6 @@ public:
 
     bool OnQuestAccept(Player* player, Creature* /*creature*/, Quest const* quest) override
     {
-        std::cout << "QUEST ACCEPT!!" << "\n";
-        std::cout << "QUEST: " << quest << "\n";
         if (quest->GetQuestId() == 26800)
         {
             if (player && !player->IsInWorld())
@@ -406,6 +404,7 @@ public:
 
             player->CastSpell(player, 91938, true);
         }
+
         return true;
     }
 
@@ -421,6 +420,7 @@ public:
                 darnell->DespawnOrUnsummon(1000ms);
             }
         }
+
         return true;
     }
 };
@@ -510,15 +510,10 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
     {
         if (param == 1)
         {
-            if (Creature* scarlet = ObjectAccessor::GetCreature(*me, m_scarletGUID))
+            for (uint8 i = 1; i < 4; ++i)
             {
-                me->CastSpell(scarlet, 91945, true);
-                scarlet->AddAura(46598, scarlet);
-                scarlet->SetDisableGravity(true);
-                scarlet->EnterVehicle(me, m_seat);
-                m_seat++;
-                me->CastSpell(scarlet, 91935, true);
-                me->CastSpell(scarlet, 193710, true);
+                if (auto pass = me->GetVehicleKit()->GetPassenger(i))
+                    pass->ExitVehicle();
             }
         }
     }
@@ -550,7 +545,6 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
                 if (player->GetQuestStatus(QUEST_BEYOND_THE_GRAVE) == QUEST_STATUS_COMPLETE)
                 {
                     eventTriggered = true;
-                    isWaitingForTurnIn = true;
 
                     Talk(2);
 
@@ -576,6 +570,8 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
             me->StopMoving();
             me->GetMotionMaster()->Clear();
             me->GetMotionMaster()->MoveIdle();
+
+            isWaitingForTurnIn = true;
         }
     }
 };
@@ -583,7 +579,16 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
 // npc_scarlet_corpse_49340
 struct npc_scarlet_corpse : public ScriptedAI
 {
-    npc_scarlet_corpse(Creature* c) : ScriptedAI(c) {}
+    npc_scarlet_corpse(Creature* creature) : ScriptedAI(creature)
+    {
+        me->SetReactState(REACT_PASSIVE);
+    }
+
+    void IsSummonedBy(WorldObject* summoner) override
+    {
+        me->RemoveNpcFlag(UNIT_NPC_FLAG_SPELLCLICK);
+        me->RemoveAura(92230);
+    }
 
     void SpellHit(WorldObject* caster, SpellInfo const* /*spell*/) override
     {
@@ -591,11 +596,17 @@ struct npc_scarlet_corpse : public ScriptedAI
         {
             if (player->GetQuestStatus(26800) == QUEST_STATUS_INCOMPLETE)
             {
-                if (Creature* darnell = GetDarnell(player))
+                std::list<Creature*> summons;
+                player->GetCreatureListWithOptionsInGrid(summons, 100.0f, { .CreatureId = 49337, .IgnorePhases = true, .PrivateObjectOwnerGuid = player->GetGUID() });
+
+                for (Creature* darnell : summons)
                 {
-                    darnell->AI()->SetGUID(me->GetGUID(), me->GetEntry());
-                    darnell->CastSpell(darnell, 91935, true);
-                    darnell->AI()->DoAction(1);
+                    if (Creature* sum = me->SummonCreature(49340, me->GetPosition()))
+                    {
+                        player->KilledMonsterCredit(49340);
+                        sum->CastSpell(darnell, 46598, true);
+                        me->DespawnOrUnsummon(100ms);
+                    }
                 }
             }
         }
