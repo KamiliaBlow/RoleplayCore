@@ -77,6 +77,8 @@ enum ShamanSpells
     SPELL_SHAMAN_ELEMENTAL_WEAPONS_BUFF         = 408390,
     SPELL_SHAMAN_ENERGY_SURGE                   = 40465,
     SPELL_SHAMAN_ENHANCED_ELEMENTS              = 77223,
+    SPELL_SHAMAN_FERAL_LUNGE                    = 196884,
+    SPELL_SHAMAN_FERAL_LUNGE_DAMAGE             = 215802,
     SPELL_SHAMAN_FIRE_NOVA_DAMAGE               = 333977,
     SPELL_SHAMAN_FIRE_NOVA_ENABLER              = 466622,
     SPELL_SHAMAN_FLAME_SHOCK                    = 188389,
@@ -183,7 +185,6 @@ enum ShamanSpells
     SPELL_SHAMAN_PRIMAL_ELEMENTALIST_STORM_ELEMENTAL_SUMMON = 157319,
     SPELL_SHAMAN_FERAL_SPIRIT_SUMMON            = 228562,
     SPELL_SHAMAN_FERAL_SPIRIT_ENERGIZE_DUMMY    = 333957,
-    SPELL_SHAMAN_FERAL_LUNGE_DAMAGE             = 215802,
 };
 
 enum ShamanSpellLabels
@@ -1164,6 +1165,52 @@ class spell_sha_elemental_weapons : public AuraScript
     {
         OnHeartbeat += AuraHeartbeatFn(spell_sha_elemental_weapons::CheckEnchantments);
         AfterEffectRemove += AuraEffectRemoveFn(spell_sha_elemental_weapons::RemoveAllBuffs, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 196884 - Feral Lunge
+class spell_sha_feral_lunge : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_GHOST_WOLF });
+    }
+
+    bool Load() override
+    {
+        return !GetCaster()->HasAura(SPELL_SHAMAN_GHOST_WOLF);
+    }
+
+    void OnPrecast() override
+    {
+        Unit* caster = GetCaster();
+        caster->CastSpell(caster, SPELL_SHAMAN_GHOST_WOLF, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+    }
+};
+
+// 215802 - Feral Lunge Damage
+class spell_sha_feral_lunge_damage : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_SHAMAN_GHOST_WOLF });
+    }
+
+    void HandleHit(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->RemoveAurasDueToSpell(SPELL_SHAMAN_GHOST_WOLF);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_sha_feral_lunge_damage::HandleHit, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
     }
 };
 
@@ -3606,41 +3653,6 @@ struct npc_feral_spirit : public ScriptedAI
     }
 };
 
-// Feral Lunge - 196884
-class spell_sha_feral_lunge : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        if (!sSpellMgr->GetSpellInfo(SPELL_SHAMAN_FERAL_LUNGE_DAMAGE, DIFFICULTY_NONE))
-            return false;
-        return true;
-    }
-
-    void HandleDamage(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (!caster || !target)
-            return;
-
-        WorldLocation pTarget = target->GetWorldLocation();
-
-        caster->CastSpell(caster, SPELL_SHAMAN_GHOST_WOLF, true);
-
-        float speedXY, speedZ;
-        speedZ = 1.2f;
-        speedXY = caster->GetExactDist2d(&pTarget) * 10.0f / speedZ;
-
-        caster->CastSpell(target, SPELL_SHAMAN_FERAL_LUNGE_DAMAGE, true);
-        caster->GetMotionMaster()->MoveJump(EVENT_JUMP, pTarget, speedXY, {}, speedZ);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_sha_feral_lunge::HandleDamage, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
 void AddSC_shaman_spell_scripts()
 {
     RegisterSpellScript(spell_sha_aftershock);
@@ -3671,6 +3683,8 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_earthquake_tick);
     RegisterSpellScript(spell_sha_elemental_blast);
     RegisterSpellScript(spell_sha_elemental_weapons);
+    RegisterSpellScript(spell_sha_feral_lunge);
+    RegisterSpellScript(spell_sha_feral_lunge_damage);
     RegisterSpellScript(spell_sha_fire_nova);
     RegisterSpellScript(spell_sha_flame_shock_fire_nova_enabler);
     RegisterSpellScript(spell_sha_flametongue_weapon);
@@ -3752,5 +3766,4 @@ void AddSC_shaman_spell_scripts()
     RegisterSpellScript(spell_sha_fire_elemental);
     RegisterSpellScript(spell_sha_feral_spirit);
     RegisterCreatureAI(npc_feral_spirit);
-    RegisterSpellScript(spell_sha_feral_lunge);
 }

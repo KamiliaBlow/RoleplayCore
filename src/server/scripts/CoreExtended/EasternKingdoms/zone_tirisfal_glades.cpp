@@ -449,6 +449,7 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
         m_seat = 0;
         m_scarletGUID.Clear();
         me->SetReactState(REACT_PASSIVE);
+        VehicleAI::Reset();
     }
 
     void IsSummonedBy(WorldObject* summoner) override
@@ -518,6 +519,14 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
         }
     }
 
+    void SpellHit(WorldObject* /*caster*/, SpellInfo const* spell) override
+    {
+        if (spell && spell->Id == 46598)
+        {
+            me->CastSpell(me, 91935, true);
+        }
+    }
+
     void UpdateAI(uint32 diff) override
     {
         VehicleAI::UpdateAI(diff);
@@ -576,7 +585,7 @@ struct npc_darnell_deathknell_corpse : public VehicleAI
     }
 };
 
-// npc_scarlet_corpse_49340
+// 
 struct npc_scarlet_corpse : public ScriptedAI
 {
     npc_scarlet_corpse(Creature* creature) : ScriptedAI(creature)
@@ -590,26 +599,42 @@ struct npc_scarlet_corpse : public ScriptedAI
         me->RemoveAura(92230);
     }
 
-    void SpellHit(WorldObject* caster, SpellInfo const* /*spell*/) override
+    void SpellHit(WorldObject* caster, SpellInfo const* spell) override
     {
-        if (Player* player = caster->ToPlayer())
-        {
-            if (player->GetQuestStatus(26800) == QUEST_STATUS_INCOMPLETE)
-            {
-                std::list<Creature*> summons;
-                player->GetCreatureListWithOptionsInGrid(summons, 100.0f, { .CreatureId = 49337, .IgnorePhases = true, .PrivateObjectOwnerGuid = player->GetGUID() });
+        if (!spell || spell->Id != 91942)
+            return;
 
-                for (Creature* darnell : summons)
-                {
-                    if (Creature* sum = me->SummonCreature(49340, me->GetPosition()))
-                    {
-                        player->KilledMonsterCredit(49340);
-                        sum->CastSpell(darnell, 46598, true);
-                        me->DespawnOrUnsummon(100ms);
-                    }
-                }
-            }
+        Player* player = caster->ToPlayer();
+        if (!player)
+            return;
+
+        if (player->GetQuestStatus(26800) != QUEST_STATUS_INCOMPLETE)
+            return;
+
+        Creature* darnell = GetDarnell(player);
+        if (!darnell)
+        {
+            std::list<Creature*> summons;
+            player->GetCreatureListWithOptionsInGrid(summons, 100.0f, { .CreatureId = 49337, .IgnorePhases = true });
+            if (summons.empty())
+                return;
+            darnell = summons.front();
         }
+
+        if (!darnell)
+            return;
+
+        if (Creature* scarletCorpse = me->SummonCreature(49340, darnell->GetPosition(), TEMPSUMMON_MANUAL_DESPAWN))
+        {
+            player->KilledMonsterCredit(49340);
+            scarletCorpse->SetOwnerGUID(player->GetGUID());
+            // ????????????? ?????? ?? ?????? ???? (seat 0)
+            scarletCorpse->EnterVehicle(darnell, 0);
+            // ????????? ????, ???? ?? ????? ??? ????????/???????? 91935
+            scarletCorpse->CastSpell(darnell, 46598, true);
+        }
+
+        me->DespawnOrUnsummon(100ms);
     }
 };
 
