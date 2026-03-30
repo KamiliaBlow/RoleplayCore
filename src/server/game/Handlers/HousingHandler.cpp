@@ -3810,14 +3810,28 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
     if (!player)
         return;
 
+    // CRITICAL TRACE: log that the client polled for housing status.
+    // If this line never appears in the log after interior entry, the client's
+    // housing system context was never activated (missing 0x56000E init packet).
+    bool isInterior = player->GetMap() && dynamic_cast<HouseInteriorMap*>(player->GetMap());
+    TC_LOG_ERROR("housing", ">>> CMSG_HOUSING_HOUSE_STATUS: CLIENT POLLED! player={} map={} isInterior={} pos=({:.1f},{:.1f},{:.1f})",
+        player->GetGUID().ToString(), player->GetMapId(), isInterior,
+        player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+
     WorldPackets::Housing::HousingHouseStatusResponse response;
 
     // First check if the player is on their own plot (use their Housing data directly)
     Housing* ownHousing = player->GetHousing();
 
-    // Check what plot the player is currently visiting via area trigger tracking
+    // Check what plot the player is currently visiting via area trigger tracking.
+    // On the interior map (HouseInteriorMap), there's no HousingMap plot tracking — use
+    // the player's own plot index directly since they're always inside their own house.
     HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
-    int8 visitedPlot = housingMap ? housingMap->GetPlayerCurrentPlot(player->GetGUID()) : -1;
+    int8 visitedPlot = -1;
+    if (housingMap)
+        visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+    else if (isInterior && ownHousing)
+        visitedPlot = static_cast<int8>(ownHousing->GetPlotIndex());
 
     if (visitedPlot >= 0 && housingMap && housingMap->GetNeighborhood())
     {
@@ -3948,7 +3962,15 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     TC_LOG_INFO("housing", ">>> CMSG_HOUSING_GET_CURRENT_HOUSE_INFO received");
 
     HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
-    int8 currentPlot = housingMap ? housingMap->GetPlayerCurrentPlot(player->GetGUID()) : -1;
+    bool isInterior = player->GetMap() && dynamic_cast<HouseInteriorMap*>(player->GetMap());
+    int8 currentPlot = -1;
+    if (housingMap)
+        currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+    else if (isInterior)
+    {
+        if (Housing* housing = player->GetHousing())
+            currentPlot = static_cast<int8>(housing->GetPlotIndex());
+    }
 
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse response;
 

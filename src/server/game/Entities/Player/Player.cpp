@@ -3683,6 +3683,41 @@ void Player::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) c
         GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
         GetSession()->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(data, target);
         GetSession()->GetHousingNeighborhoodMirrorEntity().BuildCreateUpdateBlockForPlayer(data, target);
+
+        // On housing maps, include a map-level Housing entity with objectType=18.
+        // Sniff-verified: retail sends this in the initial UPDATE_OBJECT (packet #11405).
+        // GUID: subType=3, arg2=neighborhoodMapID, counter=bnetAccountId.
+        // TYPEID_HOUSING_ENTITY is placed after NUM_CLIENT_OBJECT_TYPES in the enum
+        // so it does NOT change the sentinel value that BaseEntity defaults to.
+        if (GetMap() && (GetMap()->IsHouseInterior() || (GetMap()->GetEntry() && GetMap()->GetEntry()->IsNeighborhood())))
+        {
+            if (Housing const* housing = GetHousing())
+            {
+                uint32 neighborhoodMapID = 0;
+                if (Neighborhood const* nh = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid()))
+                    neighborhoodMapID = nh->GetNeighborhoodMapID();
+
+                ObjectGuid mapHouseGuid = ObjectGuid::Create<HighGuid::Housing>(
+                    /*subType*/ 3,
+                    /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+                    /*arg2*/ neighborhoodMapID,
+                    GetSession()->GetBattlenetAccountId());
+
+                HousingPlayerHouseEntity mapHouseEntity(GetSession(), mapHouseGuid);
+                mapHouseEntity.SetObjectType(TYPEID_HOUSING_ENTITY);
+                mapHouseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
+                mapHouseEntity.SetPlotIndex(static_cast<int32>(housing->GetPlotIndex()));
+                mapHouseEntity.SetLevel(housing->GetLevel());
+                mapHouseEntity.SetFavor(housing->GetFavor64());
+                mapHouseEntity.SetBudgets(
+                    housing->GetMaxInteriorDecorBudget(),
+                    housing->GetMaxExteriorDecorBudget(),
+                    housing->GetMaxRoomBudget(),
+                    housing->GetMaxFixtureBudget());
+
+                mapHouseEntity.BuildCreateUpdateBlockForPlayer(data, target);
+            }
+        }
     }
 
     Unit::BuildCreateUpdateBlockForPlayer(data, target);
