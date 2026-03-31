@@ -392,6 +392,22 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
         TC_METRIC_DETAILED_TIMER("worldsession_update_opcode_time", TC_METRIC_TAG("opcode", opHandle->Name));
 
+        // Housing CMSG diagnostic: log ALL opcodes in housing/neighborhood ranges
+        {
+            uint32 rawOpcode = static_cast<uint32>(opcode);
+            uint32 group = (rawOpcode >> 16) & 0xFFFF;
+            if (group == 0x30 || group == 0x31 || group == 0x32 || group == 0x33 ||  // decor/fixture/room/services
+                group == 0x35 ||  // HousingSystem CMSGs
+                group == 0x37 || group == 0x38 || group == 0x39 ||  // neighborhood charter/initiative/system
+                group == 0x55 || group == 0x56 ||  // HousingSystem SMSGs (should not appear as CMSG)
+                group == 0x5A || group == 0x5C)     // neighborhood SMSG / enter-leave plot
+            {
+                TC_LOG_ERROR("housing", ">>> HOUSING CMSG RECEIVED: opcode=0x{:08X} ({}) name='{}' status={} size={} player={}",
+                    rawOpcode, rawOpcode, opHandle->Name, uint8(opHandle->Status),
+                    packet->size(), _player ? _player->GetName() : "NO_PLAYER");
+            }
+        }
+
         try
         {
             switch (opHandle->Status)

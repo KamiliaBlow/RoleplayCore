@@ -43,6 +43,7 @@ public:
     void SetBudgets(uint32 interiorDecor, uint32 exteriorDecor, uint32 room, uint32 fixture);
     void SetBnetAccount(ObjectGuid bnetAccountGuid);
     void SetEntityGUID(ObjectGuid entityGuid);
+    void SetObjectType(TypeID typeId) { m_objectTypeId = typeId; }
 
     UF::UpdateField<UF::HousingPlayerHouseData, int32(WowCS::EntityFragment::FHousingPlayerHouse_C), 0> m_housingPlayerHouseData;
 

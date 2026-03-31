@@ -209,21 +209,31 @@ struct at_housing_plot : AreaTriggerAI
 
         // Send HouseStatusResponse with FlagByte=0x00 to clear all editing contexts (Decor, Room, Fixture).
         // Without this, the editor buttons remain visible after leaving the plot.
+        // BUT skip this when the player is entering the interior — the AT leave fires
+        // during the map transfer and would erase the interior's editor state.
         if (isOwnPlot)
         {
             if (Housing const* housing = player->GetHousing())
             {
-                WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
-                statusResponse.HouseGuid = housing->GetHouseGuid();
-                statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
-                statusResponse.OwnerPlayerGuid = player->GetGUID();
-                statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
-                statusResponse.Status = 0;
-                statusResponse.FlagByte = 0x00; // Clear all editing contexts
-                player->SendDirectMessage(statusResponse.Write());
+                if (!housing->IsInInterior())
+                {
+                    WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
+                    statusResponse.HouseGuid = housing->GetHouseGuid();
+                    statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
+                    statusResponse.OwnerPlayerGuid = player->GetGUID();
+                    statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
+                    statusResponse.Status = 0;
+                    statusResponse.FlagByte = 0x00; // Clear all editing contexts
+                    player->SendDirectMessage(statusResponse.Write());
 
-                TC_LOG_DEBUG("housing", "at_housing_plot: Sent FlagByte=0x00 HouseStatusResponse for plot owner {} leaving plot",
-                    player->GetGUID().ToString());
+                    TC_LOG_DEBUG("housing", "at_housing_plot: Sent FlagByte=0x00 HouseStatusResponse for plot owner {} leaving plot",
+                        player->GetGUID().ToString());
+                }
+                else
+                {
+                    TC_LOG_DEBUG("housing", "at_housing_plot: Skipped FlagByte=0x00 for plot owner {} (entering interior)",
+                        player->GetGUID().ToString());
+                }
             }
         }
 

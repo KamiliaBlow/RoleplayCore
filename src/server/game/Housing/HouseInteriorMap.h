@@ -75,6 +75,9 @@ public:
     /// Get the interior decor GUID → MeshObject GUID map (for edit mode CREATEs).
     std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToObjGuid; }
 
+    /// Get the room GUID → room MeshObject GUID vectors (for entity set synchronization).
+    std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> const& GetRoomMeshObjects() const { return _roomMeshObjects; }
+
     /// Send post-tutorial aura packets so the client knows the tutorial is complete
     /// and unlocks all editor modes (expert, cleanup, layout, customize).
     void SendPostTutorialAuras(Player* player);
@@ -96,6 +99,10 @@ private:
 
     /// Decor GUID → visual object GUID (for despawning individual decor items)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
+
+    /// GUID of the interior plot AreaTrigger (entry 37358, FHousingPlotAreaTrigger_C).
+    /// The client fires HOUSE_PLOT_ENTERED when it sees this AT, enabling housing CMSGs.
+    ObjectGuid _interiorPlotAT;
 };
 
 #endif // HouseInteriorMap_h__

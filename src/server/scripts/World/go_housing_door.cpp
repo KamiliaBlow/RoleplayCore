@@ -140,6 +140,12 @@ public:
             // Animate the door
             me->UseDoorOrButton();
 
+            // Mark interior BEFORE teleport so the AT leave handler (which fires
+            // during the async teleport) knows not to send FlagByte=0x00 and
+            // erase the interior's editor state.
+            if (Housing* housing = player->GetHousing())
+                housing->SetInInterior(true);
+
             // Teleport player to the house interior map (Map 2783).
             bool ok = player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
                 INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);

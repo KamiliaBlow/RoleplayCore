@@ -17,6 +17,7 @@
 
 #include "HouseInteriorMap.h"
 #include "Account.h"
+#include "AreaTrigger.h"
 #include "HousingPlayerHouseEntity.h"
 #include "DB2Stores.h"
 #include "DBCEnums.h"
@@ -24,6 +25,8 @@
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingMgr.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
 #include "MeshObject.h"
@@ -35,6 +38,7 @@
 #include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellPackets.h"
+#include "RealmList.h"
 #include "World.h"
 #include "WorldSession.h"
 
@@ -66,8 +70,9 @@ HouseInteriorMap::HouseInteriorMap(uint32 id, time_t expiry, uint32 instanceId, 
     }
 
     TC_LOG_ERROR("housing", "HouseInteriorMap::CTOR: Created interior map {} instanceId {} for owner {} "
-        "(this={}, _roomsSpawned={})",
-        id, instanceId, owner.ToString(), (void*)this, _roomsSpawned);
+        "(this={}, _roomsSpawned={}, InstanceType={}, Instanceable={}, IsNeighborhood={})",
+        id, instanceId, owner.ToString(), (void*)this, _roomsSpawned,
+        GetEntry()->InstanceType, GetEntry()->Instanceable(), GetEntry()->IsNeighborhood());
 }
 
 void HouseInteriorMap::InitVisibilityDistance()
@@ -684,6 +689,64 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
     if (player->GetGUID() == _owner)
         _loadingPlayer = player;
 
+    // === PRE-SPAWN: Populate ALL housing entities BEFORE Map::AddPlayerToMap ===
+    // Retail sends ONE ~210KB UPDATE_OBJECT with all entity data (rooms, decor,
+    // account storage, budgets) on interior map transfer. If we spawn after
+    // AddPlayerToMap, the initial UPDATE_OBJECT has empty housing data and the
+    // client never gets proper housing context for the editor UI.
+    Housing* preloadHousing = player->GetHousing();
+    if (preloadHousing && player->GetGUID() == _owner)
+    {
+        // Clear exterior fixture edit mode that persists across map transfer
+        if (preloadHousing->GetEditorMode() != HOUSING_EDITOR_MODE_NONE)
+        {
+            preloadHousing->SetEditorMode(HOUSING_EDITOR_MODE_NONE);
+            player->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
+            player->RemoveUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
+            player->ReplaceAllSilencedSchoolMask(SpellSchoolMask(0));
+        }
+
+        preloadHousing->SetInInterior(true);
+
+        // Spawn rooms + decor onto the map (before player enters)
+        if (!_roomsSpawned)
+        {
+            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
+                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            SpawnRoomMeshObjects(preloadHousing, faction);
+            SpawnInteriorDecor(preloadHousing);
+            _roomsSpawned = true;
+        }
+
+        // Populate Account entity with FHousingStorage_C + budget data
+        // so the initial UPDATE_OBJECT includes full housing context
+        preloadHousing->PopulateCatalogStorageEntries();
+        preloadHousing->SyncUpdateFields();
+
+        // Relocate player to the visual room BEFORE map add so they
+        // spawn at the correct position in the initial UPDATE_OBJECT
+        for (Housing::Room const* room : preloadHousing->GetRooms())
+        {
+            HouseRoomData const* rd = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
+            if (rd && !rd->IsBaseRoom())
+            {
+                float targetX = _originX + static_cast<float>(room->SlotIndex) * sHousingMgr.GetRoomGridSpacing();
+                player->Relocate(targetX, _originY, _originZ, player->GetOrientation());
+                break;
+            }
+        }
+
+        // The interior plot AreaTrigger is created in the DEFERRED callback,
+        // NOT here. If we AddToMap now, the visibility system includes it in
+        // the initial UPDATE_OBJECT, and the client fires HOUSE_PLOT_ENTERED
+        // before Status+Permissions arrive. Retail sends the AT in a separate
+        // UPDATE_OBJECT (#11752) AFTER the main entity data.
+
+        TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: PRE-SPAWNED rooms+decor+storage "
+            "(%u rooms, %u decor) before Map::AddPlayerToMap (AT deferred)",
+            uint32(_roomMeshObjects.size()), uint32(_decorGuidToObjGuid.size()));
+    }
+
     bool result = Map::AddPlayerToMap(player, initPlayer);
 
     if (player->GetGUID() == _owner)
@@ -760,109 +823,248 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                 }
             }
 
-            // Send SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE so the client knows the
-            // active house context. Without this, the client has no house context and the
-            // editor UI (C_HouseEditor.GetHouseEditorModeAvailability) won't show.
-            // The exterior map (HousingMap::AddPlayerToMap) sends this — the interior must too.
-            {
-                WorldPackets::Housing::HousingGetCurrentHouseInfoResponse houseInfo;
-                houseInfo.House.HouseGuid = housing->GetHouseGuid();
-                houseInfo.House.OwnerGuid = player->GetGUID();
-                houseInfo.House.NeighborhoodGuid = housing->GetNeighborhoodGuid();
-                houseInfo.House.PlotId = housing->GetPlotIndex();
-                houseInfo.House.AccessFlags = housing->GetSettingsFlags();
-                houseInfo.House.HasMoveOutTime = false;
-                houseInfo.Result = 0;
-                player->SendDirectMessage(houseInfo.Write());
-
-                TC_LOG_DEBUG("housing", "HouseInteriorMap::AddPlayerToMap: Sent CURRENT_HOUSE_INFO "
-                    "HouseGuid={} OwnerGuid={} NeighborhoodGuid={} PlotId={}",
-                    housing->GetHouseGuid().ToString(), player->GetGUID().ToString(),
-                    housing->GetNeighborhoodGuid().ToString(), housing->GetPlotIndex());
-            }
-
-            // Send SMSG_HOUSE_INTERIOR_ENTER_HOUSE
-            WorldPackets::Housing::HouseInteriorEnterHouse enterHouse;
-            enterHouse.HouseGuid = housing->GetHouseGuid();
-            player->SendDirectMessage(enterHouse.Write());
-
-            // Send updated house status with Status=1 (Interior)
-            WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
-            statusResponse.HouseGuid = housing->GetHouseGuid();
-            statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
-            statusResponse.OwnerPlayerGuid = player->GetGUID();
-            statusResponse.NeighborhoodGuid = housing->GetNeighborhoodGuid();
-            statusResponse.Status = 1; // Interior
-            statusResponse.FlagByte = 0xC0; // bit7=Decor, bit6=Room only — Fixture context managed by dedicated ENTER/EXIT response
-            player->SendDirectMessage(statusResponse.Write());
-
-            // Send post-tutorial auras so the client unlocks all editor modes.
-            // These auras signal "tutorial complete" and are lost on map transfer.
-            // The exterior (HousingMap) sends them via SendPostTutorialAuras —
-            // the interior must do the same or the editor remains locked.
-            SendPostTutorialAuras(player);
-
-            // Populate FHousingStorage_C (decor/catalog) and budget fields, then send
-            // Account entity CREATE + HousingPlayerHouseEntity so the client has the
-            // full housing context. Without this, C_HouseEditor.GetHouseEditorModeAvailability()
-            // fails and the edit toolbar never appears.
-            // Mirrors the exterior map's deferred ENTER_PLOT logic (HousingMap.cpp ~912-958).
-            {
-                housing->PopulateCatalogStorageEntries();
-                housing->SyncUpdateFields();
-
-                WorldSession* session = player->GetSession();
-
-                UpdateData storageUpdate(player->GetMapId());
-                WorldPacket storagePacket;
-
-                // Account entity as CREATE (includes FHousingStorage_C with placed decor map)
-                session->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
-                player->m_clientGUIDs.insert(session->GetBattlenetAccount().GetGUID());
-
-                // HousingPlayerHouseEntity (budgets, house level, etc.)
-                if (player->HaveAtClient(&session->GetHousingPlayerHouseEntity()))
-                    session->GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&storageUpdate, player);
-                else
-                {
-                    session->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
-                    player->m_clientGUIDs.insert(session->GetHousingPlayerHouseEntity().GetGUID());
-                }
-
-                // Bundle interior decor MeshObject CREATEs so the client can correlate
-                // FHousingDecor_C.DecorGUID with FHousingStorage_C entries.
-                uint32 meshCreateCount = 0;
-                for (auto const& [decorGuid, meshObjGuid] : _decorGuidToObjGuid)
-                {
-                    MeshObject* meshObj = GetMeshObject(meshObjGuid);
-                    if (!meshObj || !meshObj->IsInWorld())
-                        continue;
-
-                    meshObj->BuildCreateUpdateBlockForPlayer(&storageUpdate, player);
-                    player->m_clientGUIDs.insert(meshObjGuid);
-                    ++meshCreateCount;
-                }
-
-                storageUpdate.BuildPacket(&storagePacket);
-                player->SendDirectMessage(&storagePacket);
-
-                session->GetBattlenetAccount().ClearUpdateMask(true);
-                session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
-
-                TC_LOG_DEBUG("housing", "HouseInteriorMap::AddPlayerToMap: Sent Account CREATE + {} decor MeshObject CREATEs + budget for player {}",
-                    meshCreateCount, player->GetGUID().ToString());
-            }
-
-            // Send SMSG_INITIATIVE_SERVICE_STATUS so IsInitiativeEnabled() returns true
-            // in interior. Sniff-verified: server responds with 0x80 (enabled).
-            {
-                WorldPackets::Housing::InitiativeServiceStatus initStatus;
-                initStatus.ServiceEnabled = true;
-                player->SendDirectMessage(initStatus.Write());
-            }
-
             // Toggle WS[30906]=1 to signal the client that the player is inside a house interior.
+            // Sent synchronously so the client knows it's an interior before deferred packets.
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_INTERIOR, 1);
+
+            // Defer ALL housing context packets by 500ms. The client needs time to
+            // process the initial UPDATE_OBJECT (entities, room MeshObjects) before
+            // housing response packets can be processed. This mirrors the exterior
+            // map's deferred ENTER_PLOT pattern (HousingMap.cpp).
+            // Without the delay, the housing system TLS may not be ready and the
+            // client silently drops the Status/Permissions packets.
+            {
+                ObjectGuid playerGuid = player->GetGUID();
+                ObjectGuid houseGuid = housing->GetHouseGuid();
+                ObjectGuid neighborhoodGuid = housing->GetNeighborhoodGuid();
+                ObjectGuid accountGuid = player->GetSession()->GetBattlenetAccountGUID();
+                uint8 plotIndex = housing->GetPlotIndex();
+                uint32 settingsFlags = housing->GetSettingsFlags();
+
+                player->m_Events.AddEventAtOffset([this, playerGuid, houseGuid, neighborhoodGuid, accountGuid, plotIndex, settingsFlags]()
+                {
+                    Player* p = ObjectAccessor::FindPlayer(playerGuid);
+                    if (!p || !p->IsInWorld())
+                        return;
+
+                    Housing* housing = p->GetHousing();
+                    if (!housing)
+                        return;
+
+                    // ENTER_PLOT is sent AFTER the AT CREATE in step 8 below.
+                    // The sequence is: AT CREATE → ENTER_PLOT → re-send Status+Perms.
+                    // ENTER_PLOT fires HOUSE_PLOT_ENTERED (FrameScript event 1073) which
+                    // loads Blizzard_HousingControls. The handler resets editor state, so
+                    // Status+Perms are re-sent afterward to re-establish context.
+
+                    // Steps 1-3 (HouseInfo, Status, Permissions) moved to AFTER
+                    // ENTER_PLOT below. ENTER_PLOT resets editor state, so sending
+                    // Status+Permissions before it is wasteful. The exterior AT handler
+                    // (at_housing_plot.cpp) also sends Status+Permissions AFTER ENTER_PLOT.
+
+                    // 1) PostTutorialAuras (slots 8, 9, 50)
+                    SendPostTutorialAuras(p);
+
+                    // 5) Account CREATE + HousingPlayerHouseEntity + decor
+                    {
+                        housing->PopulateCatalogStorageEntries();
+                        housing->SyncUpdateFields();
+
+                        WorldSession* session = p->GetSession();
+                        UpdateData storageUpdate(p->GetMapId());
+                        WorldPacket storagePacket;
+
+                        session->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(&storageUpdate, p);
+                        p->m_clientGUIDs.insert(session->GetBattlenetAccount().GetGUID());
+
+                        if (p->HaveAtClient(&session->GetHousingPlayerHouseEntity()))
+                            session->GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&storageUpdate, p);
+                        else
+                        {
+                            session->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&storageUpdate, p);
+                            p->m_clientGUIDs.insert(session->GetHousingPlayerHouseEntity().GetGUID());
+                        }
+
+                        uint32 meshCreateCount = 0;
+                        for (auto const& [decorGuid, meshObjGuid] : _decorGuidToObjGuid)
+                        {
+                            MeshObject* meshObj = GetMeshObject(meshObjGuid);
+                            if (!meshObj || !meshObj->IsInWorld())
+                                continue;
+                            meshObj->BuildCreateUpdateBlockForPlayer(&storageUpdate, p);
+                            p->m_clientGUIDs.insert(meshObjGuid);
+                            ++meshCreateCount;
+                        }
+
+                        storageUpdate.BuildPacket(&storagePacket);
+                        p->SendDirectMessage(&storagePacket);
+
+                        session->GetBattlenetAccount().ClearUpdateMask(true);
+                        session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+
+                        TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Sent Account+budget+{} decor for {}",
+                            meshCreateCount, playerGuid.ToString());
+                    }
+
+                    // Map-level Housing/3 entity (objectType=18) is now included in
+                    // the initial UPDATE_OBJECT via Player::BuildCreateUpdateBlockForPlayer.
+                    // It must be in the initial batch for the client's type-18 render init.
+
+                    // 7) InitiativeServiceStatus
+                    {
+                        WorldPackets::Housing::InitiativeServiceStatus initStatus;
+                        initStatus.ServiceEnabled = true;
+                        p->SendDirectMessage(initStatus.Write());
+                    }
+
+                    // 7) Create AND send the interior plot AreaTrigger LAST.
+                    // The AT must be created here (not in pre-spawn) because if it's
+                    // on the map during AddPlayerToMap, the visibility system includes
+                    // it in the initial UPDATE_OBJECT — before Status+Permissions.
+                    // Retail sends the AT in a separate UPDATE_OBJECT (#11752) AFTER
+                    // the main entity data. The client fires HOUSE_PLOT_ENTERED on AT
+                    // receipt and immediately checks IsHouseEditorStatusAvailable(),
+                    // which requires permissions to already be set.
+                    if (_interiorPlotAT.IsEmpty())
+                    {
+                        float atX = _originX;
+                        float atY = _originY;
+                        float atZ = _originZ;
+                        LoadGrid(atX, atY);
+
+                        Position atPos(atX, atY, atZ, 0.0f);
+                        AreaTrigger* plotAt = AreaTrigger::CreateStaticAreaTrigger(
+                            { .Id = 37358, .IsCustom = false }, this, atPos, -1, /*addToMap*/ false);
+
+                        if (plotAt)
+                        {
+                            PhasingHandler::InitDbPhaseShift(plotAt->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+                            plotAt->InitHousingPlotData(
+                                housing->GetPlotIndex(),
+                                playerGuid,
+                                houseGuid,
+                                accountGuid);
+
+                            if (AddToMap(plotAt))
+                            {
+                                _interiorPlotAT = plotAt->GetGUID();
+
+                                // Send CREATE directly to the player (visibility system
+                                // won't send it since the player is already on the map)
+                                UpdateData atUpdate(p->GetMapId());
+                                plotAt->BuildCreateUpdateBlockForPlayer(&atUpdate, p);
+                                p->m_clientGUIDs.insert(plotAt->GetGUID());
+
+                                WorldPacket atPacket;
+                                atUpdate.BuildPacket(&atPacket);
+                                p->SendDirectMessage(&atPacket);
+
+                                TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Created+sent interior plot AT "
+                                    "guid={} at ({:.1f},{:.1f},{:.1f}) plotIndex={} for {}",
+                                    plotAt->GetGUID().ToString(), atX, atY, atZ,
+                                    housing->GetPlotIndex(), playerGuid.ToString());
+
+                                // 8) Plot enter spell packets — same as exterior AT overlap.
+                                // Sniff-verified: exterior sends 3 spell+aura sequences
+                                // (1239847@slot50, 469226@slot56, 1266699@slot9) before
+                                // ENTER_PLOT. These trigger editor availability on the client.
+                                {
+                                    plotAt->SetAreaTriggerFlag(AreaTriggerFieldFlags::HasPlayers);
+
+                                    // Spell 1239847 at slot 50 (plot enter tracking)
+                                    {
+                                        ObjectGuid castId = ObjectGuid::Create<HighGuid::Cast>(
+                                            SPELL_CAST_SOURCE_NORMAL, p->GetMapId(), SPELL_HOUSING_PLOT_ENTER,
+                                            GenerateLowGuid<HighGuid::Cast>());
+                                        WorldPackets::Spells::AuraUpdate au;
+                                        au.UpdateAll = false;
+                                        au.UnitGUID = p->GetGUID();
+                                        WorldPackets::Spells::AuraInfo ai;
+                                        ai.Slot = 50;
+                                        ai.AuraData.emplace();
+                                        ai.AuraData->CastID = castId;
+                                        ai.AuraData->SpellID = SPELL_HOUSING_PLOT_ENTER;
+                                        ai.AuraData->Flags = AFLAG_NOCASTER;
+                                        ai.AuraData->ActiveFlags = 2;
+                                        ai.AuraData->CastLevel = 36;
+                                        au.Auras.push_back(std::move(ai));
+                                        p->SendDirectMessage(au.Write());
+                                    }
+
+                                    // Spell 469226 at slot 56 (plot context)
+                                    {
+                                        ObjectGuid castId = ObjectGuid::Create<HighGuid::Cast>(
+                                            SPELL_CAST_SOURCE_NORMAL, p->GetMapId(), SPELL_HOUSING_PLOT_PRESENCE,
+                                            GenerateLowGuid<HighGuid::Cast>());
+                                        WorldPackets::Spells::AuraUpdate au;
+                                        au.UpdateAll = false;
+                                        au.UnitGUID = p->GetGUID();
+                                        WorldPackets::Spells::AuraInfo ai;
+                                        ai.Slot = 56;
+                                        ai.AuraData.emplace();
+                                        ai.AuraData->CastID = castId;
+                                        ai.AuraData->SpellID = SPELL_HOUSING_PLOT_PRESENCE;
+                                        ai.AuraData->Flags = AFLAG_NOCASTER;
+                                        ai.AuraData->ActiveFlags = 1;
+                                        ai.AuraData->CastLevel = 36;
+                                        au.Auras.push_back(std::move(ai));
+                                        p->SendDirectMessage(au.Write());
+                                    }
+
+                                    TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Sent plot enter spells (slots 50+56) for {}",
+                                        playerGuid.ToString());
+                                }
+
+                                // 9) ENTER_PLOT — fires HOUSE_PLOT_ENTERED on the client.
+                                // The client handler (NeighborhoodSystem vtable[22]) signals
+                                // FrameScript event 1073, which dispatches to all UI frames
+                                // with OnEvent handlers, triggering the HOUSE_PLOT_ENTERED
+                                // Lua event that loads Blizzard_HousingControls.
+                                // MUST come AFTER the AT CREATE so the client can look up
+                                // the AT GUID in its entity table.
+                                {
+                                    WorldPackets::Neighborhood::NeighborhoodPlayerEnterPlot enterPlot;
+                                    enterPlot.NeighborhoodEntityGuid = plotAt->GetGUID();
+                                    p->SendDirectMessage(enterPlot.Write());
+                                }
+
+                                // 9) Re-send HouseStatusResponse + PermissionsResponse.
+                                // The ENTER_PLOT handler (vtable[22]) RESETS the editor state,
+                                // so we must re-establish context. This is the same pattern
+                                // used by at_housing_plot.cpp (lines 131-146) on the exterior.
+                                {
+                                    WorldPackets::Housing::HousingHouseStatusResponse statusResponse2;
+                                    statusResponse2.HouseGuid = houseGuid;
+                                    statusResponse2.AccountGuid = accountGuid;
+                                    statusResponse2.OwnerPlayerGuid = playerGuid;
+                                    statusResponse2.NeighborhoodGuid = neighborhoodGuid;
+                                    statusResponse2.Status = 0; // Must be 0 to enable editor (same as exterior)
+                                    statusResponse2.FlagByte = 0xE0;
+                                    p->SendDirectMessage(statusResponse2.Write());
+
+                                    WorldPackets::Housing::HousingGetPlayerPermissionsResponse permResponse2;
+                                    permResponse2.HouseGuid = houseGuid;
+                                    permResponse2.ResultCode = 0;
+                                    permResponse2.PermissionFlags = 0xE0;
+                                    p->SendDirectMessage(permResponse2.Write());
+                                }
+
+                                TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Sent ENTER_PLOT + re-sent Status+Perms for {}",
+                                    playerGuid.ToString());
+                            }
+                            else
+                            {
+                                TC_LOG_ERROR("housing", "HouseInteriorMap deferred: AddToMap failed for interior plot AT");
+                                delete plotAt;
+                            }
+                        }
+                    }
+
+                    TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Complete — "
+                        "HouseInfo+Status+Perms+Auras+Account+Initiative+PlotAT+ENTER_PLOT for {}",
+                        playerGuid.ToString());
+                }, Milliseconds(500));
+            }
         }
         else
         {
