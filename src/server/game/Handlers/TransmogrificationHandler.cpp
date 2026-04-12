@@ -291,7 +291,6 @@ void WorldSession::HandleTransmogrifyItems(WorldPackets::Transmogrification::Tra
 
             item->SetModifier(AppearanceModifierSlotBySpec[player->GetActiveTalentGroup()], 0);
             item->SetModifier(SecondaryAppearanceModifierSlotBySpec[player->GetActiveTalentGroup()], 0);
-            item->SetModifier(ITEM_MODIFIER_ENCHANT_ILLUSION_ALL_SPECS, 0);
         }
 
         item->SetState(ITEM_CHANGED, player);
@@ -323,7 +322,6 @@ void WorldSession::HandleTransmogrifyItems(WorldPackets::Transmogrification::Tra
                 item->SetModifier(ITEM_MODIFIER_ENCHANT_ILLUSION_SPEC_5, item->GetModifier(ITEM_MODIFIER_ENCHANT_ILLUSION_ALL_SPECS));
 
             item->SetModifier(IllusionModifierSlotBySpec[player->GetActiveTalentGroup()], 0);
-            item->SetModifier(ITEM_MODIFIER_TRANSMOG_APPEARANCE_ALL_SPECS, 0);
         }
 
         item->SetState(ITEM_CHANGED, player);
