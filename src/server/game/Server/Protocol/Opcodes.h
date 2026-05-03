@@ -386,6 +386,23 @@ enum OpcodeClient : uint32
     CMSG_GET_DECOR_REFUND_LIST                                      = 0x290031,
     CMSG_GET_GARRISON_INFO                                          = 0x3A01A8,
     CMSG_GET_INITIATIVE_ACTIVITY_LOG_REQUEST                        = 0x380004,
+    CMSG_GET_NEIGHBORHOOD_INITIATIVE_INFO_REQUEST                   = 0x380003, // 12.0.5 ? Lua C_NeighborhoodInitiative.RequestNeighborhoodInitiativeInfo
+    // 12.0.5 ? IDA-catalogued NeighborhoodInitiative opcodes (sub_7FF75C176*).
+    // Wire format known from senders, semantic still pending Lua-handler binding.
+    // Names use NEIGHBORHOOD_INITIATIVE_<index> to keep the wire-format catalogue
+    // stable while we bind handlers; rename when retail Lua API map is confirmed.
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_01                          = 0x380001, // PackedGUID
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_05                          = 0x380005, // uint32 + PackedGUID
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_06                          = 0x380006, // empty
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_07                          = 0x380007, // uint32
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_08                          = 0x380008, // empty
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_09                          = 0x380009, // float
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0A                          = 0x38000A, // uint32
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0B                          = 0x38000B, // uint32
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0C                          = 0x38000C, // PackedGUID
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0D                          = 0x38000D, // uint32 + uint32 + (uint32,uint32)[N] + Bits<1>
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0E                          = 0x38000E, // uint32 + uint32[N]
+    CMSG_NEIGHBORHOOD_INITIATIVE_OPCODE_0F                          = 0x38000F, // uint32 + (uint32×4)[N]
     CMSG_GET_ITEM_PURCHASE_DATA                                     = 0x3B00CF,
     CMSG_GET_LANDING_PAGE_SHIPMENTS                                 = 0x3A01E4,
     CMSG_GET_LAST_CATALOG_FETCH                                     = 0x290036,
@@ -1047,6 +1064,50 @@ enum OpcodeClient : uint32
 
     // Deleted opcodes, here only to allow compile
     CMSG_TRANSMOGRIFY_ITEMS                                         = CMSG_REQUEST_SCHEDULED_PVP_INFO + 1,
+
+    // TC-CUSTOM housing opcodes ? added by the housing-system branch from client research
+    // (IDA + pre-12.0.5 sniffs). Not in upstream TC's extracted opcode list. Values
+    // marked `0xF*******` collided with master's 12.0.5 values and were reassigned to
+    // the 0xF0000000+ range as unreachable placeholders pending 12.0.5 sniff verification.
+    CMSG_HOUSING_DECOR_BATCH_OPERATION                              = 0x30000D, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER                      = 0x300007, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_CLEANUP_MODE_TOGGLE                          = 0x30000C, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_CONFIRM_PREVIEW_PLACEMENT                    = 0x300011, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_BY_ID                    = 0x30000A, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_PLACEMENT_PREVIEW                            = 0x30000F, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_START_PLACING_FROM_SOURCE                    = 0x30000B, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR                      = 0x300005, // TC-CUSTOM
+    CMSG_HOUSING_DECOR_UPDATE_DYE_SLOT                              = 0x300008, // TC-CUSTOM
+    CMSG_HOUSING_FIXTURE_CREATE_BASIC_HOUSE                         = 0x310001, // TC-CUSTOM
+    CMSG_HOUSING_FIXTURE_DELETE_HOUSE                               = 0x310002, // TC-CUSTOM
+    CMSG_HOUSING_REQUEST_EDITOR_AVAILABILITY                        = 0x350009, // TC-CUSTOM
+    // Removed 2026-04-24 after IDA 12.0.5 verification:
+    //   CMSG_HOUSING_SVCS_CHANGE_HOUSE_COSMETIC_OWNER ? cosmetic owner is saved
+    //     via CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS (0x33000B), no separate opcode.
+    //   CMSG_HOUSING_SVCS_COMPLETE_TUTORIAL_STEP, SET_TUTORIAL_STATE, SKIP_TUTORIAL ?
+    //     no matching C_Housing Lua API exists; only StartTutorial is real.
+    //   CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_ALT ? duplicate of
+    //     CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO (0x330013).
+    //   CMSG_HOUSING_SVCS_QUERY_PENDING_INVITES ? not in C_Housing API.
+    //   CMSG_HOUSING_SVCS_GUILD_ADD_HOUSE ? not in C_Housing API.
+    CMSG_HOUSING_SVCS_CLEAR_PLOT_RESERVATION                        = 0x330005, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_GET_ROSTER_DATA                               = 0x33000C, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_GUILD_APPEND_NEIGHBORHOOD                     = 0x330014, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_GUILD_GET_HOUSING_INFO                        = 0x330016, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_GUILD_RENAME_NEIGHBORHOOD                     = 0x330015, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_QUERY_HOUSE_LEVEL_FAVOR                       = 0x330012, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_REQUEST_PERMISSIONS_CHECK                     = 0x330000, // TC-CUSTOM
+    CMSG_HOUSING_SVCS_ROSTER_UPDATE_SUBSCRIBE                       = 0x33000D, // TC-CUSTOM
+    CMSG_HOUSING_SYSTEM_EXPORT_HOUSE                                = 0x350003, // TC-CUSTOM
+    CMSG_HOUSING_SYSTEM_GET_HOUSE_INFO_ALT                          = 0x350001, // TC-CUSTOM
+    CMSG_HOUSING_SYSTEM_HOUSE_SNAPSHOT                              = 0x350002, // TC-CUSTOM
+    CMSG_HOUSING_SYSTEM_HOUSE_STATUS_QUERY                          = 0x350000, // TC-CUSTOM
+    CMSG_HOUSING_SYSTEM_UPDATE_HOUSE_INFO                           = 0x350004, // TC-CUSTOM
+    CMSG_NEIGHBORHOOD_CANCEL_INVITATION_ALT                         = 0x39000C, // TC-CUSTOM
+    CMSG_NEIGHBORHOOD_CHARTER_REMOVE_SIGNATURE                      = 0x370005, // TC-CUSTOM
+    CMSG_NEIGHBORHOOD_CHARTER_SIGN_RESPONSE                         = 0x370002, // TC-CUSTOM
+    CMSG_NEIGHBORHOOD_INVITE_NOTIFICATION_ACK                       = 0x390010, // TC-CUSTOM
+    CMSG_NEIGHBORHOOD_OFFER_OWNERSHIP_RESPONSE                      = 0x390011, // TC-CUSTOM
 };
 
 inline constexpr std::size_t NUM_CMSG_OPCODES = 1948;
@@ -2480,6 +2541,48 @@ enum OpcodeServer : uint32
 
     // Deleted opcodes, here only to allow compile
     SMSG_ARENA_TEAM_STATS                                           = UNKNOWN_OPCODE,
+
+    // TC-CUSTOM housing SMSG opcodes ? see corresponding block in OpcodeClient above.
+    // All values here are PLACEHOLDERS in the 0xF1000000+ range. Our pre-12.0.5 guesses
+    // all collided with master's 12.0.5 opcode regeneration, so the classes compile but
+    // Writes will not reach the client until each opcode is remapped to a verified
+    // 12.0.5 value (preferably from a sniff).
+    // Removed 2026-04-24 after IDA 12.0.5 verification:
+    //   SMSG_HOUSE_INTERIOR_ENTER_HOUSE / SMSG_HOUSE_INTERIOR_LEAVE_HOUSE_RESPONSE ?
+    //     both are replaced by the PlayerHouseInfoComponentData.CurrentHouse
+    //     UpdateField mechanism. Client fires HOUSE_PLOT_ENTERED via field-change
+    //     callback when CurrentHouse changes (verified via IDA xref trace of
+    //     sub_7FF75CC8BAA0 registered in the field-change callback table).
+    SMSG_HOUSING_CATALOG_STATE_SYNC                                 = 0xF1000002, // TC-CUSTOM speculative
+    SMSG_HOUSING_DECOR_BATCH_OPERATION_RESPONSE                     = 0xF1000003, // TC-CUSTOM speculative
+    SMSG_HOUSING_DECOR_CATALOG_CREATE_SEARCHER_RESPONSE             = 0xF1000004, // TC-CUSTOM speculative
+    SMSG_HOUSING_DECOR_PLACEMENT_PREVIEW_RESPONSE                   = 0xF1000005, // TC-CUSTOM speculative
+    SMSG_HOUSING_DECOR_START_PLACING_NEW_DECOR_RESPONSE             = 0xF1000006, // TC-CUSTOM speculative
+    SMSG_HOUSING_EDITOR_AVAILABILITY_RESPONSE                       = 0xF1000007, // TC-CUSTOM speculative
+    SMSG_HOUSING_SET_HOUSE_NAME_RESPONSE                            = 0xF1000008, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_CREATE_NEIGHBORHOOD_RESPONSE                  = 0xF1000009, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_GET_NEIGHBORHOOD_DETAILS_RESPONSE             = 0xF100000A, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_GET_NEIGHBORHOOD_HOUSES_RESPONSE              = 0xF100000B, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_HOUSE_EXPIRATION_NOTIFICATION                 = 0xF100000C, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_MOVE_HOUSE_RESPONSE                           = 0xF100000D, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_SEARCH_NEIGHBORHOODS_RESPONSE                 = 0xF100000E, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_SET_NEIGHBORHOOD_SETTINGS_RESPONSE            = 0xF100000F, // TC-CUSTOM speculative
+    SMSG_HOUSING_SVCS_SWAP_PLOTS_RESPONSE                           = 0xF1000010, // TC-CUSTOM speculative
+    SMSG_HOUSING_SYSTEM_HOUSE_SNAPSHOT_RESPONSE                     = 0xF1000011, // TC-CUSTOM speculative
+    SMSG_HOUSING_UPDATE_HOUSE_INFO                                  = 0xF1000012, // TC-CUSTOM speculative
+    // Removed 2026-04-24: SMSG_NEIGHBORHOOD_UPDATE_NAME_NOTIFICATION superseded by
+    // master's SMSG_HOUSING_SVCS_NEIGHBORHOOD_UPDATE_NAME_NOTIFICATION = 0x540023.
+
+    // TC-CUSTOM account-housing / initiative SMSG opcodes
+    SMSG_ACCOUNT_HOUSING_FIXTURE_ADDED                              = 0xF1000014, // TC-CUSTOM speculative
+    SMSG_ACCOUNT_HOUSING_ROOM_ADDED                                 = 0xF1000015, // TC-CUSTOM speculative
+    SMSG_ACCOUNT_HOUSING_ROOM_COMPONENT_TEXTURE_ADDED               = 0xF1000016, // TC-CUSTOM speculative
+    SMSG_ACCOUNT_HOUSING_THEME_ADDED                                = 0xF1000017, // TC-CUSTOM speculative
+    SMSG_INITIATIVE_CHEST_RESULT                                    = 0xF1000018, // TC-CUSTOM speculative
+    SMSG_INITIATIVE_MILESTONE_UPDATE                                = 0xF1000019, // TC-CUSTOM speculative
+    SMSG_INITIATIVE_POINTS_UPDATE                                   = 0xF100001A, // TC-CUSTOM speculative
+    SMSG_INITIATIVE_TRACKED_UPDATED                                 = 0xF100001B, // TC-CUSTOM speculative
+    SMSG_INITIATIVE_UPDATE_STATUS                                   = 0xF100001C, // TC-CUSTOM speculative
 };
 
 inline constexpr std::size_t NUM_SMSG_OPCODES = 1650;

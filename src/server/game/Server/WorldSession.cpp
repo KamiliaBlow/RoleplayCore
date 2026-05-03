@@ -17,6 +17,8 @@
 
 #include "WorldSession.h"
 #include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include "AccountMgr.h"
 #include "AuthenticationPackets.h"
 #include "Bag.h"
@@ -120,6 +122,8 @@ WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccoun
     _accountId(id),
     _accountName(std::move(name)),
     _battlenetAccount(new Battlenet::Account(this, ObjectGuid::Create<HighGuid::BNetAccount>(battlenetAccountId), std::move(battlenetAccountEmail))),
+    _housingPlayerHouseEntity(new HousingPlayerHouseEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/3, /*arg1*/sRealmList->GetCurrentRealmId().Realm, /*arg2*/7, /*arg3*/battlenetAccountId))),
+    _housingNeighborhoodMirrorEntity(new HousingNeighborhoodMirrorEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/4, /*arg1*/sRealmList->GetCurrentRealmId().Realm, /*arg2*/0, /*arg3*/battlenetAccountId))),
     m_accountExpansion(expansion),
     m_expansion(std::min<uint8>(expansion, sWorld->getIntConfig(CONFIG_EXPANSION))),
     _os(std::move(os)),
@@ -387,6 +391,22 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
         OpcodeClient opcode = static_cast<OpcodeClient>(packet->GetOpcode());
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
         TC_METRIC_DETAILED_TIMER("worldsession_update_opcode_time", TC_METRIC_TAG("opcode", opHandle->Name));
+
+        // Housing CMSG diagnostic: log ALL opcodes in housing/neighborhood ranges
+        {
+            uint32 rawOpcode = static_cast<uint32>(opcode);
+            uint32 group = (rawOpcode >> 16) & 0xFFFF;
+            if (group == 0x30 || group == 0x31 || group == 0x32 || group == 0x33 ||  // decor/fixture/room/services
+                group == 0x35 ||  // HousingSystem CMSGs
+                group == 0x37 || group == 0x38 || group == 0x39 ||  // neighborhood charter/initiative/system
+                group == 0x55 || group == 0x56 ||  // HousingSystem SMSGs (should not appear as CMSG)
+                group == 0x5A || group == 0x5C)     // neighborhood SMSG / enter-leave plot
+            {
+                TC_LOG_ERROR("housing", ">>> HOUSING CMSG RECEIVED: opcode=0x{:08X} ({}) name='{}' status={} size={} player={}",
+                    rawOpcode, rawOpcode, opHandle->Name, uint8(opHandle->Status),
+                    packet->size(), _player ? _player->GetName() : "NO_PLAYER");
+            }
+        }
 
         try
         {

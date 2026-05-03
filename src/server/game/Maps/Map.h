@@ -63,6 +63,9 @@ class InstanceLock;
 class InstanceMap;
 class InstanceScript;
 class InstanceScenario;
+class HousingDecorEntity;
+class HousingRoomEntity;
+class MeshObject;
 class Object;
 class PhaseShift;
 class Player;
@@ -117,6 +120,7 @@ enum TransferAbortReason : uint32
     TRANSFER_ABORT_XREALM_ZONE_DOWN              = 24,  // Transfer Aborted: cross-realm zone is down
     TRANSFER_ABORT_SOLO_PLAYER_SWITCH_DIFFICULTY = 26,  // This instance is already in progress. You may only switch difficulties from inside the instance.
     TRANSFER_ABORT_NOT_CROSS_FACTION_COMPATIBLE  = 33,  // This instance isn't available for cross-faction groups
+    TRANSFER_ABORT_HOUSING_MAX_PLAYERS_IN_HOUSE  = 36,  // Housing: house is full
 };
 
 struct TransferAbortParams
@@ -225,8 +229,8 @@ struct MapStoredObjectsUnorderedMap
     }
 };
 
-extern template struct TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
-typedef TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation> MapStoredObjectTypesContainer;
+extern template struct TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject, HousingRoomEntity, HousingDecorEntity>;
+typedef TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject, HousingRoomEntity, HousingDecorEntity> MapStoredObjectTypesContainer;
 
 class TC_GAME_API Map : public GridRefManager<NGridType>
 {
@@ -385,6 +389,7 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         bool IsBattlegroundOrArena() const;
         bool IsScenario() const;
         bool IsGarrison() const;
+        bool IsHouseInterior() const;
         // Currently, this means that every entity added to this map will be marked as active
         bool IsAlwaysActive() const;
         bool GetEntrancePos(int32& mapid, float& x, float& y);
@@ -442,6 +447,8 @@ class TC_GAME_API Map : public GridRefManager<NGridType>
         Creature* GetCreature(ObjectGuid const& guid);
         DynamicObject* GetDynamicObject(ObjectGuid const& guid);
         GameObject* GetGameObject(ObjectGuid const& guid);
+        MeshObject* GetMeshObject(ObjectGuid const& guid);
+        HousingRoomEntity* GetHousingRoomEntity(ObjectGuid const& guid);
         Pet* GetPet(ObjectGuid const& guid);
         Transport* GetTransport(ObjectGuid const& guid);
         Creature* GetCreatureBySpawnId(ObjectGuid::LowType spawnId) const;

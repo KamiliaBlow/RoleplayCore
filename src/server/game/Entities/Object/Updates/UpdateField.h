@@ -289,6 +289,9 @@ namespace UF
     struct SetUpdateFieldSetter
     {
         template<typename F>
+        friend bool InsertSetUpdateFieldValue(SetUpdateFieldSetter<F>& setter, std::type_identity_t<F> const& key);
+
+        template<typename F>
         friend bool RemoveSetUpdateFieldValue(SetUpdateFieldSetter<F>& setter, std::type_identity_t<F> const& key);
 
         SetUpdateFieldSetter(std::unordered_map<T, MapUpdateFieldState>& values) : _values(values) { }

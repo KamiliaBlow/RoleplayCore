@@ -24,6 +24,8 @@
 #include "Item.h"
 #include "Log.h"
 #include "Map.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "NPCHandler.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -36,9 +38,28 @@
 
 void WorldSession::BuildNameQueryData(ObjectGuid guid, WorldPackets::Query::NameCacheLookupResult& lookupData)
 {
-    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
-
     lookupData.Player = guid;
+
+    // Housing GUIDs (HighGuid::Housing, type 55) are resolved via HouseData
+    // instead of the player name cache. The client's NameCacheLookupResult
+    // structure includes an Optional<HouseLookupData> field for this purpose.
+    if (guid.GetHigh() == HighGuid::Housing)
+    {
+        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(guid);
+        if (neighborhood && !neighborhood->GetName().empty())
+        {
+            lookupData.Result = RESPONSE_SUCCESS;
+            lookupData.HouseData.emplace();
+            lookupData.HouseData->Guid = guid;
+            // GetName() returns const std::string& with stable lifetime
+            lookupData.HouseData->Name = neighborhood->GetName();
+        }
+        else
+            lookupData.Result = RESPONSE_FAILURE;
+        return;
+    }
+
+    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
 
     lookupData.Data.emplace();
     if (lookupData.Data->Initialize(guid, player))
@@ -51,7 +72,14 @@ void WorldSession::HandleQueryPlayerNames(WorldPackets::Query::QueryPlayerNames&
 {
     WorldPackets::Query::QueryPlayerNamesResponse response;
     for (ObjectGuid guid : queryPlayerNames.Players)
+    {
+        // Log Housing GUID queries for debugging neighborhood name display
+        if (guid.GetHigh() == HighGuid::Housing)
+            TC_LOG_ERROR("housing", "CMSG_QUERY_PLAYER_NAMES: Client queried Housing GUID {} ? resolving via HouseData",
+                guid.ToString());
+
         BuildNameQueryData(guid, response.Players.emplace_back());
+    }
 
     SendPacket(response.Write());
 }

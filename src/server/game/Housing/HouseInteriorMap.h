@@ -1,0 +1,154 @@
+/*
+ * This file is part of the TrinityCore Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef HouseInteriorMap_h__
+#define HouseInteriorMap_h__
+
+#include "Housing.h"
+#include "Map.h"
+#include "ObjectGuid.h"
+#include <vector>
+
+class HousingRoomEntity;
+class Player;
+
+/// Map instance for a player's house interior (MAP_HOUSE_INTERIOR = 7, MapID 2783).
+/// Each player/account gets their own instance of this map. The interior is a
+/// WMO-based space with modular rooms that the player can customize.
+/// Similar pattern to GarrisonMap but for housing interiors.
+class TC_GAME_API HouseInteriorMap : public Map
+{
+public:
+    HouseInteriorMap(uint32 id, time_t expiry, uint32 instanceId, ObjectGuid const& owner);
+
+    void LoadGridObjects(NGridType* grid, Cell const& cell) override;
+    void InitVisibilityDistance() override;
+    bool AddPlayerToMap(Player* player, bool initPlayer = true) override;
+    void RemovePlayerFromMap(Player* player, bool remove) override;
+
+    ObjectGuid GetOwnerGuid() const { return _owner; }
+    float GetOriginX() const { return _originX; }
+    float GetOriginY() const { return _originY; }
+    float GetOriginZ() const { return _originZ; }
+
+    /// Get the Housing data for the owner (needed for room/decor state).
+    Housing* GetOwnerHousing();
+
+    /// The neighborhood map ID the owner came from (for exit teleport).
+    uint32 GetSourceNeighborhoodMapId() const { return _sourceNeighborhoodMapId; }
+    void SetSourceNeighborhoodMapId(uint32 mapId) { _sourceNeighborhoodMapId = mapId; }
+
+    /// The plot index the owner's house is on (for exit teleport position).
+    uint8 GetSourcePlotIndex() const { return _sourcePlotIndex; }
+    void SetSourcePlotIndex(uint8 plotIndex) { _sourcePlotIndex = plotIndex; }
+
+    /// Spawn all room meshes for the owner's house layout.
+    /// Called once when the interior map is first populated.
+    /// @param factionRestriction  NEIGHBORHOOD_FACTION_ALLIANCE or NEIGHBORHOOD_FACTION_HORDE
+    void SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction);
+
+    /// Overload that takes raw rooms — used when visiting an offline owner's
+    /// house where no live Housing object exists; data comes from
+    /// Neighborhood::PlotInfo.Rooms (which mirrors character_housing_rooms).
+    /// @param houseGuid  owner's HousingPlayerHouse GUID, set as the parent on
+    ///                   every HousingRoomEntity we spawn.
+    void SpawnRoomMeshObjectsFromList(std::vector<Housing::Room const*> const& rooms, int32 factionRestriction, ObjectGuid houseGuid);
+
+    /// Despawn all room meshes (e.g., when the interior is rebuilt).
+    void DespawnAllRoomMeshObjects();
+
+    /// Update room component textures in-place (material/wallpaper change).
+    /// Sends UPDATE_OBJECT with changed texture fields — no model change.
+    void UpdateRoomComponentTextures(ObjectGuid roomGuid, Housing::Room const& room,
+        std::vector<uint32> const* componentIDs, int32 textureID);
+
+    /// Respawn room component MeshObjects for a theme change.
+    /// Theme changes require new models (different FileDataIDs), so we DESTROY old
+    /// meshes and CREATE new ones with new GUIDs. The client expects this pattern
+    /// (sniff shows walls disappearing and reappearing during theme changes).
+    /// @param overrideSubType    If >= 0, forces SubType match for new options.
+    /// @param overrideRoomCompID If >= 0, only spawns options with matching RoomCompID.
+    ///                           Used by SET_CEILING_TYPE/SET_DOOR_TYPE to select the
+    ///                           correct model variant (normal=0, vaulted=1, etc.).
+    void RespawnRoomComponentsForTheme(ObjectGuid roomGuid, int32 factionRestriction,
+        Housing::Room const& room, std::vector<uint32> const* componentIDs, int32 newThemeID,
+        int32 overrideSubType = -1, int32 overrideRoomCompID = -1);
+
+    /// Despawn a single room's entities (MeshObjects + HousingRoomEntity).
+    void DespawnRoomEntities(ObjectGuid roomGuid);
+
+    /// Replace a wall MeshObject with DoorwayWall+Doorway pair for an active connection.
+    void ReplaceWallWithDoorway(ObjectGuid roomGuid, uint32 doorComponentID,
+        int32 factionRestriction, Housing::Room const& room, ObjectGuid newRoomGuid);
+
+    /// Spawn all placed decor for the owner's house on the interior map.
+    void SpawnInteriorDecor(Housing* housing);
+
+    /// Overload for visits to offline owners — iterates a raw decor vector
+    /// sourced from Neighborhood::PlotInfo.Decor (mirror of character_housing_decor)
+    /// with the owner's HouseGuid passed explicitly.
+    void SpawnInteriorDecorFromList(std::vector<Housing::PlacedDecor> const& decor, ObjectGuid houseGuid);
+
+    /// Spawn a single placed decor item immediately (called from PLACE handler).
+    void SpawnSingleInteriorDecor(Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
+
+    /// Update position/rotation of a single interior decor item.
+    void UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
+
+    /// Despawn a single decor item by its Housing decor GUID.
+    void DespawnDecorItem(ObjectGuid decorGuid);
+
+    /// Get the interior decor GUID → MeshObject GUID map (for edit mode CREATEs).
+    std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToObjGuid; }
+
+    /// Get the room GUID → room MeshObject GUID vectors (for entity set synchronization).
+    std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> const& GetRoomMeshObjects() const { return _roomMeshObjects; }
+
+    /// Get HousingRoomEntity instances for inclusion in initial UPDATE_OBJECT
+    std::vector<HousingRoomEntity*> const& GetRoomEntities() const { return _roomEntities; }
+
+    /// Send post-tutorial aura packets so the client knows the tutorial is complete
+    /// and unlocks all editor modes (expert, cleanup, layout, customize).
+    void SendPostTutorialAuras(Player* player);
+
+private:
+    ObjectGuid _owner;
+    Player* _loadingPlayer; ///< @workaround Player not in ObjectAccessor during login
+    uint32 _sourceNeighborhoodMapId;
+    uint8 _sourcePlotIndex;
+    bool _roomsSpawned = false;
+
+    // Interior map origin from NeighborhoodMap DB2 (fallback: -1000, -1000, 0.1)
+    float _originX = -1000.0f;
+    float _originY = -1000.0f;
+    float _originZ = 0.1f;
+
+    /// GUIDs of all spawned room MeshObjects, indexed by room GUID
+    std::unordered_map<ObjectGuid /*roomGuid*/, std::vector<ObjectGuid>> _roomMeshObjects;
+
+    /// Decor GUID → visual object GUID (for despawning individual decor items)
+    std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
+
+    /// HousingRoomEntity instances (objectType=18, Housing/2 GUIDs) for the layout editor
+    std::vector<HousingRoomEntity*> _roomEntities;
+
+    /// GUID of the interior plot AreaTrigger (entry 37358, FHousingPlotAreaTrigger_C).
+    /// The client fires HOUSE_PLOT_ENTERED when it sees this AT, enabling housing CMSGs.
+    ObjectGuid _interiorPlotAT;
+};
+
+#endif // HouseInteriorMap_h__

@@ -29,11 +29,25 @@ class Account final : public BaseEntity
 public:
     explicit Account(WorldSession* session, ObjectGuid guid, std::string&& name);
 
+    void ClearUpdateMask(bool remove) override;
+
     std::string GetNameForLocaleIdx(LocaleConstant locale) const override;
 
     void BuildUpdate(UpdateDataMapType& data_map) override;
 
     std::string GetDebugInfo() const override;
+
+    // Direct send that builds ContentsChangedMask before serializing.
+    // BaseEntity::SendUpdateToPlayer is const and doesn't call BuildUpdateChangesMask(),
+    // so the VALUES_UPDATE packet is empty when called directly from handlers.
+    // This override ensures fragment changes are detected before the send.
+    void SendUpdateToPlayer(Player* player);
+
+    // Housing storage data (decor catalog) ? only FHousingStorage_C belongs on the BNetAccount entity.
+    // FHousingPlayerHouse_C is on the Housing/3 entity (HousingPlayerHouseEntity).
+    // FNeighborhoodMirrorData_C is on the Housing/4 entity (HousingNeighborhoodMirrorEntity).
+    void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue = {});
+    void RemoveHousingDecorStorageEntry(ObjectGuid decorGuid);
 
     UF::UpdateField<UF::HousingStorageData, int32(WowCS::EntityFragment::FHousingStorage_C), 0> m_housingStorageData;
 

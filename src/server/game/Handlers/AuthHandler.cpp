@@ -151,16 +151,105 @@ void WorldSession::SendFeatureSystemStatusGlueScreen()
         { "bpayStoreEnable"sv, "0"sv },
         { "recentAlliesEnabledClient"sv, "0"sv },
         { "browserEnabled"sv, "0"sv },
-        { "housingEnableCreateGuildNeighborhood"sv, "0"sv },
-        { "housingEnableDeleteHouse"sv, "0"sv },
-        { "housingServiceEnabled"sv, "0"sv },
-        { "housingEnableMoveHouse"sv, "0"sv },
-        { "housingEnableCreateCharterNeighborhood"sv, "0"sv },
-        { "housingEnableBuyHouse"sv, "0"sv },
-        { "housingMarketEnabled"sv, "0"sv },
+        // Housing game rules ? ALL values verified against 12.0.1.65940 sniff packet data (Feb 2026)
+        // Service & feature flags (read from config, default true)
+        { "performHousingExpansionCheckClient"sv, "1"sv },
+        { "housingServiceEnabled"sv, "1"sv },
+        { "housingEnableBuyHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_BUY_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableDeleteHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_DELETE_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableMoveHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_MOVE_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableCreateCharterNeighborhood"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD) ? "1"sv : "0"sv },
+        { "housingEnableCreateGuildNeighborhood"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_GUILD_NEIGHBORHOOD) ? "1"sv : "0"sv },
+        // Market
+        { "housingMarketEnabled"sv, "1"sv },
+        { "housingMarketShopEnabled"sv, "1"sv },
+        { "housingMarketCartFullRemoveEnabled"sv, "1"sv },
+        // Neighborhood & exterior
+        { "housingExteriorTypeByNeighborhoodFactionRestriction"sv, "1"sv },
+        { "minNeighborhoodGroupMembers"sv, "3"sv },
+        // Decoration limits
+        { "housingBasicDecor_MaxPreviewLimit"sv, "100"sv },
+        { "housingCatalog_CartSizeLimit"sv, "20"sv },
+        // Decor scale limits
+        { "housingExpertDecor_Scale_Indoor_Min"sv, "0.200000"sv },
+        { "housingExpertDecor_Scale_Indoor_Max"sv, "2.000000"sv },
+        { "housingExpertDecor_Scale_Outdoor_Min"sv, "0.200000"sv },
+        { "housingExpertDecor_Scale_Outdoor_Max"sv, "2.000000"sv },
+        // Screenshot report thresholds
+        { "housingDecorReportScreenshotFacingDotThreshold"sv, "0.500000"sv },
+        { "housingDecorReportScreenshotDistanceThreshold"sv, "150.000000"sv },
+        // Market telemetry throttles ? sniff-verified against build 12.0.1.66838,
+        // SMSG_MIRROR_VARS at packet idx 9976 (dump_12.0.1.66838_2026-04-15_09-35-59).
+        // The client reads these before it will send any SMSG_HOUSING_MARKET_*
+        // telemetry CMSGs; without them the market UI may throttle-fail silently.
+        { "housingMarketViewInStoreTelemThrottle"sv, "5"sv },
+        { "housingMarketViewBundleTelemThrottle"sv, "10"sv },
+        { "housingMarketAddToCartTelemThrottle"sv, "15"sv },
+        { "housingMarketClearCartTelemThrottle"sv, "5"sv },
+        { "housingMarketRemoveFromCartTelemThrottle"sv, "20"sv },
+        { "housingMarketThrottleTimePeriodMs"sv, "10000"sv },
+        // Situation flags ? driver context for the client's "situation" state
+        // machine (automatic/manual triggered events). Retail sends all three
+        // set on login; we were sending none. Same sniff reference.
+        { "enableAutomaticSituations"sv, "1"sv },
+        { "enableManualSituations"sv, "1"sv },
+        { "enableTransmogUpdateSituation"sv, "1"sv },
+        // Transmog system flags ? the client gates parts of the transmog UI
+        // on these being present. Retail sends them at this stage of login.
+        { "transmogEnableSystem"sv, "1"sv },
+        { "transmogAllowArtifactOverride"sv, "1"sv },
+        { "transmogAllowCanUseEverChanges"sv, "0"sv },
+        { "transmogEnableOutfitPurchases"sv, "1"sv },
+        { "transmogEnableOutfitSlotChanges"sv, "1"sv },
+        // --- Additional vars from retail MIRROR_VARS audit (2026-04-21) ---
+        // Retail sends 116 MIRROR_VARS entries, we were sending 41. These 40
+        // below are the subset that drive client behaviour without requiring
+        // Blizzard-specific service URLs (shop2 / Pinterest skipped).
+        // Damage meter ? gates the in-game damage meter addon feature
+        { "damageMeterCacheEnabled"sv, "1"sv },
+        { "damageMeterProcessingEnabled"sv, "1"sv },
+        // Addon chat restrictions ? affects WHISPER/GROUP addon message routing
+        { "addonChatRestrictionsEnabled"sv, "1"sv },
+        { "addonChatRestrictionsEnabledForOutgoingAddonMessages"sv, "1"sv },
+        // Lua resource caps ? the client throttles AddOn resources when these
+        // are present. Retail's caps, keep identical to not break addons.
+        { "limitedLuaResourcesEnabled"sv, "0"sv },
+        { "limitedLuaResourcesAddonCapacityAnim"sv, "5000"sv },
+        { "limitedLuaResourcesAddonCapacityAnimGroup"sv, "2000"sv },
+        { "limitedLuaResourcesAddonCapacityFont"sv, "300"sv },
+        { "limitedLuaResourcesAddonCapacityFontString"sv, "5000"sv },
+        { "limitedLuaResourcesAddonCapacityFrame"sv, "10000"sv },
+        { "limitedLuaResourcesAddonCapacityTexture"sv, "40000"sv },
+        { "limitedLuaResourcesAddonCapacityTimer"sv, "500"sv },
+        { "limitedLuaResourcesGlobalCapacityAnim"sv, "50000"sv },
+        { "limitedLuaResourcesGlobalCapacityAnimGroup"sv, "20000"sv },
+        { "limitedLuaResourcesGlobalCapacityFont"sv, "3000"sv },
+        { "limitedLuaResourcesGlobalCapacityFontString"sv, "50000"sv },
+        { "limitedLuaResourcesGlobalCapacityFrame"sv, "100000"sv },
+        { "limitedLuaResourcesGlobalCapacityTexture"sv, "400000"sv },
+        { "limitedLuaResourcesGlobalCapacityTimer"sv, "500"sv },
+        // Lua script throttling ? bucket limits per second / burst
+        { "luaScriptBucketThrottleEnabled"sv, "1"sv },
+        { "luaScriptBucketThrottleMaxMsBurstNormal"sv, "20000"sv },
+        { "luaScriptBucketThrottleMaxMsBurstRestricted"sv, "1000"sv },
+        { "luaScriptBucketThrottleMaxMsPerSecondNormal"sv, "2000"sv },
+        { "luaScriptBucketThrottleMaxMsPerSecondRestricted"sv, "500"sv },
+        // Hardcore mode throttling ? not used but sent for parity
+        { "hardcoreScriptThrottlingEnabled"sv, "0"sv },
+        // PvP training grounds ? the PvP duel area feature
+        { "pvpTrainingGroundsEnabledClient"sv, "0"sv },
+        // Recent allies request throttle
+        { "recentAlliesRequestDataThrottle"sv, "5000"sv },
+        // LFG text filters
+        { "enableEndgameEditRestrictionsForLFGText"sv, "1"sv },
+        // Disabled game modes (retail passes an empty string; keep empty)
+        { "disabledGamemodes"sv, ""sv },
     };
 
     WorldPackets::System::MirrorVars variables;
     variables.Variables = vars;
     SendPacket(variables.Write());
+
+    TC_LOG_INFO("housing", "<<< SMSG_MIRROR_VARS sent: housingServiceEnabled=1, MaxExpansionLevel={}, AccountExpansion={}",
+        sWorld->getIntConfig(CONFIG_EXPANSION), GetAccountExpansion());
 }

@@ -215,6 +215,12 @@ void WorldSession::HandleGameObjectUseOpcode(WorldPackets::GameObject::GameObjUs
 
         obj->Use(GetPlayer());
     }
+    else
+    {
+        // Debug: Log failed GO interaction attempt for housing diagnostics
+        TC_LOG_DEBUG("housing", "HandleGameObjectUseOpcode: GetGameObjectIfCanInteractWith returned null "
+            "for guid={} player={}", packet.Guid.ToString(), GetPlayer()->GetGUID().ToString());
+    }
 }
 
 void WorldSession::HandleGameobjectReportUse(WorldPackets::GameObject::GameObjReportUse& packet)

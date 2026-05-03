@@ -21,6 +21,7 @@
 #include "Errors.h"
 #include "GameTime.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "MovementPackets.h"
 #include "Player.h"
 #include "SmoothPhasing.h"
@@ -186,7 +187,7 @@ void BaseEntity::BuildValuesUpdateBlockForPlayer(UpdateData* data, Player const*
     data->AddUpdateBlock();
 }
 
-inline void BaseEntity::BuildEntityFragments(ByteBuffer& data, std::span<WowCS::EntityFragment const> fragments)
+void BaseEntity::BuildEntityFragments(ByteBuffer& data, std::span<WowCS::EntityFragment const> fragments)
 {
     data.append(fragments.data(), fragments.size());
     data << uint8(WowCS::EntityFragment::End);
@@ -435,20 +436,32 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
         data << uint64(gameObject->GetPackedLocalRotation());          // Rotation
     }
 
-    //if (flags.Room)
-    //    data << ObjectGuid(HouseGUID);
+    if (flags.Room)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetRoomHouseGUID();
+    }
 
-    //if (flags.Decor)
-    //    data << ObjectGuid(RoomGUID);
+    if (flags.Decor)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetDecorRoomEntityGUID();
+    }
 
-    //if (flags.MeshObject)
-    //{
-    //    data << ObjectGuid(AttachParentGUID);
-    //    data << TaggedPosition<Position::XYZ>(PositionLocalSpace);
-    //    data << QuaternionData(RotationLocalSpace);
-    //    data << float(ScaleLocalSpace);
-    //    data << uint8(AttachmentFlags);
-    //}
+    if (flags.MeshObject)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetAttachParentGUID();
+        // Use the stored local-space position (offset from parent), NOT GetPositionX/Y/Z()
+        // which returns the parent's world position (set by Relocate for grid placement).
+        // The client uses this to position the child mesh relative to its parent entity.
+        Position const& localPos = meshObj->GetLocalPosition();
+        data << TaggedPosition<Position::XYZ>(localPos.GetPositionX(), localPos.GetPositionY(), localPos.GetPositionZ());
+        QuaternionData const& rot = meshObj->GetLocalRotation();
+        data << rot.x << rot.y << rot.z << rot.w;
+        data << meshObj->GetLocalScale();
+        data << meshObj->GetAttachmentFlags();
+    }
 
     if (!PauseTimes.empty())
         data.append(PauseTimes.data(), PauseTimes.size());

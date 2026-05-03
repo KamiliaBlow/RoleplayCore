@@ -106,10 +106,10 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
 
         AreaTriggerAI* AI() { return _ai.get(); }
 
-        bool IsCustom() const { return _areaTriggerTemplate->Id.IsCustom; }
-        bool IsServerSide() const { return _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
+        bool IsCustom() const { return _areaTriggerTemplate && _areaTriggerTemplate->Id.IsCustom; }
+        bool IsServerSide() const { return _areaTriggerTemplate && _areaTriggerTemplate->Flags.HasFlag(AreaTriggerFlag::IsServerSide); }
         bool IsStaticSpawn() const { return _spawnId != 0; }
-        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
+        bool HasActionSetFlag(AreaTriggerActionSetFlag flag) const { return _areaTriggerTemplate && _areaTriggerTemplate->ActionSetFlags.HasFlag(flag); }
 
         bool IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects = false) const override;
 
@@ -118,12 +118,19 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
         void PlaySpellVisual(uint32 spellVisualId) const;
 
     private:
-        bool Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData = nullptr, Unit* caster = nullptr, Unit* target = nullptr, SpellCastVisual spellVisual = { 0, 0 }, SpellInfo const* spellInfo = nullptr, Spell* spell = nullptr, AuraEffect const* aurEff = nullptr);
+        bool Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData = nullptr, Unit* caster = nullptr, Unit* target = nullptr, SpellCastVisual spellVisual = { 0, 0 }, SpellInfo const* spellInfo = nullptr, Spell* spell = nullptr, AuraEffect const* aurEff = nullptr, bool addToMap = true);
 
     public:
         static AreaTrigger* CreateAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Position const& pos, int32 duration, Unit* caster, Unit* target, SpellCastVisual spellVisual = { 0, 0 }, SpellInfo const* spellInfo = nullptr, Spell* spell = nullptr, AuraEffect const* aurEff = nullptr);
+        static AreaTrigger* CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration = -1, bool addToMap = true);
         static ObjectGuid CreateNewMovementForceId(Map* map, uint32 areaTriggerId);
         bool LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, bool allowDuplicate);
+
+        // Plot AT visual setup (SpellForVisuals, PeriodModifier, ExtraScaleCurve).
+        // 12.0.5 removed the per-AT FHousingPlotAreaTrigger_C fragment; plot ownership is
+        // now communicated via PlayerHouseInfoComponentData.CurrentHouse on the Player.
+        // The AT itself still exists for editor-menu plot bounds / decal placement visuals.
+        void InitHousingPlotVisuals();
 
         void Update(uint32 diff) override;
         void Remove();

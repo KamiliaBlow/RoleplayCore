@@ -19,6 +19,7 @@
 #include "Map.h"
 #include "Player.h"
 #include "StringFormat.h"
+#include "UpdateData.h"
 #include "WorldSession.h"
 
 namespace Battlenet
@@ -31,6 +32,12 @@ Account::Account(WorldSession* session, ObjectGuid guid, std::string&& name) : m
 
     // Default value
     SetUpdateFieldValue(m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::DecorMaxOwnedCount), 5000);
+}
+
+void Account::ClearUpdateMask(bool remove)
+{
+    m_values.ClearChangesMask(&Account::m_housingStorageData);
+    BaseEntity::ClearUpdateMask(remove);
 }
 
 std::string Account::GetNameForLocaleIdx(LocaleConstant /*locale*/) const
@@ -76,5 +83,30 @@ void Account::RemoveFromObjectUpdate()
 {
     if (Player* owner = m_session->GetPlayer(); owner && owner->IsInWorld())
         owner->GetMap()->RemoveUpdateObject(this);
+}
+
+void Account::SendUpdateToPlayer(Player* player)
+{
+    // BaseEntity::SendUpdateToPlayer is const and skips BuildUpdateChangesMask(),
+    // so ContentsChangedMask is 0 and the VALUES_UPDATE contains no fragment data.
+    // We must compute the mask before serializing so that pending fragment changes
+    // (e.g., FHousingStorage_C populated by PopulateCatalogStorageEntries) are included.
+    BuildUpdateChangesMask();
+    BaseEntity::SendUpdateToPlayer(player);
+    ClearUpdateMask(true);
+}
+
+void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue)
+{
+    auto ref = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor, decorGuid);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
+}
+
+void Account::RemoveHousingDecorStorageEntry(ObjectGuid decorGuid)
+{
+    auto setter = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor);
+    RemoveMapUpdateFieldValue(setter, decorGuid);
 }
 }
