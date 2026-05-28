@@ -28,7 +28,6 @@ void AddSC_custom_the_wandering_isle_spells();
 void AddCoreExtendedScripts()
 {
     AddSC_zone_elwyn_forest();
-    AddSC_zone_westfall();
 
     AddSC_zone_gilneas_chapter_1();
     AddSC_zone_gilneas_chapter_2();
@@ -44,5 +43,9 @@ void AddCoreExtendedScripts()
     AddSC_custom_the_wandering_isle_player();
     AddSC_custom_the_wandering_isle_quests();
     AddSC_custom_the_wandering_isle_spells();
+	
+	AddSC_custom_westfall_at();
+	AddSC_custom_westfall_npcs();
+	AddSC_custom_westfall_quests();
 }
 
