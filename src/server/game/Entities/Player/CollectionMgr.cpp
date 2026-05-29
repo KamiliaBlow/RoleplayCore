@@ -462,6 +462,16 @@ void CollectionMgr::MountSetFavorite(uint32 spellId, bool favorite)
     SendSingleMountUpdate(*itr);
 }
 
+void CollectionMgr::ClearMountFanfare(uint32 spellId)
+{
+    auto itr = _mounts.find(spellId);
+    if (itr == _mounts.end())
+        return;
+
+    itr->second = MountStatusFlags(itr->second & ~MOUNT_NEEDS_FANFARE);
+    SendSingleMountUpdate(*itr);
+}
+
 bool CollectionMgr::HasMount(uint32 spellID)
 {
     return _mounts.find(spellID) != _mounts.end();
