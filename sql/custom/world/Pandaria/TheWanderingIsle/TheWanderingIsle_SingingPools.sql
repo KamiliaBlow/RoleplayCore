@@ -86,19 +86,19 @@ DELETE FROM `creature` WHERE `guid` IN (450955, 450999, 450970, 450962, 450959, 
 
 -- Respawn creatures with the same guid
 DELETE FROM `creature` WHERE `guid` IN (450755, 450745, 450759, 450741, 450752, 450747, 450742, 450760, 450744);
-INSERT INTO `creature` (`guid`, `id`, `map`, `zoneId`, `areaId`, `spawnDifficulties`, `PhaseId`, `PhaseGroup`, `modelid`, `equipment_id`, `position_x`, `position_y`, `position_z`, `orientation`, `spawntimesecs`, `wander_distance`, `currentwaypoint`, `MovementType`, `npcflag`, `unit_flags`, `unit_flags2`, `unit_flags3`, `VerifiedBuild`) VALUES
-(450755, 57620, 860, 5736, 5826, '0', 0, 0, 0, 1, 1047.8802490234375, 3293.57470703125, 130.4282684326171875, 2.894826173782348632, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Whittler Dewei (Area: Поющие пруды - Difficulty: 0) CreateObject1 - !!! already present in database !!!
-(450745, 55021, 860, 5736, 5826, '0', 0, 0, 0, 0, 1039.4913330078125, 3283.111083984375, 129.5230712890625, 1.815142393112182617, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Jojo Ironbrow (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 82343 - Generic Quest Invisibility 4) - !!! already present in database !!!
+INSERT INTO `creature` (`guid`, `id`, `map`, `zoneId`, `areaId`, `spawnDifficulties`, `PhaseId`, `PhaseGroup`, `modelid`, `equipment_id`, `position_x`, `position_y`, `position_z`, `orientation`, `spawntimesecs`, `wander_distance`, `currentwaypoint`, `MovementType`, `npcflag`, `unit_flags`, `unit_flags2`, `unit_flags3`, `VerifiedBuild`, `size`) VALUES
+(450755, 57620, 860, 5736, 5826, '0', 0, 0, 0, 1, 1047.8802490234375, 3293.57470703125, 130.4282684326171875, 2.894826173782348632, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Whittler Dewei (Area: Поющие пруды - Difficulty: 0) CreateObject1 - !!! already present in database !!!
+(450745, 55021, 860, 5736, 5826, '0', 0, 0, 0, 0, 1039.4913330078125, 3283.111083984375, 129.5230712890625, 1.815142393112182617, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Jojo Ironbrow (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 82343 - Generic Quest Invisibility 4) - !!! already present in database !!!
 
-(450759, 65467, 860, 5736, 5826, '0', 0, 0, 0, 0, 1039.51220703125, 3293.630126953125, 129.3238372802734375, 4.677482128143310546, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
-(450741, 65467, 860, 5736, 5826, '0', 0, 0, 0, 0, 1041.9478759765625, 3291.673583984375, 129.422149658203125, 4.450589656829833984, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
+(450759, 65467, 860, 5736, 5826, '0', 0, 0, 0, 0, 1039.51220703125, 3293.630126953125, 129.3238372802734375, 4.677482128143310546, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
+(450741, 65467, 860, 5736, 5826, '0', 0, 0, 0, 0, 1041.9478759765625, 3291.673583984375, 129.422149658203125, 4.450589656829833984, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
 
-(450752, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1038.0711669921875, 3291.072998046875, 129.069671630859375, 4.904375076293945312, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
-(450747, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1040.79345703125, 3288.7734375, 129.3875732421875, 4.164384365081787109, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
-(450742, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1034.7535400390625, 3286.971435546875, 128.67218017578125, 5.917473793029785156, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
-(450760, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1035.873291015625, 3287.873291015625, 128.843170166015625, 5.644624233245849609, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
+(450752, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1038.0711669921875, 3291.072998046875, 129.069671630859375, 4.904375076293945312, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
+(450747, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1040.79345703125, 3288.7734375, 129.3875732421875, 4.164384365081787109, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
+(450742, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1034.7535400390625, 3286.971435546875, 128.67218017578125, 5.917473793029785156, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
+(450760, 56394, 860, 5736, 5826, '0', 0, 0, 0, 0, 1035.873291015625, 3287.873291015625, 128.843170166015625, 5.644624233245849609, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1), -- Mesmerized Child (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8) - !!! already present in database !!!
 
-(450744, 56393, 860, 5736, 5826, '0', 0, 0, 0, 0, 1034.357666015625, 3290.73095703125, 128.7551116943359375, 5.323254108428955078, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978); -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
+(450744, 56393, 860, 5736, 5826, '0', 0, 0, 0, 0, 1034.357666015625, 3290.73095703125, 128.7551116943359375, 5.323254108428955078, 120, 0, 0, 0, NULL, NULL, NULL, NULL, 64978, -1); -- Excited Onlooker (Area: Поющие пруды - Difficulty: 0) CreateObject1 (Auras: 78718 - Generic Quest Invisibility 8)
 
 
 DELETE FROM `creature_addon` WHERE `guid` IN (450745, 450759, 450741, 450752, 450747, 450742, 450760, 450744);
@@ -159,11 +159,11 @@ insert  into `conditions`(`SourceTypeOrReferenceId`,`SourceGroup`,`SourceEntry`,
 
 SET @CGUID := 900000;
 DELETE FROM `creature` WHERE `guid` IN (@CGUID+743, @CGUID+744, @CGUID+745, @CGUID+746);
-INSERT INTO `creature` (guid, id, map, zoneId, areaId, spawnDifficulties, phaseUseFlags, PhaseId, PhaseGroup, terrainSwapMap, modelid, equipment_id, position_x, position_y, position_z, orientation, spawntimesecs, wander_distance, currentwaypoint, curHealthPct, MovementType, npcflag, unit_flags, unit_flags2, unit_flags3, ScriptName, StringId, VerifiedBuild) VALUES
-(@CGUID+743, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '968.982', '3293.41', '117.685', '-0.50883', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0'),
-(@CGUID+744, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '941.046', '3299.72', '117.024', '-0.24147', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0'),
-(@CGUID+745, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '929.348', '3299.2', '117.429', '0.55515', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0'),
-(@CGUID+746, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '1011.65', '3299.14', '116.784', '3.13979', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0');
+INSERT INTO `creature` (guid, id, map, zoneId, areaId, spawnDifficulties, phaseUseFlags, PhaseId, PhaseGroup, terrainSwapMap, modelid, equipment_id, position_x, position_y, position_z, orientation, spawntimesecs, wander_distance, currentwaypoint, curHealthPct, MovementType, npcflag, unit_flags, unit_flags2, unit_flags3, ScriptName, StringId, VerifiedBuild, size) VALUES
+(@CGUID+743, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '968.982', '3293.41', '117.685', '-0.50883', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0', -1),
+(@CGUID+744, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '941.046', '3299.72', '117.024', '-0.24147', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0', -1),
+(@CGUID+745, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '929.348', '3299.2', '117.429', '0.55515', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0', -1),
+(@CGUID+746, '54993', '860', '5736', '5826', '0', '0', '169', '0', '-1', '0', '0', '1011.65', '3299.14', '116.784', '3.13979', '300', '0', '0', '100', '0', NULL, '262144', NULL, NULL, '', NULL, '0', -1);
 
 -- Quest: 29677 The Sun Pearl 
 UPDATE `creature_template` SET `ScriptName` = 'npc_fang_she' WHERE `entry` = 55292;
@@ -257,7 +257,7 @@ INSERT INTO `npc_vendor` (`entry`, `slot`, `item`, `maxcount`, `ExtendedCost`, `
 SET @OGUID := 900000;
 DELETE FROM `gameobject` WHERE `guid` = @OGUID+69;
 INSERT INTO `gameobject` VALUES
-(@OGUID+69, '209585', '860', '5736', '5862', '0', '0', '0', '0', '-1', '1106.2', '2860.34', '92.189', '0.918553', '-0', '-0', '-0.4433', '-0.896374', '300', '255', '1', '', NULL, '0');
+(@OGUID+69, '209585', '860', '5736', '5862', '0', '0', '0', '0', '-1', '1106.2', '2860.34', '92.189', '0.918553', '-0', '-0', '-0.4433', '-0.896374', '300', '255', '1', '', NULL, '0', -1, 133);
 
 UPDATE `creature_template` SET `AIName` = 'SmartAI', `unit_flags` = '33554944', `unit_flags2` = '2048' WHERE (`entry` = '60488');
 UPDATE `creature_template` SET `ScriptName` = 'npc_shu_playing' WHERE (`entry` = '65493');

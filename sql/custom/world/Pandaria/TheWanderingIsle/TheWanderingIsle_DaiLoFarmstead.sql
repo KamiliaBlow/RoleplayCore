@@ -134,14 +134,14 @@ UPDATE `creature` SET `MovementType` = 2 WHERE `guid` IN (451186, 451266, 451356
 SET @CGUID := 900000;
 DELETE FROM `creature` WHERE `guid` IN (@CGUID+750, @CGUID+806, @CGUID+807, @CGUID+808, @CGUID+809);
 INSERT INTO `creature` (`guid`, `id`, `map`, `zoneId`, `areaId`, `spawnDifficulties`, `PhaseId`, `PhaseGroup`, `modelid`, `equipment_id`, `position_x`, `position_y`, `position_z`, `orientation`, `spawntimesecs`, `wander_distance`, 
-`currentwaypoint`, `MovementType`, `npcflag`, `unit_flags`, `unit_flags2`, `unit_flags3`, `VerifiedBuild`) VALUES
-(@CGUID+750, 55477, 860, 0, 0, 0, 169, 0, 0, 0, 629.354, 3139.15, 87.837, 0.558505, 120, 5, 0, 1, NULL, NULL, NULL, NULL, 0); -- Ji at farmstead as there are 2 spawns with different invis aura
+`currentwaypoint`, `MovementType`, `npcflag`, `unit_flags`, `unit_flags2`, `unit_flags3`, `ScriptName`, `StringId`, `VerifiedBuild`, `size`) VALUES
+(@CGUID+750, 55477, 860, 0, 0, 0, 169, 0, 0, 0, 629.354, 3139.15, 87.837, 0.558505, 120, 5, 0, 1, NULL, NULL, NULL, NULL, '', NULL, 0, -1); -- Ji at farmstead as there are 2 spawns with different invis aura
 
 INSERT INTO `creature` VALUES
-(@CGUID+806, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '733.453', '2886.23', '76.3088', '4.55946', '120', '0', '0', '100', '2', NULL, NULL, NULL, NULL, '', NULL, '20886'),
-(@CGUID+807, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '736.863', '2888.66', '76.5924', '4.58896', '120', '0', '0', '100', '0', NULL, NULL, NULL, NULL, '', NULL, '20886'),
-(@CGUID+808, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '760.439', '3315.01', '88.1761', '1.71042', '120', '0', '0', '100', '0', NULL, NULL, NULL, NULL, '', NULL, '20886'),
-(@CGUID+809, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '667.608', '3279.48', '74.9715', '2.78173', '120', '0', '0', '100', '2', NULL, NULL, NULL, NULL, '', NULL, '20886');
+(@CGUID+806, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '733.453', '2886.23', '76.3088', '4.55946', '120', '0', '0', '100', '2', NULL, NULL, NULL, NULL, '', NULL, '20886', -1),
+(@CGUID+807, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '736.863', '2888.66', '76.5924', '4.58896', '120', '0', '0', '100', '0', NULL, NULL, NULL, NULL, '', NULL, '20886', -1),
+(@CGUID+808, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '760.439', '3315.01', '88.1761', '1.71042', '120', '0', '0', '100', '0', NULL, NULL, NULL, NULL, '', NULL, '20886', -1),
+(@CGUID+809, '65473', '860', '0', '0', '0', '0', 169, '0', '-1', '0', '1', '667.608', '3279.48', '74.9715', '2.78173', '120', '0', '0', '100', '2', NULL, NULL, NULL, NULL, '', NULL, '20886', -1);
 
 
 -- Lamp Lighter needs waypoint movement
