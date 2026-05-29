@@ -5,7 +5,9 @@
 // Info: Call Repack scripts here
 
 void AddSC_zone_elwyn_forest();
-void AddSC_zone_westfall();
+void AddSC_custom_westfall_at();
+void AddSC_custom_westfall_npcs();
+void AddSC_custom_westfall_quests();
 void AddSC_zone_gilneas_chapter_1();
 void AddSC_zone_gilneas_chapter_2();
 void AddSC_duskwood_custom();
