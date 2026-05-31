@@ -2324,8 +2324,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void UpdateExpertise(WeaponAttackType attType);
         void ApplyManaRegenBonus(int32 amount, bool apply);
         void ApplyHealthRegenBonus(int32 amount, bool apply);
-        void UpdateManaRegen();
-        void UpdateAllRunesRegen();
+        void UpdatePowerRegen(Powers power);
+        float GetPowerRegen(Powers power) const;
 
         void UpdateLeech();
 
