@@ -37,11 +37,15 @@
 #include "Vehicle.h"
 #include "WorldSession.h"
 #include "zone_gilneas.h"
+#include <unordered_map>
+#include <unordered_set>
 
 enum eDuskHaven
 {
     NPC_GENERIC_TRIGGER_LAB_MP                  = 35374, // target on ship
+    NPC_GWEN_ARMSTEAD_34571                      = 34571,
     NPC_LORD_GODFREY_36170                      = 36170,
+    NPC_KRENNAN_ARANAS_36132                     = 36132,
     NPC_TRIGGER                                 = 36198,
     NPC_HORRID_ABOMINATION                      = 36231,
     NPC_QUEST_14348_KILL_CREDIT                 = 36233,
@@ -72,9 +76,17 @@ enum eDuskHaven
     NPC_CARRIAGE_43337                          = 43337,
     NPC_STAGECOACH_CARRIAGE                     = 44928,
     NPC_LORNA_CRAWLEY                           = 51409,
+    NPC_DUSKHAVEN_GUARD                          = 36602,
+    NPC_SLAIN_WATCHMAN                           = 36205,
+    NPC_FORSAKEN_ASSASSIN                        = 36207,
+    NPC_DUSKHAVEN_RESIDENT                       = 36211,
+    NPC_FORSAKEN_INVADER                         = 34511,
+    NPC_PRINCE_LIAM_GREYMANE_36140              = 36140,
+    NPC_HORRID_ABOMINATION_36231                = 36231,
 
     GO_BALL_AND_CHAIN                           = 201775,
 
+    QUEST_BACK_AMONG_HUMANS                     = 14313,
     QUEST_INVASION                              = 14321,
     QUEST_LAST_CHANCE_AT_HUMANITY               = 14375,
     QUEST_LAST_STAND                            = 14222,
@@ -112,6 +124,7 @@ enum eDuskHaven
     SPELL_FORCECAST_SUMMON_FORSAKEN_ASSASSIN    = 68492,
     SPELL_BARREL_KEG_PLACED                     = 68555,
     SPELL_ABOMINATION_KILL_ME                   = 68558,
+    SPELL_MUSKET_SHOT                            = 68559,
     SPELL_FIERY_BOULDER                         = 68591,
     SPELL_HORRID_ABOMINATION_EXPLOSION          = 68560,
     SPELL_LAUNCH1                               = 68659,
@@ -173,6 +186,8 @@ enum eDuskHaven
 
     MOVE_GODFREY_SCENE                          = 1,
     MOVE_GENN_SCENE                             = 2,
+
+    EVENT_KRENNAN_36132_TALK                    = 310,
 };
 
 Position const GodfreySpawnPos = { -1844.0399f, 2289.6338f, 42.4899f, 0.2407f };
@@ -413,11 +428,74 @@ public:
     }
 };
 
+// 36132
+class npc_krennan_aranas_36132 : public CreatureScript
+{
+public:
+    npc_krennan_aranas_36132() : CreatureScript("npc_krennan_aranas_36132") {}
+
+    struct npc_krennan_aranas_36132AI : public ScriptedAI
+    {
+        npc_krennan_aranas_36132AI(Creature* creature) : ScriptedAI(creature) {}
+
+        EventMap m_events;
+        ObjectGuid m_playerGUID;
+
+        void OnQuestReward(Player* player, Quest const* quest, LootItemType /*type*/, uint32 /*opt*/) override
+        {
+            if (quest->GetQuestId() == QUEST_BACK_AMONG_HUMANS)
+            {
+                m_playerGUID = player->GetGUID();
+                if (Creature* gwen = me->FindNearestCreature(NPC_GWEN_ARMSTEAD_34571, 20.0f))
+                    gwen->AI()->Talk(0, player);
+                m_events.ScheduleEvent(EVENT_KRENNAN_36132_TALK, 7s);
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            m_events.Update(diff);
+            while (uint32 eventId = m_events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                case EVENT_KRENNAN_36132_TALK:
+                {
+                    if (Player* player = ObjectAccessor::GetPlayer(*me, m_playerGUID))
+                        Talk(0, player);
+                    break;
+                }
+                }
+            }
+
+            if (!UpdateVictim())
+                return;
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_krennan_aranas_36132AI(creature);
+    }
+};
+
 // player
 class player_zone_duskhaven : public PlayerScript
 {
 public:
     player_zone_duskhaven() : PlayerScript("player_zone_duskhaven") { }
+
+    void OnLogin(Player* player, bool /*loginFirst*/) override
+    {
+        if (player->GetQuestStatus(QUEST_INVASION) == QUEST_STATUS_REWARDED)
+        {
+            player->AddAura(SPELL_PHASE_QUEST_ZONE_SPECIFIC_07, player);
+        }
+        else if (player->GetQuestStatus(QUEST_BACK_AMONG_HUMANS) == QUEST_STATUS_REWARDED)
+        {
+            player->AddAura(SPELL_PHASE_QUEST_ZONE_SPECIFIC_06, player);
+        }
+    }
 
     void OnQuestStatusChange(Player* player, uint32 questId) override
     {
@@ -450,6 +528,145 @@ public:
         }
     }
 };
+
+// 34571
+class npc_gwen_armstead_34571 : public CreatureScript
+{
+public:
+    npc_gwen_armstead_34571() : CreatureScript("npc_gwen_armstead_34571") {}
+
+    struct npc_gwen_armstead_34571AI : public ScriptedAI
+    {
+        npc_gwen_armstead_34571AI(Creature* creature) : ScriptedAI(creature) {}
+
+        void OnQuestReward(Player* player, Quest const* quest, LootItemType /*type*/, uint32 /*opt*/) override
+        {
+            if (quest->GetQuestId() == QUEST_INVASION)
+            {
+                player->RemoveAura(SPELL_PHASE_QUEST_ZONE_SPECIFIC_06);
+                player->AddAura(SPELL_PHASE_QUEST_ZONE_SPECIFIC_07, player);
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_gwen_armstead_34571AI(creature);
+    }
+};
+
+class at_duskhaven_guards_5566 : public AreaTriggerScript
+{
+public:
+    at_duskhaven_guards_5566() : AreaTriggerScript("at_duskhaven_guards_5566") {}
+
+    bool OnTrigger(Player* player, AreaTriggerEntry const* /*areaTrigger*/) override
+    {
+        if (player->GetQuestStatus(QUEST_INVASION) == QUEST_STATUS_REWARDED)
+            return true;
+
+        static std::unordered_map<ObjectGuid, std::chrono::steady_clock::time_point> _cooldowns;
+        auto now = std::chrono::steady_clock::now();
+        auto it = _cooldowns.find(player->GetGUID());
+        if (it != _cooldowns.end() && now < it->second)
+            return true;
+
+        _cooldowns[player->GetGUID()] = now + std::chrono::seconds(30);
+
+        Creature* guard0 = player->GetMap()->GetCreatureBySpawnId(255481); // I don't know how to come up with a better solution since it's the same NPC.
+        Creature* guard1 = player->GetMap()->GetCreatureBySpawnId(255477);
+
+        if (!guard0 || !guard1)
+            return true;
+
+        if (guard0->IsAlive())
+            guard0->AI()->Talk(0, player);
+
+        ObjectGuid playerGuid = player->GetGUID();
+        if (guard1->IsAlive())
+        {
+            player->m_Events.AddEventAtOffset([guard1, playerGuid]()
+            {
+                Player* p = ObjectAccessor::FindPlayer(playerGuid);
+                if (guard1 && guard1->IsAlive() && p)
+                    guard1->AI()->Talk(1, p);
+            }, std::chrono::seconds(8));
+        }
+
+        return true;
+    }
+};
+
+// 36205
+class npc_slain_watchman_36205 : public CreatureScript
+{
+public:
+    npc_slain_watchman_36205() : CreatureScript("npc_slain_watchman_36205") {}
+
+    bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest) override
+    {
+        if (quest->GetQuestId() == QUEST_INVASION)
+        {
+            Position const spawnPos = { -1933.348f, 2389.8042f, 30.265127f, 1.5537f };
+            if (TempSummon* summon = creature->SummonCreature(NPC_FORSAKEN_ASSASSIN, spawnPos, TEMPSUMMON_CORPSE_DESPAWN, 0s, 0, 0, player->GetGUID()))
+                summon->SetHomePosition(spawnPos);
+            return true;
+        }
+        return false;
+    }
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new NullCreatureAI(creature);
+    }
+};
+
+// 36207
+class npc_forsaken_assassin_36207 : public CreatureScript
+{
+public:
+    npc_forsaken_assassin_36207() : CreatureScript("npc_forsaken_assassin_36207") {}
+
+    struct npc_forsaken_assassin_36207AI : public ScriptedAI
+    {
+        npc_forsaken_assassin_36207AI(Creature* creature) : ScriptedAI(creature) {}
+
+        void JustAppeared() override
+        {
+            if (TempSummon* summon = me->ToTempSummon())
+            {
+                if (Player* owner = ObjectAccessor::GetPlayer(*me, summon->GetSummonerGUID()))
+                {
+                    me->SetLevel(owner->GetLevel());
+                    me->UpdateAllStats();
+                }
+            }
+
+            Player* target = nullptr;
+            if (me->ToTempSummon())
+                target = me->ToTempSummon()->GetSummoner()->ToPlayer();
+
+            if (!target)
+                target = me->SelectNearestPlayer(50.0f);
+
+            if (target)
+            {
+                Talk(0, target);
+                me->m_Events.AddEventAtOffset([this, target]()
+                {
+                    if (me && me->IsAlive())
+                        AttackStart(target);
+                }, std::chrono::seconds(2));
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_forsaken_assassin_36207AI(creature);
+    }
+};
+
 //
 //// Phase 1/169
 //// Phase 4096/181 is used from reward quest 14222 and forward
@@ -687,84 +904,125 @@ public:
 //};
 //
 //// Phase 8192/182
-//
-//// 36231  // Quest - You Can't Take 'Em Alone - 14348
-//class npc_horrid_abomination_36231 : public CreatureScript
-//{
-//public:
-//    npc_horrid_abomination_36231() : CreatureScript("npc_horrid_abomination_36231") { }
-//
-//    enum eHorrid
-//    {
-//        SAY_BARREL = 0,
-//        EVENT_KEG_PLACED = 101,
-//        EVENT_KEG_CREDIT,
-//    };
-//
-//    struct npc_horrid_abomination_36231AI : public ScriptedAI
-//    {
-//        npc_horrid_abomination_36231AI(Creature* creature) : ScriptedAI(creature) {}
-//
-//        bool m_creditGiven;
-//
-//        void Reset() override
-//        {
-//            me->ClearUnitState(UNIT_STATE_ROOT | UNIT_STATE_STUNNED);
-//            m_creditGiven = false;
-//        }
-//
-//        void SpellHit(Unit* caster, const SpellInfo* spell) override
-//        {
-//            if (Player* player = caster->ToPlayer())
-//            {
-//                if (spell->Id == SPELL_BARREL_KEG_PLACED)
-//                {
-//                    Talk(SAY_BARREL);
-//                    me->AddUnitState(UNIT_STATE_ROOT | UNIT_STATE_STUNNED);
-//                }
-//                if (!m_creditGiven && player->GetQuestStatus(QUEST_YOU_CANT_TAKE_EM_ALONE) == QUEST_STATUS_INCOMPLETE)
-//                {
-//                        player->KilledMonsterCredit(NPC_QUEST_14348_KILL_CREDIT);
-//                        m_creditGiven = true;
-//                }
-//            }
-//        }
-//    };
-//
-//    CreatureAI* GetAI(Creature* creature) const override
-//    {
-//        return new npc_horrid_abomination_36231AI(creature);
-//    }
-//};
-//
-//// 69094
-//class spell_cast_keg_69094 : public SpellScriptLoader
-//{
-//public:
-//    spell_cast_keg_69094() : SpellScriptLoader("spell_cast_keg_69094") { }
-//
-//    class spell_cast_keg_69094_SpellScript : public SpellScript
-//    {
-//        PrepareSpellScript(spell_cast_keg_69094_SpellScript);
-//
-//        void CheckTarget(WorldObject*& target)
-//        {
-//            if (target->GetEntry() != NPC_HORRID_ABOMINATION)
-//                target = target->FindNearestCreature(NPC_HORRID_ABOMINATION, 25.0f);
-//        }
-//
-//        void Register() override
-//        {
-//            OnObjectTargetSelect += SpellObjectTargetSelectFn(spell_cast_keg_69094_SpellScript::CheckTarget, EFFECT_0, TARGET_UNIT_TARGET_ANY);
-//        }
-//    };
-//
-//    SpellScript* GetSpellScript() const override
-//    {
-//        return new spell_cast_keg_69094_SpellScript();
-//    }
-//};
-//
+
+// 36231  // Quest - You Can't Take 'Em Alone - 14348
+class npc_horrid_abomination_36231 : public CreatureScript
+{
+public:
+    npc_horrid_abomination_36231() : CreatureScript("npc_horrid_abomination_36231") { }
+
+    enum eHorrid
+    {
+        SAY_BARREL = 0,
+        EVENT_ABOM_SIGNAL = 101,
+        EVENT_ABOM_EXPLODE,
+    };
+
+    struct npc_horrid_abomination_36231AI : public ScriptedAI
+    {
+        npc_horrid_abomination_36231AI(Creature* creature) : ScriptedAI(creature) {}
+
+        bool m_creditGiven;
+        EventMap m_events;
+
+        void Reset() override
+        {
+            m_creditGiven = false;
+            me->ClearUnitState(UNIT_STATE_ROOT | UNIT_STATE_STUNNED);
+        }
+
+        void SpellHit(WorldObject* caster, SpellInfo const* spell) override
+        {
+            if (spell->Id == SPELL_BARREL_KEG_PLACED)
+            {
+                if (!caster->ToPlayer())
+                    return;
+
+                Talk(urand(0, 5));
+                me->AddUnitState(UNIT_STATE_ROOT | UNIT_STATE_STUNNED);
+                m_events.ScheduleEvent(EVENT_ABOM_SIGNAL, 2s);
+
+                if (!m_creditGiven && caster->ToPlayer()->GetQuestStatus(QUEST_YOU_CANT_TAKE_EM_ALONE) == QUEST_STATUS_INCOMPLETE)
+                {
+                    caster->ToPlayer()->KilledMonsterCredit(NPC_QUEST_14348_KILL_CREDIT);
+                    m_creditGiven = true;
+                }
+            }
+            else if (spell->Id == SPELL_MUSKET_SHOT)
+            {
+                me->RemoveAura(SPELL_BARREL_KEG_PLACED);
+            }
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            m_events.Update(diff);
+
+            while (uint32 eventId = m_events.ExecuteEvent())
+            {
+                switch (eventId)
+                {
+                    case EVENT_ABOM_SIGNAL:
+                    {
+                        if (Creature* commander = me->FindNearestCreature(NPC_PRINCE_LIAM_GREYMANE_36140, 50.0f))
+                            me->CastSpell(commander, SPELL_ABOMINATION_KILL_ME, true);
+                        m_events.ScheduleEvent(EVENT_ABOM_EXPLODE, 2s);
+                        break;
+                    }
+                    case EVENT_ABOM_EXPLODE:
+                    {
+                        me->RemoveAura(SPELL_BARREL_KEG_PLACED);
+                        me->CastSpell(me, SPELL_HORRID_ABOMINATION_EXPLOSION, true);
+                        for (uint8 i = 0; i < 4; ++i)
+                            me->CastSpell(me, SPELL_RANDOM_POINT_POISON, true);
+                        for (uint8 i = 0; i < 3; ++i)
+                            me->CastSpell(me, SPELL_RANDOM_POINT_BONE, true);
+                        for (uint8 i = 0; i < 2; ++i)
+                            me->CastSpell(me, SPELL_RANDOM_POINT_BONE_2, true);
+                        me->DespawnOrUnsummon(2s);
+                        break;
+                    }
+                }
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_horrid_abomination_36231AI(creature);
+    }
+};
+
+// 36140
+class npc_prince_liam_36140 : public CreatureScript
+{
+public:
+    npc_prince_liam_36140() : CreatureScript("npc_prince_liam_36140") {}
+
+    struct npc_prince_liam_36140AI : public ScriptedAI
+    {
+        npc_prince_liam_36140AI(Creature* creature) : ScriptedAI(creature) {}
+
+        void SpellHit(WorldObject* caster, SpellInfo const* spell) override
+        {
+            if (spell->Id == SPELL_ABOMINATION_KILL_ME)
+            {
+                if (Creature* abom = caster->ToCreature())
+                {
+                    abom->SetFacingToObject(me);
+                    me->SetFacingToObject(abom);
+                    me->CastSpell(abom, SPELL_MUSKET_SHOT, true);
+                }
+            }
+        }
+    };
+
+    CreatureAI* GetAI(Creature* creature) const override
+    {
+        return new npc_prince_liam_36140AI(creature);
+    }
+};
+
 //// 36287  // Quest save the children 14368
 //class npc_cynthia_36267 : public CreatureScript
 //{
@@ -3686,9 +3944,17 @@ public:
 //    new npc_enslaved_villager_37694();
 //    new go_ball_and_chain_201775();
 //};
+
 void AddSC_zone_gilneas_chapter_2()
 {
     new npc_krennan_aranas_36331();
     new npc_king_genn_36332();
+    new npc_krennan_aranas_36132();
+    new npc_slain_watchman_36205();
+    new npc_forsaken_assassin_36207();
+    new npc_gwen_armstead_34571();
+    new at_duskhaven_guards_5566();
     new player_zone_duskhaven();
+    new npc_horrid_abomination_36231();
+    new npc_prince_liam_36140();
 };
