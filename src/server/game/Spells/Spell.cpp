@@ -3888,9 +3888,6 @@ void Spell::_cast(bool skipCheck)
     }
 
     // CAST SPELL
-    if (!m_spellInfo->HasAttribute(SPELL_ATTR12_START_COOLDOWN_ON_CAST_START))
-        SendSpellCooldown();
-
     m_spellState = SPELL_STATE_LAUNCHED;
 
     if (!m_spellInfo->LaunchDelay)
@@ -3904,6 +3901,9 @@ void Spell::_cast(bool skipCheck)
 
     // we must send smsg_spell_go packet before m_castItem delete in TakeCastItem()...
     SendSpellGo();
+
+    if (!m_spellInfo->HasAttribute(SPELL_ATTR12_START_COOLDOWN_ON_CAST_START))
+        SendSpellCooldown();
 
     if (!m_spellInfo->IsChanneled())
         if (Creature* creatureCaster = m_caster->ToCreature())
@@ -4241,10 +4241,7 @@ void Spell::SendSpellCooldown()
     if (!m_caster->IsUnit())
         return;
 
-    if (m_CastItem)
-        m_caster->ToUnit()->GetSpellHistory()->HandleCooldowns(m_spellInfo, m_CastItem, this);
-    else
-        m_caster->ToUnit()->GetSpellHistory()->HandleCooldowns(m_spellInfo, m_castItemEntry, this);
+    m_caster->ToUnit()->GetSpellHistory()->HandleCooldowns(m_spellInfo, m_castItemEntry, this);
 
     if (IsAutoRepeat())
         m_caster->ToUnit()->resetAttackTimer(RANGED_ATTACK);
@@ -4456,13 +4453,6 @@ void Spell::finish(SpellCastResult result)
                 unitCaster->setDeathState(JUST_DIED);
             return;
         }
-    }
-
-    // potions disabled by client, send event "not in combat" if need
-    if (unitCaster->GetTypeId() == TYPEID_PLAYER)
-    {
-        if (!m_triggeredByAuraSpell)
-            unitCaster->ToPlayer()->UpdatePotionCooldown(this);
     }
 
     // Stop Attack for some spells
@@ -5808,10 +5798,6 @@ SpellCastResult Spell::CheckCast(bool strict, int32* param1 /*= nullptr*/, int32
                     }
                 }
             }
-
-            // check if we are using a potion in combat for the 2nd+ time. Cooldown is added only after caster gets out of combat
-            if (!IsIgnoringCooldowns() && playerCaster->GetLastPotionId() && m_CastItem && (m_CastItem->IsPotion() || m_spellInfo->IsCooldownStartedOnEvent()))
-                return SPELL_FAILED_NOT_READY;
         }
 
         if (!IsIgnoringCooldowns() && m_caster->ToUnit() && (!m_spellInfo->HasAttribute(SPELL_ATTR12_START_COOLDOWN_ON_CAST_START) || strict))
@@ -7359,7 +7345,10 @@ SpellRange Spell::GetMinMaxRange(bool strict) const
     SpellRange range;
 
     if (strict && m_spellInfo->IsNextMeleeSwingSpell())
+    {
+        range = { .Min = 0.0f, .Max = 100.0f };
         return range;
+    }
 
     Unit* unitCaster = m_caster->ToUnit();
     if (m_spellInfo->RangeEntry)
