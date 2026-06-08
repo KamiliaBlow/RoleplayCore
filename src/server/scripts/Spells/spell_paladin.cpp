@@ -2113,7 +2113,7 @@ class spell_pal_light_of_the_titans : public AuraScript
         PreventDefaultAction();
 
         Unit* caster = eventInfo.GetActor();
-        Unit* target = eventInfo.GetProcTarget();
+        Unit* target = eventInfo.GetActionTarget();
         if (!caster || !target)
             return;
 

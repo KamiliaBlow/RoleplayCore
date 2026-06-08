@@ -175,17 +175,6 @@ namespace LuaItem
     }
 
     /**
-     * Returns 'true' if the [Item] is a potion, 'false' otherwise
-     *
-     * @return bool isPotion
-     */
-    int IsPotion(Eluna* E, Item* item)
-    {
-        E->Push(item->IsPotion());
-        return 1;
-    }
-
-    /**
      * Returns 'true' if the [Item] is a vellum, 'false' otherwise
      *
      * @return bool isVellum
@@ -837,7 +826,6 @@ namespace LuaItem
         { "IsInBag", &LuaItem::IsInBag },
         { "IsEquipped", &LuaItem::IsEquipped },
         { "HasQuest", &LuaItem::HasQuest },
-        { "IsPotion", &LuaItem::IsPotion },
         { "IsWeaponVellum", &LuaItem::IsVellum },
         { "IsRefundExpired", &LuaItem::IsRefundExpired },
         { "IsConjuredConsumable", &LuaItem::IsConjuredConsumable },
