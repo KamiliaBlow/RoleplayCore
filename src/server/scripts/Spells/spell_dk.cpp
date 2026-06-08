@@ -1896,6 +1896,38 @@ class spell_dk_marrowrend : public SpellScript
     }
 };
 
+// 48263 - Veteran of the Third War
+class spell_dk_veteran_of_the_third_war : public AuraScript
+{
+    void CalculateAmountStamina(AuraEffect const* /*aurEff*/, SpellEffectValue& amount, bool& /*canBeRecalculated*/)
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (!player)
+            return;
+
+        if (player->HasAura(SPELL_DK_FROST))
+        {
+            if (AuraEffect const* mod = player->GetAuraEffect(SPELL_DK_FROST, EFFECT_6))
+                amount += mod->GetAmount();
+        }
+        else if (player->HasAura(SPELL_DK_UNHOLY))
+        {
+            if (AuraEffect const* mod = player->GetAuraEffect(SPELL_DK_UNHOLY, EFFECT_5))
+                amount += mod->GetAmount();
+        }
+        else if (!player->HasAura(SPELL_DK_BLOOD))
+        {
+            amount = 0;
+            return;
+        }
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_dk_veteran_of_the_third_war::CalculateAmountStamina, EFFECT_0, SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE);
+    }
+};
+
 void AddSC_deathknight_spell_scripts()
 {
     RegisterSpellScript(spell_dk_advantage_t10_4p);
@@ -1962,4 +1994,5 @@ void AddSC_deathknight_spell_scripts()
     RegisterSpellScript(spell_dk_defile_aura);
     RegisterSpellScript(spell_dk_epidemic);
     RegisterSpellScript(spell_dk_epidemic_aoe);
+    RegisterSpellScript(spell_dk_veteran_of_the_third_war);
 }
