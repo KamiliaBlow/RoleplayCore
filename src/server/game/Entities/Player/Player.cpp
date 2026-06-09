@@ -32354,7 +32354,11 @@ void Player::_SaveCharacterSelectOutfit(CharacterDatabaseTransaction trans) cons
                     {
                         visibleItemId = item->ID;
                         subClass = item->SubclassID;
-                        inventoryType = static_cast<InventoryType>(item->InventoryType);
+
+                        if (auto originalItem = sItemStore.LookupEntry(itemId))
+                        {
+                            inventoryType = static_cast<InventoryType>(originalItem->InventoryType);
+                        }
                     }
 
                     if (ItemAppearanceEntry const* itemAppearance = sItemAppearanceStore.LookupEntry(itemModifiedAppearance->ItemAppearanceID))
