@@ -175,6 +175,20 @@ namespace LuaItem
     }
 
     /**
+     * Returns 'true' if the [Item] is a potion, 'false' otherwise
+     *
+     * @return bool isPotion
+     */
+    int IsPotion(Eluna* E, Item* item)
+    {
+        if (item->GetTemplate()->GetClass() == ITEM_CLASS_CONSUMABLE && item->GetTemplate()->GetSubClass() == ITEM_SUBCLASS_POTION)
+            E->Push(true);
+        else
+            E->Push(false);
+        return 1;
+    }
+
+    /**
      * Returns 'true' if the [Item] is a vellum, 'false' otherwise
      *
      * @return bool isVellum
@@ -826,6 +840,7 @@ namespace LuaItem
         { "IsInBag", &LuaItem::IsInBag },
         { "IsEquipped", &LuaItem::IsEquipped },
         { "HasQuest", &LuaItem::HasQuest },
+        { "IsPotion", &LuaItem::IsPotion },
         { "IsWeaponVellum", &LuaItem::IsVellum },
         { "IsRefundExpired", &LuaItem::IsRefundExpired },
         { "IsConjuredConsumable", &LuaItem::IsConjuredConsumable },

@@ -8262,46 +8262,13 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
     if (GtCombatRatingsMultByILvl const* ratingMult = sCombatRatingsMultByILvlGameTable.GetRow(itemLevel))
         combatRatingMultiplier = GetIlvlStatMultiplier(ratingMult, proto->GetInventoryType());
 
-    BonusData const* bonus = item->GetBonus();
-    uint32 rawItemLevel = bonus->ItemLevel;
-    if (bonus->PlayerLevelToItemLevelCurveId)
-    {
-        uint32 level = GetLevel();
-        if (Optional<ContentTuningLevels> levels = sDB2Manager.GetContentTuningData(bonus->ContentTuningId, {}, true))
-            level = std::min(std::max(int16(level), levels->MinLevel), levels->MaxLevel);
-        rawItemLevel = uint32(sDB2Manager.GetCurveValueAt(bonus->PlayerLevelToItemLevelCurveId, level));
-    }
-    rawItemLevel += bonus->ItemLevelBonus;
-    for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
-        rawItemLevel += bonus->GemItemLevelBonus[i];
-    rawItemLevel = std::min(std::max(rawItemLevel, uint32(MIN_ITEM_LEVEL)), uint32(MAX_ITEM_LEVEL));
-
-    if (bonus->ItemLevelOffsetCurveId)
-    {
-        float curveVal = sDB2Manager.GetCurveValueAt(bonus->ItemLevelOffsetCurveId, GetLevel());
-        int32 effective = static_cast<int32>(bonus->ItemLevelOffset) + static_cast<int32>(curveVal);
-        for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
-            effective += static_cast<int32>(bonus->GemItemLevelBonus[i]);
-        effective = std::max(effective, static_cast<int32>(MIN_ITEM_LEVEL));
-        effective = std::min(effective, static_cast<int32>(MAX_ITEM_LEVEL));
-
-        if (rawItemLevel > 0)
-        {
-            float ratio = float(effective) / float(rawItemLevel);
-            if (ratio >= 0.1f && ratio <= 10.0f)
-                rawItemLevel = uint32(effective);
-        }
-        else
-            rawItemLevel = uint32(effective);
-    }
-
     for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
     {
         int32 statType = item->GetItemStatType(i);
         if (statType == -1)
             continue;
 
-        float val = item->GetItemStatValue(i, rawItemLevel);
+        float val = item->GetItemStatValue(i, itemLevel);
         if (val == 0)
             continue;
 
@@ -8560,7 +8527,7 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
         }
     }
 
-    uint32 armor = proto->GetArmor(rawItemLevel);
+    uint32 armor = proto->GetArmor(itemLevel);
     if (armor)
     {
         HandleStatFlatModifier(UNIT_MOD_ARMOR, TOTAL_VALUE, float(armor), apply);
@@ -31835,9 +31802,12 @@ void Player::UpdateAverageItemLevelTotal()
 {
     std::array<std::tuple<InventoryType, uint32, ObjectGuid>, EQUIPMENT_SLOT_END> bestItemLevels = { };
     bestItemLevels.fill({ INVTYPE_NON_EQUIP, 0, ObjectGuid::Empty });
+    std::array<std::tuple<InventoryType, uint32, ObjectGuid>, EQUIPMENT_SLOT_END> bestPvpItemLevels = { };
+    bestPvpItemLevels.fill({ INVTYPE_NON_EQUIP, 0, ObjectGuid::Empty });
     float sum = 0;
+    float pvpSum = 0;
 
-    ForEachItem(ItemSearchLocation::Everywhere, [this, &bestItemLevels, &sum](Item* item)
+    ForEachItem(ItemSearchLocation::Everywhere, [this, &bestItemLevels, &bestPvpItemLevels, &sum, &pvpSum](Item* item)
     {
         ItemTemplate const* itemTemplate = item->GetTemplate();
         if (itemTemplate && itemTemplate->GetInventoryType() < INVTYPE_PROFESSION_TOOL)
@@ -31846,32 +31816,81 @@ void Player::UpdateAverageItemLevelTotal()
             if (item->IsEquipped())
             {
                 uint32 itemLevel = item->GetItemLevel(this);
+
+                uint32 azeriteLevel = 0;
+                if (AzeriteItem const* azeriteItem = item->ToAzeriteItem())
+                    azeriteLevel = azeriteItem->GetEffectiveLevel();
+                uint32 pvpItemLevel = Item::GetItemLevel(itemTemplate, *item->GetBonus(), GetLevel(),
+                    item->GetModifier(ITEM_MODIFIER_TIMEWALKER_LEVEL), 0, 0, 0, true, azeriteLevel);
+
                 InventoryType inventoryType = itemTemplate->GetInventoryType();
+
                 std::tuple<InventoryType, uint32, ObjectGuid>& slotData = bestItemLevels[item->GetSlot()];
                 if (itemLevel > std::get<1>(slotData))
                 {
                     sum += itemLevel - std::get<1>(slotData);
                     slotData = { inventoryType, itemLevel, item->GetGUID() };
                 }
+
+                std::tuple<InventoryType, uint32, ObjectGuid>& pvpSlotData = bestPvpItemLevels[item->GetSlot()];
+                if (pvpItemLevel > std::get<1>(pvpSlotData))
+                {
+                    pvpSum += pvpItemLevel - std::get<1>(pvpSlotData);
+                    pvpSlotData = { inventoryType, pvpItemLevel, item->GetGUID() };
+                }
             }
             else if (CanEquipItem(NULL_SLOT, dest, item, true, false) == EQUIP_ERR_OK)
             {
                 uint32 itemLevel = item->GetItemLevel(this);
+
+                uint32 azeriteLevel = 0;
+                if (AzeriteItem const* azeriteItem = item->ToAzeriteItem())
+                    azeriteLevel = azeriteItem->GetEffectiveLevel();
+                uint32 pvpItemLevel = Item::GetItemLevel(itemTemplate, *item->GetBonus(), GetLevel(),
+                    item->GetModifier(ITEM_MODIFIER_TIMEWALKER_LEVEL), 0, 0, 0, true, azeriteLevel);
+
                 InventoryType inventoryType = itemTemplate->GetInventoryType();
-                ForEachEquipmentSlot(inventoryType, m_canDualWield, m_canTitanGrip, [&bestItemLevels, item, itemLevel, inventoryType, &sum](EquipmentSlots slot, bool checkDuplicateGuid = false)
+                ForEachEquipmentSlot(inventoryType, m_canDualWield, m_canTitanGrip,
+                    [&bestItemLevels, &bestPvpItemLevels, item, itemLevel, pvpItemLevel, inventoryType, &sum, &pvpSum](EquipmentSlots slot, bool checkDuplicateGuid = false)
                 {
+                    bool skipNormal = false;
+                    bool skipPvp = false;
+
                     if (checkDuplicateGuid)
                     {
                         for (std::tuple<InventoryType, uint32, ObjectGuid> const& slotData : bestItemLevels)
                             if (std::get<2>(slotData) == item->GetGUID())
-                                return;
+                            {
+                                skipNormal = true;
+                                break;
+                            }
+
+                        for (std::tuple<InventoryType, uint32, ObjectGuid> const& pvpSlotData : bestPvpItemLevels)
+                            if (std::get<2>(pvpSlotData) == item->GetGUID())
+                            {
+                                skipPvp = true;
+                                break;
+                            }
                     }
 
-                    std::tuple<InventoryType, uint32, ObjectGuid>& slotData = bestItemLevels[slot];
-                    if (itemLevel > std::get<1>(slotData))
+                    if (!skipNormal)
                     {
-                        sum += itemLevel - std::get<1>(slotData);
-                        slotData = { inventoryType, itemLevel, item->GetGUID() };
+                        std::tuple<InventoryType, uint32, ObjectGuid>& slotData = bestItemLevels[slot];
+                        if (itemLevel > std::get<1>(slotData))
+                        {
+                            sum += itemLevel - std::get<1>(slotData);
+                            slotData = { inventoryType, itemLevel, item->GetGUID() };
+                        }
+                    }
+
+                    if (!skipPvp)
+                    {
+                        std::tuple<InventoryType, uint32, ObjectGuid>& pvpSlotData = bestPvpItemLevels[slot];
+                        if (pvpItemLevel > std::get<1>(pvpSlotData))
+                        {
+                            pvpSum += pvpItemLevel - std::get<1>(pvpSlotData);
+                            pvpSlotData = { inventoryType, pvpItemLevel, item->GetGUID() };
+                        }
                     }
                 });
             }
@@ -31884,14 +31903,21 @@ void Player::UpdateAverageItemLevelTotal()
     if (!m_canTitanGrip && std::get<0>(mainHand) == INVTYPE_2HWEAPON)
         sum += std::get<1>(mainHand);
 
+    std::tuple<InventoryType, uint32, ObjectGuid> const& pvpMainHand = bestPvpItemLevels[EQUIPMENT_SLOT_MAINHAND];
+    if (!m_canTitanGrip && std::get<0>(pvpMainHand) == INVTYPE_2HWEAPON)
+        pvpSum += std::get<1>(pvpMainHand);
+
     sum /= 16.0f;
+    pvpSum /= 16.0f;
     SetAverageItemLevel(sum, AvgItemLevelCategory::Base);
+    SetAverageItemLevel(pvpSum, AvgItemLevelCategory::Pvp);
 }
 
 void Player::UpdateAverageItemLevelEquipped()
 {
     float totalItemLevel = 0;
     float totalItemLevelEffective = 0;
+    float totalPvpItemLevel = 0;
     for (uint8 i = EQUIPMENT_SLOT_START; i < EQUIPMENT_SLOT_END; i++)
     {
         if (Item* pItem = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
@@ -31907,20 +31933,28 @@ void Player::UpdateAverageItemLevelEquipped()
                 m_unitData->MinItemLevel, m_unitData->MinItemLevelCutoff, IsUsingPvpItemLevels() && pItem->GetTemplate()->HasFlag(ITEM_FLAG3_IGNORE_ITEM_LEVEL_CAP_IN_PVP) ? 0 : m_unitData->MaxItemLevel,
                 IsUsingPvpItemLevels(),
                 azeriteLevel);
+            uint32 pvpItemLevel = Item::GetItemLevel(pItem->GetTemplate(), *pItem->GetBonus(), GetLevel(), pItem->GetModifier(ITEM_MODIFIER_TIMEWALKER_LEVEL),
+                0, 0, 0,
+                true, azeriteLevel);
             totalItemLevel += itemLevel;
             totalItemLevelEffective += itemLevelEffective;
+            totalPvpItemLevel += pvpItemLevel;
             if (!m_canTitanGrip && i == EQUIPMENT_SLOT_MAINHAND && pItem->GetTemplate()->GetInventoryType() == INVTYPE_2HWEAPON) // 2h weapon counts twice
             {
                 totalItemLevel += itemLevel;
                 totalItemLevelEffective += itemLevelEffective;
+                totalPvpItemLevel += pvpItemLevel;
             }
         }
     }
 
     totalItemLevel /= 16.0;
     totalItemLevelEffective /= 16.0;
+    totalPvpItemLevel /= 16.0;
     SetAverageItemLevel(totalItemLevel, AvgItemLevelCategory::EquippedBase);
     SetAverageItemLevel(totalItemLevelEffective, AvgItemLevelCategory::EquippedEffective);
+    SetAverageItemLevel(totalPvpItemLevel, AvgItemLevelCategory::PvpWeighted);
+    SetAverageItemLevel(totalItemLevelEffective, AvgItemLevelCategory::EquippedEffectiveWeighted);
 }
 
 void Player::SetWarModeDesired(bool enabled)
