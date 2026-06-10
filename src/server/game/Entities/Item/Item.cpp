@@ -2293,6 +2293,8 @@ uint32 Item::GetItemLevel(ItemTemplate const* itemTemplate, BonusData const& bon
     if (AzeriteLevelInfoEntry const* azeriteLevelInfo = sAzeriteLevelInfoStore.LookupEntry(azeriteLevel))
         itemLevel = azeriteLevelInfo->ItemLevel;
 
+    bool skipSquish = false;
+
     if (!bonusData.ItemLevelOffsetCurveId)
     {
         if (bonusData.PlayerLevelToItemLevelCurveId)
@@ -2309,8 +2311,16 @@ uint32 Item::GetItemLevel(ItemTemplate const* itemTemplate, BonusData const& bon
     }
     else
     {
-        int32 effective = static_cast<int32>(bonusData.ItemLevelOffset) + static_cast<int32>(sDB2Manager.GetCurveValueAt(bonusData.ItemLevelOffsetCurveId, level));
-        itemLevel = uint32(std::max(effective, static_cast<int32>(MIN_ITEM_LEVEL)));
+        if (bonusData.ItemLevelOffsetItemLevel)
+        {
+            itemLevel = bonusData.ItemLevelOffsetItemLevel;
+            skipSquish = true;
+        }
+        else
+        {
+            int32 effective = static_cast<int32>(bonusData.ItemLevelOffset) + static_cast<int32>(sDB2Manager.GetCurveValueAt(bonusData.ItemLevelOffsetCurveId, level));
+            itemLevel = uint32(std::max(effective, static_cast<int32>(MIN_ITEM_LEVEL)));
+        }
     }
 
     for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
@@ -2328,7 +2338,7 @@ uint32 Item::GetItemLevel(ItemTemplate const* itemTemplate, BonusData const& bon
 
     if (applySquish)
     {
-        if (!bonusData.IgnoreSquish)
+        if (!bonusData.IgnoreSquish && !skipSquish)
         {
             if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
             {
@@ -3217,7 +3227,7 @@ void BonusData::AddBonus(uint32 type, std::array<int32, 4> const& values)
                         ItemLevelOffset = itemOffsetCurve->Offset;
                     }
 
-                    ItemLevelOffsetItemLevel = 0;
+                    ItemLevelOffsetItemLevel = scalingConfig->ItemLevel;
                     ItemSquishEraID = scalingConfig->ItemSquishEraID;
                     if (scalingConfig->Flags & 0x1)
                         IgnoreSquish = true;

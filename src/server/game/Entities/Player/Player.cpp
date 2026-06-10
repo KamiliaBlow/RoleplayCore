@@ -8258,8 +8258,53 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
         return;
 
     uint32 itemLevel = item->GetItemLevel(this);
+
+    BonusData const* bonus = item->GetBonus();
+    uint32 rawItemLevel = itemLevel;
+    if (bonus->ItemLevelOffsetCurveId)
+    {
+        if (bonus->ItemLevelOffsetItemLevel)
+        {
+            rawItemLevel = bonus->ItemLevelOffsetItemLevel;
+        }
+        else
+        {
+            rawItemLevel = bonus->ItemLevel;
+            if (bonus->PlayerLevelToItemLevelCurveId)
+            {
+                uint32 level = GetLevel();
+                uint32 fixedLevel = item->GetModifier(ITEM_MODIFIER_TIMEWALKER_LEVEL);
+                if (fixedLevel)
+                    level = fixedLevel;
+                else if (Optional<ContentTuningLevels> levels = sDB2Manager.GetContentTuningData(bonus->ContentTuningId, {}, true))
+                    level = std::min(std::max(int16(level), levels->MinLevel), levels->MaxLevel);
+                rawItemLevel = uint32(sDB2Manager.GetCurveValueAt(bonus->PlayerLevelToItemLevelCurveId, level));
+            }
+            rawItemLevel += bonus->ItemLevelBonus;
+            for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
+                rawItemLevel += bonus->GemItemLevelBonus[i];
+            rawItemLevel = std::min(std::max(rawItemLevel, uint32(MIN_ITEM_LEVEL)), uint32(MAX_ITEM_LEVEL));
+
+            float curveVal = sDB2Manager.GetCurveValueAt(bonus->ItemLevelOffsetCurveId, GetLevel());
+            int32 effective = static_cast<int32>(bonus->ItemLevelOffset) + static_cast<int32>(curveVal);
+            for (uint32 i = 0; i < MAX_ITEM_PROTO_SOCKETS; ++i)
+                effective += static_cast<int32>(bonus->GemItemLevelBonus[i]);
+            effective = std::max(effective, static_cast<int32>(MIN_ITEM_LEVEL));
+            effective = std::min(effective, static_cast<int32>(MAX_ITEM_LEVEL));
+
+            if (rawItemLevel > 0)
+            {
+                float ratio = float(effective) / float(rawItemLevel);
+                if (ratio >= 0.1f && ratio <= 10.0f)
+                    rawItemLevel = uint32(effective);
+            }
+            else
+                rawItemLevel = uint32(effective);
+        }
+    }
+
     float combatRatingMultiplier = 1.0f;
-    if (GtCombatRatingsMultByILvl const* ratingMult = sCombatRatingsMultByILvlGameTable.GetRow(itemLevel))
+    if (GtCombatRatingsMultByILvl const* ratingMult = sCombatRatingsMultByILvlGameTable.GetRow(rawItemLevel))
         combatRatingMultiplier = GetIlvlStatMultiplier(ratingMult, proto->GetInventoryType());
 
     for (uint8 i = 0; i < MAX_ITEM_PROTO_STATS; ++i)
@@ -8268,7 +8313,7 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
         if (statType == -1)
             continue;
 
-        float val = item->GetItemStatValue(i, itemLevel);
+        float val = item->GetItemStatValue(i, rawItemLevel);
         if (val == 0)
             continue;
 
@@ -8276,7 +8321,7 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
         switch (statType)
         {
             case ITEM_MOD_STAMINA:
-                if (GtStaminaMultByILvl const* staminaMult = sStaminaMultByILvlGameTable.GetRow(itemLevel))
+                if (GtStaminaMultByILvl const* staminaMult = sStaminaMultByILvlGameTable.GetRow(rawItemLevel))
                     val *= GetIlvlStatMultiplier(staminaMult, proto->GetInventoryType());
                 break;
             case ITEM_MOD_DEFENSE_SKILL_RATING:
@@ -8527,7 +8572,7 @@ void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
         }
     }
 
-    uint32 armor = proto->GetArmor(itemLevel);
+    uint32 armor = proto->GetArmor(rawItemLevel);
     if (armor)
     {
         HandleStatFlatModifier(UNIT_MOD_ARMOR, TOTAL_VALUE, float(armor), apply);
