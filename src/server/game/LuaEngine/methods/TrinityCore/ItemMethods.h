@@ -504,11 +504,11 @@ namespace LuaItem
     /**
      * Returns the [Player] races allowed to use this [Item]
      *
-     * @return uint32 allowableRace
+     * @return uint64 allowableRace
      */
     int GetAllowableRace(Eluna* E, Item* item)
     {
-        E->Push(item->GetTemplate()->GetAllowableRace().RawValue);
+        E->Push(static_cast<Trinity::RaceMask<uint64>>(item->GetTemplate()->GetAllowableRace()).RawValue[0]);
         return 1;
     }
 

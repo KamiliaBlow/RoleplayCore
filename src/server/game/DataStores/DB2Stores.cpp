@@ -1309,7 +1309,7 @@ void DB2Manager::IndexLoadedStores()
                                 if (customizationReq->RaceMask.HasRace(race))
                                 {
                                     shapeshiftFormByRace.emplace(race, std::make_pair(customizationOption->ID, uint8(customizationDisplayInfo->ShapeshiftFormID)));
-                                    if (customizationReq->AchievementID == 0 && customizationReq->QuestID == 0 && customizationReq->ItemModifiedAppearanceID == 0 && customizationReq->RaceMask.RawValue != -1)
+                                    if (customizationReq->AchievementID == 0 && customizationReq->QuestID == 0 && customizationReq->ItemModifiedAppearanceID == 0 && customizationReq->RaceMask != RACEMASK_ALL_v<int32, 2>)
                                     {
                                         _shapeshiftRaceFormDefaultOptions.emplace(std::make_pair(race, uint8(customizationDisplayInfo->ShapeshiftFormID)), customizationChoice);
                                     }
