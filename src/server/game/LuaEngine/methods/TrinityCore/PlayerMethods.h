@@ -23,11 +23,14 @@ namespace LuaPlayer
 {
     /**
      * Returns 'true' if the [Player] can Titan Grip the specific [Item], 'false' otherwise.
+     *
+     * @param [Item] item
      * @return bool canTitanGrip
      */
     int CanTitanGrip(Eluna* E, Player* player)
     {
-        E->Push(player->CanTitanGrip());
+        Item* item = E->CHECKOBJ<Item>(2);
+        E->Push(player->CanTitanGrip(item));
         return 1;
     }
 
