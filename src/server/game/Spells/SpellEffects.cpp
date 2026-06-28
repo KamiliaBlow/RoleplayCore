@@ -1989,6 +1989,7 @@ void Spell::EffectSummonType()
                     // Summons a vehicle, but doesn't force anyone to enter it (see SUMMON_CATEGORY_VEHICLE)
                 case SummonTitle::Vehicle:
                 case SummonTitle::Mount:
+                case SummonTitle::Lightwell:
                 {
                     if (!unitCaster)
                         return;
@@ -1996,7 +1997,6 @@ void Spell::EffectSummonType()
                     summon = unitCaster->GetMap()->SummonCreature(entry, *destTarget, properties, duration, unitCaster, m_spellInfo->Id, 0, privateObjectOwner);
                     break;
                 }
-                case SummonTitle::Lightwell:
                 case SummonTitle::Totem:
                 {
                     if (!unitCaster)
