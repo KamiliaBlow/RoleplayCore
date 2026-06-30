@@ -2843,7 +2843,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
 
             if (active)
             {
-                if (spellInfo->IsPassive() && HandlePassiveSpellLearn(spellInfo))
+                if (spellInfo->IsPassive() && HandlePassiveSpellLearn(spellInfo) && !HasAura(spellId))
                     CastSpell(this, spellId, true);
             }
             else if (IsInWorld())
