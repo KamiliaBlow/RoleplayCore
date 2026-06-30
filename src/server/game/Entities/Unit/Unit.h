@@ -738,7 +738,7 @@ class TC_GAME_API Unit : public WorldObject
         void CombatStopWithPets(bool includingCast = false);
         void StopAttackFaction(uint32 faction_id);
         Unit* SelectNearbyTarget(Unit* exclude = nullptr, float dist = NOMINAL_MELEE_RANGE) const;
-        void SendMeleeAttackStop(Unit* victim = nullptr);
+        void SendMeleeAttackStop(Unit const* victim = nullptr) const;
         void SendMeleeAttackStart(Unit* victim);
 
         void AddUnitState(uint32 f) { m_state |= f; }
@@ -1182,8 +1182,8 @@ class TC_GAME_API Unit : public WorldObject
         void UpdateMovementForcesModMagnitude();
 
         void SetInFront(WorldObject const* target);
-        void SetFacingTo(float const ori, bool force = true);
-        void SetFacingToObject(WorldObject const* object, bool force = true);
+        void SetFacingTo(float ori, bool force = true, uint32 movementId = EVENT_FACE);
+        void SetFacingToObject(WorldObject const* object, bool force = true, uint32 movementId = EVENT_FACE);
         void SetFacingToPoint(Position const& point, bool force = true);
 
         bool IsAlive() const { return (m_deathState == ALIVE); }
@@ -1757,7 +1757,7 @@ class TC_GAME_API Unit : public WorldObject
         virtual MovementGeneratorType GetDefaultMovementType() const;
 
         bool IsStopped() const { return !(HasUnitState(UNIT_STATE_MOVING)); }
-        void StopMoving();
+        void StopMoving(bool force = false);
         void PauseMovement(uint32 timer = 0, uint8 slot = 0, bool forced = true); // timer in ms
         void ResumeMovement(uint32 timer = 0, uint8 slot = 0); // timer in ms
 
@@ -2027,7 +2027,7 @@ class TC_GAME_API Unit : public WorldObject
         AreaObjectList m_AreaObj; //new
 
     private:
-
+        friend class ImmediateMovementGenerator; // for UpdateSplineMovement
         void UpdateSplineMovement(uint32 t_diff);
         void UpdateSplinePosition();
         void SendFlightSplineSyncUpdate();
