@@ -131,9 +131,10 @@ enum WarriorSpells
     SPELL_WARRIOR_VICIOUS_CONTEMPT                  = 383885,
     SPELL_WARRIOR_VICTORIOUS                        = 32216,
     SPELL_WARRIOR_VICTORY_RUSH_HEAL                 = 118779,
-	SPELL_WARRIOR_WARBREAKER                        = 262161,
-	SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
-	SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
+    SPELL_WARRIOR_WARBREAKER                        = 262161,
+    SPELL_WARRIOR_WARRIORS_WRATH                    = 21887,
+    SPELL_WARRIOR_WHIRLWIND_CLEAVE_AURA             = 85739,
+    SPELL_WARRIOR_WHIRLWIND_ENERGIZE                = 280715,
     SPELL_WARRIOR_WRATH_AND_FURY                    = 392936,
     SPELL_WARRIOR_CLEAVE                            = 845,
     SPELL_WARRIOR_RAMPAGE                           = 184367,
@@ -3135,6 +3136,25 @@ class spell_warr_cleave_dmg : public SpellScript
     }
 };
 
+// 21977 - Warrior's Wrath
+class spell_warr_warriors_wrath : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARRIOR_WARRIORS_WRATH });
+    }
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        GetCaster()->CastSpell(GetCaster(), SPELL_WARRIOR_WARRIORS_WRATH, true);
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_warr_warriors_wrath::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 void AddSC_warrior_spell_scripts()
 {
     RegisterSpellScript(spell_warr_anger_management_proc);
@@ -3206,6 +3226,7 @@ void AddSC_warrior_spell_scripts()
     RegisterSpellScript(spell_warr_victorious_state);
     RegisterPlayerScript(victory_rush_kill_event);
     RegisterSpellScript(spell_warr_victory_rush);
+    RegisterSpellScript(spell_warr_warriors_wrath);
     RegisterSpellScript(spell_warr_warlords_torment);
     RegisterSpellScript(spell_warr_bladesmasters_torment);
 
