@@ -32398,62 +32398,63 @@ void Player::_SaveCharacterSelectOutfit(CharacterDatabaseTransaction trans) cons
         int32 secondaryItemModifiedAppearanceId = 0;
         uint8 sheatheCategory = 0;
 
-        if (TransmogMgr::TransmogOutfitSlotAndOptionInfo const* slotInfo = TransmogMgr::GetSlotAndOption(i, transmogSlotOption))
+        if (Item const* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
         {
-            UF::TransmogOutfitSlotData const& transmogOutfitSlot = outfit->Slots[slotInfo->SlotIndex];
+            if (TransmogMgr::TransmogOutfitSlotAndOptionInfo const* slotInfo = TransmogMgr::GetSlotAndOption(i, transmogSlotOption))
+            {
+                UF::TransmogOutfitSlotData const& transmogOutfitSlot = outfit->Slots[slotInfo->SlotIndex];
 
-            uint32 itemModifiedAppearanceId = transmogOutfitSlot.ItemModifiedAppearanceID;
-            if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*transmogOutfitSlot.AppearanceDisplayType)))
-                itemModifiedAppearanceId = m_playerData->VisibleItems[i].ItemModifiedAppearanceID;
-
-            if (Item const* item = GetItemByPos(INVENTORY_SLOT_BAG_0, i))
                 itemId = item->GetEntry();
+                uint32 itemModifiedAppearanceId = transmogOutfitSlot.ItemModifiedAppearanceID;
+                if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*transmogOutfitSlot.AppearanceDisplayType)))
+                    itemModifiedAppearanceId = m_playerData->VisibleItems[i].ItemModifiedAppearanceID;
 
-            if (ItemModifiedAppearanceEntry const* itemModifiedAppearance = sItemModifiedAppearanceStore.LookupEntry(itemModifiedAppearanceId))
-            {
-                TransmogHolidayEntry const* transmogHoliday = sTransmogHolidayStore.LookupEntry(itemModifiedAppearance->ItemID);
-                if (!transmogHoliday || IsHolidayActive(static_cast<HolidayIds>(transmogHoliday->RequiredTransmogHoliday)))
+                if (ItemModifiedAppearanceEntry const* itemModifiedAppearance = sItemModifiedAppearanceStore.LookupEntry(itemModifiedAppearanceId))
+				{
+					TransmogHolidayEntry const* transmogHoliday = sTransmogHolidayStore.LookupEntry(itemModifiedAppearance->ItemID);
+					if (!transmogHoliday || IsHolidayActive(static_cast<HolidayIds>(transmogHoliday->RequiredTransmogHoliday)))
+					{
+						if (ItemEntry const* item = sItemStore.LookupEntry(itemModifiedAppearance->ItemID))
+						{
+							visibleItemId = item->ID;
+							subClass = item->SubclassID;
+
+							if (auto originalItem = sItemStore.LookupEntry(itemId))
+							{
+								inventoryType = static_cast<InventoryType>(originalItem->InventoryType);
+							}
+						}
+
+						if (ItemAppearanceEntry const* itemAppearance = sItemAppearanceStore.LookupEntry(itemModifiedAppearance->ItemAppearanceID))
+							displayId = itemAppearance->ItemDisplayInfoID;
+					}
+				}
+
+                if (SpellItemEnchantmentEntry const* spellItemEnchantment = sSpellItemEnchantmentStore.LookupEntry(transmogOutfitSlot.SpellItemEnchantmentID))
+                    itemVisual = spellItemEnchantment->ItemVisual;
+
+                if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*transmogOutfitSlot.IllusionDisplayType)))
+                    itemVisual = m_playerData->VisibleItems[i].ItemVisual;
+
+                if (TransmogOutfitSlotInfoEntry const* secondarySlot = sTransmogOutfitSlotInfoStore.LookupEntry(slotInfo->Slot->SecondarySlotID))
                 {
-                    if (ItemEntry const* item = sItemStore.LookupEntry(itemModifiedAppearance->ItemID))
+                    if (TransmogMgr::TransmogOutfitSlotAndOptionInfo const* secondarySlotInfo = TransmogMgr::GetSlotAndOption(secondarySlot->GetSlot(), transmogSlotOption))
                     {
-                        visibleItemId = item->ID;
-                        subClass = item->SubclassID;
+                        UF::TransmogOutfitSlotData const& secondaryTransmogOutfitSlot = outfit->Slots[secondarySlotInfo->SlotIndex];
 
-                        if (auto originalItem = sItemStore.LookupEntry(itemId))
-                        {
-                            inventoryType = static_cast<InventoryType>(originalItem->InventoryType);
-                        }
+                        secondaryItemModifiedAppearanceId = secondaryTransmogOutfitSlot.ItemModifiedAppearanceID;
+                        if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*secondaryTransmogOutfitSlot.AppearanceDisplayType)))
+                            secondaryItemModifiedAppearanceId = m_playerData->VisibleItems[i].SecondaryItemModifiedAppearanceID;
+
+                        if (ItemModifiedAppearanceEntry const* itemModifiedAppearance = sItemModifiedAppearanceStore.LookupEntry(secondaryItemModifiedAppearanceId))
+                            if (TransmogHolidayEntry const* transmogHoliday = sTransmogHolidayStore.LookupEntry(itemModifiedAppearance->ItemID))
+                                if (!IsHolidayActive(static_cast<HolidayIds>(transmogHoliday->RequiredTransmogHoliday)))
+                                    secondaryItemModifiedAppearanceId = 0;
                     }
-
-                    if (ItemAppearanceEntry const* itemAppearance = sItemAppearanceStore.LookupEntry(itemModifiedAppearance->ItemAppearanceID))
-                        displayId = itemAppearance->ItemDisplayInfoID;
                 }
+
+                sheatheCategory = transmogOutfitSlot.SheatheCategory;
             }
-
-            if (SpellItemEnchantmentEntry const* spellItemEnchantment = sSpellItemEnchantmentStore.LookupEntry(transmogOutfitSlot.SpellItemEnchantmentID))
-                itemVisual = spellItemEnchantment->ItemVisual;
-
-            if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*transmogOutfitSlot.IllusionDisplayType)))
-                itemVisual = m_playerData->VisibleItems[i].ItemVisual;
-
-            if (TransmogOutfitSlotInfoEntry const* secondarySlot = sTransmogOutfitSlotInfoStore.LookupEntry(slotInfo->Slot->SecondarySlotID))
-            {
-                if (TransmogMgr::TransmogOutfitSlotAndOptionInfo const* secondarySlotInfo = TransmogMgr::GetSlotAndOption(secondarySlot->GetSlot(), transmogSlotOption))
-                {
-                    UF::TransmogOutfitSlotData const& secondaryTransmogOutfitSlot = outfit->Slots[secondarySlotInfo->SlotIndex];
-
-                    secondaryItemModifiedAppearanceId = secondaryTransmogOutfitSlot.ItemModifiedAppearanceID;
-                    if (!isTransmogDisplayed(static_cast<TransmogOutfitDisplayType>(*secondaryTransmogOutfitSlot.AppearanceDisplayType)))
-                        secondaryItemModifiedAppearanceId = m_playerData->VisibleItems[i].SecondaryItemModifiedAppearanceID;
-
-                    if (ItemModifiedAppearanceEntry const* itemModifiedAppearance = sItemModifiedAppearanceStore.LookupEntry(secondaryItemModifiedAppearanceId))
-                        if (TransmogHolidayEntry const* transmogHoliday = sTransmogHolidayStore.LookupEntry(itemModifiedAppearance->ItemID))
-                            if (!IsHolidayActive(static_cast<HolidayIds>(transmogHoliday->RequiredTransmogHoliday)))
-                                secondaryItemModifiedAppearanceId = 0;
-                }
-            }
-
-            sheatheCategory = transmogOutfitSlot.SheatheCategory;
         }
 
         stmt->setUInt32(1 + (i * 8) + 0, itemId);
