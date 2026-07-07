@@ -4965,11 +4965,11 @@ void CriteriaMgr::ReloadQuestObjectiveLinks()
     // Re-link all criteria trees that have quest objectives
     for (auto& [treeId, criteriaTree] : _criteriaTrees)
     {
-        if (!criteriaTree->QuestObjective)
+        if (!criteriaTree.QuestObjective)
             continue;
 
-        auto itr = questObjectiveCriteriaTreeIds.find(criteriaTree->Entry->ID);
-        criteriaTree->QuestObjective = (itr != questObjectiveCriteriaTreeIds.end()) ? itr->second : nullptr;
+        auto itr = questObjectiveCriteriaTreeIds.find(criteriaTree.Entry->ID);
+        criteriaTree.QuestObjective = (itr != questObjectiveCriteriaTreeIds.end()) ? itr->second : nullptr;
     }
 }
 
