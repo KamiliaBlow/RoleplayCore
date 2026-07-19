@@ -379,6 +379,15 @@ TC_GAME_API extern DB2Storage<WorldMapOverlayEntry>                 sWorldMapOve
 TC_GAME_API extern DB2Storage<WorldStateExpressionEntry>            sWorldStateExpressionStore;
 TC_GAME_API extern DB2Storage<ZoneMusicEntry>                       sZoneMusicEntryStore;
 
+struct ClassPowerTypes
+{
+    std::array<Powers, MAX_POWERS_PER_CLASS> PowerType = { };
+    uint8 PowerTypeCount = 0;
+
+    Powers const* begin() const { return PowerType.data(); }
+    Powers const* end() const { return PowerType.data() + PowerTypeCount; }
+};
+
 struct ContentTuningLevels
 {
     int16 MinLevel = 0;
@@ -524,7 +533,8 @@ public:
     static CharBaseInfoEntry const* GetCharBaseInfo(Races race, Classes class_);
     ChrClassUIDisplayEntry const* GetUiDisplayForClass(Classes unitClass) const;
     static char const* GetChrClassName(uint8 class_, LocaleConstant locale = DEFAULT_LOCALE);
-    uint32 GetPowerIndexByClass(Powers power, uint32 classId) const;
+    static ClassPowerTypes GetPowerTypesByClass(uint32 classId);
+    static uint32 GetPowerIndexByClass(Powers power, uint32 classId);
     std::vector<ChrCustomizationChoiceEntry const*> const* GetCustomiztionChoices(uint32 chrCustomizationOptionId) const;
     std::vector<ChrCustomizationOptionEntry const*> const* GetCustomiztionOptions(uint32 chrModel) const;
     std::vector<ChrCustomizationOptionEntry const*> const* GetCustomiztionOptions(uint8 race, uint8 gender) const;
