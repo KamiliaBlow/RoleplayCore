@@ -161,8 +161,28 @@ ConditionMgr::ConditionTypeInfo const ConditionMgr::StaticConditionTypeData[COND
     { .Name = "Private Object",            .HasConditionValue1 = false, .HasConditionValue2 = false, .HasConditionValue3 = false, .HasConditionStringValue1 = false },
     { .Name = "String ID",                 .HasConditionValue1 = false, .HasConditionValue2 = false, .HasConditionValue3 = false, .HasConditionStringValue1 =  true },
     { .Name = "Label",                     .HasConditionValue1 =  true, .HasConditionValue2 = false, .HasConditionValue3 = false, .HasConditionStringValue1 = false },
+    { .Name = "Group status",              .HasConditionValue1 =  true, .HasConditionValue2 = false, .HasConditionValue3 = false, .HasConditionStringValue1 = false },
     { .Name = "Chromie Time",              .HasConditionValue1 = true,  .HasConditionValue2 = false, .HasConditionValue3 = false, .HasConditionStringValue1 = false },
 };
+
+static bool MeetsGroupStatusCondition(Player const* player, GroupStatusCondition status)
+{
+    Group const* group = player->GetGroup();
+    switch (status)
+    {
+        case GroupStatusCondition::NotInGroup:
+            return group == nullptr;
+        case GroupStatusCondition::InGroup:
+            return group != nullptr;
+        case GroupStatusCondition::InGroupButNotInRaid:
+            return group && !group->isRaidGroup();
+        case GroupStatusCondition::InRaid:
+            return group && group->isRaidGroup();
+        case GroupStatusCondition::NotInGroupOrNotInRaid:
+            return !group || !group->isRaidGroup();
+    }
+    return false;
+}
 
 ConditionSourceInfo::ConditionSourceInfo(WorldObject const* target0, WorldObject const* target1, WorldObject const* target2) :
     mConditionTargets({ target0, target1, target2 }),
@@ -681,7 +701,13 @@ bool Condition::Meets(ConditionSourceInfo& sourceInfo) const
                 condMeets = go->HasLabel(ConditionValue1);
             break;
         }
-        case CONDITION_CHROMIE_TIME:
+        case CONDITION_GROUP_STATUS:
+        {
+            if (Player const* player = object->ToPlayer())
+                condMeets = MeetsGroupStatusCondition(player, GroupStatusCondition(ConditionValue1));
+			break;
+        }
+		case CONDITION_CHROMIE_TIME:
         {
             if (Player const* player = object->ToPlayer())
             {
@@ -914,8 +940,11 @@ uint32 Condition::GetSearcherTypeMaskForCondition() const
         case CONDITION_LABEL:
             mask |= GRID_MAP_TYPE_MASK_CREATURE | GRID_MAP_TYPE_MASK_GAMEOBJECT;
             break;
-        case CONDITION_CHROMIE_TIME:
+        case CONDITION_GROUP_STATUS:
             mask |= GRID_MAP_TYPE_MASK_PLAYER;
+            break;
+		case CONDITION_CHROMIE_TIME:
+			mask |= GRID_MAP_TYPE_MASK_PLAYER;
             break;
         default:
             ABORT_MSG("Condition::GetSearcherTypeMaskForCondition - missing condition handling!");
@@ -2671,6 +2700,13 @@ bool ConditionMgr::isConditionTypeValid(Condition* cond) const
                 return false;
             }
             break;
+        case CONDITION_GROUP_STATUS:
+            if (cond->ConditionValue1 > uint32(GroupStatusCondition::NotInGroupOrNotInRaid))
+            {
+                TC_LOG_ERROR("sql.sql", "{} has non invalid group status condition value1 ({}), skipped.", *cond, cond->ConditionValue1);
+                return false;
+            }
+            break;
         case CONDITION_AREAID:
         case CONDITION_ALIVE:
         case CONDITION_IN_WATER:
@@ -3076,34 +3112,8 @@ bool ConditionMgr::IsPlayerMeetingCondition(Player const* player, PlayerConditio
     }
 
     if (condition->PartyStatus)
-    {
-        Group const* group = player->GetGroup();
-        switch (condition->PartyStatus)
-        {
-            case 1:
-                if (group)
-                    return false;
-                break;
-            case 2:
-                if (!group)
-                    return false;
-                break;
-            case 3:
-                if (!group || group->isRaidGroup())
-                    return false;
-                break;
-            case 4:
-                if (!group || !group->isRaidGroup())
-                    return false;
-                break;
-            case 5:
-                if (group && group->isRaidGroup())
-                    return false;
-                break;
-            default:
-                break;
-        }
-    }
+        if (!MeetsGroupStatusCondition(player, GroupStatusCondition(condition->PartyStatus - 1)))
+            return false;
 
     if (condition->PrevQuestID[0])
     {
