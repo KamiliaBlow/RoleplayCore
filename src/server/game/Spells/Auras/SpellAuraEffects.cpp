@@ -6666,8 +6666,9 @@ void AuraEffect::HandleStoreTeleportReturnPoint(AuraApplication const* aurApp, u
 
     if (apply)
         playerTarget->AddStoredAuraTeleportLocation(GetSpellInfo()->Id);
-    else if (!playerTarget->GetSession()->isLogingOut())
-        playerTarget->RemoveStoredAuraTeleportLocation(GetSpellInfo()->Id);
+    else if (WorldSession const* session = playerTarget->GetSession())
+        if (!session->isLogingOut())
+            playerTarget->RemoveStoredAuraTeleportLocation(GetSpellInfo()->Id);
 }
 
 void AuraEffect::HandleMountRestrictions(AuraApplication const* aurApp, uint8 mode, bool /*apply*/) const
