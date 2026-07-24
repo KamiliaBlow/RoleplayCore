@@ -1090,8 +1090,8 @@ bool Guardian::InitStatsForLevel(uint8 petlevel)
                     SetBaseWeaponDamage(RANGED_ATTACK, MAXDAMAGE, basedamage);
 
                     CreatureBaseStats const* baseStats = sObjectMgr->GetCreatureBaseStats(petlevel, cinfo->unit_class);
-                    SetStatFlatModifier(UNIT_MOD_ATTACK_POWER, BASE_VALUE, float(baseStats->AttackPower));
-                    SetStatFlatModifier(UNIT_MOD_ATTACK_POWER_RANGED, BASE_VALUE, float(baseStats->RangedAttackPower));
+                    m_baseAttackPower       = baseStats->AttackPower;
+                    m_baseRangedAttackPower = baseStats->RangedAttackPower;
                     break;
                 }
             }

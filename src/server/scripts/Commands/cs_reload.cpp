@@ -75,8 +75,6 @@ EndScriptData */
 #include "Pet.h"
 #include "Player.h"
 #include "Transport.h"
-#include <boost/thread/shared_mutex.hpp>
-#include <boost/thread/locks.hpp>
 
 #if TRINITY_COMPILER_IS_GCC
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"

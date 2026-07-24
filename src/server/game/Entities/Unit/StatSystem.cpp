@@ -1360,12 +1360,18 @@ void Guardian::UpdateAttackPowerAndDamage(bool ranged)
 
     if (GetCreateStat(STAT_STRENGTH) == 0.0f)
     {
-        float base_attPower = GetFlatModifierValue(unitMod, BASE_VALUE) * GetPctModifierValue(unitMod, BASE_PCT);
-        float attPowerMultiplier = GetPctModifierValue(unitMod, TOTAL_PCT) - 1.0f;
+        float base_attPower      = m_baseAttackPower;
+        float attPowerModPos     = GetAttackPowerModifierValue(unitMod, AttackPowerModType::FlatPositive);
+        float attPowerModNeg     = GetAttackPowerModifierValue(unitMod, AttackPowerModType::FlatNegative);
+        float attPowerMultiplier = GetAttackPowerModifierValue(unitMod, AttackPowerModType::Pct) - 1.0f;
 
         SetAttackPower(int32(base_attPower));
+        SetAttackPowerModPos(int32(attPowerModPos));
+        SetAttackPowerModNeg(int32(attPowerModNeg));
         SetAttackPowerMultiplier(attPowerMultiplier);
         SetRangedAttackPower(int32(base_attPower));
+        SetRangedAttackPowerModPos(int32(attPowerModPos));
+        SetRangedAttackPowerModNeg(int32(attPowerModNeg));
         SetRangedAttackPowerMultiplier(attPowerMultiplier);
 
         UpdateDamagePhysical(BASE_ATTACK);
