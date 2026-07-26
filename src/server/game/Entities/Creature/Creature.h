@@ -214,6 +214,7 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         bool HasScalableLevels() const;
         uint32 GetContentTuningIdForTarget(WorldObject const* target) const;
         void ApplyLevelScaling();
+        void ApplyLevelScaling(int32 contentTuningId, int32 scalingLevelDelta);
         uint8 GetLevelForTarget(WorldObject const* target) const override;
 
         uint64 GetMaxHealthByLevel(uint8 level) const;
