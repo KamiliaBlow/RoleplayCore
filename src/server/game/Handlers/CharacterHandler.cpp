@@ -3210,20 +3210,80 @@ void WorldSession::SendUndeleteCharacterResponse(CharacterUndeleteResult result,
 
 void WorldSession::HandleConvertTimerunningCharacter(WorldPackets::Character::ConvertTimerunningCharacter& convertTimerunningCharacter)
 {
-    // Look up the target character's current season; verify it belongs to this account.
+    // Verify the target character belongs to this account.
     CharacterCacheEntry const* characterInfo = sCharacterCache->GetCharacterCacheByGuid(convertTimerunningCharacter.CharacterGuid);
     if (!characterInfo || characterInfo->AccountId != GetAccountId())
         return;
 
-    // Convert: clear `timerunningSeasonId` so the character is no longer flagged as a timerunning alt.
-    // Notify the client of the previous season so the UI can complete its transition flow.
-    // TODO: remove timerunning-specific items (entries 2905, 4579) and post-conversion content tuning.
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_TIMERUNNING_SEASON);
-    stmt->setUInt32(0, 0);
-    stmt->setUInt64(1, convertTimerunningCharacter.CharacterGuid.GetCounter());
-    CharacterDatabase.Execute(stmt);
+    ObjectGuid characterGuid = convertTimerunningCharacter.CharacterGuid;
 
-    WorldPackets::Misc::TimerunningSeasonEnded ended;
-    ended.SeasonID = 0;  // post-conversion: not in any season
-    SendPacket(ended.Write());
+    // Fetch the character's current season first - the client is told which season just ended.
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_TIMERUNNING_SEASON);
+    stmt->setUInt64(0, characterGuid.GetCounter());
+
+    std::shared_ptr<uint32> previousSeasonId = std::make_shared<uint32>(0);
+
+    _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt)
+        .WithChainingPreparedCallback([characterGuid, previousSeasonId](QueryCallback& queryCallback, PreparedQueryResult result)
+    {
+        if (!result)
+            return;
+
+        *previousSeasonId = result->Fetch()[0].GetUInt32();
+        if (!*previousSeasonId)
+            return; // not a timerunning character, nothing to convert
+
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_INVENTORY_ITEM_ENTRIES);
+        stmt->setUInt64(0, characterGuid.GetCounter());
+        queryCallback.SetNextQuery(CharacterDatabase.AsyncQuery(stmt));
+    })
+        .WithPreparedCallback([this, characterGuid, previousSeasonId](PreparedQueryResult result)
+    {
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+        // Remove timerunning-only items: templates tagged with the timerunning content tunings
+        // (client Constants.TimerunningConsts TIMERUNNING_ITEM_CTR / TIMERUNNING_LEGION_ARTIFACT_CTR).
+        if (result)
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                ObjectGuid::LowType itemGuid = fields[0].GetUInt64();
+                uint32 itemEntry = fields[1].GetUInt32();
+
+                ItemTemplate const* itemTemplate = sObjectMgr->GetItemTemplate(itemEntry);
+                if (!itemTemplate)
+                    continue;
+
+                uint32 contentTuningId = itemTemplate->GetScalingStatContentTuning();
+                if (contentTuningId != CONTENT_TUNING_ID_TIMERUNNING_ITEM && contentTuningId != CONTENT_TUNING_ID_TIMERUNNING_LEGION_ARTIFACT)
+                    continue;
+
+                Item::DeleteFromInventoryDB(trans, itemGuid);
+                Item::DeleteFromDB(trans, itemGuid);
+            } while (result->NextRow());
+        }
+
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_TIMERUNNING_SEASON);
+        stmt->setUInt32(0, TIMERUNNING_SEASON_NONE);
+        stmt->setUInt64(1, characterGuid.GetCounter());
+        trans->Append(stmt);
+
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHAR_ADD_FLAGS4);
+        stmt->setUInt32(0, uint32(CHARACTER_FLAG_4_TIMERUNNING_CONVERSION_DONE));
+        stmt->setUInt64(1, characterGuid.GetCounter());
+        trans->Append(stmt);
+
+        CharacterDatabase.CommitTransaction(trans);
+
+        // Conversion is issued from character select, so the target is normally offline; if it
+        // is somehow in-world, keep its update fields consistent with the database. Its in-memory
+        // items are intentionally left alone - destroying them mid-session would desync the save.
+        if (Player* onlineTarget = ObjectAccessor::FindConnectedPlayer(characterGuid))
+            onlineTarget->SetTimerunningSeasonID(TIMERUNNING_SEASON_NONE);
+
+        WorldPackets::Misc::TimerunningSeasonEnded ended;
+        ended.SeasonID = *previousSeasonId;
+        SendPacket(ended.Write());
+    }));
 }

@@ -43,3 +43,6 @@ CREATE TABLE IF NOT EXISTS `character_perks_completed_milestones` (
 
 ALTER TABLE `characters`
   ADD COLUMN `timerunningSeasonId` int unsigned NOT NULL DEFAULT '0' AFTER `chromieTimeExpansionId`;
+  
+ALTER TABLE `characters`
+  ADD COLUMN `flags4` int unsigned NOT NULL DEFAULT '0' AFTER `timerunningSeasonId`;

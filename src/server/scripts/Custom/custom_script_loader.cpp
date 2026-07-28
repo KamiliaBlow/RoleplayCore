@@ -18,7 +18,6 @@
 // This is where scripts' loading functions should be declared:
 
 //void AddSC_PrivateWork();
-//void AddSC_custom_commandscript();
 void AddSC_advanced_flying_spell_scripts();
 //ROLEPLAY FUNC
 void AddSC_free_share_scripts();
@@ -34,7 +33,6 @@ void AddSC_npc_perks_program_vendor();
 void AddCustomScripts()
 {
     //AddSC_PrivateWork();
-    //AddSC_custom_commandscript();
     AddSC_advanced_flying_spell_scripts();
     AddSC_toy_spell_scripts();
     //ROLEPLAY FUNC

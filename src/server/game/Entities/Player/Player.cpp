@@ -6534,6 +6534,7 @@ void Player::SetChromieTime(int32 expansionId)
 
     SetChromieTimeConditionalFlags(expansionId > 0);
 
+    // Sniffs show FactionGroup is 0 when chromie is inactive and 3/Alliance (or 5/Horde) when active.
     SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerData)
         .ModifyValue(&UF::PlayerData::CtrOptions)
         .ModifyValue(&UF::CTROptions::FactionGroup),
@@ -6560,6 +6561,12 @@ void Player::SetChromieTimeConditionalFlags(bool enabled)
     SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerData)
         .ModifyValue(&UF::PlayerData::CtrOptions)
         .ModifyValue(&UF::CTROptions::ConditionalFlags), std::move(conditionalFlags));
+}
+
+void Player::SetTimerunningSeasonID(uint32 seasonId)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData)
+        .ModifyValue(&UF::ActivePlayerData::TimerunningSeasonID), int32(seasonId));
 }
 
 void Player::SendCtrOptions(WorldPackets::Misc::CTROptionsBlock const* previous /*= nullptr*/) const

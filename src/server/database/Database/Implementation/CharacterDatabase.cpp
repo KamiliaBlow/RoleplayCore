@@ -68,6 +68,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_ENUM, "SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.zone, c.map, c.position_x, c.position_y, c.position_z, "
                      "gm.guildid, c.playerFlags, c.at_login, cp.entry, cp.modelid, cp.level AS cpLevel, cb.guid AS cbGuid, c.slot, c.createTime, c.logout_time, c.activeTalentGroup, c.lastLoginBuild, "
                      "c.personalTabardEmblemStyle, c.personalTabardEmblemColor, c.personalTabardBorderStyle, c.personalTabardBorderColor, c.personalTabardBackgroundColor, "
+                     "c.timerunningSeasonId, c.flags4, "
                      CharacterSelectEquipment("ceq.") " "
                      "FROM characters AS c LEFT JOIN character_pet AS cp ON c.summonedPetNumber = cp.id LEFT JOIN guild_member AS gm ON c.guid = gm.guid "
                      "LEFT JOIN character_banned AS cb ON c.guid = cb.guid AND cb.active = 1 "
@@ -76,6 +77,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_ENUM_DECLINED_NAME, "SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.zone, c.map, c.position_x, c.position_y, c.position_z, "
                      "gm.guildid, c.playerFlags, c.at_login, cp.entry, cp.modelid, cp.level AS cpLevel, cb.guid AS cbGuid, c.slot, c.createTime, c.logout_time, c.activeTalentGroup, c.lastLoginBuild, "
                      "c.personalTabardEmblemStyle, c.personalTabardEmblemColor, c.personalTabardBorderStyle, c.personalTabardBorderColor, c.personalTabardBackgroundColor, "
+                     "c.timerunningSeasonId, c.flags4, "
                      CharacterSelectEquipment("ceq.") ", "
                      "cd.genitive "
                      "FROM characters AS c LEFT JOIN character_pet AS cp ON c.summonedPetNumber = cp.id LEFT JOIN guild_member AS gm ON c.guid = gm.guid "
@@ -88,6 +90,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_UNDELETE_ENUM, "SELECT c.guid, c.deleteInfos_Name, c.race, c.class, c.gender, c.level, c.zone, c.map, c.position_x, c.position_y, c.position_z, "
                      "gm.guildid, c.playerFlags, c.at_login, cp.entry, cp.modelid, cp.level AS cpLevel, cb.guid AS cbGuid, c.slot, c.createTime, c.logout_time, c.activeTalentGroup, c.lastLoginBuild, "
                      "c.personalTabardEmblemStyle, c.personalTabardEmblemColor, c.personalTabardBorderStyle, c.personalTabardBorderColor, c.personalTabardBackgroundColor, "
+                     "c.timerunningSeasonId, c.flags4, "
                      CharacterSelectEquipment("ceq.") " "
                      "FROM characters AS c LEFT JOIN character_pet AS cp ON c.summonedPetNumber = cp.id LEFT JOIN guild_member AS gm ON c.guid = gm.guid "
                      "LEFT JOIN character_banned AS cb ON c.guid = cb.guid AND cb.active = 1 "
@@ -96,6 +99,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_UNDELETE_ENUM_DECLINED_NAME, "SELECT c.guid, c.deleteInfos_Name, c.race, c.class, c.gender, c.level, c.zone, c.map, c.position_x, c.position_y, c.position_z, "
                      "gm.guildid, c.playerFlags, c.at_login, cp.entry, cp.modelid, cp.level as cpLevel, cb.guid AS cbGuid, c.slot, c.createTime, c.logout_time, c.activeTalentGroup, c.lastLoginBuild, "
                      "c.personalTabardEmblemStyle, c.personalTabardEmblemColor, c.personalTabardBorderStyle, c.personalTabardBorderColor, c.personalTabardBackgroundColor, "
+                     "c.timerunningSeasonId, c.flags4, "
                      CharacterSelectEquipment("ceq.") ", "
                      "cd.genitive "
                      "FROM characters AS c LEFT JOIN character_pet AS cp ON c.summonedPetNumber = cp.id LEFT JOIN guild_member AS gm ON c.guid = gm.guid "
@@ -122,7 +126,8 @@ void CharacterDatabaseConnection::DoPrepareStatements()
                      "totalKills, todayKills, yesterdayKills, chosenTitle, watchedFaction, drunk, "
                      "health, power1, power2, power3, power4, power5, power6, power7, power8, power9, power10, instance_id, activeTalentGroup, lootSpecId, exploredZones, knownTitles, actionBars, "
                      "raidDifficulty, legacyRaidDifficulty, fishingSteps, honor, honorLevel, honorRestState, honorRestBonus, numRespecs, "
-                     "personalTabardEmblemStyle, personalTabardEmblemColor, personalTabardBorderStyle, personalTabardBorderColor, personalTabardBackgroundColor, transmogOutfitEquippedId, transmogOutfitLocked, chromieTimeExpansionId, timerunningSeasonId "
+                     "personalTabardEmblemStyle, personalTabardEmblemColor, personalTabardBorderStyle, personalTabardBorderColor, personalTabardBackgroundColor, transmogOutfitEquippedId, transmogOutfitLocked, "
+                     "chromieTimeExpansionId, timerunningSeasonId "
                      "FROM characters c LEFT JOIN character_fishingsteps cfs ON c.guid = cfs.guid WHERE c.guid = ?", CONNECTION_ASYNC);
 
     PrepareStatement(CHAR_SEL_CHARACTER_CUSTOMIZATIONS, "SELECT chrCustomizationOptionID, chrCustomizationChoiceID FROM character_customizations WHERE guid = ? ORDER BY chrCustomizationOptionID", CONNECTION_ASYNC);
@@ -532,6 +537,9 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_UPD_REM_AT_LOGIN_FLAG, "UPDATE characters set at_login = at_login & ~ ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_ALL_AT_LOGIN_FLAGS, "UPDATE characters SET at_login = at_login | ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHAR_TIMERUNNING_SEASON, "UPDATE characters SET timerunningSeasonId = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHAR_TIMERUNNING_SEASON, "SELECT timerunningSeasonId FROM characters WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHAR_INVENTORY_ITEM_ENTRIES, "SELECT ii.guid, ii.itemEntry FROM item_instance ii INNER JOIN character_inventory ci ON ci.item = ii.guid WHERE ci.guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHAR_ADD_FLAGS4, "UPDATE characters SET flags4 = flags4 | ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_BUG_REPORT, "INSERT INTO bugreport (type, content) VALUES(?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_PETITION_NAME, "UPDATE petition SET name = ? WHERE petitionguid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_INS_PETITION_SIGNATURE, "INSERT INTO petition_sign (ownerguid, petitionguid, playerguid, player_account) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);

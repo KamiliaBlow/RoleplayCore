@@ -3268,7 +3268,7 @@ uint64 Creature::GetMaxHealthByLevel(uint8 level, uint32 contentTuningId) const
 {
     CreatureTemplate const* cInfo = GetCreatureTemplate();
     CreatureDifficulty const* creatureDifficulty = GetCreatureDifficulty();
-    double baseHealth = sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureHealth, level, creatureDifficulty->GetHealthScalingExpansion(), m_unitData->ContentTuningID, Classes(cInfo->unit_class), 0);
+    double baseHealth = sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureHealth, level, creatureDifficulty->GetHealthScalingExpansion(), contentTuningId, Classes(cInfo->unit_class), 0);
     return std::ceil(baseHealth * creatureDifficulty->HealthModifier);
 }
 
@@ -3293,7 +3293,7 @@ float Creature::GetBaseDamageForLevel(uint8 level, uint32 contentTuningId) const
 {
     CreatureTemplate const* cInfo = GetCreatureTemplate();
     CreatureDifficulty const* creatureDifficulty = GetCreatureDifficulty();
-    return sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureAutoAttackDps, level, creatureDifficulty->GetHealthScalingExpansion(), m_unitData->ContentTuningID, Classes(cInfo->unit_class), 0);
+    return sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureAutoAttackDps, level, creatureDifficulty->GetHealthScalingExpansion(), contentTuningId, Classes(cInfo->unit_class), 0);
 }
 
 float Creature::GetDamageMultiplierForTarget(WorldObject const* target) const
@@ -3319,7 +3319,7 @@ float Creature::GetBaseArmorForLevel(uint8 level, uint32 contentTuningId) const
 {
     CreatureTemplate const* cInfo = GetCreatureTemplate();
     CreatureDifficulty const* creatureDifficulty = GetCreatureDifficulty();
-    float baseArmor = sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureArmor, level, creatureDifficulty->GetHealthScalingExpansion(), m_unitData->ContentTuningID, Classes(cInfo->unit_class), 0);
+    float baseArmor = sDB2Manager.EvaluateExpectedStat(ExpectedStatType::CreatureArmor, level, creatureDifficulty->GetHealthScalingExpansion(), contentTuningId, Classes(cInfo->unit_class), 0);
     return baseArmor * creatureDifficulty->ArmorModifier;
 }
 

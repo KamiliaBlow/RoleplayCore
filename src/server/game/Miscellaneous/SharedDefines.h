@@ -114,6 +114,9 @@ enum TimerunningSeasons : uint32
     TIMERUNNING_SEASON_LEGION = 2
 };
 
+constexpr uint32 CONTENT_TUNING_ID_TIMERUNNING_ITEM             = 2905;
+constexpr uint32 CONTENT_TUNING_ID_TIMERUNNING_LEGION_ARTIFACT  = 4579;
+
 constexpr uint32 GetMaxLevelForExpansion(uint32 expansion)
 {
     switch (expansion)

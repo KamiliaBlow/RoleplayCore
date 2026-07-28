@@ -47,6 +47,7 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvP.h"
+#include "PhasingHandler.h"
 #include "Player.h"
 #include "ReputationMgr.h"
 #include "RestMgr.h"
