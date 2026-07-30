@@ -579,9 +579,9 @@ public:
     static std::map<uint16, uint32>  GetMapLightSkyboxIds();
     static std::map<uint32, std::string> GetMapSkyboxs();
     static uint32 GetLiquidFlags(uint32 liquidType);
-    MapDifficultyEntry const* GetDefaultMapDifficulty(uint32 mapId, Difficulty* difficulty = nullptr) const;
+    MapDifficultyEntry const* GetDefaultMapDifficulty(uint32 mapId) const;
     MapDifficultyEntry const* GetMapDifficultyData(uint32 mapId, Difficulty difficulty) const;
-    MapDifficultyEntry const* GetDownscaledMapDifficultyData(uint32 mapId, Difficulty &difficulty) const;
+    MapDifficultyEntry const* GetDownscaledMapDifficultyData(uint32 mapId, Difficulty difficulty) const;
     MapDifficultyConditionsContainer const* GetMapDifficultyConditions(uint32 mapDifficultyId) const;
     MountEntry const* GetMount(uint32 spellId) const;
     MountEntry const* GetMountById(uint32 id) const;

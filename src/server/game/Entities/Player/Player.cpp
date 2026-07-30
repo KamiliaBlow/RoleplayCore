@@ -20873,7 +20873,7 @@ bool Player::Satisfy(AccessRequirement const* ar, uint32 target_map, TransferAbo
                     if (params)
                     {
                         params->Reason = TRANSFER_ABORT_DIFFICULTY;
-                        params->Arg = target_difficulty;
+                        params->Arg = mapDiff->DifficultyID;
                         params->MapDifficultyXConditionId = failedMapDifficultyXCondition;
                     }
                 }
