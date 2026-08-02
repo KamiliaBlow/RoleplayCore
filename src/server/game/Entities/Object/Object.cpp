@@ -3205,7 +3205,6 @@ std::list<Creature*> WorldObject::FindAllCreaturesInRange(float range)
 
     CellCoord pair(Trinity::ComputeCellCoord(x, y));
     Cell cell(pair);
-    cell.SetNoCreate();
 
     Trinity::AllCreaturesInRange check(this, range);
     Trinity::CreatureListSearcher<Trinity::AllCreaturesInRange> searcher(this, templist, check);
@@ -3225,7 +3224,6 @@ std::list<Creature*> WorldObject::FindAllUnfriendlyCreaturesInRange(float range)
 
         CellCoord pair(Trinity::ComputeCellCoord(x, y));
         Cell cell(pair);
-        cell.SetNoCreate();
 
         Trinity::AttackableUnitInObjectRangeCheck check(unit, range);
         Trinity::CreatureListSearcher<Trinity::AttackableUnitInObjectRangeCheck> searcher(unit, templist, check);
@@ -3302,7 +3300,6 @@ void WorldObject::GetCreatureListInGrid(Container& creatureList, float maxSearch
 {
     CellCoord pair(Trinity::ComputeCellCoord(this->GetPositionX(), this->GetPositionY()));
     Cell cell(pair);
-    cell.SetNoCreate();
 
     Trinity::AllCreaturesInRange check(this, maxSearchRange);
     Trinity::CreatureListSearcher<Trinity::AllCreaturesInRange> searcher(this, creatureList, check);

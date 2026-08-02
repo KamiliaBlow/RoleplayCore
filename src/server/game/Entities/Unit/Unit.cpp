@@ -14924,7 +14924,6 @@ void Unit::GetFriendlyUnitListInRange(std::list<Unit*>& list, float fMaxSearchRa
 {
     CellCoord p(Trinity::ComputeCellCoord(GetPositionX(), GetPositionY()));
     Cell cell(p);
-    cell.SetNoCreate();
 
     Trinity::AnyFriendlyUnitInObjectRangeCheck u_check(this, this, fMaxSearchRange, false, exceptSelf);
     Trinity::UnitListSearcher<Trinity::AnyFriendlyUnitInObjectRangeCheck> searcher(this, list, u_check);
@@ -14940,7 +14939,6 @@ void Unit::GetAnyUnitListInRange(std::list<Unit*>& list, float fMaxSearchRange) 
 {
     CellCoord p(Trinity::ComputeCellCoord(GetPositionX(), GetPositionY()));
     Cell cell(p);
-    cell.SetNoCreate();
 
     Trinity::AnyUnitInObjectRangeCheck u_check(this, fMaxSearchRange);
     Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(this, list, u_check);
@@ -14956,7 +14954,6 @@ void Unit::GetAttackableUnitListInRange(std::list<Unit*>& list, float fMaxSearch
 {
     CellCoord p(Trinity::ComputeCellCoord(GetPositionX(), GetPositionY()));
     Cell cell(p);
-    cell.SetNoCreate();
 
     Trinity::AttackableUnitInObjectRangeCheck u_check(this, fMaxSearchRange);
     Trinity::UnitListSearcher<Trinity::AttackableUnitInObjectRangeCheck> searcher(this, list, u_check);
