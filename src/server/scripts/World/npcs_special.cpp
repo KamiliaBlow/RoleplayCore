@@ -2108,6 +2108,34 @@ private:
     TaskScheduler _scheduler;
 };
 
+/*######
+## npc_chromie_timewalking - 167032 (Timewalking Campaigns, Stormwind/Orgrimmar)
+######*/
+
+enum ChromieTimewalkingGossip
+{
+    GOSSIP_OPTION_CHROMIE_RETURN_TO_PRESENT = 51903 // "I'd like to return to the present timeline, Chromie." (capture A rec 4675)
+};
+
+struct npc_chromie_timewalking : public ScriptedAI
+{
+    npc_chromie_timewalking(Creature* creature) : ScriptedAI(creature) {}
+
+    bool OnGossipSelect(Player* player, uint32 /*menuId*/, uint32 gossipListId) override
+    {
+        GossipMenuItem const* item = player->PlayerTalkClass->GetGossipMenu().GetItemByIndex(gossipListId);
+        if (!item || item->GossipOptionID != GOSSIP_OPTION_CHROMIE_RETURN_TO_PRESENT)
+            return false;
+
+        // Retail's deselect wire was never sniffed (no capture contains
+        // CMSG_CHROMIE_TIME_SELECT_EXPANSION with ExpansionID = 0); acting on the plain
+        // gossip option server-side is inferred from it having OptionNpc = None (audit R6).
+        player->SetChromieTime(0);
+        CloseGossipMenuFor(player);
+        return true;
+    }
+};
+
 void AddSC_npcs_special()
 {
     new npc_air_force_bots();
@@ -2130,4 +2158,5 @@ void AddSC_npcs_special()
     new npc_argent_squire_gruntling();
     new npc_bountiful_table();
     RegisterCreatureAI(npc_gen_void_zone);
+    RegisterCreatureAI(npc_chromie_timewalking);
 }

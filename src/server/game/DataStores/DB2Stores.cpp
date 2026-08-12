@@ -2365,7 +2365,7 @@ uint32 DB2Manager::GetRedirectedContentTuningId(uint32 contentTuningId, std::spa
             if (block >= redirectFlag.size())
                 continue;
 
-            if (flag & redirectFlag[block])
+            if (redirectFlag[block] & (1u << flag))
                 return conditionalContentTuning->RedirectContentTuningID;
         }
     }

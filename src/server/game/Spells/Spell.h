@@ -447,6 +447,7 @@ class TC_GAME_API Spell
         void EffectCreatePrivateConversation();
         void EffectApplyMountEquipment();
         void EffectSkipCampaign();
+        void EffectSetChromieTime();
         void EffectSendChatMessage();
         void EffectGrantBattlePetExperience();
         void EffectLearnTransmogIllusion();

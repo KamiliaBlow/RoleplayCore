@@ -1847,6 +1847,12 @@ TransferAbortParams Map::PlayerCannotEnter(uint32 mapid, Player* player)
     if (player->IsGameMaster())
         return TRANSFER_ABORT_NONE;
 
+    // NYI - Chromie Time walk-in blocks (retail parity P12): retail rejects walk-in raid and
+    // mythic-dungeon entry while a Timewalking Campaign is active ("You cannot enter this
+    // instance while participating in a Timewalking Campaign"). Deferred: the retail
+    // TransferAbortReason enum value / error text for this rejection appears in no local
+    // sniff and TRANSFER_ABORT_* has no verified match (audit R11 partial deferral).
+
     //Other requirements
     {
         TransferAbortParams params(TRANSFER_ABORT_NONE);

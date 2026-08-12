@@ -1481,13 +1481,17 @@ void WorldSession::HandleChromieTimeSelectExpansion(WorldPackets::Misc::ChromieT
     if (!vendor)
         return;
 
-    int32 expansionId = chromieTimeSelectExpansion.ExpansionID;
-
-    // Blizzlike: only available for levels 10-70 (below max level).
-    if (player->GetLevel() < 10 || player->IsMaxLevel())
+    // Require an active ChromieTime interaction with this exact NPC, mirroring other
+    // interaction-driven handlers. The client always packages the interaction-source guid
+    // into the CMSG (SelectChromieTimeOption RVA 0xB79106), so a legitimate select can
+    // only arrive while the type-45 interaction started by the gossip option is open.
+    if (!player->PlayerTalkClass->GetInteractionData().IsInteractingWith(chromieTimeSelectExpansion.Vendor, PlayerInteractionType::ChromieTime))
         return;
 
-    // 0 = "Return to the present"; clear without store lookup.
+    int32 expansionId = chromieTimeSelectExpansion.ExpansionID;
+
+    // 0 = "Return to the present"; always allowed (a chromie player above the entry
+    // ceiling - the 70..80 scaling band - must still be able to leave).
     if (expansionId == 0)
     {
         player->SetChromieTime(0);
@@ -1495,16 +1499,73 @@ void WorldSession::HandleChromieTimeSelectExpansion(WorldPackets::Misc::ChromieT
         return;
     }
 
+    // Retail 12.0.x entry gate: level band [10, 70). The @68887 ShowPlayerConditionIDs
+    // contain no level clause, so the ceiling is server policy (see Player.h, audit R10).
+    if (player->GetLevel() < Player::ChromieTimeMinLevel || player->GetLevel() >= Player::ChromieTimeMaxEntryLevel)
+        return;
+
     UIChromieTimeExpansionInfoEntry const* entry = sUIChromieTimeExpansionInfoStore.LookupEntry(uint32(expansionId));
     if (!entry)
         return;
 
-    if (entry->ShowPlayerConditionID && !ConditionMgr::IsPlayerMeetingCondition(player, entry->ShowPlayerConditionID))
-        return;
+    // Do NOT require ShowPlayerConditionID here: decoded @68887 each of those conditions is
+    // ModifierTree { All -> PlayerIsInChromieTime(own id) } with PlayerCondition flags 0x21
+    // (no InvertModifierTree) - i.e. "player is ALREADY in this timeline", the client UI's
+    // alreadyOn marker, not an eligibility gate. Requiring it inverted the gate and made
+    // every first-time selection fail (audit R10 decode).
 
     player->SetChromieTime(expansionId);
 
     player->SendDirectMessage(WorldPackets::Misc::ChromieTimeSelectExpansionSuccess().Write());
+
+    // Audit R13 FIX 1: retail completes quest 85026 "Where Legends are Made" (objective
+    // 453674 = QUEST_OBJECTIVE_MONSTER, ObjectID 167032 = Chromie, Amount 1,
+    // "Timewalking Campaign selected") by granting Chromie kill-credit on a successful
+    // selection. Always safe: KilledMonsterCredit no-ops if the player is not on the quest.
+    player->KilledMonsterCredit(167032);
+
+    // Audit R13 FIX 2: auto-offer the era's Chromie Time breadcrumb for the chosen timeline,
+    // matching retail's per-expansion intro quest. The breadcrumbs are FACTION-SPECIFIC, not
+    // faction-neutral: integ_world ships two Chromie NPCs - 58195 "Ambassador" (Alliance-side,
+    // creature_queststarter rows all AllowableRaces 0x55155555B1354C4D) and 167032 "Emissary"
+    // (Horde-side, all 0xAA2AAAAA4E0AB3B2). Each expansion therefore has an Alliance/Horde
+    // quest pair; offering only one faction's id would make CanTakeQuest reject the other
+    // faction (AllowableRaces mismatch) and reproduce the "no breadcrumb" bug. Every id below
+    // is verified against integ_world.quest_template (LogTitle + AllowableRaces) and, for the
+    // Horde ids, cross-checked against creature_queststarter WHERE id=167032; WotLK and DF are
+    // additionally sniff/wowhead-confirmed (DF capture A rec 4620 = 65436; WotLK 60962/60963).
+    // expansionId is the UiChromieTimeExpansionInfo.ID (DB2 record id, wago @12.0.7.68887):
+    // Cata=5, TBC=6, WotLK=7, MoP=8, WoD=9, Legion=10, SL=14, BfA=15, DF=16.
+    // Deferred: SL (14) - only 60545 "A Chilling Summons" exists (Alliance-only, started by
+    // neither Chromie, no verified Horde pair). Excluded: The War Within - breadcrumbs
+    // 81930/78713 exist and are Chromie-started, but TWW has NO UiChromieTimeExpansionInfo
+    // row so it can never arrive as a selection. Only offer when the player can take the quest
+    // and is not already on/past it (CanTakeQuest re-validates AllowableRaces, so any faction
+    // mismatch results in no offer rather than a wrong-faction quest).
+    struct ChromieIntroQuest { int32 ExpansionId; uint32 AllianceQuest; uint32 HordeQuest; };
+    static constexpr ChromieIntroQuest ChromieIntroQuests[] =
+    {
+        {  5, 60891, 60887 }, // Cataclysm              (A: Eastern Kingdoms / H: Kalimdor)
+        {  6, 60959, 60961 }, // Burning Crusade        (Outland)
+        {  8, 60125, 60126 }, // Mists of Pandaria      ("To Pandaria!"; H 60126 is Chromie-started)
+        {  9, 60969, 60968 }, // Warlords of Draenor    (Draenor)
+        { 10, 60971, 60970 }, // Legion                 (Broken Isles)
+        { 15, 53370, 53372 }, // Battle for Azeroth     (Hour of Reckoning)
+        { 16, 65436, 65435 }, // Dragonflight           (Dragon Isles)
+    };
+
+    for (ChromieIntroQuest const& intro : ChromieIntroQuests)
+    {
+        if (intro.ExpansionId != expansionId)
+            continue;
+
+        uint32 introQuestId = (player->GetTeam() == ALLIANCE) ? intro.AllianceQuest : intro.HordeQuest;
+        if (Quest const* introQuest = sObjectMgr->GetQuestTemplate(introQuestId))
+            if (player->GetQuestStatus(introQuestId) == QUEST_STATUS_NONE && player->CanTakeQuest(introQuest, false))
+                player->AddQuestAndCheckCompletion(introQuest, nullptr);
+
+        break;
+    }
 }
 
 void WorldSession::HandleRequestStoreFrontInfoUpdate(WorldPackets::Misc::RequestStoreFrontInfoUpdate& packet)

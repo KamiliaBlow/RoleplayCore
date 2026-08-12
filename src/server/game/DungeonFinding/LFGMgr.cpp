@@ -1760,6 +1760,14 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
                 return LFG_LOCKSTATUS_RAID_LOCKED;
             if (sInstanceLockMgr.FindActiveInstanceLock(guid, { dungeon->map, Difficulty(dungeon->difficulty) }))
                 return LFG_LOCKSTATUS_RAID_LOCKED;
+            // Chromie Time timeline filter (retail parity P11): while chromie time is
+            // active the finder only offers dungeons of eras inside the timeline's
+            // ExpansionMask (bits are Expansions enum bits; e.g. Cata mask 0x9 includes
+            // Classic - wago UiChromieTimeExpansionInfo @68887). The exact retail lock
+            // status for this filter is unmined (audit R11 partial deferral).
+            if (uint32 chromieTimeExpansionMask = uint32(player->m_playerData->CtrOptions->ChromieTimeExpansionMask))
+                if (!(chromieTimeExpansionMask & (1u << dungeon->expansion)))
+                    return LFG_LOCKSTATUS_HAS_RESTRICTION;
             if (Optional<ContentTuningLevels> levels = sDB2Manager.GetContentTuningData(dungeon->contentTuningId, player->m_playerData->CtrOptions->ConditionalFlags))
             {
                 if (levels->MinLevel > level)
@@ -2201,7 +2209,7 @@ uint32 LFGMgr::GetLFGDungeonEntry(uint32 id)
     return 0;
 }
 
-LfgDungeonSet LFGMgr::GetRandomAndSeasonalDungeons(uint8 level, uint8 expansion, std::span<uint32 const> contentTuningReplacementConditionMask)
+LfgDungeonSet LFGMgr::GetRandomAndSeasonalDungeons(uint8 level, uint8 expansion, std::span<uint32 const> contentTuningReplacementConditionMask, uint32 chromieTimeExpansionMask /*= 0*/)
 {
     LfgDungeonSet randomDungeons;
     for (lfg::LFGDungeonContainer::const_iterator itr = LfgDungeonStore.begin(); itr != LfgDungeonStore.end(); ++itr)
@@ -2211,6 +2219,11 @@ LfgDungeonSet LFGMgr::GetRandomAndSeasonalDungeons(uint8 level, uint8 expansion,
             continue;
 
         if (dungeon.expansion > expansion)
+            continue;
+
+        // Chromie Time timeline filter (retail parity P11): only offer random/seasonal
+        // entries of eras inside the active timeline's ExpansionMask (audit R11).
+        if (chromieTimeExpansionMask && !(chromieTimeExpansionMask & (1u << dungeon.expansion)))
             continue;
 
         if (Optional<ContentTuningLevels> levels = sDB2Manager.GetContentTuningData(dungeon.contentTuningId, contentTuningReplacementConditionMask))

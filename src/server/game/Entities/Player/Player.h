@@ -2490,6 +2490,17 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         static Team TeamForRace(uint8 race);
         static TeamId TeamIdForRace(uint8 race);
         static uint8 GetFactionGroupForRace(uint8 race);
+        // Chromie Time level band (retail 12.0.x, audit R10). Entry requires
+        // ChromieTimeMinLevel <= level < ChromieTimeMaxEntryLevel; scaling runs to 80; at
+        // ChromieTimeDeactivationLevel the state is force-cleared (12.0.1 patch note:
+        // threshold moved 61 -> 71 -> 81). The @68887 ShowPlayerConditionIDs carry no level
+        // clause (each is just "already in that timeline" - ModifierTree criteria type 300),
+        // so the entry ceiling is server policy: 70 per retail-parity P3; wiki's 68 is
+        // unconfirmed. The level-80 soft exit (auto-accepted return quest + capital
+        // auto-exit) is NYI: quest id and trigger mechanism are unmined (audit R10 deferral).
+        static constexpr uint8 ChromieTimeMinLevel = 10;
+        static constexpr uint8 ChromieTimeMaxEntryLevel = 70;
+        static constexpr uint8 ChromieTimeDeactivationLevel = 81;
         void SetChromieTime(int32 expansionId);
         void SetChromieTimeConditionalFlags(bool enabled);
         void SetTimerunningSeasonID(uint32 seasonId);
