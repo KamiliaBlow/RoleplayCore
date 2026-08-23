@@ -4061,8 +4061,8 @@ struct ScreenEffectEntry
     int8 Effect;
     uint32 FullScreenEffectID;
     uint16 LightParamsID;
-    uint16 LightParamsFadeIn;
-    uint16 LightParamsFadeOut;
+    uint32 LightParamsFadeIn;
+    uint32 LightParamsFadeOut;
     uint32 SoundAmbienceID;
     uint32 ZoneMusicID;
     int16 TimeOfDayOverride;
