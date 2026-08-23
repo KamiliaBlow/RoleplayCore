@@ -5366,7 +5366,7 @@ public:
         if (player->GetClass() == CLASS_DEMON_HUNTER
             && player->HasAura(SPELL_DH_DOUBLE_JUMP)
             && !player->IsMounted()
-            && !player->HasExtraUnitMovementFlag(MOVEMENTFLAG2_CAN_DOUBLE_JUMP))
+            && !player->HasUnitMovementFlag(MOVEMENTFLAG_CAN_DOUBLE_JUMP))
             player->SetCanDoubleJump(true);
     }
 };
