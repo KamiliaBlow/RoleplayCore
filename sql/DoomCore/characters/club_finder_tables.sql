@@ -1,35 +1,33 @@
 -- Club Finder tables for guild recruitment system
 
-DROP TABLE IF EXISTS `club_finder_applicant`;
-DROP TABLE IF EXISTS `club_finder_post`;
+DROP TABLE IF EXISTS `club_finder_application`;
+DROP TABLE IF EXISTS `club_finder_posting`;
 
-CREATE TABLE `club_finder_post` (
-    `postingID`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `guildID`           BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    `description`       TEXT            NOT NULL,
-    `playstyle`         INT UNSIGNED    NOT NULL DEFAULT 0,
-    `interests`         INT UNSIGNED    NOT NULL DEFAULT 0,
-    `specIDs`           VARCHAR(256)    NOT NULL DEFAULT '' COMMENT 'Comma-separated spec IDs being recruited',
-    `classMask`         INT UNSIGNED    NOT NULL DEFAULT 0,
-    `minLevel`          TINYINT UNSIGNED NOT NULL DEFAULT 10,
-    `maxLevel`          TINYINT UNSIGNED NOT NULL DEFAULT 80,
-    `slotsAvailable`    INT UNSIGNED    NOT NULL DEFAULT 0,
-    `maxApplicants`     INT UNSIGNED    NOT NULL DEFAULT 0xFFFFFFFF,
-    `language`          INT UNSIGNED    NOT NULL DEFAULT 0,
-    `status`            TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0=Active, 1=Closed',
-    `timestamp`         INT UNSIGNED    NOT NULL DEFAULT 0,
-    PRIMARY KEY (`postingID`),
-    KEY `idx_guildID` (`guildID`)
+CREATE TABLE `club_finder_posting` (
+    `postingId`           INT UNSIGNED    NOT NULL,
+    `clubId`              BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `name`                VARCHAR(96)     NOT NULL DEFAULT '',
+    `description`         TEXT            NULL,
+    `recruitingSpecs`     BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `recruitmentFlags`    INT UNSIGNED    NOT NULL DEFAULT 0,
+    `itemLevelRequirement` INT UNSIGNED   NOT NULL DEFAULT 0,
+    `avatarId`            INT UNSIGNED    NOT NULL DEFAULT 0,
+    `displayFlags`        INT UNSIGNED    NOT NULL DEFAULT 0,
+    `type`                TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    `crossFaction`        TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `lastPosterGuid`      BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `lastUpdatedTime`     BIGINT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (`postingId`),
+    UNIQUE KEY `idx_clubId` (`clubId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE `club_finder_applicant` (
-    `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `postingID`         BIGINT UNSIGNED NOT NULL,
-    `playerGUID`        BIGINT UNSIGNED NOT NULL,
-    `status`            TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0=Pending, 1=Accepted, 2=Declined',
-    `comment`           TEXT            NOT NULL,
-    `timestamp`         INT UNSIGNED    NOT NULL DEFAULT 0,
-    PRIMARY KEY (`id`),
-    KEY `idx_postingID` (`postingID`),
-    KEY `idx_playerGUID` (`playerGUID`)
+CREATE TABLE `club_finder_application` (
+    `postingId`         INT UNSIGNED    NOT NULL,
+    `playerGuid`        BIGINT UNSIGNED NOT NULL,
+    `comment`           TEXT            NULL,
+    `specs`             BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `status`            TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'PlayerClubRequestStatus: 1=Pending, 2=AutoApproved, 3=Declined, 4=Approved, 5=Joined, 6=JoinedAnother, 7=Canceled',
+    `lastUpdatedTime`   BIGINT          NOT NULL DEFAULT 0,
+    PRIMARY KEY (`postingId`, `playerGuid`),
+    KEY `idx_playerGuid` (`playerGuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

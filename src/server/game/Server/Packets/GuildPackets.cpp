@@ -967,4 +967,60 @@ WorldPacket const* GuildChangeNameResult::Write()
 
     return &_worldPacket;
 }
+
+void GuildQueryRecipes::Read()
+{
+    _worldPacket >> GuildGUID;
+}
+
+WorldPacket const* GuildKnownRecipes::Write()
+{
+    _worldPacket << Size<uint32>(Data);
+
+    for (SkillLineRecipes const& entry : Data)
+    {
+        _worldPacket << uint32(entry.SkillLineID);
+        _worldPacket.append(entry.Blob.data(), entry.Blob.size());
+    }
+
+    return &_worldPacket;
+}
+
+void GuildQueryMemberRecipes::Read()
+{
+    _worldPacket >> GuildGUID;
+    _worldPacket >> MemberGUID;
+    _worldPacket >> SkillLineID;
+}
+
+WorldPacket const* GuildMemberRecipes::Write()
+{
+    _worldPacket << MemberGUID;
+    _worldPacket << uint32(SkillLineID);
+    _worldPacket << uint32(SkillRank);
+    _worldPacket << uint32(SkillStep);
+    _worldPacket.append(Blob.data(), Blob.size());
+
+    return &_worldPacket;
+}
+
+void GuildQueryMembersForRecipe::Read()
+{
+    _worldPacket >> GuildGUID;
+    _worldPacket >> SkillLineID;
+    _worldPacket >> RecipeSpellID;
+    _worldPacket >> RecipeLevel;
+}
+
+WorldPacket const* GuildMembersWithRecipe::Write()
+{
+    _worldPacket << uint32(SkillLineID);
+    _worldPacket << uint32(RecipeSpellID);
+    _worldPacket << Size<uint32>(Members);
+
+    for (ObjectGuid const& member : Members)
+        _worldPacket << member;
+
+    return &_worldPacket;
+}
 }

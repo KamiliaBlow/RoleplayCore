@@ -41,6 +41,7 @@
 #include "ChatCommand.h"
 #include "ChatPackets.h"
 #include "ClubFinderMgr.h"
+#include "ClubStreamHistoryMgr.h"
 #include "Config.h"
 #include "Containers.h"
 #include "ConversationDataStore.h"
@@ -725,6 +726,8 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "LevelReq.Mail"sv, .DefaultValue = 1, .Index = CONFIG_MAIL_LEVEL_REQ },
         { .Name = "PreserveCustomChannelDuration"sv, .DefaultValue = 14, .Index = CONFIG_PRESERVE_CUSTOM_CHANNEL_DURATION },
         { .Name = "PreserveCustomChannelInterval"sv, .DefaultValue = 5, .Index = CONFIG_PRESERVE_CUSTOM_CHANNEL_INTERVAL },
+        { .Name = "Club.StreamHistory.MaxMessages"sv, .DefaultValue = 100, .Index = CONFIG_CLUB_STREAM_HISTORY_MAX_MESSAGES },
+        { .Name = "Club.StreamHistory.MaxDays"sv, .DefaultValue = 30, .Index = CONFIG_CLUB_STREAM_HISTORY_MAX_DAYS },
         { .Name = "PlayerSaveInterval"sv, .DefaultValue = 15 * MINUTE * IN_MILLISECONDS, .Index = CONFIG_INTERVAL_SAVE },
         { .Name = "DisconnectToleranceInterval"sv, .DefaultValue = 0, .Index = CONFIG_INTERVAL_DISCONNECT_TOLERANCE },
         { .Name = "PlayerSave.Stats.MinLevel"sv, .DefaultValue = 0, .Index = CONFIG_MIN_LEVEL_STAT_SAVE, .Max = STRONG_MAX_LEVEL },
@@ -1853,7 +1856,10 @@ bool World::SetInitialWorldSettings()
     sGuildMgr->LoadGuilds();
 
     TC_LOG_INFO("server.loading", "Loading Club Finder data...");
-    sClubFinderMgr->LoadFromDB();
+    sClubFinderMgr->Load();
+
+    TC_LOG_INFO("server.loading", "Loading Club stream history...");
+    sClubStreamHistoryMgr->Load();
 
     TC_LOG_INFO("server.loading", "Loading ArenaTeams...");
     sArenaTeamMgr->LoadArenaTeams();

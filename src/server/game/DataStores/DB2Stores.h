@@ -76,6 +76,7 @@ TC_GAME_API extern DB2Storage<CharTitlesEntry>                      sCharTitlesS
 TC_GAME_API extern DB2Storage<CharacterLoadoutEntry>                sCharacterLoadoutStore;
 TC_GAME_API extern DB2Storage<CharacterLoadoutItemEntry>            sCharacterLoadoutItemStore;
 TC_GAME_API extern DB2Storage<ChatChannelsEntry>                    sChatChannelsStore;
+TC_GAME_API extern DB2Storage<ChatProfanityEntry>                   sChatProfanityStore;
 TC_GAME_API extern DB2Storage<ChrClassesEntry>                      sChrClassesStore;
 TC_GAME_API extern DB2Storage<ChrCustomizationReqEntry>             sChrCustomizationReqStore;
 TC_GAME_API extern DB2Storage<ChrCustomizationOptionEntry>          sChrCustomizationOptionStore;
@@ -141,6 +142,9 @@ TC_GAME_API extern DB2Storage<GemPropertiesEntry>                   sGemProperti
 TC_GAME_API extern DB2Storage<GlobalStringsEntry>                   sGlobalStringsStore;
 TC_GAME_API extern DB2Storage<GlyphPropertiesEntry>                 sGlyphPropertiesStore;
 TC_GAME_API extern DB2Storage<GossipNPCOptionEntry>                 sGossipNPCOptionStore;
+TC_GAME_API extern DB2Storage<GuildTabardEmblemEntry>               sGuildTabardEmblemStore;
+TC_GAME_API extern DB2Storage<GuildTabardBackgroundEntry>           sGuildTabardBackgroundStore;
+TC_GAME_API extern DB2Storage<GuildTabardBorderEntry>               sGuildTabardBorderStore;
 TC_GAME_API extern DB2Storage<GuildColorBackgroundEntry>            sGuildColorBackgroundStore;
 TC_GAME_API extern DB2Storage<GuildColorBorderEntry>                sGuildColorBorderStore;
 TC_GAME_API extern DB2Storage<GuildColorEmblemEntry>                sGuildColorEmblemStore;

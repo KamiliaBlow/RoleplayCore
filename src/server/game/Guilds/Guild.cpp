@@ -24,6 +24,7 @@
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "ChatPackets.h"
+#include "ClubFinderMgr.h"
 #include "ClubMembershipService.h"
 #include "ClubService.h"
 #include "ClubUtils.h"
@@ -1379,13 +1380,16 @@ void Guild::HandleRoster(WorldSession* session)
     session->SendPacket(roster.Write());
 }
 
-void Guild::HandleQuery(WorldSession* session)
+void Guild::HandleQuery(WorldSession* session, ObjectGuid const& queriedGuid)
 {
     WorldPackets::Guild::QueryGuildInfoResponse response;
-    response.GuildGuid = GetGUID();
+    // Answer with the guid the client asked by: callers derive it from foreign sources
+    // (e.g. the club finder record carries a bare club id), so it may not carry this
+    // realm's bits - echoing GetGUID() instead makes the client drop the response.
+    response.GuildGuid = queriedGuid;
     response.Info.emplace();
 
-    response.Info->GuildGUID = GetGUID();
+    response.Info->GuildGUID = queriedGuid;
     response.Info->VirtualRealmAddress = GetVirtualRealmAddress();
 
     response.Info->EmblemStyle = m_emblemInfo.GetStyle();
@@ -1508,6 +1512,26 @@ void Guild::HandleSetInfo(WorldSession* session, std::string_view info)
         stmt->setString(0, m_info);
         stmt->setUInt64(1, m_id);
         CharacterDatabase.Execute(stmt);
+
+        // The 12.1 client shows this text as the CLUB description and prefills the recruitment
+        // editor from it, but the server serves that description out of the club finder posting -
+        // on retail both are one storage. Keep the posting's description in step so edits made
+        // here reach the guild window and the recruitment UI alike.
+        if (ClubFinderPosting const* existing = sClubFinderMgr->GetPostingForClub(m_id))
+        {
+            ClubFinderPosting updated = *existing;
+            updated.Description = std::string(info);
+            sClubFinderMgr->SavePosting(std::move(updated));
+        }
+        else if (!info.empty())
+        {
+            ClubFinderPosting posting;
+            posting.ClubId = m_id;
+            posting.Name = GetName();
+            posting.Description = std::string(info);
+            posting.LastPosterGUID = session->GetPlayer()->GetGUID();
+            sClubFinderMgr->SavePosting(std::move(posting));
+        }
     }
 }
 
@@ -1527,7 +1551,7 @@ void Guild::HandleSetEmblem(WorldSession* session, EmblemInfo const& emblemInfo)
 
         SendSaveEmblemResult(session, ERR_GUILDEMBLEM_SUCCESS); // "Guild Emblem saved."
 
-        HandleQuery(session);
+        HandleQuery(session, GetGUID());
     }
 }
 

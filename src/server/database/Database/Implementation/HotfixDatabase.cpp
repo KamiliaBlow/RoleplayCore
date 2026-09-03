@@ -354,6 +354,11 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PREPARE_LOCALE_STMT(HOTFIX_SEL_CHAT_CHANNELS, "SELECT ID, Name_lang, Shortcut_lang FROM chat_channels_locale WHERE (`VerifiedBuild` > 0) = ?"
         " AND locale = ?", CONNECTION_SYNCH);
 
+    // ChatProfanity.db2
+    PrepareStatement(HOTFIX_SEL_CHAT_PROFANITY, "SELECT ID, `Text`, Language FROM chat_profanity WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_CHAT_PROFANITY, "SELECT MAX(ID) + 1 FROM chat_profanity", CONNECTION_SYNCH);
+    PREPARE_LOCALE_STMT(HOTFIX_SEL_CHAT_PROFANITY, "SELECT ID, Text_lang FROM chat_profanity_locale WHERE (`VerifiedBuild` > 0) = ? AND locale = ?", CONNECTION_SYNCH);
+
     // ChrClassUiDisplay.db2
     PrepareStatement(HOTFIX_SEL_CHR_CLASS_UI_DISPLAY, "SELECT ID, ChrClassesID, AdvGuidePlayerConditionID, SplashPlayerConditionID"
         " FROM chr_class_ui_display WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
@@ -867,6 +872,21 @@ void HotfixDatabaseConnection::DoPrepareStatements()
         "GarrTalentTreeID, UiMapID, UiItemInteractionID, Unknown_1000_8, Unknown_1000_9, CovenantID, GossipOptionID, TraitTreeID, ProfessionID, "
         "Unknown_1002_14, NeighborhoodMapID, SkillLineID FROM gossip_npc_option WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_GOSSIP_NPC_OPTION, "SELECT MAX(ID) + 1 FROM gossip_npc_option", CONNECTION_SYNCH);
+
+    // GuildTabardEmblem.db2
+    PrepareStatement(HOTFIX_SEL_GUILD_TABARD_EMBLEM, "SELECT ID, Component, Color, FileDataID, EmblemID FROM guild_tabard_emblem"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_GUILD_TABARD_EMBLEM, "SELECT MAX(ID) + 1 FROM guild_tabard_emblem", CONNECTION_SYNCH);
+
+    // GuildTabardBackground.db2
+    PrepareStatement(HOTFIX_SEL_GUILD_TABARD_BACKGROUND, "SELECT ID, Tier, Component, FileDataID, Color FROM guild_tabard_background"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_GUILD_TABARD_BACKGROUND, "SELECT MAX(ID) + 1 FROM guild_tabard_background", CONNECTION_SYNCH);
+
+    // GuildTabardBorder.db2
+    PrepareStatement(HOTFIX_SEL_GUILD_TABARD_BORDER, "SELECT ID, BorderID, Tier, Component, FileDataID, Color FROM guild_tabard_border"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_GUILD_TABARD_BORDER, "SELECT MAX(ID) + 1 FROM guild_tabard_border", CONNECTION_SYNCH);
 
     // GuildColorBackground.db2
     PrepareStatement(HOTFIX_SEL_GUILD_COLOR_BACKGROUND, "SELECT ID, Red, Blue, Green FROM guild_color_background WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);

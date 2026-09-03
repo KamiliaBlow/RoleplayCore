@@ -1023,6 +1023,19 @@ ObjectGuid ObjectGuidFactory::CreateClubFinder(uint32 realmId, uint8 type, uint3
         dbId);
 }
 
+ObjectGuid ObjectGuidFactory::CreateClubFinderPosting(uint32 postingId, uint64 clubId)
+{
+    // The type tag at bits 32..34 must be 3 for a GUILD posting: the client decodes its club
+    // subtype as (hi >> 33) & 3 and needs 1 (= Enum.ClubFinderRequestType.Guild) there to mark
+    // the record as a guild. Tag 5 (copied from a retail capture that turned out to be a
+    // community posting) decodes as subtype 2, leaving isGuild=false and breaking the editor's
+    // spec dropdown, which builds its spec list by club type.
+    return ObjectGuid(uint64(uint64(HighGuid::ClubFinder) << 58)
+        | (uint64(0x03) << 32)
+        | uint64(postingId & 0xFFFFFFFF),
+        clubId);
+}
+
 ObjectGuid ObjectGuidFactory::CreateToolsClient(uint16 mapId, uint32 serverId, uint64 counter)
 {
     return ObjectGuid(uint64((uint64(HighGuid::ToolsClient) << 58)

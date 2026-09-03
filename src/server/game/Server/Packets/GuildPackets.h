@@ -1193,6 +1193,129 @@ namespace WorldPackets
 
             bool Success = true;
         };
+
+        // ---------------------------------------------------------------------------------------------
+        // Guild recipe sharing (profession recipes known by the guild / by one member).
+        //
+        // The 600-byte recipe blob is the crux of this cluster. Its format was recovered from the client's
+        // own inverse mapping (RVA 0x23EAD10-0x23EADA7) and validated against live captures:
+        //
+        //   uint16 HeaderCount N; uint32 Header[N]; uint8 Bits[600 - 2 - 4*N]
+        //   byteOffset = (2 + 4*N) + UniqueBit/8 ;  bit = 1 << (UniqueBit % 8)
+        //
+        // Bit N is the SkillLineAbility row whose SkillLine == the SkillLineID sent alongside this blob and
+        // whose UniqueBit == N. Rows with UniqueBit == 0 have no bit and are skipped, so bit 0 is never set.
+        // The store was identified as SkillLineAbility by an exact metadata match (fieldCount 55,
+        // recordSize 17, indexField 2), and the rule was checked against 12 captured masks: 6343 set bits,
+        // 7 mismatches, all 7 from a single older 12.0.1 capture scored against 12.0.7 data.
+        //
+        // We always emit HeaderCount = 0, which is provably safe: no client code reads the header bytes (the
+        // sole blob reader has a single caller), and it is what retail sends for most professions. With
+        // N = 0 the bits start at byte offset 2.
+        //
+        // This REFUTES the older internal dossier, which described these responses as a 0x1B0-byte entry
+        // (0x4E0005) and a 0xd8-byte entry (0x4E0007). Both were wrong - the "0xd8 entries" were plain
+        // 16-byte GUIDs. See c:\dumps\GUILD_RECIPE_BITINDEX_RE_68275.md.
+        // ---------------------------------------------------------------------------------------------
+
+        std::size_t constexpr GUILD_RECIPE_BLOB_SIZE = 600;
+        using GuildRecipeBlob = std::array<uint8, GUILD_RECIPE_BLOB_SIZE>;
+
+        // CMSG_GUILD_QUERY_RECIPES (0x2D000B) = PackedGUID GuildGUID.
+        class GuildQueryRecipes final : public ClientPacket
+        {
+        public:
+            explicit GuildQueryRecipes(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_QUERY_RECIPES, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildGUID;
+        };
+
+        // SMSG_GUILD_KNOWN_RECIPES (0x4E0006) = uint32 Count, Count x { uint32 SkillLineID, uint8 Blob[600] }.
+        class GuildKnownRecipes final : public ServerPacket
+        {
+        public:
+            struct SkillLineRecipes
+            {
+                uint32 SkillLineID = 0;
+                GuildRecipeBlob Blob = { };
+            };
+
+            explicit GuildKnownRecipes() : ServerPacket(SMSG_GUILD_KNOWN_RECIPES, 4) {}
+
+            WorldPacket const* Write() override;
+
+            std::vector<SkillLineRecipes> Data;
+        };
+
+        // CMSG_GUILD_QUERY_MEMBER_RECIPES (0x2D000A) = PackedGUID GuildGUID, PackedGUID MemberGUID, uint32 SkillLineID.
+        class GuildQueryMemberRecipes final : public ClientPacket
+        {
+        public:
+            explicit GuildQueryMemberRecipes(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_QUERY_MEMBER_RECIPES, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildGUID;
+            ObjectGuid MemberGUID;
+            uint32 SkillLineID = 0;
+        };
+
+        // SMSG_GUILD_MEMBER_RECIPES (0x4E0005) = PackedGUID MemberGUID, uint32 A, uint32 B, uint32 C, uint8 Blob[600].
+        //
+        // The three uint32s are CONFIRMED as fields (reader at RVA 0x71EA91-0x71EAE2 does ReadPackedGUID then
+        // three ReadUInt32 into msg+0x30/+0x34/+0x38) but their NAMES are a HYPOTHESIS: they sit positionally
+        // identical to LegionCore-7.3.5's { Member, SkillLineID, SkillRank, SkillStep, mask }. No client code
+        // proves the names - the client stores the values, forwards them to the UI and gates on none of them.
+        // They are filled with the real skill line and the member's actual rank/max so the values stay sane
+        // under any reading, but SkillRank/SkillStep must not be treated as established.
+        class GuildMemberRecipes final : public ServerPacket
+        {
+        public:
+            explicit GuildMemberRecipes() : ServerPacket(SMSG_GUILD_MEMBER_RECIPES, 16 + 12 + int32(GUILD_RECIPE_BLOB_SIZE)) {}
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid MemberGUID;
+            uint32 SkillLineID = 0;
+            uint32 SkillRank = 0;       // HYPOTHESIS - see class comment
+            uint32 SkillStep = 0;       // HYPOTHESIS - see class comment
+            GuildRecipeBlob Blob = { };
+        };
+
+        // CMSG_GUILD_QUERY_MEMBERS_FOR_RECIPE (0x2D000C) =
+        //   PackedGUID GuildGUID, uint32 SkillLineID, uint32 RecipeSpellID, uint32 RecipeLevel.
+        class GuildQueryMembersForRecipe final : public ClientPacket
+        {
+        public:
+            explicit GuildQueryMembersForRecipe(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_QUERY_MEMBERS_FOR_RECIPE, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildGUID;
+            uint32 SkillLineID = 0;
+            uint32 RecipeSpellID = 0;
+            uint32 RecipeLevel = 0;
+        };
+
+        // SMSG_GUILD_MEMBERS_WITH_RECIPE (0x4E0007) =
+        //   uint32 SkillLineID, uint32 RecipeSpellID, uint32 MemberCount, MemberCount x PackedGUID.
+        //
+        // These field names are CONFIRMED, not hypothesised: the C binding GetGuildRecipeInfoPostQuery
+        // (RVA 0x20D50B0) pushes exactly these three globals in this order, and the UI declares
+        // `local skillLineID, recipeID, numMembers = GetGuildRecipeInfoPostQuery();`.
+        class GuildMembersWithRecipe final : public ServerPacket
+        {
+        public:
+            explicit GuildMembersWithRecipe() : ServerPacket(SMSG_GUILD_MEMBERS_WITH_RECIPE, 12) {}
+
+            WorldPacket const* Write() override;
+
+            uint32 SkillLineID = 0;
+            uint32 RecipeSpellID = 0;
+            std::vector<ObjectGuid> Members;
+        };
     }
 }
 

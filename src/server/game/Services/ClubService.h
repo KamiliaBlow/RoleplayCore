@@ -39,11 +39,15 @@ public:
     uint32 HandleSetStreamFocus(club::v1::client::SetStreamFocusRequest const* request, NoData* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
     uint32 HandleAdvanceStreamViewTime(club::v1::client::AdvanceStreamViewTimeRequest const* request, NoData* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
     uint32 HandleCreateMessage(club::v1::client::CreateMessageRequest const* request, club::v1::client::CreateMessageResponse* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
+    uint32 HandleUpdateClubSettings(club::v1::client::UpdateClubSettingsRequest const* request, NoData* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
+    uint32 HandleUpdateClubState(club::v1::client::UpdateClubStateRequest const* request, NoData* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
+    uint32 HandleGetStreamHistory(club::v1::client::GetStreamHistoryRequest const* request, club::v1::client::GetStreamHistoryResponse* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
+    uint32 HandleGetStreamMessage(club::v1::client::GetStreamMessageRequest const* request, club::v1::client::GetStreamMessageResponse* response, std::function<void(ServiceBase*, uint32, ::google::protobuf::Message const*)>& continuation) override;
 
     static std::unique_ptr<club::v1::UniqueClubType> CreateGuildClubType();
 
 private:
-    static void FillStreamMessage(club::v1::client::StreamMessage* message, std::string_view msg, std::chrono::microseconds messageTime, ObjectGuid author);
+    static void FillStreamMessage(club::v1::client::StreamMessage* message, std::string_view msg, uint64 epoch, uint64 position, ObjectGuid author);
 };
 }
 

@@ -60,8 +60,9 @@ if(UNIX)
     add_custom_command(TARGET worldserver
       POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/worldserver.conf.dist ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/../etc/worldserver.conf.dist
+      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/profanity_filters.conf.dist ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/../etc/profanity_filters.conf.dist
     )
-    install(FILES worldserver.conf.dist DESTINATION ${CONF_DIR})
+    install(FILES worldserver.conf.dist profanity_filters.conf.dist DESTINATION ${CONF_DIR})
   endif()
 elseif(WIN32)
   install(TARGETS worldserver DESTINATION "${CMAKE_INSTALL_PREFIX}")
@@ -69,8 +70,9 @@ elseif(WIN32)
     add_custom_command(TARGET worldserver
       POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/worldserver.conf.dist ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/
+      COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/profanity_filters.conf.dist ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/
     )
-    install(FILES worldserver.conf.dist DESTINATION "${CMAKE_INSTALL_PREFIX}")
+    install(FILES worldserver.conf.dist profanity_filters.conf.dist DESTINATION "${CMAKE_INSTALL_PREFIX}")
   endif()
 endif()
 

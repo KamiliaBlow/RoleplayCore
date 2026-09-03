@@ -34,7 +34,7 @@ void WorldSession::HandleGuildQueryOpcode(WorldPackets::Guild::QueryGuildInfo& q
 
     if (Guild* guild = sGuildMgr->GetGuildByGuid(query.GuildGuid))
     {
-        guild->HandleQuery(this);
+        guild->HandleQuery(this, query.GuildGuid);
         return;
     }
 
@@ -74,28 +74,6 @@ void WorldSession::HandleGuildDeclineInvitation(WorldPackets::Guild::GuildDeclin
         return;
 
     GetPlayer()->SetGuildIdInvited(UI64LIT(0));
-}
-
-void WorldSession::HandleGuildChangeNameRequest(WorldPackets::Guild::GuildChangeNameRequest& packet)
-{
-    if (Guild* guild = GetPlayer()->GetGuild())
-    {
-        if (guild->GetLeaderGUID() != _player->GetGUID())
-            return;
-
-        bool success = true;
-        if (guild->GetName() == packet.NewName)
-            success = false;
-
-        WorldPackets::Guild::GuildChangeNameResult result;
-        result.Success = success;
-        SendPacket(result.Write());
-
-        if (success) {
-            guild->SetName(packet.NewName);
-            guild->SetRename(false);
-        }
-    }
 }
 
 void WorldSession::HandleGuildGetRoster(WorldPackets::Guild::GuildGetRoster& /*packet*/)
@@ -634,4 +612,277 @@ void WorldSession::HandleGuildGetAchievementMembers(WorldPackets::Achievement::G
 {
     if (Guild* guild = GetPlayer()->GetGuild())
         guild->HandleGetAchievementMembers(this, uint32(getAchievementMembers.AchievementID));
+}
+
+void WorldSession::HandleGuildChangeNameRequest(WorldPackets::Guild::GuildChangeNameRequest& packet)
+{
+    Guild* guild = GetPlayer()->GetGuild();
+    if (!guild)
+        return;
+
+    // Only the guild master may rename the guild.
+    if (guild->GetLeaderGUID() != GetPlayer()->GetGUID())
+        return;
+
+    // Reject a name already taken by another guild. Guild::SetName performs the remaining validation (non-empty,
+    // <= 24 chars, not reserved, valid charter name, actually changed) and, on success, persists the new name and
+    // broadcasts SMSG_GUILD_NAME_CHANGED to every member so their client reflects it.
+    if (sGuildMgr->GetGuildByName(packet.NewName))
+        return;
+
+    guild->SetName(packet.NewName);
+}
+
+// =====================================================================================================
+// Guild recipe sharing
+//
+// Wire and bit-index rule are documented on the packet classes in GuildPackets.h; the full RE is in
+// c:\dumps\GUILD_RECIPE_BITINDEX_RE_68275.md. In short: bit N of the 600-byte blob is the
+// SkillLineAbility row with SkillLine == <the SkillLineID sent alongside> and UniqueBit == N, and with
+// HeaderCount emitted as 0 the bits start at byte offset 2.
+//
+// Recipe knowledge has to cover OFFLINE members too - a guild recipe browser listing only the recipes of
+// whoever happens to be online would be misleading rather than merely incomplete. So the authoritative
+// source is character_spell, read asynchronously, with the online members' in-memory spell lists overlaid
+// on top (they may know spells not yet flushed to the database).
+// =====================================================================================================
+
+namespace
+{
+    // sSkillLineAbilityStore is only indexed by skill line, so build the spell -> abilities direction once.
+    std::unordered_map<uint32, std::vector<SkillLineAbilityEntry const*>> const& GetAbilitiesBySpell()
+    {
+        static std::unordered_map<uint32, std::vector<SkillLineAbilityEntry const*>> const index = []
+        {
+            std::unordered_map<uint32, std::vector<SkillLineAbilityEntry const*>> map;
+            for (SkillLineAbilityEntry const* ability : sSkillLineAbilityStore)
+            {
+                // UniqueBit 0 means the row has no bit in the mask at all; the client's own loop skips
+                // those rows too, so they can never be represented.
+                if (!ability->UniqueBit)
+                    continue;
+
+                map[uint32(ability->Spell)].push_back(ability);
+            }
+            return map;
+        }();
+
+        return index;
+    }
+
+    // A recipe browser means professions. Without this filter the guild-wide response would carry a
+    // 600-byte blob for EVERY skill line any member has an ability in - class skills, weapon skills,
+    // languages and so on - because SkillLineAbility covers all of them. That is not wrong data, but it
+    // bloats one packet by tens of kilobytes for something the recipe UI never shows.
+    bool IsRecipeSkillLine(uint32 skillLineId)
+    {
+        SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillLineId);
+        if (!skillLine)
+            return false;
+
+        return skillLine->CategoryID == SKILL_CATEGORY_PROFESSION
+            || skillLine->CategoryID == SKILL_CATEGORY_SECONDARY;
+    }
+
+    void SetRecipeBit(WorldPackets::Guild::GuildRecipeBlob& blob, uint16 uniqueBit)
+    {
+        // HeaderCount is emitted as 0 (bytes 0-1 stay zero), so the bit array starts at offset 2.
+        std::size_t const byteOffset = 2u + (uniqueBit / 8u);
+        if (byteOffset >= blob.size())
+            return;
+
+        blob[byteOffset] |= uint8(1u << (uniqueBit % 8u));
+    }
+
+    struct GuildMemberSet
+    {
+        std::vector<ObjectGuid> Guids;
+        std::string LowGuidList;
+    };
+
+    GuildMemberSet CollectGuildMembers(Guild const* guild)
+    {
+        GuildMemberSet set;
+        for (auto const& [guid, member] : guild->GetMembers())
+        {
+            set.Guids.push_back(guid);
+            if (!set.LowGuidList.empty())
+                set.LowGuidList += ',';
+            set.LowGuidList += std::to_string(guid.GetCounter());
+        }
+        return set;
+    }
+
+    std::unordered_set<uint32> CollectKnownSpells(Player const* player)
+    {
+        std::unordered_set<uint32> known;
+        for (auto const& spellPair : player->GetSpellMap())
+            if (player->HasSpell(spellPair.first))
+                known.insert(spellPair.first);
+
+        return known;
+    }
+}
+
+void WorldSession::HandleGuildQueryRecipes(WorldPackets::Guild::GuildQueryRecipes& packet)
+{
+    Guild* guild = sGuildMgr->GetGuildByGuid(packet.GuildGUID);
+    if (!guild || !guild->IsMember(_player->GetGUID()))
+        return;
+
+    GuildMemberSet members = CollectGuildMembers(guild);
+    if (members.LowGuidList.empty())
+        return;
+
+    std::string const spellQuery = Trinity::StringFormat("SELECT spell FROM character_spell WHERE guid IN ({})", members.LowGuidList);
+
+    GetQueryProcessor().AddCallback(
+        CharacterDatabase.AsyncQuery(spellQuery.c_str())
+        .WithCallback([this, memberGuids = std::move(members.Guids)](QueryResult result)
+    {
+        auto const& abilitiesBySpell = GetAbilitiesBySpell();
+        std::unordered_map<uint32, WorldPackets::Guild::GuildRecipeBlob> blobsBySkillLine;
+
+        auto addSpell = [&](uint32 spellId)
+        {
+            auto itr = abilitiesBySpell.find(spellId);
+            if (itr == abilitiesBySpell.end())
+                return;
+
+            for (SkillLineAbilityEntry const* ability : itr->second)
+                if (IsRecipeSkillLine(ability->SkillLine))
+                    SetRecipeBit(blobsBySkillLine[ability->SkillLine], ability->UniqueBit);
+        };
+
+        if (result)
+        {
+            do
+            {
+                addSpell((*result)[0].GetUInt32());
+            } while (result->NextRow());
+        }
+
+        // Overlay the online members: their in-memory spell list is newer than character_spell.
+        for (ObjectGuid const& guid : memberGuids)
+            if (Player const* member = ObjectAccessor::FindConnectedPlayer(guid))
+                for (uint32 spellId : CollectKnownSpells(member))
+                    addSpell(spellId);
+
+        WorldPackets::Guild::GuildKnownRecipes response;
+        response.Data.reserve(blobsBySkillLine.size());
+        for (auto const& blobPair : blobsBySkillLine)
+        {
+            WorldPackets::Guild::GuildKnownRecipes::SkillLineRecipes entry;
+            entry.SkillLineID = blobPair.first;
+            entry.Blob = blobPair.second;
+            response.Data.push_back(entry);
+        }
+
+        SendPacket(response.Write());
+    }));
+}
+
+void WorldSession::HandleGuildQueryMemberRecipes(WorldPackets::Guild::GuildQueryMemberRecipes& packet)
+{
+    Guild* guild = sGuildMgr->GetGuildByGuid(packet.GuildGUID);
+    if (!guild || !guild->IsMember(_player->GetGUID()))
+        return;
+
+    // Only answer for someone who is actually in this guild - never leak another guild's members.
+    if (!guild->IsMember(packet.MemberGUID))
+        return;
+
+    if (!sDB2Manager.GetSkillLineAbilitiesBySkill(packet.SkillLineID))
+        return;
+
+    ObjectGuid const memberGuid = packet.MemberGUID;
+    uint32 const skillLineId = packet.SkillLineID;
+
+    auto buildResponse = [this, memberGuid, skillLineId](std::unordered_set<uint32> const& knownSpells, uint32 skillRank, uint32 skillStep)
+    {
+        WorldPackets::Guild::GuildMemberRecipes response;
+        response.MemberGUID = memberGuid;
+        response.SkillLineID = skillLineId;
+        response.SkillRank = skillRank;
+        response.SkillStep = skillStep;
+
+        if (std::vector<SkillLineAbilityEntry const*> const* lineAbilities = sDB2Manager.GetSkillLineAbilitiesBySkill(skillLineId))
+            for (SkillLineAbilityEntry const* ability : *lineAbilities)
+                if (ability->UniqueBit && knownSpells.count(uint32(ability->Spell)))
+                    SetRecipeBit(response.Blob, ability->UniqueBit);
+
+        SendPacket(response.Write());
+    };
+
+    if (Player const* member = ObjectAccessor::FindConnectedPlayer(memberGuid))
+    {
+        buildResponse(CollectKnownSpells(member), member->GetSkillValue(skillLineId), member->GetSkillStep(skillLineId));
+        return;
+    }
+
+    // Offline member: read their spells from the database. Rank/step stay 0 rather than being invented -
+    // character_skills would have to be joined for those, and the two fields are an unproven hypothesis
+    // anyway (see GuildMemberRecipes in GuildPackets.h).
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL);
+    stmt->setUInt64(0, memberGuid.GetCounter());
+
+    GetQueryProcessor().AddCallback(CharacterDatabase.AsyncQuery(stmt)
+        .WithPreparedCallback([buildResponse](PreparedQueryResult result)
+    {
+        std::unordered_set<uint32> known;
+        if (result)
+        {
+            do
+            {
+                known.insert((*result)[0].GetUInt32());
+            } while (result->NextRow());
+        }
+
+        buildResponse(known, 0, 0);
+    }));
+}
+
+void WorldSession::HandleGuildQueryMembersForRecipe(WorldPackets::Guild::GuildQueryMembersForRecipe& packet)
+{
+    Guild* guild = sGuildMgr->GetGuildByGuid(packet.GuildGUID);
+    if (!guild || !guild->IsMember(_player->GetGUID()))
+        return;
+
+    GuildMemberSet members = CollectGuildMembers(guild);
+    if (members.LowGuidList.empty())
+        return;
+
+    uint32 const skillLineId = packet.SkillLineID;
+    uint32 const recipeSpellId = packet.RecipeSpellID;
+
+    std::string const memberQuery = Trinity::StringFormat("SELECT guid FROM character_spell WHERE spell = {} AND guid IN ({})",
+        recipeSpellId, members.LowGuidList);
+
+    GetQueryProcessor().AddCallback(
+        CharacterDatabase.AsyncQuery(memberQuery.c_str())
+        .WithCallback([this, skillLineId, recipeSpellId, memberGuids = std::move(members.Guids)](QueryResult result)
+    {
+        std::unordered_set<ObjectGuid> found;
+        if (result)
+        {
+            do
+            {
+                found.insert(ObjectGuid::Create<HighGuid::Player>((*result)[0].GetUInt64()));
+            } while (result->NextRow());
+        }
+
+        // Same overlay as the guild-wide query: an online member may have learned the recipe since their
+        // last save.
+        for (ObjectGuid const& guid : memberGuids)
+            if (Player const* member = ObjectAccessor::FindConnectedPlayer(guid))
+                if (member->HasSpell(recipeSpellId))
+                    found.insert(guid);
+
+        WorldPackets::Guild::GuildMembersWithRecipe response;
+        response.SkillLineID = skillLineId;
+        response.RecipeSpellID = recipeSpellId;
+        response.Members.assign(found.begin(), found.end());
+
+        SendPacket(response.Write());
+    }));
 }

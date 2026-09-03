@@ -963,6 +963,18 @@ struct ChatChannelsLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 6, &ChatChannelsMeta::Instance, HOTFIX_SEL_CHAT_CHANNELS };
 };
 
+struct ChatProfanityLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[3] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = false, .Type = FT_STRING_NOT_LOCALIZED, .Name = "Text" },
+        {.IsSigned = true, .Type = FT_BYTE, .Name = "Language" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 3, &ChatProfanityMeta::Instance, HOTFIX_SEL_CHAT_PROFANITY };
+};
+
 struct ChrClassUiDisplayLoadInfo
 {
     static constexpr DB2FieldMeta Fields[4] =
@@ -2690,6 +2702,49 @@ struct GossipNpcOptionLoadInfo
     };
 
     static constexpr DB2LoadInfo Instance{ Fields, 18, &GossipNPCOptionMeta::Instance, HOTFIX_SEL_GOSSIP_NPC_OPTION };
+};
+
+struct GuildTabardEmblemLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Component" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Color" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "FileDataID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "EmblemID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &GuildTabardEmblemMeta::Instance, HOTFIX_SEL_GUILD_TABARD_EMBLEM };
+};
+
+struct GuildTabardBackgroundLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[5] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Tier" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Component" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "FileDataID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "Color" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 5, &GuildTabardBackgroundMeta::Instance, HOTFIX_SEL_GUILD_TABARD_BACKGROUND };
+};
+
+struct GuildTabardBorderLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[6] =
+    {
+        {.IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "BorderID" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Tier" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "Component" },
+        {.IsSigned = true, .Type = FT_INT, .Name = "FileDataID" },
+        {.IsSigned = false, .Type = FT_INT, .Name = "Color" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 6, &GuildTabardBorderMeta::Instance, HOTFIX_SEL_GUILD_TABARD_BORDER };
 };
 
 struct GuildColorBackgroundLoadInfo

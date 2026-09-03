@@ -2195,6 +2195,25 @@ PreserveCustomChannelInterval = 5
 PreserveCustomChannelDuration = 14
 
 #
+#    Club.StreamHistory.MaxMessages
+#        Description: Number of messages kept per guild chat stream (General / Officer) for the
+#                     Communities (club) scrollback. When a player opens guild chat the client asks
+#                     the server for this history via GetStreamHistory.
+#        Default:     100 - (Enabled, Keep the newest 100 messages per stream)
+#                     0   - (Disabled, No history is stored or returned)
+
+Club.StreamHistory.MaxMessages = 100
+
+#
+#    Club.StreamHistory.MaxDays
+#        Description: Age based retention for club stream messages: anything older than this many
+#                     days is deleted on server startup.
+#        Default:     30 - (Enabled, Delete messages older than 30 days)
+#                     0  - (Disabled, Keep messages indefinitely, subject to MaxMessages)
+
+Club.StreamHistory.MaxDays = 30
+
+#
 #    PartyRaidWarnings
 #        Description: Allow any user to use raid warnings when in a 5-man party.
 #        Default:     0 - (Disabled, Blizzlike)
@@ -4539,6 +4558,31 @@ Roleplay.CustomNpc.CreatureTemplateIdStart = 400000
 #                     0  - (Disabled)
 
 SoloLFG.Enable = 0
+
+#
+###################################################################################################
+
+###################################################################################################
+#    PROFANITY FILTER BLOB SERVING
+#
+#    ProfanityFilter.ServeURL
+#        Description: Serve the client's profanity filter dictionary (the recruitment
+#                      description sanitizer's word list) from THIS worldserver over plain
+#                      HTTP instead of Blizzard's depot, so client descriptions keep working
+#                      when Blizzard is unreachable, and the filter list becomes freely
+#                      editable. The dictionary is built from "<DataDir>/profanity_filters.conf"
+#                      (one regular expression per line under [bad]/[reserved]/[hatespeech]
+#                      sections; the file is created with the retail ruRU list on first run and
+#                      re-read at startup - every edit changes the published hash, so clients
+#                      re-download). The template is handed to the client verbatim; ${hash} and
+#                      ${usage} are substituted by it. The worldserver listens on the port from
+#                      this URL on all interfaces - use the address players' clients can reach.
+#                      Leave empty to keep serving the retail depot URL (requires internet).
+#        Examples:     "http://192.168.0.10:8085/${hash}.${usage}"
+#                      "http://my.server.host:8085/${hash}.${usage}"
+#        Default:      ""  - (disabled, Blizzard depot is used)
+
+ProfanityFilter.ServeURL = ""
 
 #
 ###################################################################################################

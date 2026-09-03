@@ -324,16 +324,16 @@ namespace WorldPackets
 
     namespace ClubFinder
     {
-        class RequestPendingClubsList;
-        class RequestClubsData;
-        class RequestSubscribedClubPostingIDs;
-        class ApplicationResponse;
         class ClubFinderPost;
-        class RequestClubsList;
-        class RequestMembershipToClub;
-        class GetApplicantsList;
-        class RespondToApplicant;
-        class WhisperApplicantRequest;
+        class ClubFinderRequestSubscribedClubPostingIds;
+        class ClubFinderRequestClubsData;
+        class ClubFinderRequestClubsList;
+        class ClubFinderRequestMembershipToClub;
+        class ClubFinderGetApplicantsList;
+        class ClubFinderRequestPendingClubsList;
+        class ClubFinderRespondToApplicant;
+        class ClubFinderApplicationResponse;
+        class ClubFinderWhisperApplicantRequest;
     }
 
     namespace Collections
@@ -384,7 +384,6 @@ namespace WorldPackets
         class AcceptGuildInvite;
         class DeclineGuildInvites;
         class GuildDeclineInvitation;
-        class GuildChangeNameRequest;
         class GuildGetRoster;
         class GuildPromoteMember;
         class GuildDemoteMember;
@@ -433,6 +432,10 @@ namespace WorldPackets
         class GuildChallengeUpdateRequest;
         class SaveGuildEmblem;
         class GuildSetAchievementTracking;
+        class GuildQueryRecipes;
+        class GuildQueryMemberRecipes;
+        class GuildQueryMembersForRecipe;
+        class GuildChangeNameRequest;
     }
 
     namespace Hotfix
@@ -1488,6 +1491,9 @@ class TC_GAME_API WorldSession
         void HandleTurnInPetition(WorldPackets::Petition::TurnInPetition& packet);
 
         void HandleGuildQueryOpcode(WorldPackets::Guild::QueryGuildInfo& query);
+        void HandleGuildQueryRecipes(WorldPackets::Guild::GuildQueryRecipes& packet);
+        void HandleGuildQueryMemberRecipes(WorldPackets::Guild::GuildQueryMemberRecipes& packet);
+        void HandleGuildQueryMembersForRecipe(WorldPackets::Guild::GuildQueryMembersForRecipe& packet);
         void HandleGuildInviteByName(WorldPackets::Guild::GuildInviteByName& packet);
         void HandleGuildOfficerRemoveMember(WorldPackets::Guild::GuildOfficerRemoveMember& packet);
         void HandleGuildAcceptInvite(WorldPackets::Guild::AcceptGuildInvite& invite);
@@ -1521,16 +1527,17 @@ class TC_GAME_API WorldSession
         void HandleDeclineGuildInvites(WorldPackets::Guild::DeclineGuildInvites& packet);
 
         // Club Finder
-        void HandleClubFinderRequestPendingClubsList(WorldPackets::ClubFinder::RequestPendingClubsList& packet);
-        void HandleClubFinderRequestClubsData(WorldPackets::ClubFinder::RequestClubsData& packet);
-        void HandleClubFinderRequestSubscribedClubPostingIDs(WorldPackets::ClubFinder::RequestSubscribedClubPostingIDs& packet);
-        void HandleClubFinderApplicationResponse(WorldPackets::ClubFinder::ApplicationResponse& packet);
-        void HandleClubFinderPost(WorldPackets::ClubFinder::ClubFinderPost& packet);
-        void HandleClubFinderRequestClubsList(WorldPackets::ClubFinder::RequestClubsList& packet);
-        void HandleClubFinderRequestMembershipToClub(WorldPackets::ClubFinder::RequestMembershipToClub& packet);
-        void HandleClubFinderGetApplicantsList(WorldPackets::ClubFinder::GetApplicantsList& packet);
-        void HandleClubFinderRespondToApplicant(WorldPackets::ClubFinder::RespondToApplicant& packet);
-        void HandleClubFinderWhisperApplicantRequest(WorldPackets::ClubFinder::WhisperApplicantRequest& packet);
+        void HandleClubFinderPost(WorldPackets::ClubFinder::ClubFinderPost& clubFinderPost);
+        void HandleClubFinderRequestSubscribedClubPostingIDs(WorldPackets::ClubFinder::ClubFinderRequestSubscribedClubPostingIds& request);
+        void HandleClubFinderRequestClubsData(WorldPackets::ClubFinder::ClubFinderRequestClubsData& request);
+        void HandleClubFinderRequestClubsList(WorldPackets::ClubFinder::ClubFinderRequestClubsList& request);
+        void HandleClubFinderRequestMembershipToClub(WorldPackets::ClubFinder::ClubFinderRequestMembershipToClub& request);
+        void HandleClubFinderGetApplicantsList(WorldPackets::ClubFinder::ClubFinderGetApplicantsList& request);
+        void HandleClubFinderRequestPendingClubsList(WorldPackets::ClubFinder::ClubFinderRequestPendingClubsList& request);
+        void HandleClubFinderRespondToApplicant(WorldPackets::ClubFinder::ClubFinderRespondToApplicant& request);
+        void HandleClubFinderApplicationResponse(WorldPackets::ClubFinder::ClubFinderApplicationResponse& request);
+        void HandleClubFinderWhisperApplicantRequest(WorldPackets::ClubFinder::ClubFinderWhisperApplicantRequest& request);
+        void SendClubFinderPendingApplications(uint8 type);
 
         void HandleDeclineNeighborhoodInvites(WorldPackets::Housing::DeclineNeighborhoodInvites const& declineNeighborhoodInvites);
 
