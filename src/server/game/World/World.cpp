@@ -61,6 +61,7 @@
 #include "GridNotifiersImpl.h"
 #include "GroupMgr.h"
 #include "GuildMgr.h"
+#include "GuildRenameMgr.h"
 #include "IPLocation.h"
 #include "InstanceLockMgr.h"
 #include "ItemBonusMgr.h"
@@ -1854,6 +1855,9 @@ bool World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading Guilds...");
     sGuildMgr->LoadGuilds();
+
+    TC_LOG_INFO("server.loading", "Loading Guild rename records...");
+    sGuildRenameMgr->Load();
 
     TC_LOG_INFO("server.loading", "Loading Club Finder data...");
     sClubFinderMgr->Load();

@@ -26,10 +26,8 @@ namespace WorldPackets
 {
     namespace ClubFinder
     {
-        // Produced by Lua C_ClubFinder.PostClub(clubId, itemLevelRequirement, name, description,
-        // avatarId, specs, type, crossFaction). The client clamps Name to 96 characters and
-        // Description to 2048 before sending; both string bodies are written raw at the end with no
-        // length prefix and no terminator, their lengths living in the leading bit block.
+        // Lua C_ClubFinder.PostClub. Name is clamped to 96 and Description to 2048 characters by
+        // the client; both bodies are written raw at the end with no length prefix or terminator.
         class ClubFinderPost final : public ClientPacket
         {
         public:
@@ -49,14 +47,10 @@ namespace WorldPackets
             std::string Description;
         };
 
-        // A PackedGuid followed by one bit byte carrying two 3-bit fields. The client's handler
-        // branches on the FIRST field only: anything other than 0 or 1 makes it raise
-        // ERR_CLUB_FINDER_ERROR_POST_CLUB and drop the message. On 0/1 it refreshes the posting
-        // cache and fires CLUB_FINDER_POST_UPDATED, which is what closes the posting dialog.
-        // So the field is a post result code, not a request type.
-        //
-        // The second field is parsed and then never read by the handler - it reaches neither Lua nor
-        // manager state. Its value does not affect client behaviour.
+        // PackedGuid plus one bit byte with two 3-bit fields. The handler branches on the first
+        // field only: 0 or 1 refreshes the posting cache and fires CLUB_FINDER_POST_UPDATED
+        // (closing the posting dialog), anything else raises ERR_CLUB_FINDER_ERROR_POST_CLUB.
+        // The second field is parsed and discarded.
         class ClubFinderResponsePostRecruitmentMessage final : public ServerPacket
         {
         public:
@@ -73,9 +67,7 @@ namespace WorldPackets
         // Bits<3> Type, flush, Bits<3> ValueType, a Bits<24> byte count for the string forms only,
         // flush, then the value itself:
         //   1 = focus flags (Dungeons/Raids/PvP/RP/Social)   2 = guild size (Small/Medium/Large)
-        //   3 = player average item level                    4 = player level (capture-verified:
-        //                                                      arrives as e.g. 15 alongside ilvl; NOT
-        //                                                      a role mask - see ApplySearchFilters)
+        //   3 = player average item level                    4 = player level
         //   5 = specialization bitmask (uint64)              6 = locale flags
         struct ClubFinderPostingFilter
         {
@@ -98,8 +90,8 @@ namespace WorldPackets
             std::vector<uint64> ClubIds;
         };
 
-        // A stride-16 vector of { uint64, uint32, uint32 }, which is exactly the client's own
-        // ClubFinderClubPostingClubIDMap reflection type.
+        // u32 count, then one 16-byte record per subscribed club: { club id u64, guild id u64 }.
+        // The client keys its club-to-posting map off the guild id.
         class ClubFinderGetClubPostingIdsResponse final : public ServerPacket
         {
         public:
@@ -109,9 +101,8 @@ namespace WorldPackets
 
             struct ClubPostingClubIDMap
             {
-                uint64 ClubID              = 0;
-                uint32 ClubPostingID       = 0;
-                uint32 PostingDisplayFlags = 0;
+                uint64 ClubID       = 0;
+                uint64 GuildID      = 0;
             };
 
             std::vector<ClubPostingClubIDMap> PostingIds;
@@ -134,13 +125,10 @@ namespace WorldPackets
             bool LinkedLookup  = false;
         };
 
-        // One cached posting record, shared by the browse response and the record lookup response.
-        // Wire layout reverse-engineered from the 12.1.0.69404 client's packet parser (found at
-        // img+0x751950 in a live-process dump): a 25-bit string-size block - name(7) + comment(12)
-        // + leader(6) - then member count, finder GUID, recruitment flags, ilvl, tabard, poster
-        // GUID, last-updated time, then the three string bodies. RecruitingSpecs and ClubID are
-        // NOT on the 12.1 wire (dropped by the client; the club id lives in the finder GUID's low
-        // qword). They stay on the struct for server-side use only.
+        // One cached posting record, shared by the search response and the record lookup
+        // response: a 25-bit string-size block - name(7) + comment(12) + leader(6) - then the
+        // fixed fields and the three string bodies (see operator<<). RealmName is not on the
+        // wire; it stays on the struct for server-side use.
         struct ClubFinderClubCacheData
         {
             std::string ClubName;
@@ -161,8 +149,8 @@ namespace WorldPackets
 
         ByteBuffer& operator<<(ByteBuffer& data, ClubFinderClubCacheData const& posting);
 
-        // The answer to a search: the matching posting ids (client-proven layout - the client's
-        // handler reads count then u32 ids and then requests the full records itself).
+        // The answer to a search: the matching guild ids; the client fetches the full records
+        // itself through CMSG_CLUB_FINDER_REQUEST_CLUBS_DATA.
         class ClubFinderReturnRecruitingClubs final : public ServerPacket
         {
         public:
@@ -273,8 +261,10 @@ namespace WorldPackets
             uint8 Type       = 0;   // ClubFinderRequestType
         };
 
-        // Record type ClubFinderPendingApplicationData / ClubFinderUpdateApplicationData - both client
-        // readers are instruction-for-instruction identical, so the two opcodes share this body.
+        // Shared record body of SMSG_CLUB_FINDER_RESPONSE_CHARACTER_APPLICATION_LIST and
+        // SMSG_CLUB_FINDER_UPDATE_APPLICATIONS: u32 count, records, envelope byte (request
+        // type << 5) LAST. Per record: packed posting GUID, packed player GUID, u32 closed,
+        // u64 last-updated time, u8 PlayerClubRequestStatus << 4.
         class ClubFinderApplicationList final : public ServerPacket
         {
         public:
@@ -288,11 +278,66 @@ namespace WorldPackets
                 ObjectGuid PlayerGUID;
                 int64 LastUpdatedTime = 0;
                 uint32 Closed         = 0;
-                uint8 ApplicationStatus = 0;   // 4 bits, PlayerClubRequestStatus
+                uint8 ApplicationStatus = 0;   // PlayerClubRequestStatus
             };
 
             std::vector<PendingApplication> Applications;
-            uint8 Type = 0;   // 3 bits, ClubFinderRequestType
+            uint8 Type = 0;   // ClubFinderRequestType
+        };
+
+        // SMSG_RETURN_APPLICANT_LIST. Packed posting GUID, u32 count, records, envelope byte
+        // (request type << 5) LAST. Per record: packed posting GUID, packed player GUID,
+        // u32 closed, u8 x2 (0xFF on retail), u32 level, u32 item level, u64 specs, u64
+        // last-updated time, u8 (0xFF), length block, message bytes. Retail sends an EMPTY
+        // name; the client resolves names itself through its name queries.
+        class ClubFinderApplicantsList final : public ServerPacket
+        {
+        public:
+            ClubFinderApplicantsList() : ServerPacket(SMSG_RETURN_APPLICANT_LIST, 20) { }
+
+            WorldPacket const* Write() override;
+
+            struct Applicant
+            {
+                ObjectGuid ClubFinderGUID;
+                ObjectGuid PlayerGUID;
+                std::string Message;
+                uint64 RecruitingSpecs = 0;
+                int64 LastUpdatedTime  = 0;
+                uint32 Level           = 0;
+                uint32 Closed          = 0;
+                uint8 RequestStatus    = 0;   // PlayerClubRequestStatus
+            };
+
+            ObjectGuid ClubFinderGUID;   // the posting this list belongs to
+            std::vector<Applicant> Applicants;
+            uint8 Type = 0;   // ClubFinderRequestType
+        };
+
+        // One packed player GUID per packet (0x4502DB).
+        class ClubFinderPlayerGuidLookupData final : public ServerPacket
+        {
+        public:
+            ClubFinderPlayerGuidLookupData(ObjectGuid const& guid)
+                : ServerPacket(SMSG_BROADCAST_SUMMON_CAST /* 0x4502DB */, 20), Guid(guid) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid Guid;
+        };
+
+        // Packed player GUID plus a byte flag, bit 7 set = found (0x4502DC). Marks the club
+        // finder's name-cache entry resolved and queues the applicant list rebuild.
+        class ClubFinderPlayerGuidLookupResult final : public ServerPacket
+        {
+        public:
+            ClubFinderPlayerGuidLookupResult(ObjectGuid const& guid, bool found)
+                : ServerPacket(SMSG_BROADCAST_SUMMON_RESPONSE /* 0x4502DC */, 22), Guid(guid), Found(found) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid Guid;
+            bool Found = true;
         };
 
         // An officer asks permission to whisper an applicant. Both directions carry the same pair of

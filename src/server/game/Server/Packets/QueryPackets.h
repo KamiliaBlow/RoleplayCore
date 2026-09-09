@@ -111,6 +111,19 @@ namespace WorldPackets
             Array<ObjectGuid, 50> Players;
         };
 
+        // The community/club systems resolve player names through this variant (the club finder's
+        // applicant name cache uses it). Same wire layout as QueryPlayerNames; the answer is the
+        // regular SMSG_QUERY_PLAYER_NAMES_RESPONSE.
+        class QueryPlayerNamesForCommunity final : public ClientPacket
+        {
+        public:
+            explicit QueryPlayerNamesForCommunity(WorldPacket&& packet) : ClientPacket(CMSG_QUERY_PLAYER_NAMES_FOR_COMMUNITY, std::move(packet)) { }
+
+            void Read() override;
+
+            Array<ObjectGuid, 50> Players;
+        };
+
         struct PlayerGuidLookupData
         {
             bool Initialize(ObjectGuid const& guid, Player const* player = nullptr);
@@ -161,6 +174,25 @@ namespace WorldPackets
             WorldPacket const* Write() override;
 
             std::vector<NameCacheLookupResult> Players;
+        };
+
+        // Bulk name-cache fill (the answer the club finder's name lookups need; the client's
+        // reader is img+0x607D00 in build 69587): a u64 context, then records of the same
+        // PlayerGuidLookupData encoding the names response uses.
+        class PrepopulateNameCache final : public ServerPacket
+        {
+        public:
+            PrepopulateNameCache() : ServerPacket(SMSG_PREPOPULATE_NAME_CACHE, 100) { }
+
+            WorldPacket const* Write() override;
+
+            struct Entry
+            {
+                PlayerGuidLookupData Data;
+            };
+
+            uint64 Context = 0;
+            std::vector<Entry> Entries;
         };
 
         class QueryPageText final : public ClientPacket

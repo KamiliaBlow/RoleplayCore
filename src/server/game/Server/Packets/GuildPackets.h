@@ -1316,6 +1316,114 @@ namespace WorldPackets
             uint32 RecipeSpellID = 0;
             std::vector<ObjectGuid> Members;
         };
+
+        // CMSG_GUILD_REQUEST_RENAME_STATUS (0x2E0021)
+        class GuildRequestRenameStatus final : public ClientPacket
+        {
+        public:
+            explicit GuildRequestRenameStatus(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_REQUEST_RENAME_STATUS, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildRegistrarGUID;
+        };
+
+        // CMSG_GUILD_REQUEST_RENAME_NAME_CHECK (0x2E0022)
+        class GuildRequestRenameNameCheck final : public ClientPacket
+        {
+        public:
+            explicit GuildRequestRenameNameCheck(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_REQUEST_RENAME_NAME_CHECK, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildRegistrarGUID;
+            uint64 ClientToken = 0;      // purpose unverified; read to keep the stream aligned
+            std::string DesiredName;
+        };
+
+        // CMSG_GUILD_REQUEST_RENAME (0x2E0023)
+        class GuildRequestRename final : public ClientPacket
+        {
+        public:
+            explicit GuildRequestRename(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_REQUEST_RENAME, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildRegistrarGUID;
+            std::string DesiredName;
+        };
+
+        // CMSG_GUILD_REQUEST_RENAME_REFUND (0x2E0024)
+        class GuildRequestRenameRefund final : public ClientPacket
+        {
+        public:
+            explicit GuildRequestRenameRefund(WorldPacket&& packet) : ClientPacket(CMSG_GUILD_REQUEST_RENAME_REFUND, std::move(packet)) {}
+
+            void Read() override;
+
+            ObjectGuid GuildRegistrarGUID;
+            std::string GuildName;      // client-supplied; server reverts to stored history, content unused
+        };
+
+        // SMSG_GUILD_RENAME_STATUS_UPDATE (0x510043) -> Lua GUILD_RENAME_STATUS_UPDATE (GuildRenameStatus)
+        // Field set from Blizzard_APIDocumentationGenerated/GuildInfoDocumentation.lua (GuildRenameStatus table).
+        // NOTE: only the CMSG wires are byte-RE-verified; the SMSG micro-layout below follows TC convention.
+        class GuildRenameStatusUpdate final : public ServerPacket
+        {
+        public:
+            explicit GuildRenameStatusUpdate() : ServerPacket(SMSG_GUILD_RENAME_STATUS_UPDATE, 96) {}
+
+            WorldPacket const* Write() override;
+
+            bool IsNameChangeEnabled = false;
+            bool IsPlayerGuildMaster = false;
+            int64 RefundEligibleEndTime = 0;
+            int64 NextRenameTime = 0;
+            uint64 RenamePrice = 0;
+            uint64 RefundAmount = 0;
+            uint64 CurrentGuildMoney = 0;
+            int32 Result = 0;                       // GuildErrorType
+            std::string OldGuildName;
+            std::string ReservedName;
+            int64 ReservedNameExpirationTime = 0;
+        };
+
+        // SMSG_GUILD_RENAME_NAME_CHECK (0x510044) -> Lua GUILD_RENAME_NAME_CHECK
+        class GuildRenameNameCheckResult final : public ServerPacket
+        {
+        public:
+            explicit GuildRenameNameCheckResult() : ServerPacket(SMSG_GUILD_RENAME_NAME_CHECK, 32) {}
+
+            WorldPacket const* Write() override;
+
+            std::string DesiredName;
+            int32 Status = 0;                       // GuildErrorType
+            Optional<std::string> NameErrorToken;   // Nilable in client docs
+        };
+
+        // SMSG_GUILD_RENAME_REQUESTED_RESULT (0x510045) -> Lua REQUESTED_GUILD_RENAME_RESULT
+        class GuildRenameRequestedResult final : public ServerPacket
+        {
+        public:
+            explicit GuildRenameRequestedResult() : ServerPacket(SMSG_GUILD_RENAME_REQUESTED_RESULT, 32) {}
+
+            WorldPacket const* Write() override;
+
+            std::string NewName;
+            int32 Status = 0;                       // GuildErrorType
+        };
+
+        // SMSG_GUILD_RENAME_REFUND_RESULT (0x510046) -> Lua GUILD_RENAME_REFUND_RESULT
+        class GuildRenameRefundResult final : public ServerPacket
+        {
+        public:
+            explicit GuildRenameRefundResult() : ServerPacket(SMSG_GUILD_RENAME_REFUND_RESULT, 32) {}
+
+            WorldPacket const* Write() override;
+
+            std::string GuildName;
+            int32 Status = 0;                       // GuildErrorType
+        };
     }
 }
 

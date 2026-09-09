@@ -301,6 +301,10 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_DEL_GUILD, "DELETE FROM guild WHERE guildid = ?", CONNECTION_ASYNC); // 0: uint32
     // 0: string, 1: uint32
     PrepareStatement(CHAR_UPD_GUILD_NAME, "UPDATE guild SET name = ? WHERE guildid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_GUILD_RENAME, "SELECT guildid, previousName, costPaid, renameTime, refunded FROM guild_rename", CONNECTION_SYNCH);
+    // 0: uint32, 1: string, 2: uint64, 3: uint64, 4: uint8
+    PrepareStatement(CHAR_REP_GUILD_RENAME, "REPLACE INTO guild_rename (guildid, previousName, costPaid, renameTime, refunded) VALUES (?, ?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_GUILD_RENAME, "DELETE FROM guild_rename WHERE guildid = ?", CONNECTION_ASYNC); // 0: uint32
     // 0: uint32, 1: uint32, 2: uint8, 4: string, 5: string
     PrepareStatement(CHAR_INS_GUILD_MEMBER, "INSERT INTO guild_member (guildid, guid, `rank`, pnote, offnote) VALUES (?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_GUILD_MEMBER, "DELETE FROM guild_member WHERE guid = ?", CONNECTION_ASYNC); // 0: uint32
@@ -875,6 +879,11 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_REP_CLUB_FINDER_POSTING, "REPLACE INTO club_finder_posting (postingId, clubId, name, description, recruitingSpecs, recruitmentFlags, itemLevelRequirement, avatarId, displayFlags, type, crossFaction, lastPosterGuid, lastUpdatedTime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_REP_CLUB_FINDER_APPLICATION, "REPLACE INTO club_finder_application (postingId, playerGuid, comment, specs, status, lastUpdatedTime) VALUES (?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CLUB_FINDER_APPLICATION, "DELETE FROM club_finder_application WHERE postingId = ? AND playerGuid = ?", CONNECTION_ASYNC);
+    // Retention purge: verdict rows (declined / joined / canceled) older than the retention window,
+    // still-active rows (pending / auto-approved / approved) older than the shorter application
+    // expiry, and rows whose posting no longer exists. Order matches the params set in
+    // ClubFinderMgr::CleanupApplications.
+    PrepareStatement(CHAR_DEL_CLUB_FINDER_APPLICATIONS_EXPIRED, "DELETE FROM club_finder_application WHERE lastUpdatedTime < ? OR (status IN (?, ?, ?) AND lastUpdatedTime < ?) OR postingId NOT IN (SELECT postingId FROM club_finder_posting)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CLUB_FINDER_POSTING_FLAGS, "UPDATE club_finder_posting SET displayFlags = ? WHERE postingId = ?", CONNECTION_ASYNC);
 
     // Club stream history (guild chat scrollback)

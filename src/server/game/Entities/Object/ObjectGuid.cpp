@@ -1025,13 +1025,15 @@ ObjectGuid ObjectGuidFactory::CreateClubFinder(uint32 realmId, uint8 type, uint3
 
 ObjectGuid ObjectGuidFactory::CreateClubFinderPosting(uint32 postingId, uint64 clubId)
 {
-    // The type tag at bits 32..34 must be 3 for a GUILD posting: the client decodes its club
-    // subtype as (hi >> 33) & 3 and needs 1 (= Enum.ClubFinderRequestType.Guild) there to mark
-    // the record as a guild. Tag 5 (copied from a retail capture that turned out to be a
-    // community posting) decodes as subtype 2, leaving isGuild=false and breaking the editor's
-    // spec dropdown, which builds its spec list by club type.
+    // The 12.1 client builds club finder guids as (ClubFinder << 58) | (subtype << 33) | postingId
+    // with the subtype in BIT 33 (1 = Guild, 2 = Community) - proven by its own auto-accept check,
+    // which shifts the guid right by 33 and compares against 2 for community postings. The older
+    // tag-byte-at-bit-32 layout (0x03/0x05 << 32, seen in 12.0.1 captures) decodes to the same
+    // club subtype through (hi >> 33) & 3 but is a DIFFERENT bit pattern: every guid comparison
+    // inside the client's applicant list silently mismatches against server-built guids, leaving
+    // the officer applicant list empty.
     return ObjectGuid(uint64(uint64(HighGuid::ClubFinder) << 58)
-        | (uint64(0x03) << 32)
+        | (uint64(1) << 33)  // subtype 1 = Enum.ClubFinderRequestType.Guild (this core supports guild postings only)
         | uint64(postingId & 0xFFFFFFFF),
         clubId);
 }

@@ -23,6 +23,7 @@
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "GuildPackets.h"
+#include "GuildRenameMgr.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
@@ -612,6 +613,26 @@ void WorldSession::HandleGuildGetAchievementMembers(WorldPackets::Achievement::G
 {
     if (Guild* guild = GetPlayer()->GetGuild())
         guild->HandleGetAchievementMembers(this, uint32(getAchievementMembers.AchievementID));
+}
+
+void WorldSession::HandleGuildRequestRenameStatus(WorldPackets::Guild::GuildRequestRenameStatus& /*packet*/)
+{
+    sGuildRenameMgr->HandleStatusRequest(this);
+}
+
+void WorldSession::HandleGuildRequestRenameNameCheck(WorldPackets::Guild::GuildRequestRenameNameCheck& packet)
+{
+    sGuildRenameMgr->HandleNameCheck(this, packet.DesiredName);
+}
+
+void WorldSession::HandleGuildRequestRename(WorldPackets::Guild::GuildRequestRename& packet)
+{
+    sGuildRenameMgr->HandleRenameRequest(this, packet.DesiredName);
+}
+
+void WorldSession::HandleGuildRequestRenameRefund(WorldPackets::Guild::GuildRequestRenameRefund& /*packet*/)
+{
+    sGuildRenameMgr->HandleRefundRequest(this);
 }
 
 void WorldSession::HandleGuildChangeNameRequest(WorldPackets::Guild::GuildChangeNameRequest& packet)

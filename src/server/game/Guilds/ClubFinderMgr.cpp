@@ -96,6 +96,55 @@ void ClubFinderMgr::Load()
 
     LoadApplications();
     BuildSpecBitIndex();
+
+    // Drop rows past their retention right at startup so the first polls of the day already see a
+    // clean list (CleanupApplications runs unconditionally on its first call after load).
+    CleanupApplications();
+}
+
+void ClubFinderMgr::CleanupApplications()
+{
+    // Purge at most once per hour; the club finder poll handlers call this on every poll, and a
+    // retention pass only ever needs to run a few times a day.
+    static time_t const purgeInterval = time_t(HOUR);
+    static time_t lastPurge = 0;
+
+    time_t const now = GameTime::GetGameTime();
+    if (lastPurge && now - lastPurge < purgeInterval)
+        return;
+    lastPurge = now;
+
+    time_t const retentionCutoff = now - time_t(CLUB_FINDER_APPLICATION_RETENTION_DAYS) * DAY;
+    time_t const expiryCutoff = now - time_t(CLUB_FINDER_APPLICATION_EXPIRY_DAYS) * DAY;
+
+    // Active statuses (no verdict yet) lapse with the application expiry; every other status is a
+    // verdict and survives until the retention cutoff. Orphans of deleted postings go immediately.
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CLUB_FINDER_APPLICATIONS_EXPIRED);
+    stmt->setInt64(0, retentionCutoff);
+    stmt->setUInt8(1, CLUB_FINDER_APPLICATION_PENDING);
+    stmt->setUInt8(2, CLUB_FINDER_APPLICATION_AUTO_APPROVED);
+    stmt->setUInt8(3, CLUB_FINDER_APPLICATION_APPROVED);
+    stmt->setInt64(4, expiryCutoff);
+    CharacterDatabase.Execute(stmt);
+
+    // Mirror the purge in memory so lists stop reporting rows the database just dropped. A pending
+    // or approved row past the expiry is already invisible to every list (IsApplicationExpired), so
+    // dropping it here only removes dead weight, not history the UI still shows.
+    std::erase_if(_applications, [this, retentionCutoff, expiryCutoff](ClubFinderApplication const& application)
+    {
+        if (!GetPosting(application.PostingId))
+            return true;
+        if (application.LastUpdatedTime < retentionCutoff)
+            return true;
+        if ((application.Status == CLUB_FINDER_APPLICATION_PENDING
+            || application.Status == CLUB_FINDER_APPLICATION_AUTO_APPROVED
+            || application.Status == CLUB_FINDER_APPLICATION_APPROVED)
+            && application.LastUpdatedTime < expiryCutoff)
+            return true;
+        return false;
+    });
+
+    TC_LOG_DEBUG("network", "ClubFinder: application retention pass complete ({} applications kept)", _applications.size());
 }
 
 void ClubFinderMgr::LoadApplications()

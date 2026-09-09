@@ -103,6 +103,9 @@ enum ClubFinderSettingFlag : uint32
 // what players are shown.
 constexpr uint32 CLUB_FINDER_POSTING_EXPIRY_DAYS     = 30;
 constexpr uint32 CLUB_FINDER_APPLICATION_EXPIRY_DAYS = 7;
+// Decided applications (declined / joined / canceled) are the officer's "История заявок" log and the
+// applicant's own status list; they are kept for the same window as postings before being purged.
+constexpr uint32 CLUB_FINDER_APPLICATION_RETENTION_DAYS = 30;
 
 // Locale is packed as (locale + 1) into bits 21-25 of a posting's recruitmentFlags, while an
 // applicant's locale filter is a bitmask of (1 << WowLocale). Both sides use the same numbering
@@ -190,6 +193,12 @@ public:
 
     void Load();
     void LoadApplications();
+
+    // Drops application rows past their useful life: decided applications older than the retention
+    // window, still-actionable ones older than the application expiry (the client already renders
+    // those as expired), and rows whose posting no longer exists. Self-throttled to at most one pass
+    // per hour; safe to call from the club finder poll handlers.
+    void CleanupApplications();
 
     ClubFinderPosting const* GetPosting(uint32 postingId) const;
     ClubFinderPosting const* GetPostingForClub(uint64 clubId) const;

@@ -765,6 +765,8 @@ class TC_GAME_API Guild
         time_t GetCreatedDate() const { return m_createdDate; }
         uint64 GetBankMoney() const { return m_bankMoney; }
 
+        bool ModifyBankMoney(uint64 amount, bool add);
+
         bool SetName(std::string_view name);
         void SetRename(bool apply);
 

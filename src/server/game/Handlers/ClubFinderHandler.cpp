@@ -188,14 +188,8 @@ void WorldSession::HandleClubFinderPost(WorldPackets::ClubFinder::ClubFinderPost
 
     WorldPackets::ClubFinder::ClubFinderResponsePostRecruitmentMessage response;
     response.ClubFinderGUID = stored->GetClubFinderGUID();
-
-    // The client's handler rejects anything but 0 or 1 here, raising ERR_CLUB_FINDER_ERROR_POST_CLUB
-    // and discarding the update. 0 is the success path that closes the posting dialog.
-    response.Result = CLUB_FINDER_POST_RESULT_OK;
-
-    // The client parses this second field and never reads it again, so its value cannot affect
-    // behaviour either way. Left at 0 rather than filled with a guess.
-    response.Unused = 0;
+    response.Result = current ? 1 : 0;  // 0 = created, 1 = updated
+    response.Unused = 1;                // 1 in every captured retail reply
 
     SendPacket(response.Write());
 
@@ -301,6 +295,9 @@ void WorldSession::HandleClubFinderRequestSubscribedClubPostingIDs(WorldPackets:
     TC_LOG_DEBUG("network", "CMSG_CLUB_FINDER_REQUEST_SUBSCRIBED_CLUB_POSTING_IDS [{}]: ClubIds: {}",
         GetPlayerInfo(), uint32(request.ClubIds.size()));
 
+    // One answer packet per request: a u32 count plus one { club id, guild id } record per
+    // subscribed club that has a posting. The client keys its club-to-posting map off these
+    // pairs; an empty or malformed map greys out the applicant tabs.
     WorldPackets::ClubFinder::ClubFinderGetClubPostingIdsResponse response;
 
     for (uint64 clubId : request.ClubIds)
@@ -310,13 +307,8 @@ void WorldSession::HandleClubFinderRequestSubscribedClubPostingIDs(WorldPackets:
             continue;
 
         WorldPackets::ClubFinder::ClubFinderGetClubPostingIdsResponse::ClubPostingClubIDMap& entry = response.PostingIds.emplace_back();
-        entry.ClubID = clubId;
-        entry.ClubPostingID = posting->PostingId;
-
-        // Real moderation state. The client decodes this as a mask of (1 << ClubFinderClubPostingStatusFlags)
-        // in C_ClubFinder.GetStatusOfPostingFromClubId, and PostClub tests bits 2 and 3 of it to force a
-        // description or name change before it will let the guild re-post.
-        entry.PostingDisplayFlags = posting->DisplayFlags;
+        entry.ClubID  = clubId;
+        entry.GuildID = posting->ClubId;
     }
 
     SendPacket(response.Write());
@@ -336,7 +328,13 @@ void WorldSession::HandleClubFinderRequestClubsData(WorldPackets::ClubFinder::Cl
 
     for (uint32 clubPostingId : request.ClubPostingIDs)
     {
-        ClubFinderPosting const* posting = sClubFinderMgr->GetPosting(clubPostingId);
+        // The client asks by CLUB (guild) id: browse requests echo the guild ids the search
+        // returned, and the own-posting fetch after a subscribed-ids answer asks for the guild
+        // id from that map. Resolve by guild first; the posting-id fallback only covers a
+        // client still holding ids from an older server build.
+        ClubFinderPosting const* posting = sClubFinderMgr->GetPostingForClub(clubPostingId);
+        if (!posting)
+            posting = sClubFinderMgr->GetPosting(clubPostingId);
         if (!posting)
             continue;
 
@@ -420,7 +418,7 @@ void WorldSession::HandleClubFinderRequestClubsList(WorldPackets::ClubFinder::Cl
     response.Type = request.Type;
 
     for (ClubFinderPosting const* posting : sClubFinderMgr->Search(criteria))
-        response.ClubPostingIDs.push_back(posting->PostingId);
+        response.ClubPostingIDs.push_back(posting->ClubId);
 
     TC_LOG_DEBUG("network", "SMSG_CLUB_FINDER_RETURN_RECRUITING_CLUBS [{}]: {} posting(s) matched",
         GetPlayerInfo(), response.ClubPostingIDs.size());
@@ -458,8 +456,9 @@ static void FillApplicationList(WorldPackets::ClubFinder::ClubFinderApplicationL
         entry.LastUpdatedTime   = application->LastUpdatedTime;
         entry.ApplicationStatus = application->Status;
 
-        // closed marks an application that is no longer actionable.
-        entry.Closed = (application->Status == CLUB_FINDER_APPLICATION_PENDING) ? 0 : 1;
+        // Retail keeps this slot 0 in every captured state (pending, approved, joined) - the
+        // status byte alone drives which list an entry lands in.
+        entry.Closed = 0;
     }
 }
 
@@ -496,11 +495,9 @@ void WorldSession::HandleClubFinderRequestMembershipToClub(WorldPackets::ClubFin
         return;
     }
 
-    // Applying to your own guild is meaningless, and a posting that is not visible to search is not
-    // accepting applications either: IsPostingVisible rejects a guild that stopped listing or let its
-    // posting lapse, and - the gap this closes - also rejects a banned, delisted or pending-delete
-    // posting, so a player holding a stale clubFinderGUID cannot lodge an application against a posting
-    // moderation has removed.
+    // Applying to your own guild is meaningless, and IsPostingVisible also rejects a
+    // delisted, expired or moderation-removed posting, so a stale clubFinderGUID cannot
+    // lodge an application against it.
     if (player->GetGuildId() == posting->ClubId || !ClubFinderMgr::IsPostingVisible(*posting))
     {
         sendError(CLUB_FINDER_ERROR_APPLY_CLUB);
@@ -514,12 +511,9 @@ void WorldSession::HandleClubFinderRequestMembershipToClub(WorldPackets::ClubFin
     application.Specs      = request.RecruitingSpecs;
     application.Status     = CLUB_FINDER_APPLICATION_PENDING;
 
-    // A guild that auto-accepts admits the applicant without the officer step - but the admission has
-    // to be a real guild join, exactly like the officer accept path. Reporting AUTO_APPROVED without
-    // adding the member would leave an auto-accept guild gaining zero members. Only mark
-    // the application JOINED when the transactional add actually succeeds; otherwise leave it PENDING
-    // so an officer can still act on it. A player already in another guild cannot be auto-joined, so
-    // the already-guilded guard simply leaves the application pending.
+    // An auto-accept guild admits the applicant without the officer step, but only when the
+    // member add actually succeeds; otherwise the application stays PENDING so an officer
+    // can still act on it. A player already in a guild is simply left pending.
     if (posting->RecruitmentFlags & CLUB_FINDER_SETTING_AUTO_ACCEPT)
     {
         Guild* guild = sGuildMgr->GetGuildById(posting->ClubId);
@@ -536,36 +530,82 @@ void WorldSession::HandleClubFinderRequestMembershipToClub(WorldPackets::ClubFin
 
     sClubFinderMgr->SaveApplication(std::move(application));
 
-    // Echo the pending list back so the applicant UI reflects the new application.
-    SendClubFinderPendingApplications(CLUB_FINDER_REQUEST_TYPE_GUILD);
+    // Answer with a single-record UPDATE_APPLICATIONS echoing the new application; the
+    // pending list arrives with the client's next poll.
+    {
+        ClubFinderApplication const* storedApplication = sClubFinderMgr->GetApplication(posting->PostingId, player->GetGUID());
+        if (storedApplication)
+        {
+            WorldPackets::ClubFinder::ClubFinderApplicationList update(SMSG_CLUB_FINDER_UPDATE_APPLICATIONS);
+            WorldPackets::ClubFinder::ClubFinderApplicationList::PendingApplication& record = update.Applications.emplace_back();
+            record.ClubFinderGUID    = posting->GetClubFinderGUID();
+            record.PlayerGUID        = storedApplication->PlayerGuid;
+            record.LastUpdatedTime   = storedApplication->LastUpdatedTime;
+            record.ApplicationStatus = storedApplication->Status;
+            update.Type = CLUB_FINDER_REQUEST_TYPE_GUILD;
+            SendPacket(update.Write());
+        }
+    }
 
     TC_LOG_INFO("network", "ClubFinder: {} applied to posting {} (guild {}).",
         GetPlayerInfo(), posting->PostingId, posting->ClubId);
 }
 
 // A guild officer asks for the applicants to their own posting. The request carries no club GUID, so
-// the posting is resolved from the sender guild membership.
+// the posting is resolved from the sender guild membership. Answered with exactly one
+// SMSG_RETURN_APPLICANT_LIST and nothing else: the client resolves applicant names itself and
+// fetches the posting record itself when it needs one.
 void WorldSession::HandleClubFinderGetApplicantsList(WorldPackets::ClubFinder::ClubFinderGetApplicantsList& request)
 {
     Player* player = GetPlayer();
     if (!player)
         return;
 
-    WorldPackets::ClubFinder::ClubFinderApplicationList response(SMSG_CLUB_FINDER_RESPONSE_CHARACTER_APPLICATION_LIST);
+    // The polls are the natural heartbeat for application retention; the cleanup throttles
+    // itself to one pass per hour.
+    sClubFinderMgr->CleanupApplications();
+
+    WorldPackets::ClubFinder::ClubFinderApplicantsList response;
     response.Type = request.Type;
 
     Guild* guild = sGuildMgr->GetGuildById(player->GetGuildId());
     ClubFinderPosting const* posting = guild ? sClubFinderMgr->GetPostingForClub(guild->GetId()) : nullptr;
 
     // No posting, or no authority over it: an empty list is the truthful answer, and never another
-    // guild applicants. Any officer with the recruiter (invite) right may read it, not just the leader.
+    // guild's applicants. Any officer with the recruiter (invite) right may read it, not just the leader.
     if (!posting || !CanManageClubRecruitment(guild, player))
     {
         SendPacket(response.Write());
         return;
     }
 
-    FillApplicationList(response, sClubFinderMgr->GetApplicationsForPosting(posting->PostingId));
+    response.ClubFinderGUID = posting->GetClubFinderGUID();
+
+    for (ClubFinderApplication const* application : sClubFinderMgr->GetApplicationsForPosting(posting->PostingId))
+    {
+        // The client treats an application older than a week as expired; do not list it as live.
+        if (application->Status == CLUB_FINDER_APPLICATION_PENDING && ClubFinderMgr::IsApplicationExpired(*application))
+            continue;
+
+        CharacterCacheEntry const* character = sCharacterCache->GetCharacterCacheByGuid(application->PlayerGuid);
+        if (!character)
+            continue;
+
+        WorldPackets::ClubFinder::ClubFinderApplicantsList::Applicant& entry = response.Applicants.emplace_back();
+        entry.ClubFinderGUID   = posting->GetClubFinderGUID();
+        entry.PlayerGUID       = application->PlayerGuid;
+        // Retail sends no name body and a -1 item level here; level comes from the character
+        // cache, everything else the client resolves through its own name queries.
+        entry.Message          = application->Comment;
+        entry.Level            = character->Level;
+        entry.RecruitingSpecs  = application->Specs;
+        entry.LastUpdatedTime  = application->LastUpdatedTime;
+        entry.RequestStatus    = application->Status;
+        // A live application goes to ReturnClubApplicantList (Closed = 0); everything else is
+        // history and only shows in ReturnPendingClubApplicantList.
+        entry.Closed           = application->Status != CLUB_FINDER_APPLICATION_PENDING;
+    }
+
     SendPacket(response.Write());
 }
 
@@ -573,6 +613,10 @@ void WorldSession::HandleClubFinderRequestPendingClubsList(WorldPackets::ClubFin
 {
     if (!GetPlayer())
         return;
+
+    // Every player's client polls this on login and periodically while the guild UI is open; see
+    // the matching call in HandleClubFinderGetApplicantsList.
+    sClubFinderMgr->CleanupApplications();
 
     SendClubFinderPendingApplications(request.Type);
 }
@@ -616,12 +660,8 @@ void WorldSession::HandleClubFinderRespondToApplicant(WorldPackets::ClubFinder::
         return;
     }
 
-    // Consent guard: an applicant controls their own membership, so only a still-live request may be
-    // acted on. Checking only that an application row exists would let a leader accept a withdrawn
-    // (CANCELED), declined, already-joined, or expired application and force a player into the guild
-    // against their current consent. Refuse anything that is not a pending (or auto-approved) and
-    // unexpired request; the client surfaces CLUB_FINDER_ERROR_RESPOND_APPLICANT and re-requests the
-    // applicant list.
+    // Consent guard: only a still-live request may be acted on - a withdrawn, declined,
+    // already-joined or expired application must not admit the player against their consent.
     if ((existing->Status != CLUB_FINDER_APPLICATION_PENDING && existing->Status != CLUB_FINDER_APPLICATION_AUTO_APPROVED)
         || ClubFinderMgr::IsApplicationExpired(*existing))
     {
@@ -632,40 +672,32 @@ void WorldSession::HandleClubFinderRespondToApplicant(WorldPackets::ClubFinder::
     ClubFinderApplication updated = *existing;
     updated.Status = request.ShouldAccept ? CLUB_FINDER_APPLICATION_APPROVED : CLUB_FINDER_APPLICATION_DECLINED;
 
-    // Accepting has to actually admit the player, otherwise the whole flow ends in a status change
-    // that means nothing. A player who joined elsewhere in the meantime is recorded as such rather
-    // than being silently dropped.
-    if (request.ShouldAccept)
-    {
-        if (Player* applicant = ObjectAccessor::FindConnectedPlayer(request.PlayerGUID); applicant && applicant->GetGuildId())
-            updated.Status = CLUB_FINDER_APPLICATION_JOINED_ANOTHER;
-        else
-        {
-            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-            if (guild->AddMember(trans, request.PlayerGUID))
-            {
-                CharacterDatabase.CommitTransaction(trans);
-                updated.Status = CLUB_FINDER_APPLICATION_JOINED;
-            }
-            else
-            {
-                sendError(CLUB_FINDER_ERROR_ACCEPT_APPLICATION);
-                return;
-            }
-        }
-    }
+    // The accept does not admit the player on the spot and does not care whether the applicant
+    // belongs to another guild: the application moves to APPROVED and the client turns it into
+    // an invitation card, whose Accept button it disables while the player is in a guild - the
+    // invitation simply waits for them to leave. (Downgrading the status here would render
+    // nothing at all in the applicant's own list.)
 
     sClubFinderMgr->SaveApplication(std::move(updated));
 
-    // Refresh the officer applicant list so the decision shows immediately.
-    WorldPackets::ClubFinder::ClubFinderApplicationList response(SMSG_CLUB_FINDER_UPDATE_APPLICATIONS);
-    response.Type = request.Type;
-    FillApplicationList(response, sClubFinderMgr->GetApplicationsForPosting(posting->PostingId));
-    SendPacket(response.Write());
-
-    // The applicant is the one waiting on this answer, so push their own list too.
-    if (Player* applicant = ObjectAccessor::FindConnectedPlayer(request.PlayerGUID))
-        applicant->GetSession()->SendClubFinderPendingApplications(request.Type);
+    // Retail answers the decision with a single-record UPDATE_APPLICATIONS back to the acting
+    // officer. The applicant learns of the approval through their next 14D poll (the E2 record
+    // with status APPROVED turns into the invitation card), so the applicant session is never
+    // pushed here.
+    {
+        ClubFinderApplication const* storedApplication = sClubFinderMgr->GetApplication(posting->PostingId, request.PlayerGUID);
+        if (storedApplication)
+        {
+            WorldPackets::ClubFinder::ClubFinderApplicationList update(SMSG_CLUB_FINDER_UPDATE_APPLICATIONS);
+            WorldPackets::ClubFinder::ClubFinderApplicationList::PendingApplication& record = update.Applications.emplace_back();
+            record.ClubFinderGUID    = posting->GetClubFinderGUID();
+            record.PlayerGUID        = storedApplication->PlayerGuid;
+            record.LastUpdatedTime   = storedApplication->LastUpdatedTime;
+            record.ApplicationStatus = storedApplication->Status;
+            update.Type = request.Type;
+            SendPacket(update.Write());
+        }
+    }
 
     TC_LOG_INFO("network", "ClubFinder: {} responded to applicant {} for posting {} (accepted: {}).",
         GetPlayerInfo(), request.PlayerGUID.ToString(), posting->PostingId, request.ShouldAccept);
@@ -673,6 +705,11 @@ void WorldSession::HandleClubFinderRespondToApplicant(WorldPackets::ClubFinder::
 
 // The applicant accepts an invite, or withdraws. DeclineInvite is never emitted by the client - a
 // declined invite arrives as Cancel - so both are handled as a withdrawal.
+// The applicant answers an invitation (accept / decline), or withdraws their request. DeclineInvite
+// is never emitted by the client - a declined invite arrives as Cancel - so both are handled as a
+// withdrawal. Accepting is the only step that actually admits the member: the officer's accept
+// merely marked the application APPROVED and delivered the invitation (see
+// HandleClubFinderRespondToApplicant).
 void WorldSession::HandleClubFinderApplicationResponse(WorldPackets::ClubFinder::ClubFinderApplicationResponse& request)
 {
     Player* player = GetPlayer();
@@ -694,8 +731,39 @@ void WorldSession::HandleClubFinderApplicationResponse(WorldPackets::ClubFinder:
     switch (request.UpdateType)
     {
         case CLUB_FINDER_APPLICATION_UPDATE_ACCEPT_INVITE:
-            updated.Status = CLUB_FINDER_APPLICATION_JOINED;
+        {
+            // Consent guard: only an unexpired invitation the guild actually extended may be
+            // accepted into membership. Anything else keeps its current status.
+            if (existing->Status != CLUB_FINDER_APPLICATION_APPROVED
+                && existing->Status != CLUB_FINDER_APPLICATION_AUTO_APPROVED)
+                return;
+
+            if (ClubFinderMgr::IsApplicationExpired(*existing))
+                return;
+
+            // Only reachable through a hand-crafted packet (the client disables Accept while
+            // guilded): leave the application APPROVED so the invitation keeps waiting.
+            if (player->GetGuildId())
+            {
+                TC_LOG_DEBUG("network", "ClubFinder: {} tried to accept an invitation while still in guild {}.",
+                    GetPlayerInfo(), player->GetGuildId());
+                return;
+            }
+
+            Guild* guild = sGuildMgr->GetGuildById(posting->ClubId);
+            if (!guild)
+                return;
+
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            if (guild->AddMember(trans, player->GetGUID()))
+            {
+                CharacterDatabase.CommitTransaction(trans);
+                updated.Status = CLUB_FINDER_APPLICATION_JOINED;
+            }
+            else
+                updated.Status = CLUB_FINDER_APPLICATION_DECLINED; // the guild cannot currently add the player
             break;
+        }
         case CLUB_FINDER_APPLICATION_UPDATE_DECLINE_INVITE:
         case CLUB_FINDER_APPLICATION_UPDATE_CANCEL:
             updated.Status = CLUB_FINDER_APPLICATION_CANCELED;
@@ -705,7 +773,23 @@ void WorldSession::HandleClubFinderApplicationResponse(WorldPackets::ClubFinder:
     }
 
     sClubFinderMgr->SaveApplication(std::move(updated));
-    SendClubFinderPendingApplications(request.Type);
+
+    // Answer with a single-record UPDATE_APPLICATIONS carrying the final status; the client
+    // re-polls its pending list right after this packet.
+    {
+        ClubFinderApplication const* storedApplication = sClubFinderMgr->GetApplication(posting->PostingId, player->GetGUID());
+        if (storedApplication)
+        {
+            WorldPackets::ClubFinder::ClubFinderApplicationList update(SMSG_CLUB_FINDER_UPDATE_APPLICATIONS);
+            WorldPackets::ClubFinder::ClubFinderApplicationList::PendingApplication& record = update.Applications.emplace_back();
+            record.ClubFinderGUID    = posting->GetClubFinderGUID();
+            record.PlayerGUID        = storedApplication->PlayerGuid;
+            record.LastUpdatedTime   = storedApplication->LastUpdatedTime;
+            record.ApplicationStatus = storedApplication->Status;
+            update.Type = request.Type;
+            SendPacket(update.Write());
+        }
+    }
 }
 
 // An officer asks whether they may whisper an applicant. Answering opens the whisper window client

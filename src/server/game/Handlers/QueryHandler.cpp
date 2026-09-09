@@ -16,6 +16,7 @@
  */
 
 #include "WorldSession.h"
+#include "ClubFinderPackets.h"
 #include "Common.h"
 #include "Corpse.h"
 #include "DatabaseEnv.h"
@@ -53,6 +54,31 @@ void WorldSession::HandleQueryPlayerNames(WorldPackets::Query::QueryPlayerNames&
     for (ObjectGuid guid : queryPlayerNames.Players)
         BuildNameQueryData(guid, response.Players.emplace_back());
 
+    SendPacket(response.Write());
+}
+
+// The club finder resolves applicant names through this query in addition to the plain
+// QueryPlayerNames: the per-guid lookup and the bulk prepopulate complete the club finder's
+// own name-cache entries, so all three responses are sent.
+void WorldSession::HandleQueryPlayerNamesForCommunity(WorldPackets::Query::QueryPlayerNamesForCommunity& queryPlayerNames)
+{
+    for (ObjectGuid guid : queryPlayerNames.Players)
+    {
+        WorldPackets::ClubFinder::ClubFinderPlayerGuidLookupData lookup(guid);
+        SendPacket(lookup.Write());
+    }
+
+    WorldPackets::Query::PrepopulateNameCache prepopulate;
+    WorldPackets::Query::QueryPlayerNamesResponse response;
+    for (ObjectGuid guid : queryPlayerNames.Players)
+    {
+        WorldPackets::Query::NameCacheLookupResult& lookupResult = response.Players.emplace_back();
+        BuildNameQueryData(guid, lookupResult);
+        if (lookupResult.Data)
+            prepopulate.Entries.push_back({ *lookupResult.Data });
+    }
+
+    SendPacket(prepopulate.Write());
     SendPacket(response.Write());
 }
 

@@ -1254,6 +1254,38 @@ Guild.NewsLogRecordsCount = 250
 Guild.SaveInterval = 15
 
 #
+#    Guild.Rename.Enabled
+#        Description: Enable the in-game guild rename flow (CMSG_GUILD_REQUEST_RENAME* cluster).
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+Guild.Rename.Enabled = 1
+
+#
+#    Guild.Rename.Cost
+#        Description: Price (in copper) charged from the GUILD BANK for a guild rename.
+#        Default:     1000000 (100 gold)
+
+Guild.Rename.Cost = 1000000
+
+#
+#    Guild.Rename.Cooldown
+#        Description: Time (in seconds) that must pass after a paid rename before the guild can
+#                     rename again. 0 disables the cooldown.
+#        Default:     0
+
+Guild.Rename.Cooldown = 0
+
+#
+#    Guild.Rename.RefundWindow
+#        Description: Time (in seconds) during which the last paid rename can be refunded (the old
+#                     name is restored and the fee returned to the guild bank). 0 keeps it open
+#                     indefinitely.
+#        Default:     604800 (7 days)
+
+Guild.Rename.RefundWindow = 604800
+
+#
 #    MaxPrimaryTradeSkill
 #        Description: Maximum number of primary professions a character can learn.
 #        Range:       0-11

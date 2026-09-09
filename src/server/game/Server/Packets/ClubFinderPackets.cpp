@@ -18,6 +18,8 @@
 #include "ClubFinderPackets.h"
 #include "PacketOperators.h"
 
+#include <algorithm>
+
 namespace WorldPackets::ClubFinder
 {
 void ClubFinderPost::Read()
@@ -29,8 +31,8 @@ void ClubFinderPost::Read()
     _worldPacket >> Bits<3>(Type);
     _worldPacket >> Bits<1>(CrossFaction);
 
-    // The first byte-aligned read below flushes the remaining bits of the block for us
-    // (ByteBuffer::read<T> calls ResetBitPos), matching the client's explicit FlushBits.
+    // The first byte-aligned read flushes the remaining bits of the block, matching the
+    // client's explicit FlushBits.
     _worldPacket >> ClubId;
     _worldPacket >> RecruitingSpecs;
     _worldPacket >> RecruitmentFlags;
@@ -43,8 +45,8 @@ void ClubFinderPost::Read()
 WorldPacket const* ClubFinderResponsePostRecruitmentMessage::Write()
 {
     _worldPacket << ClubFinderGUID;
-    _worldPacket << Bits<3>(Result);
-    _worldPacket << Bits<3>(Unused);
+    _worldPacket << Bits<3>(Result);  // 0 = created, 1 = updated
+    _worldPacket << Bits<3>(Unused);  // always 1 on retail
     _worldPacket.FlushBits();
 
     return &_worldPacket;
@@ -59,12 +61,12 @@ void ClubFinderRequestSubscribedClubPostingIds::Read()
 
 WorldPacket const* ClubFinderGetClubPostingIdsResponse::Write()
 {
+    // u32 count, then one { club id u64, guild id u64 } record per subscribed club.
     _worldPacket << Size<uint32>(PostingIds);
     for (ClubPostingClubIDMap const& postingId : PostingIds)
     {
         _worldPacket << postingId.ClubID;
-        _worldPacket << postingId.ClubPostingID;
-        _worldPacket << postingId.PostingDisplayFlags;
+        _worldPacket << postingId.GuildID;
     }
 
     return &_worldPacket;
@@ -126,17 +128,15 @@ void ClubFinderRequestClubsData::Read()
     _worldPacket >> Bits<1>(LinkedLookup);
     _worldPacket.ResetBitPos();
 
-    filterCount = std::min<uint32>(filterCount, _worldPacket.size()); // cap before resize (uncapped -> std::bad_alloc -> world-thread crash)
+    // Cap before resize: an uncapped crafted count would std::bad_alloc the world thread.
+    filterCount = std::min<uint32>(filterCount, _worldPacket.size());
     Filters.resize(filterCount);
     for (ClubFinderPostingFilter& filter : Filters)
         _worldPacket >> filter;
 }
 
-// Shared record body, reverse-engineered from the 12.1.0.69404 client's own parser
-// (img+0x751950; field count cross-checked against the JAM reflection names: 4 u32 + 3 u64 +
-// 2 packed GUIDs + 3 strings, struct slots 0x68 and 0x8c8 being the two 16-byte GUID slots).
-// The field ORDER is the 12.0.1 order (finder GUID first, poster GUID before the tail u64s);
-// what changed in 12.1 is the PACKET envelope, which moved to the end (see Write()).
+// The 12.1 wire keeps the 12.0 field order; only the packet envelope moved (see
+// ClubFinderLookupClubPostingsList::Write).
 ByteBuffer& operator<<(ByteBuffer& data, ClubFinderClubCacheData const& posting)
 {
     // One bit block per record: 7 + 12 + 6 = 25 bits, flushed to four whole bytes.
@@ -190,7 +190,8 @@ void ClubFinderRequestClubsList::Read()
         _worldPacket.read(reinterpret_cast<uint8*>(SearchString.data()), searchStringLength);
     }
 
-    filterCount = std::min<uint32>(filterCount, _worldPacket.size()); // cap before resize (uncapped -> std::bad_alloc -> world-thread crash)
+    // Cap before resize: an uncapped crafted count would std::bad_alloc the world thread.
+    filterCount = std::min<uint32>(filterCount, _worldPacket.size());
     Filters.resize(filterCount);
     for (ClubFinderPostingFilter& filter : Filters)
         _worldPacket >> filter;
@@ -198,10 +199,9 @@ void ClubFinderRequestClubsList::Read()
 
 WorldPacket const* ClubFinderLookupClubPostingsList::Write()
 {
-    // 12.1 envelope order (client parser at img+0x607411): count u32, then ALL records, then
-    // the single envelope byte LAST (type in the top 3 bits, linked in bit 4). 12.0.1 put the
-    // envelope right after the count - writing it there eats the first byte of record #1's
-    // bit block and the whole packet misparses.
+    // u32 count, then all records, then the single envelope byte LAST (type in its top 3
+    // bits). Writing the envelope right after the count (the 12.0 shape) eats the first byte
+    // of record #1's bit block and the whole packet misparses.
     _worldPacket << Size<uint32>(Postings);
     for (ClubCacheData const& posting : Postings)
         _worldPacket << posting;
@@ -240,11 +240,8 @@ void ClubFinderRespondToApplicant::Read()
     _worldPacket >> PlayerGUID;
     _worldPacket >> Bits<1>(ShouldAccept);
     _worldPacket >> Bits<3>(Type);
-    // ForceAccept is read off the wire to keep the bit stream aligned, but it is DELIBERATELY
-    // NOT HONOURED per realm policy. The client sets it to skip the applicant's own accept step and
-    // force the join through; this realm always routes an accept through the normal consent path
-    // (Guild::AddMember with the applicant's status guard), so the parsed value is intentionally
-    // ignored by the handler rather than silently dropped as an unnamed bit.
+    // ForceAccept is read to keep the bit stream aligned but deliberately not honoured: an
+    // accept always routes through the applicant's own consent step.
     _worldPacket >> Bits<1>(ForceAccept);
     _worldPacket.ResetBitPos();
 }
@@ -260,8 +257,6 @@ void ClubFinderApplicationResponse::Read()
 WorldPacket const* ClubFinderApplicationList::Write()
 {
     _worldPacket << Size<uint32>(Applications);
-    _worldPacket << Bits<3>(Type);
-    _worldPacket.FlushBits();
 
     for (PendingApplication const& application : Applications)
     {
@@ -269,9 +264,46 @@ WorldPacket const* ClubFinderApplicationList::Write()
         _worldPacket << application.PlayerGUID;
         _worldPacket << application.Closed;
         _worldPacket << application.LastUpdatedTime;
-        _worldPacket << Bits<4>(application.ApplicationStatus);
-        _worldPacket.FlushBits();
+        _worldPacket << uint8(application.ApplicationStatus << 4);
     }
+
+    // Envelope byte LAST; writing it first (the 12.0 shape) misparses every record.
+    _worldPacket << uint8(Type << 5);
+
+    return &_worldPacket;
+}
+
+WorldPacket const* ClubFinderApplicantsList::Write()
+{
+    _worldPacket << ClubFinderGUID;
+    _worldPacket << Size<uint32>(Applicants);
+
+    for (Applicant const& applicant : Applicants)
+    {
+        _worldPacket << applicant.ClubFinderGUID;
+        _worldPacket << applicant.PlayerGUID;
+        _worldPacket << applicant.Closed;
+        _worldPacket << uint8(0xFF);
+        _worldPacket << uint8(0xFF);
+        _worldPacket << applicant.Level;
+        _worldPacket << uint32(0xFFFFFFFF); // item level: not provided, the client resolves it itself
+        _worldPacket << applicant.RecruitingSpecs;
+        _worldPacket << applicant.LastUpdatedTime;
+        _worldPacket << uint8(0xFF);
+
+        // Length block: nameLen << 2 | messageLen >> 8, messageLen & 0xFF, then
+        // (request status << 4) | (closed << 3). The name is always empty on the wire.
+        uint32 const messageLength = std::min<uint32>(applicant.Message.size(), 0x3FF);
+        _worldPacket << uint8(messageLength >> 8);
+        _worldPacket << uint8(messageLength & 0xFF);
+        _worldPacket << uint8((applicant.RequestStatus << 4) | (applicant.Closed << 3));
+
+        // ByteBuffer::append asserts on a zero count, and a comment may legitimately be empty.
+        if (messageLength)
+            _worldPacket.append(applicant.Message.c_str(), messageLength);
+    }
+
+    _worldPacket << uint8(Type << 5);
 
     return &_worldPacket;
 }
@@ -280,6 +312,21 @@ void ClubFinderWhisperApplicantRequest::Read()
 {
     _worldPacket >> ClubFinderGUID;
     _worldPacket >> PlayerGUID;
+}
+
+WorldPacket const* ClubFinderPlayerGuidLookupData::Write()
+{
+    _worldPacket << Guid;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* ClubFinderPlayerGuidLookupResult::Write()
+{
+    _worldPacket << Guid;
+    _worldPacket << uint8(Found ? 0x80 : 0x00);
+
+    return &_worldPacket;
 }
 
 WorldPacket const* ClubFinderWhisperApplicantResponse::Write()

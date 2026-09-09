@@ -141,6 +141,13 @@ void QueryPlayerNames::Read()
         _worldPacket >> player;
 }
 
+void QueryPlayerNamesForCommunity::Read()
+{
+    _worldPacket >> Size<uint32>(Players);
+    for (ObjectGuid& player : Players)
+        _worldPacket >> player;
+}
+
 bool PlayerGuidLookupData::Initialize(ObjectGuid const& guid, Player const* player /*= nullptr*/)
 {
     CharacterCacheEntry const* characterInfo = sCharacterCache->GetCharacterCacheByGuid(guid);
@@ -263,6 +270,16 @@ WorldPacket const* QueryPlayerNamesResponse::Write()
     _worldPacket << Size<uint32>(Players);
     for (NameCacheLookupResult const& lookupResult : Players)
         _worldPacket << lookupResult;
+
+    return &_worldPacket;
+}
+
+WorldPacket const* PrepopulateNameCache::Write()
+{
+    _worldPacket << uint64(Context);
+    _worldPacket << Size<uint32>(Entries);
+    for (Entry const& entry : Entries)
+        _worldPacket << entry.Data;
 
     return &_worldPacket;
 }
