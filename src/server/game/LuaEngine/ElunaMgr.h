@@ -9,6 +9,7 @@
 
 #include <limits>
 #include <memory>
+#include <shared_mutex>
 #include <unordered_map>
 
 class Eluna;
@@ -101,6 +102,7 @@ public:
     void Destroy(ElunaInfo const& info);
 
 private:
+    mutable std::shared_mutex _elunaMapLock;
     std::unordered_map<ElunaInfoKey, std::unique_ptr<Eluna>> _elunaMap;
 };
 

@@ -9,7 +9,9 @@
 #include "ElunaConfig.h"
 #include "ElunaLoader.h"
 #include "ElunaUtility.h"
+#include <cctype>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <thread>
 #include <charconv>
@@ -268,6 +270,129 @@ bool ElunaLoader::CompileScript(lua_State* L, LuaScript& script)
     return true;
 }
 
+namespace
+{
+    char const WAIT_NAME[] = "wait";
+
+    bool IsWaitIdentifier(std::string const& source, size_t begin, size_t end)
+    {
+        if (end - begin != sizeof(WAIT_NAME) - 1)
+            return false;
+
+        for (size_t k = 0; k < sizeof(WAIT_NAME) - 1; ++k)
+        {
+            char c = source[begin + k];
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+            if (c != WAIT_NAME[k])
+                return false;
+        }
+        return true;
+    }
+
+    // Detects a call to wait(...) in lua source. Comments and string literals
+    // are skipped so the word "wait" in them does not count. Only a call
+    // (identifier followed by '(') is reported - a local variable or a field
+    // merely named wait is harmless.
+    bool SourceCallsWait(std::string const& source)
+    {
+        size_t const n = source.size();
+        size_t i = 0;
+        while (i < n)
+        {
+            char const c = source[i];
+
+            if (c == '-' && i + 1 < n && source[i + 1] == '-')
+            {
+                // comment; long comments are enclosed in ]=*] after --[=*[
+                size_t equals = 0;
+                size_t j = i + 2;
+                if (j < n && source[j] == '[')
+                {
+                    size_t k = j + 1;
+                    while (k < n && source[k] == '=') { ++k; ++equals; }
+                    if (k < n && source[k] == '[')
+                    {
+                        std::string closer("]");
+                        closer.append(equals, '=');
+                        closer.push_back(']');
+                        size_t end = source.find(closer, k + 1);
+                        i = (end == std::string::npos) ? n : end + closer.size();
+                        continue;
+                    }
+                }
+                size_t end = source.find('\n', i);
+                i = (end == std::string::npos) ? n : end + 1;
+                continue;
+            }
+
+            if (c == '"' || c == '\'')
+            {
+                size_t j = i + 1;
+                while (j < n && source[j] != c && source[j] != '\n')
+                {
+                    if (source[j] == '\\')
+                        ++j; // skip the escaped character
+                    ++j;
+                }
+                i = (j < n) ? j + 1 : n;
+                continue;
+            }
+
+            if (c == '[')
+            {
+                // long string [=*[ ... ]=*]
+                size_t equals = 0;
+                size_t j = i + 1;
+                while (j < n && source[j] == '=') { ++j; ++equals; }
+                if (j < n && source[j] == '[')
+                {
+                    std::string closer("]");
+                    closer.append(equals, '=');
+                    closer.push_back(']');
+                    size_t end = source.find(closer, j + 1);
+                    i = (end == std::string::npos) ? n : end + closer.size();
+                    continue;
+                }
+                ++i;
+                continue;
+            }
+
+            if (std::isalpha(static_cast<unsigned char>(c)) || c == '_')
+            {
+                size_t j = i + 1;
+                while (j < n && (std::isalnum(static_cast<unsigned char>(source[j])) || source[j] == '_'))
+                    ++j;
+
+                if (IsWaitIdentifier(source, i, j))
+                {
+                    size_t k = j;
+                    while (k < n && std::isspace(static_cast<unsigned char>(source[k])))
+                        ++k;
+                    if (k < n && source[k] == '(')
+                        return true;
+                }
+
+                i = j;
+                continue;
+            }
+
+            ++i;
+        }
+        return false;
+    }
+
+    bool FileCallsWait(std::string const& path)
+    {
+        std::ifstream file(path, std::ios::in | std::ios::binary);
+        if (!file)
+            return false; // read errors are reported by CompileScript
+
+        std::string source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        return SourceCallsWait(source);
+    }
+}
+
 void ElunaLoader::ProcessScript(lua_State* L, std::string filename, const size_t& filesize, const std::string& fullpath, int32 mapId)
 {
     ELUNA_LOG_DEBUG("[Eluna]: ProcessScript checking file `%s`", fullpath.c_str());
@@ -292,9 +417,18 @@ void ElunaLoader::ProcessScript(lua_State* L, std::string filename, const size_t
     script.bytecode.reserve(filesize);
     script.mapId = mapId;
 
-    // if compilation fails, we don't add the script 
+    // if compilation fails, we don't add the script
     if (!CompileScript(L, script))
         return;
+
+    // wait() pauses the whole lua state thread - and with it the world or map
+    // update that is currently running the state - so such scripts are
+    // refused outright instead of freezing the server at runtime.
+    if (FileCallsWait(fullpath))
+    {
+        ELUNA_LOG_ERROR("[Eluna]: `%s` was not loaded: the script calls wait(), which pauses the whole lua state and freezes the server. Use CreateLuaEvent(function() ... end, delay) to run code after a delay instead.", fullpath.c_str());
+        return;
+    }
 
     if (extension)
         m_extensions.push_back(script);
@@ -327,6 +461,7 @@ static bool ScriptPathComparator(const LuaScript& first, const LuaScript& second
 {
     return first.filepath < second.filepath;
 }
+
 
 void ElunaLoader::CombineLists()
 {

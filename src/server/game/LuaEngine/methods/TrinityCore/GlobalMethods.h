@@ -2562,7 +2562,7 @@ namespace LuaGlobalFunctions
      */
     int PrintInfo(Eluna* E)
     {
-        ELUNA_LOG_INFO("{}", GetStackAsString(E).c_str());
+        ELUNA_LOG_INFO("%s", GetStackAsString(E).c_str());
         return 0;
     }
 
@@ -2573,8 +2573,22 @@ namespace LuaGlobalFunctions
      */
     int PrintError(Eluna* E)
     {
-        ELUNA_LOG_ERROR("{}", GetStackAsString(E).c_str());
+        ELUNA_LOG_ERROR("%s", GetStackAsString(E).c_str());
         return 0;
+    }
+
+    /**
+     * Forbidden pause function. Scripts that call wait() are refused at load
+     * time by the script loader; this stub is a safety net for calls built
+     * dynamically (loadstring and similar) that the static check cannot see.
+     *
+     * Use [CreateLuaEvent] to run code after a delay instead.
+     *
+     * @param ...
+     */
+    int WaitForbidden(Eluna* E)
+    {
+        return luaL_error(E->L, "wait() is not allowed: it would pause the whole lua state and freeze the server. Use CreateLuaEvent(function() ... end, delay) instead.");
     }
 
     /**
@@ -2584,7 +2598,7 @@ namespace LuaGlobalFunctions
      */
     int PrintDebug(Eluna* E)
     {
-        ELUNA_LOG_DEBUG("{}", GetStackAsString(E).c_str());
+        ELUNA_LOG_DEBUG("%s", GetStackAsString(E).c_str());
         return 0;
     }
 
@@ -3333,6 +3347,7 @@ namespace LuaGlobalFunctions
         { "CreateLuaEvent", &LuaGlobalFunctions::CreateLuaEvent },
         { "RemoveEventById", &LuaGlobalFunctions::RemoveEventById },
         { "RemoveEvents", &LuaGlobalFunctions::RemoveEvents },
+        { "wait", &LuaGlobalFunctions::WaitForbidden },
         { "PerformIngameSpawn", &LuaGlobalFunctions::PerformIngameSpawn },
         { "CreatePacket", &LuaGlobalFunctions::CreatePacket },
         { "AddVendorItem", &LuaGlobalFunctions::AddVendorItem },

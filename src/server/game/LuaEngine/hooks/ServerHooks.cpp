@@ -29,7 +29,6 @@ using namespace Hooks;
 bool Eluna::OnAddonMessage(Player* sender, uint32 type, std::string& msg, Player* receiver, Guild* guild, Group* group, Channel* channel)
 {
     START_HOOK_WITH_RETVAL(ADDON_EVENT_ON_MESSAGE, true);
-    ELUNA_LOG_INFO("AIO client->server OnAddonMessage:\nsender: %u\ntype: %u\nmsg: %u\nreceiver: %u", sender->GetName().c_str(), type, msg.c_str(), receiver->GetName().c_str());
     HookPush(sender);
     HookPush(type);
 
