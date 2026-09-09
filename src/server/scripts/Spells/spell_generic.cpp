@@ -3206,6 +3206,26 @@ class spell_gen_two_forms : public SpellScript
     }
 };
 
+// 406090 - Calm the Wolf
+class spell_gen_calm_the_wolf : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        PreventDefaultAction();
+
+        Unit* target = GetTarget();
+        if (target->IsInCombat())
+            target->CastSpell(target, SPELL_ALTERED_FORM, true);
+        else
+            target->RemoveAurasDueToSpell(SPELL_ALTERED_FORM);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_gen_calm_the_wolf::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
 class spell_gen_darkflight : public SpellScript
 {
     void TriggerTransform()
@@ -5953,6 +5973,7 @@ void AddSC_generic_spell_scripts()
     RegisterSpellScriptWithArgs(spell_gen_break_shield, "spell_gen_break_shield");
     RegisterSpellScriptWithArgs(spell_gen_break_shield, "spell_gen_tournament_counterattack");
     RegisterSpellScript(spell_gen_burning_depths_necrolyte_image);
+    RegisterSpellScript(spell_gen_calm_the_wolf);
     RegisterSpellScript(spell_gen_cancel_aura);
     RegisterSpellScript(spell_gen_cast_caster_to_target);
     RegisterSpellScript(spell_gen_cast_target_to_target);
