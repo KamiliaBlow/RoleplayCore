@@ -569,15 +569,6 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder)
     }
     else
     {
-        uint64 nextGroupId = 1;
-        LoginDatabasePreparedStatement* maxIdStmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUP_MAX_ID);
-
-        if (PreparedQueryResult maxIdResult = LoginDatabase.Query(maxIdStmt))
-        {
-            Field* fields = maxIdResult->Fetch();
-            nextGroupId = fields[0].GetUInt64() + 1;
-        }
-
         auto const* globalStringEntry = sGlobalStringsStore.LookupEntry(51864);
 
         std::string localizedGroupName = "Favorites"; // Default enUS name
@@ -595,8 +586,11 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder)
             }
         }
 
+        // group ids are scoped to the account (the client picks new ids counting from
+        // the highest id it was sent), and the default group uses the fixed id 1 so a
+        // late-inserting default cannot show up next to a renamed first group
         WorldPackets::Character::WarbandGroup defaultGroup;
-        defaultGroup.GroupID = nextGroupId;
+        defaultGroup.GroupID = 1;
         defaultGroup.OrderIndex = 0;
         defaultGroup.Name = localizedGroupName;
         defaultGroup.WarbandSceneID = 1;
@@ -604,14 +598,10 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder)
 
         charEnum.WarbandGroups.push_back(std::move(defaultGroup));
 
-        LoginDatabasePreparedStatement* insertStmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP);
-        insertStmt->setUInt64(0, nextGroupId);
-        insertStmt->setUInt32(1, GetAccountId());
-        insertStmt->setUInt32(2, sConfigMgr->GetIntDefault("RealmID", 1));
-        insertStmt->setUInt8(3, 0);
-        insertStmt->setString(4, std::string(localizedGroupName));
-        insertStmt->setUInt32(5, 1);
-        insertStmt->setUInt32(6, 1);
+        LoginDatabasePreparedStatement* insertStmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP_DEFAULT);
+        insertStmt->setUInt32(0, GetAccountId());
+        insertStmt->setUInt32(1, sConfigMgr->GetIntDefault("RealmID", 1));
+        insertStmt->setString(2, std::string(localizedGroupName));
         LoginDatabase.Execute(insertStmt);
     }
 
@@ -685,10 +675,12 @@ void WorldSession::HandleSetupWarbandGroups(WorldPackets::Character::SetupWarban
         for (auto const& member : group.Members)
         {
             stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP_MEMBER);
-            stmt->setUInt64(0, group.GroupID);
-            stmt->setUInt64(1, member.Guid.GetCounter());
-            stmt->setUInt32(2, member.WarbandScenePlacementID);
-            stmt->setUInt32(3, member.Type);
+            stmt->setUInt32(0, accountId);
+            stmt->setUInt32(1, realmId);
+            stmt->setUInt64(2, group.GroupID);
+            stmt->setUInt64(3, member.Guid.GetCounter());
+            stmt->setUInt32(4, member.WarbandScenePlacementID);
+            stmt->setUInt32(5, member.Type);
             trans->Append(stmt);
         }
     }

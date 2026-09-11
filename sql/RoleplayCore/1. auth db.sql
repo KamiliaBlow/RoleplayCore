@@ -88,15 +88,16 @@ CREATE TABLE `account_warband_groups` (
   `name` varchar(257) NOT NULL,
   `warbandSceneId` int(10) unsigned NOT NULL DEFAULT '0',
   `flags` int(10) unsigned NOT NULL DEFAULT '0',
-  PRIMARY KEY (`id`),
-  KEY `idx_account_realm` (`accountId`, `realmId`)
+  PRIMARY KEY (`accountId`, `realmId`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `account_warband_group_members` (
+  `accountId` int(10) unsigned NOT NULL,
+  `realmId` int(10) unsigned NOT NULL DEFAULT '1',
   `groupId` bigint(20) unsigned NOT NULL,
   `characterGuid` bigint(20) unsigned NOT NULL,
   `placementId` int(10) unsigned NOT NULL,
   `type` int(10) unsigned NOT NULL DEFAULT '0',
-  PRIMARY KEY (`groupId`, `characterGuid`),
-  CONSTRAINT `fk_warband_group` FOREIGN KEY (`groupId`) REFERENCES `account_warband_groups` (`id`) ON DELETE CASCADE
+  PRIMARY KEY (`accountId`, `realmId`, `groupId`, `characterGuid`),
+  CONSTRAINT `fk_warband_group` FOREIGN KEY (`accountId`, `realmId`, `groupId`) REFERENCES `account_warband_groups` (`accountId`, `realmId`, `id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
