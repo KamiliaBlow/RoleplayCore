@@ -357,6 +357,17 @@ void SmartScript::ProcessAction(SmartScriptHolder& e, Unit* unit, uint32 var0, u
             if (!talker)
                 break;
 
+            if (talker != me)
+            {
+                mLastConversationPartner = talker->GetGUID();
+            }
+            else if (!talkTarget)
+            {
+                if (Creature* partner = ObjectAccessor::GetCreature(*me, mLastConversationPartner))
+                    if (partner->IsAlive() && partner->IsInWorld())
+                        talkTarget = partner;
+            }
+
             mTalkerEntry = talker->GetEntry();
             mLastTextID = e.action.talk.textGroupID;
             mTextTimer = e.action.talk.duration;

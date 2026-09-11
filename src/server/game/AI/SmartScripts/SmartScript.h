@@ -137,6 +137,7 @@ class TC_GAME_API SmartScript
         uint32 mTextTimer;
         uint32 mLastTextID;
         uint32 mTalkerEntry;
+        ObjectGuid mLastConversationPartner;
         bool mUseTextTimer;
         uint32 mCurrentPriority;
         bool mEventSortingRequired;

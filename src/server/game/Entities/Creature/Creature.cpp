@@ -3634,10 +3634,18 @@ void Creature::SetPetitioner(bool apply)
 // overwrite WorldObject function for proper name localization
 std::string Creature::GetNameForLocaleIdx(LocaleConstant locale) const
 {
+    bool const female = GetGender() == GENDER_FEMALE;
+
     if (locale != DEFAULT_LOCALE)
         if (CreatureLocale const* cl = sObjectMgr->GetCreatureLocale(GetEntry()))
-            if (cl->Name.size() > locale && !cl->Name[locale].empty())
-                return cl->Name[locale];
+        {
+            std::vector<std::string> const& names = female ? cl->NameAlt : cl->Name;
+            if (names.size() > locale && !names[locale].empty())
+                return names[locale];
+        }
+
+    if (female && !GetCreatureTemplate()->FemaleName.empty())
+        return GetCreatureTemplate()->FemaleName;
 
     return GetName();
 }
