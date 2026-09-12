@@ -418,6 +418,62 @@ void Creature::SetOutfit(std::shared_ptr<CreatureOutfit> const& outfit)
     }
 }
 
+void Creature::RevealOutfitForViewer(Player* viewer)
+{
+    if (!m_outfit || !viewer)
+        return;
+
+    if (!m_outfit->HasModelSwapCustomization())
+        return;
+
+    ObjectGuid guid = viewer->GetGUID();
+    if (_outfitRevealAt.count(guid) || _outfitRestorePending.count(guid))
+        return;
+
+    _outfitRevealAt[guid] = GameTime::GetGameTimeMS() + 1500;
+}
+
+void Creature::UpdateOutfitReveals()
+{
+    if (_outfitRevealAt.empty() && _outfitRestorePending.empty())
+        return;
+
+    uint32 now = GameTime::GetGameTimeMS();
+
+    for (ObjectGuid guid : _outfitRestorePending)
+    {
+        if (m_outfit)
+            if (Player* viewer = ObjectAccessor::FindPlayer(guid))
+                if (viewer->GetMap() == GetMap() && viewer->HaveAtClient(this))
+                {
+                    SetDisplayId(m_outfit->GetDisplayId());
+                    SendUpdateToPlayer(viewer);
+                }
+    }
+    _outfitRestorePending.clear();
+
+    for (auto itr = _outfitRevealAt.begin(); itr != _outfitRevealAt.end();)
+    {
+        if (now >= itr->second)
+        {
+            Player* viewer = ObjectAccessor::FindPlayer(itr->first);
+            if (m_outfit && viewer && viewer->GetMap() == GetMap() && viewer->HaveAtClient(this))
+            {
+                std::shared_ptr<CreatureOutfit> outfit = m_outfit;
+
+                SetDisplayId(CreatureOutfit::invisible_model);
+                m_outfit = std::move(outfit);
+                SendUpdateToPlayer(viewer);
+
+                _outfitRestorePending.insert(itr->first);
+            }
+            itr = _outfitRevealAt.erase(itr);
+        }
+        else
+            ++itr;
+    }
+}
+
 void Creature::SendMirrorSound(Player* target, uint8 type)
 {
     std::shared_ptr<CreatureOutfit> const& outfit = GetOutfit();
@@ -825,6 +881,8 @@ void Creature::ApplyAllStaticFlags(CreatureStaticFlagsHolder const& flags)
 
 void Creature::Update(uint32 diff)
 {
+    UpdateOutfitReveals();
+
 #ifdef _WIN32
     if (m_outfit && !m_values.HasChanged(GetUpdateFieldHolderIndex(&UF::UnitData::DisplayID)) && Unit::GetDisplayId() == CreatureOutfit::invisible_model)
 #else

@@ -29,6 +29,8 @@
 
 class CreatureOutfit;
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 class CreatureAI;
 class CreatureGroup;
@@ -101,6 +103,8 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         void SetOutfit(std::shared_ptr<CreatureOutfit> const& outfit);
         void SetMirrorImageFlag(bool on) { if (on) SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE); else RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE); };
         void SendMirrorSound(Player* target, uint8 type);
+        void RevealOutfitForViewer(Player* viewer);
+        void UpdateOutfitReveals();
 
         void DisappearAndDie() { ForcedDespawn(0); }
 
@@ -620,6 +624,8 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         } _spellFocusInfo;
 		
 		std::shared_ptr<CreatureOutfit> m_outfit;
+		std::unordered_map<ObjectGuid, uint32> _outfitRevealAt;
+		std::unordered_set<ObjectGuid> _outfitRestorePending;
 
         time_t _lastDamagedTime; // Part of Evade mechanics
         CreatureTextRepeatGroup m_textRepeat;

@@ -509,6 +509,9 @@ void WorldSession::HandleMirrorImageDataRequest(WorldPackets::Spells::GetMirrorI
                 mirrorImageComponentedData.ItemDisplayID.push_back(outfit.outfitdisplays[slot]);
 
             SendPacket(mirrorImageComponentedData.Write());
+
+            if (getMirrorImageData.DisplayID == 0)
+                creature->RevealOutfitForViewer(_player);
             return;
         }
     }

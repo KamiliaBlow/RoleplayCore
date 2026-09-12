@@ -82,6 +82,7 @@ TC_GAME_API extern DB2Storage<ChrCustomizationReqEntry>             sChrCustomiz
 TC_GAME_API extern DB2Storage<ChrCustomizationOptionEntry>          sChrCustomizationOptionStore;
 TC_GAME_API extern DB2Storage<ChrCustomizationMaterialEntry>        sChrCustomizationMaterialStore;
 TC_GAME_API extern DB2Storage<ChrCustomizationChoiceEntry>          sChrCustomizationChoiceStore;
+TC_GAME_API extern DB2Storage<ChrCustomizationElementEntry>         sChrCustomizationElementStore;
 TC_GAME_API extern DB2Storage<ChrRaceRacialAbilityEntry>            sChrRaceRacialAbilityStore;
 TC_GAME_API extern DB2Storage<ChrRacesEntry>                        sChrRacesStore;
 TC_GAME_API extern DB2Storage<ChrSpecializationEntry>               sChrSpecializationStore;
