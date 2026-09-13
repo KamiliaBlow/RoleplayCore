@@ -75,6 +75,7 @@ enum WarlockSpells
     SPELL_WARLOCK_CORRUPTION_DAMAGE                 = 146739,
     SPELL_WARLOCK_CREATE_HEALTHSTONE                = 23517,
     SPELL_WARLOCK_CURSE_OF_EXHAUSTION               = 334275,
+    SPELL_WARLOCK_DARK_HARVEST                      = 1257052,
     SPELL_WARLOCK_DEATHS_EMBRACE                    = 453189,
     SPELL_WARLOCK_DEMONBOLT_ENERGIZE                = 280127,
     SPELL_WARLOCK_DEMONIC_CIRCLE_ALLOW_CAST         = 62388,
@@ -102,9 +103,11 @@ enum WarlockSpells
     SPELL_WARLOCK_ROARING_BLAZE                     = 205184,
     SPELL_WARLOCK_SEED_OF_CORRUPTION_DAMAGE         = 27285,
     SPELL_WARLOCK_SEED_OF_CORRUPTION_GENERIC        = 32865,
+    SPELL_WARLOCK_SHADOWBOLT_VOLLEY_AREA            = 453176,
     SPELL_WARLOCK_SHADOWBURN_ENERGIZE               = 245731,
     SPELL_WARLOCK_SHADOW_BOLT_ENERGIZE              = 194192,
     SPELL_WARLOCK_SHADOWFLAME                       = 37378,
+    SPELL_WARLOCK_SHARD_INSTABILITY                 = 1260269,
     SPELL_WARLOCK_SIPHON_LIFE_HEAL                  = 453000,
     SPELL_WARLOCK_SOUL_FIRE_ENERGIZE                = 281490,
     SPELL_WARLOCK_SOUL_SWAP_CD_MARKER               = 94229,
@@ -670,6 +673,50 @@ class spell_warl_create_healthstone : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_warl_create_healthstone::HandleScriptEffect, EFFECT_0, SPELL_EFFECT_SCRIPT_EFFECT);
+    }
+};
+
+// 453172 - Cunning Cruelty
+class spell_warl_cunning_cruelty : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_SHADOWBOLT_VOLLEY_AREA });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
+    {
+        return roll_chance(aurEff->GetAmount());
+    }
+
+    static void HandleProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActionTarget()->GetPosition(), SPELL_WARLOCK_SHADOWBOLT_VOLLEY_AREA, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warl_cunning_cruelty::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_warl_cunning_cruelty::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// 1259886 - Cull the Weak
+class spell_warl_cull_the_weak : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_DARK_HARVEST });
+    }
+
+    void HandleEffectProc(AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/) const
+    {
+        GetTarget()->GetSpellHistory()->ModifyCooldown(SPELL_WARLOCK_DARK_HARVEST, -Milliseconds(aurEff->GetAmountAsInt()));
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_warl_cull_the_weak::HandleEffectProc, EFFECT_0, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1524,6 +1571,31 @@ class spell_warl_shadow_invocation : public AuraScript
     void Register() override
     {
         OnProc += AuraProcFn(spell_warl_shadow_invocation::HandleProc);
+    }
+};
+
+// 1260264 - Shard Instability
+class spell_warl_shard_instability : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_WARLOCK_SHARD_INSTABILITY });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
+    {
+        return roll_chance(aurEff->GetAmount());
+    }
+
+    static void HandleProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_WARLOCK_SHARD_INSTABILITY, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_warl_shard_instability::CheckProc, EFFECT_1, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_warl_shard_instability::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
     }
 };
 
@@ -4503,6 +4575,8 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellScript(spell_warl_chaotic_energies);
     RegisterSpellScript(spell_warl_conflagrate);
     RegisterSpellScript(spell_warl_create_healthstone);
+    RegisterSpellScript(spell_warl_cunning_cruelty);
+    RegisterSpellScript(spell_warl_cull_the_weak);
     RegisterSpellScript(spell_warl_dark_pact);
     RegisterSpellScript(spell_warl_deaths_embrace);
     RegisterSpellScript(spell_warl_deaths_embrace_dots);
@@ -4530,6 +4604,7 @@ void AddSC_warlock_spell_scripts()
     RegisterSpellAndAuraScriptPair(spell_warl_shadowburn, spell_warl_shadowburn_aura);
     RegisterSpellScript(spell_warl_shadow_bolt);
     RegisterSpellScript(spell_warl_shadow_invocation);
+    RegisterSpellScript(spell_warl_shard_instability);
     RegisterSpellScript(spell_warl_siphon_life);
     RegisterSpellScript(spell_warl_soul_fire);
     RegisterSpellScript(spell_warl_soul_swap);
