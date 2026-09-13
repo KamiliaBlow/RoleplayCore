@@ -510,8 +510,9 @@ void WorldSession::HandleMirrorImageDataRequest(WorldPackets::Spells::GetMirrorI
 
             SendPacket(mirrorImageComponentedData.Write());
 
-            if (getMirrorImageData.DisplayID == 0)
-                creature->RevealOutfitForViewer(_player);
+            // Model-swap outfits (upright orc) need a display cycle before the client applies
+            // the data; the echoed DisplayID tells whether the client has a body built yet.
+            creature->HandleOutfitRevealRequest(_player, getMirrorImageData.DisplayID == 0);
             return;
         }
     }

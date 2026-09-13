@@ -30,7 +30,6 @@
 class CreatureOutfit;
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 
 class CreatureAI;
 class CreatureGroup;
@@ -103,7 +102,7 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         void SetOutfit(std::shared_ptr<CreatureOutfit> const& outfit);
         void SetMirrorImageFlag(bool on) { if (on) SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE); else RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE); };
         void SendMirrorSound(Player* target, uint8 type);
-        void RevealOutfitForViewer(Player* viewer);
+        void HandleOutfitRevealRequest(Player* viewer, bool clientHasNoBody);
         void UpdateOutfitReveals();
 
         void DisappearAndDie() { ForcedDespawn(0); }
@@ -624,8 +623,22 @@ class TC_GAME_API Creature : public Unit, public GridObject<Creature>, public Ma
         } _spellFocusInfo;
 		
 		std::shared_ptr<CreatureOutfit> m_outfit;
-		std::unordered_map<ObjectGuid, uint32> _outfitRevealAt;
-		std::unordered_set<ObjectGuid> _outfitRestorePending;
+
+        enum OutfitRevealStage : uint8
+        {
+            OUTFIT_REVEAL_HIDE,             // invisible display sent, waiting to restore
+            OUTFIT_REVEAL_RESTORE,          // outfit display sent, waiting for client re-request
+            OUTFIT_REVEAL_WAIT_FOR_CLIENT   // no re-request in time - cycle restarts
+        };
+
+        struct OutfitRevealState
+        {
+            OutfitRevealStage Stage;
+            uint8 Attempts;
+            uint32 NextTime;
+        };
+
+        std::unordered_map<ObjectGuid, OutfitRevealState> _outfitReveals;
 
         time_t _lastDamagedTime; // Part of Evade mechanics
         CreatureTextRepeatGroup m_textRepeat;

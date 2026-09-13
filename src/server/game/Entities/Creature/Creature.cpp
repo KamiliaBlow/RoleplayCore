@@ -418,59 +418,99 @@ void Creature::SetOutfit(std::shared_ptr<CreatureOutfit> const& outfit)
     }
 }
 
-void Creature::RevealOutfitForViewer(Player* viewer)
+namespace
 {
-    if (!m_outfit || !viewer)
+    constexpr uint32 OUTFIT_REVEAL_START_DELAY  = 1500;  // ms - client must have built the body from the create packet
+    constexpr uint32 OUTFIT_REVEAL_STEP_DELAY   = 1500;  // ms - hide and restore steps must reach the client in separate frames
+    constexpr uint32 OUTFIT_REVEAL_CONFIRM_TIME = 3000;  // ms - allowed time for the client to request the data again
+    constexpr uint32 OUTFIT_REVEAL_RETRY_DELAY  = 2500;  // ms - pause before restarting an unconfirmed cycle
+    constexpr uint8  OUTFIT_REVEAL_MAX_ATTEMPTS = 12;
+}
+
+void Creature::HandleOutfitRevealRequest(Player* viewer, bool clientHasNoBody)
+{
+    // Only model-swap outfits need the reveal, all others are applied from the first answer.
+    if (!m_outfit || !viewer || !m_outfit->HasModelSwapCustomization())
         return;
 
-    if (!m_outfit->HasModelSwapCustomization())
+    if (OutfitRevealState* state = Trinity::Containers::MapGetValuePtr(_outfitReveals, viewer->GetGUID()))
+    {
+        if (state->Stage == OUTFIT_REVEAL_WAIT_FOR_CLIENT && !clientHasNoBody)
+            _outfitReveals.erase(viewer->GetGUID()); // client saw the display change and rebuilds - cycle complete
+        else if (clientHasNoBody)
+        {
+            // no body yet (fresh create, or a cycle lost behind the loading screen) - start over
+            state->Stage = OUTFIT_REVEAL_HIDE;
+            state->NextTime = GameTime::GetGameTimeMS() + OUTFIT_REVEAL_START_DELAY;
+        }
+        return;
+    }
+
+    if (!clientHasNoBody)
         return;
 
-    ObjectGuid guid = viewer->GetGUID();
-    if (_outfitRevealAt.count(guid) || _outfitRestorePending.count(guid))
-        return;
-
-    _outfitRevealAt[guid] = GameTime::GetGameTimeMS() + 1500;
+    OutfitRevealState& state = _outfitReveals[viewer->GetGUID()];
+    state.Stage = OUTFIT_REVEAL_HIDE;
+    state.Attempts = 0;
+    state.NextTime = GameTime::GetGameTimeMS() + OUTFIT_REVEAL_START_DELAY;
 }
 
 void Creature::UpdateOutfitReveals()
 {
-    if (_outfitRevealAt.empty() && _outfitRestorePending.empty())
+    if (_outfitReveals.empty())
         return;
 
     uint32 now = GameTime::GetGameTimeMS();
 
-    for (ObjectGuid guid : _outfitRestorePending)
+    for (auto itr = _outfitReveals.begin(); itr != _outfitReveals.end();)
     {
-        if (m_outfit)
-            if (Player* viewer = ObjectAccessor::FindPlayer(guid))
-                if (viewer->GetMap() == GetMap() && viewer->HaveAtClient(this))
-                {
-                    SetDisplayId(m_outfit->GetDisplayId());
-                    SendUpdateToPlayer(viewer);
-                }
-    }
-    _outfitRestorePending.clear();
-
-    for (auto itr = _outfitRevealAt.begin(); itr != _outfitRevealAt.end();)
-    {
-        if (now >= itr->second)
+        Player* viewer = ObjectAccessor::FindPlayer(itr->first);
+        if (!viewer || !m_outfit)
         {
-            Player* viewer = ObjectAccessor::FindPlayer(itr->first);
-            if (m_outfit && viewer && viewer->GetMap() == GetMap() && viewer->HaveAtClient(this))
-            {
-                std::shared_ptr<CreatureOutfit> outfit = m_outfit;
+            itr = _outfitReveals.erase(itr);
+            continue;
+        }
 
+        OutfitRevealState& state = itr->second;
+        if (now < state.NextTime)
+        {
+            ++itr;
+            continue;
+        }
+
+        switch (state.Stage)
+        {
+            case OUTFIT_REVEAL_HIDE:
+            {
+                // SetDisplayId resets the outfit for non-matching ids - keep our copy alive.
+                std::shared_ptr<CreatureOutfit> outfit = m_outfit;
                 SetDisplayId(CreatureOutfit::invisible_model);
                 m_outfit = std::move(outfit);
                 SendUpdateToPlayer(viewer);
-
-                _outfitRestorePending.insert(itr->first);
+                state.Stage = OUTFIT_REVEAL_RESTORE;
+                state.NextTime = now + OUTFIT_REVEAL_STEP_DELAY;
+                break;
             }
-            itr = _outfitRevealAt.erase(itr);
+            case OUTFIT_REVEAL_RESTORE:
+                SetDisplayId(m_outfit->GetDisplayId());
+                SendUpdateToPlayer(viewer);
+                state.Stage = OUTFIT_REVEAL_WAIT_FOR_CLIENT;
+                state.NextTime = now + OUTFIT_REVEAL_CONFIRM_TIME;
+                break;
+            case OUTFIT_REVEAL_WAIT_FOR_CLIENT:
+                // no re-request arrived in time - the client missed the cycle, retry
+                if (++state.Attempts >= OUTFIT_REVEAL_MAX_ATTEMPTS)
+                {
+                    TC_LOG_DEBUG("entities.unit", "Creature {} failed to reveal outfit to viewer {} after {} attempts", GetGUID().ToString(), itr->first.ToString(), state.Attempts);
+                    itr = _outfitReveals.erase(itr);
+                    continue;
+                }
+                state.Stage = OUTFIT_REVEAL_HIDE;
+                state.NextTime = now + OUTFIT_REVEAL_RETRY_DELAY;
+                break;
         }
-        else
-            ++itr;
+
+        ++itr;
     }
 }
 

@@ -1,6 +1,6 @@
 #include "CreatureOutfit.h"
 #include "DB2Structure.h" // ChrRacesEntry, ItemModifiedAppearanceEntry, ItemAppearanceEntry
-#include "DB2Stores.h"    // sChrRacesStore, sItemAppearanceStore
+#include "DB2Stores.h"    // sChrRacesStore, sItemAppearanceStore, sChrCustomizationElementStore
 #include "TransmogMgr.h"  // TransmogMgr
 
 constexpr uint32 CreatureOutfit::invisible_model;
@@ -35,13 +35,15 @@ bool CreatureOutfit::HasModelSwapCustomization()
     if (!_modelSwapChecked)
     {
         _modelSwapChecked = true;
+
         for (UF::ChrCustomizationChoice const& choice : Customizations)
             for (ChrCustomizationElementEntry const* element : sChrCustomizationElementStore)
                 if (element->ChrCustomizationChoiceID == choice.ChrCustomizationChoiceID && element->ChrCustomizationCondModelID)
                 {
                     _hasModelSwap = true;
-                    break;
+                    return _hasModelSwap;
                 }
     }
+
     return _hasModelSwap;
 }

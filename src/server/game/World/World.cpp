@@ -767,7 +767,6 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "StartPlayerLevel"sv, .DefaultValue = 1, .Index = CONFIG_START_PLAYER_LEVEL, .Min = 1 },
         { .Name = "StartDeathKnightPlayerLevel"sv, .DefaultValue = 8, .Index = CONFIG_START_DEATH_KNIGHT_PLAYER_LEVEL, .Min = 1 },
         { .Name = "StartDemonHunterPlayerLevel"sv, .DefaultValue = 8, .Index = CONFIG_START_DEMON_HUNTER_PLAYER_LEVEL, .Min = 1 },
-        { .Name = "StartEvokerPlayerLevel"sv, .DefaultValue = 10, .Index = CONFIG_START_EVOKER_PLAYER_LEVEL, .Min = 1 },
         { .Name = "StartAlliedRacePlayerLevel"sv, .DefaultValue = 10, .Index = CONFIG_START_ALLIED_RACE_LEVEL, .Min = 1 },
         { .Name = "Currency.ResetHour"sv, .DefaultValue = 3, .Index = CONFIG_CURRENCY_RESET_HOUR, .Min = 0, .Max = 23 },
         { .Name = "Currency.ResetDay"sv, .DefaultValue = 3, .Index = CONFIG_CURRENCY_RESET_DAY, .Min = 0, .Max = 6 },
@@ -1096,8 +1095,7 @@ void World::LoadConfigSettings(bool reload)
     validateStartLevel(CONFIG_START_PLAYER_LEVEL, "StartPlayerLevel");
     validateStartLevel(CONFIG_START_DEATH_KNIGHT_PLAYER_LEVEL, "StartDeathKnightPlayerLevel");
     validateStartLevel(CONFIG_START_DEMON_HUNTER_PLAYER_LEVEL, "StartDemonHunterPlayerLevel");
-    validateStartLevel(CONFIG_START_EVOKER_PLAYER_LEVEL, "StartEvokerPlayerLevel");
-    validateStartLevel(CONFIG_START_ALLIED_RACE_LEVEL, "StartDemonHunterPlayerLevel");
+    validateStartLevel(CONFIG_START_ALLIED_RACE_LEVEL, "StartAlliedRacePlayerLevel");
     validateStartLevel(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL, "RecruitAFriend.MaxLevel");
 
     if (m_int_configs[CONFIG_START_GM_LEVEL] < m_int_configs[CONFIG_START_PLAYER_LEVEL])
@@ -1541,6 +1539,9 @@ bool World::SetInitialWorldSettings()
 
     TC_LOG_INFO("misc", "Loading Item Scripts...");                 // must be after LoadItemPrototypes
     sObjectMgr->LoadItemScriptNames();
+
+    TC_LOG_INFO("server.loading", "Loading transmog data...");      // must be before LoadCreatureOutfits - outfit item entries resolve through TransmogMgr
+    TransmogMgr::Load();
 
     TC_LOG_INFO("server.loading", "Loading Creature Model Based Info Data...");
     sObjectMgr->LoadCreatureModelInfo();
@@ -2150,9 +2151,6 @@ bool World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading phase names...");
     sObjectMgr->LoadPhaseNames();
-
-    TC_LOG_INFO("server.loading", "Loading transmog data...");
-    TransmogMgr::Load();
 
     uint32 startupDuration = GetMSTimeDiffToNow(startupBegin);
 

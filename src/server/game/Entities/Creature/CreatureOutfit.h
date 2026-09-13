@@ -58,6 +58,7 @@ public:
         return *this;
     }
 
+    // true if any customization choice swaps the model through ChrCustomizationCondModel (upright orcs)
     bool HasModelSwapCustomization();
 
 private:
