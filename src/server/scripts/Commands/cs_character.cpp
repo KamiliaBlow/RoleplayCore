@@ -25,6 +25,7 @@ EndScriptData */
 #include "ScriptMgr.h"
 #include "AccountMgr.h"
 #include "CharacterCache.h"
+#include "VasTransferMgr.h"
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "DatabaseEnv.h"
@@ -73,6 +74,7 @@ public:
             { "rename",        HandleCharacterRenameCommand,         rbac::RBAC_PERM_COMMAND_CHARACTER_RENAME,          Console::Yes },
             { "reputation",    HandleCharacterReputationCommand,     rbac::RBAC_PERM_COMMAND_CHARACTER_REPUTATION,      Console::Yes },
             { "titles",        HandleCharacterTitlesCommand,         rbac::RBAC_PERM_COMMAND_CHARACTER_TITLES,          Console::Yes },
+            { "transfer",      HandleCharacterTransferCommand,       rbac::RBAC_PERM_COMMAND_CHARACTER_CHANGEACCOUNT,   Console::Yes },
         };
 
         static ChatCommandTable commandTable =
@@ -534,6 +536,36 @@ public:
         else
             sLog->OutCommand(0, "{} {}", handler->GetTrinityString(LANG_CONSOLE), logString);
         return true;
+    }
+
+    // .character transfer <name> <targetRealmId> - move an offline character to another realm this server
+    // fronts. Rejects only on a same-name character at the target (or a guid collision, which is never
+    // silently remapped); the move is one transaction, so it either completes intact or does not happen.
+    static bool HandleCharacterTransferCommand(ChatHandler* handler, Optional<PlayerIdentifier> player, uint32 targetRealmId)
+    {
+        if (!player)
+            player = PlayerIdentifier::FromTarget(handler);
+        if (!player)
+            return false;
+
+        if (!sVasTransferMgr->IsEnabled())
+        {
+            handler->SendSysMessage("VAS character transfer is not configured (set VAS.TransferRealmDatabases).");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        std::string name, targetDb;
+        VasTransferMgr::TransferResult const result = sVasTransferMgr->TransferCharacter(player->GetGUID().GetCounter(), targetRealmId, &name, &targetDb);
+        if (result == VasTransferMgr::TRANSFER_OK)
+        {
+            handler->PSendSysMessage("Character '{}' transferred to realm {} ({}).", name, targetRealmId, targetDb);
+            return true;
+        }
+
+        handler->PSendSysMessage("Transfer failed: {}.", VasTransferMgr::ResultString(result));
+        handler->SetSentErrorMessage(true);
+        return false;
     }
 
     static bool HandleCharacterReputationCommand(ChatHandler* handler, Optional<PlayerIdentifier> player)

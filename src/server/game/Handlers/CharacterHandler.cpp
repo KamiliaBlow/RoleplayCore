@@ -508,6 +508,26 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder)
         _collectionMgr->SendWarbandSceneCollectionData();
 }
 
+void WorldSession::SendCharacterEnum()
+{
+    // remove expired bans
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_EXPIRED_BANS);
+    CharacterDatabase.Execute(stmt);
+
+    /// get all the data necessary for loading all characters (along with their pets) on the account
+    std::shared_ptr<EnumCharactersQueryHolder> holder = std::make_shared<EnumCharactersQueryHolder>();
+    if (!holder->Initialize(GetAccountId(), sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED), false))
+    {
+        HandleCharEnum(*holder);
+        return;
+    }
+
+    AddQueryHolderCallback(CharacterDatabase.DelayQueryHolder(holder)).AfterComplete([this](SQLQueryHolderBase const& result)
+        {
+            HandleCharEnum(static_cast<EnumCharactersQueryHolder const&>(result));
+        });
+}
+
 void WorldSession::HandleCharEnumOpcode(WorldPackets::Character::EnumCharacters& /*enumCharacters*/)
 {
     // remove expired bans
