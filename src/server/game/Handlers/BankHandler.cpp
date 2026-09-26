@@ -454,6 +454,10 @@ void WorldSession::MigrateAccountBankItems()
     if (!battlenetAccountId)
         return;
 
+    // without sibling schemas every banked item is homed here, nothing can need migrating
+    if (GetCrossRealmSchemas().empty())
+        return;
+
     uint32 const currentRealmId = sRealmList->GetCurrentRealmId().Realm;
 
     LoginDatabasePreparedStatement* sourcesStmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_BANK_ITEM_SOURCES);
@@ -505,11 +509,35 @@ void WorldSession::MigrateAccountBankItems()
         trans->PAppend("INSERT INTO item_instance_modifiers (itemGuid, fixedScalingLevel, artifactKnowledgeLevel, craftingModifiedStat1, craftingModifiedStat2) "
             "SELECT {}, fixedScalingLevel, artifactKnowledgeLevel, craftingModifiedStat1, craftingModifiedStat2 FROM {}.item_instance_modifiers WHERE itemGuid = {}",
             newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_artifact (itemGuid, xp, artifactAppearanceId, artifactTierId) "
+            "SELECT {}, xp, artifactAppearanceId, artifactTierId FROM {}.item_instance_artifact WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_artifact_powers (itemGuid, artifactPowerId, purchasedRank) "
+            "SELECT {}, artifactPowerId, purchasedRank FROM {}.item_instance_artifact_powers WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_azerite (itemGuid, xp, level, knowledgeLevel, selectedAzeriteEssences1specId, selectedAzeriteEssences1azeriteEssenceId1, selectedAzeriteEssences1azeriteEssenceId2, selectedAzeriteEssences1azeriteEssenceId3, selectedAzeriteEssences1azeriteEssenceId4, selectedAzeriteEssences2specId, selectedAzeriteEssences2azeriteEssenceId1, selectedAzeriteEssences2azeriteEssenceId2, selectedAzeriteEssences2azeriteEssenceId3, selectedAzeriteEssences2azeriteEssenceId4, selectedAzeriteEssences3specId, selectedAzeriteEssences3azeriteEssenceId1, selectedAzeriteEssences3azeriteEssenceId2, selectedAzeriteEssences3azeriteEssenceId3, selectedAzeriteEssences3azeriteEssenceId4, selectedAzeriteEssences4specId, selectedAzeriteEssences4azeriteEssenceId1, selectedAzeriteEssences4azeriteEssenceId2, selectedAzeriteEssences4azeriteEssenceId3, selectedAzeriteEssences4azeriteEssenceId4) "
+            "SELECT {}, xp, level, knowledgeLevel, selectedAzeriteEssences1specId, selectedAzeriteEssences1azeriteEssenceId1, selectedAzeriteEssences1azeriteEssenceId2, selectedAzeriteEssences1azeriteEssenceId3, selectedAzeriteEssences1azeriteEssenceId4, selectedAzeriteEssences2specId, selectedAzeriteEssences2azeriteEssenceId1, selectedAzeriteEssences2azeriteEssenceId2, selectedAzeriteEssences2azeriteEssenceId3, selectedAzeriteEssences2azeriteEssenceId4, selectedAzeriteEssences3specId, selectedAzeriteEssences3azeriteEssenceId1, selectedAzeriteEssences3azeriteEssenceId2, selectedAzeriteEssences3azeriteEssenceId3, selectedAzeriteEssences3azeriteEssenceId4, selectedAzeriteEssences4specId, selectedAzeriteEssences4azeriteEssenceId1, selectedAzeriteEssences4azeriteEssenceId2, selectedAzeriteEssences4azeriteEssenceId3, selectedAzeriteEssences4azeriteEssenceId4 FROM {}.item_instance_azerite WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_azerite_empowered (itemGuid, azeritePowerId1, azeritePowerId2, azeritePowerId3, azeritePowerId4, azeritePowerId5) "
+            "SELECT {}, azeritePowerId1, azeritePowerId2, azeritePowerId3, azeritePowerId4, azeritePowerId5 FROM {}.item_instance_azerite_empowered WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_azerite_milestone_power (itemGuid, azeriteItemMilestonePowerId) "
+            "SELECT {}, azeriteItemMilestonePowerId FROM {}.item_instance_azerite_milestone_power WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO item_instance_azerite_unlocked_essence (itemGuid, azeriteEssenceId, rank) "
+            "SELECT {}, azeriteEssenceId, rank FROM {}.item_instance_azerite_unlocked_essence WHERE itemGuid = {}",
+            newGuid, sourceSchema, oldGuid);
 
         trans->PAppend("DELETE FROM {}.item_instance WHERE guid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_gems WHERE itemGuid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_transmog WHERE itemGuid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_modifiers WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_artifact WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_artifact_powers WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_azerite WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_azerite_empowered WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_azerite_milestone_power WHERE itemGuid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.item_instance_azerite_unlocked_essence WHERE itemGuid = {}", sourceSchema, oldGuid);
 
         // pointer update rides the same transaction so a crash can never orphan the auth row;
         // scoped by sourceRealm because sibling realms issue the same numeric item guids

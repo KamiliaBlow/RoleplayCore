@@ -478,8 +478,6 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder, st
     LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUPS);
     stmt->setUInt32(0, GetAccountId());
 
-    std::unordered_map<ObjectGuid::LowType, std::pair<uint8, uint32>> warbandMemberPlacement; // charGuid -> (group orderIndex, placement)
-
     if (PreparedQueryResult groupsResult = LoginDatabase.Query(stmt))
     {
         do
@@ -512,12 +510,14 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder, st
 
                 if (WorldPackets::Character::WarbandGroup* group = Trinity::Containers::MapGetValuePtr(groupMap, groupId))
                 {
-                    WorldPackets::Character::WarbandGroupMember member;
                     ObjectGuid::LowType characterGuid = fields[1].GetUInt64();
+                    if (!characterGuid)
+                        continue;
+
+                    WorldPackets::Character::WarbandGroupMember member;
                     member.Guid = ObjectGuid::Create<HighGuid::Player>(characterGuid);
                     member.WarbandScenePlacementID = fields[2].GetUInt32();
                     member.Type = fields[3].GetUInt32();
-                    warbandMemberPlacement[characterGuid] = std::make_pair(group->OrderIndex, member.WarbandScenePlacementID);
                     group->Members.push_back(member);
                 }
             } while (membersResult->NextRow());
@@ -562,7 +562,6 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder, st
     }
 
     std::unordered_set<ObjectGuid::LowType> localCharacterGuids;
-    std::unordered_set<ObjectGuid::LowType> crossRealmCharacterGuids;
 
     if (PreparedQueryResult result = holder.GetPreparedResult(EnumCharactersQueryHolder::CHARACTERS))
     {
@@ -674,7 +673,6 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder, st
             entry.Basic.RealmInfoFound = true;
 
             WorldPackets::Character::EnumCharactersResult::CharacterInfoBasic& charInfo = entry.Basic;
-            crossRealmCharacterGuids.insert(charInfo.Guid.GetCounter());
             // foreign characters stay out of _legitCharacters - logging into them redirects to the
             // home realm - but the mail data request must accept them as list members
             _crossRealmCharacters.insert(charInfo.Guid);
@@ -687,25 +685,13 @@ void WorldSession::HandleCharEnum(CharacterDatabaseQueryHolder const& holder, st
         while (crossRealmResult->NextRow() && charEnum.RegionwideCharacters.size() < MAX_CHARACTERS_PER_REALM);
     }
 
-    // warband arrangement: grouped characters first ordered by group and scene placement,
-    // ungrouped characters keep database order after them
-    std::ranges::stable_sort(charEnum.RegionwideCharacters, std::less{}, [&warbandMemberPlacement, &crossRealmCharacterGuids](WorldPackets::Character::EnumCharactersResult::RegionwideCharacterListEntry const& entry)
-    {
-        std::pair<uint8, uint32> arrangement{ std::numeric_limits<uint8>::max(), 0 };
-        if (!crossRealmCharacterGuids.count(entry.Basic.Guid.GetCounter()))
-            if (auto itr = warbandMemberPlacement.find(entry.Basic.Guid.GetCounter()); itr != warbandMemberPlacement.end())
-                arrangement = itr->second;
-        return arrangement;
-    });
-
-    // slots are per-realm database values and collide in the merged list,
-    // the client expects unique sequential positions in final display order
-    uint16 listPosition = 0;
+    // retail sends warband group members scattered through the list in natural guid order,
+    // every entry carries ListPosition 0 - the client keeps its own arrangement bookkeeping
     for (WorldPackets::Character::EnumCharactersResult::RegionwideCharacterListEntry& entry : charEnum.RegionwideCharacters)
-        entry.Basic.ListPosition = listPosition++;
+        entry.Basic.ListPosition = 0;
 
     for (WorldPackets::Character::EnumCharactersResult::CharacterInfo& characterInfo : charEnum.Characters)
-        characterInfo.Basic.ListPosition = listPosition++;
+        characterInfo.Basic.ListPosition = 0;
 
     for (RaceClassAvailability const& requirement : sObjectMgr->GetRaceClassRequirements())
     {
@@ -853,6 +839,18 @@ void WorldSession::HandleSetupWarbandGroups(WorldPackets::Character::SetupWarban
 
     for (auto const& group : setupWarbandGroups.Groups)
     {
+        if (group.Name.size() > 256) // account_warband_groups.name is varchar(257)
+        {
+            TC_LOG_ERROR("network", "CMSG_SETUP_WARBAND_GROUPS: Account {} sent an overlong group name ({} characters)", accountId, group.Name.size());
+            continue;
+        }
+
+        if (group.WarbandSceneID != 0 && !sWarbandSceneStore.LookupEntry(group.WarbandSceneID))
+        {
+            TC_LOG_ERROR("network", "CMSG_SETUP_WARBAND_GROUPS: Account {} sent group {} with unknown warband scene id {}", accountId, group.GroupID, group.WarbandSceneID);
+            continue;
+        }
+
         stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP);
         stmt->setUInt64(0, group.GroupID);
         stmt->setUInt32(1, accountId);
@@ -865,9 +863,22 @@ void WorldSession::HandleSetupWarbandGroups(WorldPackets::Character::SetupWarban
 
         for (auto const& member : group.Members)
         {
+            // non-character members carry no guid on the wire, storing them would create
+            // a phantom member pointing at characterGuid 0
+            if (member.Type != 0)
+                continue;
+
+            // forged guids must not end up as warband members
+            if (_legitCharacters.find(member.Guid) == _legitCharacters.end() && !_crossRealmCharacters.count(member.Guid))
+            {
+                TC_LOG_ERROR("network", "CMSG_SETUP_WARBAND_GROUPS: Account {} sent a member ({}) that is not one of its characters", accountId, member.Guid.ToString());
+                continue;
+            }
+
             stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP_MEMBER);
             stmt->setUInt32(0, accountId);
-            stmt->setUInt32(1, realmId);
+            // realmId records the member character's home realm, guid realm bits are authoritative
+            stmt->setUInt32(1, member.Guid.GetRealmId());
             stmt->setUInt64(2, group.GroupID);
             stmt->setUInt64(3, member.Guid.GetCounter());
             stmt->setUInt32(4, member.WarbandScenePlacementID);

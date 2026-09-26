@@ -156,6 +156,11 @@ void WorldSession::SendFeatureSystemStatusGlueScreen()
 
     SendPacket(features.Write());
 
+    SendMirrorVars();
+}
+
+void WorldSession::SendMirrorVars()
+{
     WorldPackets::System::MirrorVarSingle vars[] =
     {
         { "raidLockoutExtendEnabled"sv, "1"sv },

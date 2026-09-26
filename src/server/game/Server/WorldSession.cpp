@@ -1611,12 +1611,15 @@ void WorldSession::InitializeSessionCallback(LoginDatabaseQueryHolder const& hol
     else
         SendAuthResponse(ERROR_OK, false);
 
-    // glue screen packets are meaningless for a resumed session that is already past the glue screen
+    // glue screen packets are meaningless for a resumed session that is already past the glue screen,
+    // but the mirrored client variables must still reach it
     if (!realmTransfer)
     {
         SendSetTimeZoneInformation();
         SendFeatureSystemStatusGlueScreen();
     }
+    else
+        SendMirrorVars();
 
     SetInQueue(false);
     ResetTimeOutTime(false);

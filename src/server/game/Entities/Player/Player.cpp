@@ -3805,6 +3805,13 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
     LoginDatabaseTransaction loginTransaction = LoginDatabase.BeginTransaction();
     LoginDatabasePreparedStatement* loginStmt = nullptr;
 
+    // purge the deleted character's warband group memberships (phantom members otherwise
+    // survive until the next full group resave)
+    loginStmt = LoginDatabase.GetPreparedStatement(LOGIN_DEL_ACCOUNT_WARBAND_MEMBER);
+    loginStmt->setUInt32(0, accountId);
+    loginStmt->setUInt64(1, guid);
+    loginTransaction->Append(loginStmt);
+
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     if (ObjectGuid::LowType guildId = sCharacterCache->GetCharacterGuildIdByGuid(playerguid))
         if (Guild* guild = sGuildMgr->GetGuildById(guildId))
