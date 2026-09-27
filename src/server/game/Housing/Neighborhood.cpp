@@ -1302,55 +1302,66 @@ void Neighborhood::BroadcastMemberStatus(ObjectGuid playerGuid) const
     BroadcastMemberStatus(playerGuid, ObjectAccessor::FindPlayer(playerGuid) != nullptr);
 }
 
+void Neighborhood::RebuildMirrorDataFor(Player* player) const
+{
+    if (!player || !player->GetSession())
+        return;
+
+    // FNeighborhoodMirrorData_C belongs on the Housing/4 entity, NOT the BNetAccount entity.
+    HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
+
+    // Name + Owner
+    mirrorEntity.SetName(_name);
+    mirrorEntity.SetOwnerGUID(_ownerGuid);
+
+    // Houses — rebuild from plots. Add ALL 55 entries so Houses[i] = PlotIndex i.
+    // The client uses the array index as the plot identifier; skipping empty slots
+    // causes the client to show the wrong plots as occupied.
+    mirrorEntity.ClearHouses();
+    for (auto const& plot : _plots)
+    {
+        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+            mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+        else
+            mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+    }
+
+    // Managers
+    mirrorEntity.ClearManagers();
+    for (auto const& m : _members)
+    {
+        if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
+        {
+            ObjectGuid bnetGuid;
+            if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
+                bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+            mirrorEntity.AddManager(bnetGuid, m.PlayerGuid);
+        }
+    }
+}
+
+void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
+{
+    if (!player || !player->GetSession())
+        return;
+
+    RebuildMirrorDataFor(player);
+
+    // Push the rebuilt fields to the client. Set/Add methods only flip dirty
+    // bits on the in-memory entity; without an explicit Send the client keeps
+    // the previous state and the in-world neighborhood map stays stale until
+    // an unrelated update arrives (e.g. opening the roster UI). Re-sending as
+    // CREATE matches retail behaviour for a wholesale Houses/Managers replace
+    // — incremental UPDATE_OBJECT also works but the client's map-icon refresh
+    // path only re-runs on CREATE.
+    player->GetSession()->GetHousingNeighborhoodMirrorEntity().SendCreateToPlayer(player);
+}
+
 void Neighborhood::RefreshMirrorDataForOnlineMembers() const
 {
     for (auto const& member : _members)
-    {
-        Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid);
-        if (!player || !player->GetSession())
-            continue;
-
-        // FNeighborhoodMirrorData_C belongs on the Housing/4 entity, NOT the BNetAccount entity.
-        HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
-
-        // Name + Owner
-        mirrorEntity.SetName(_name);
-        mirrorEntity.SetOwnerGUID(_ownerGuid);
-
-        // Houses — rebuild from plots. Add ALL 55 entries so Houses[i] = PlotIndex i.
-        // The client uses the array index as the plot identifier; skipping empty slots
-        // causes the client to show the wrong plots as occupied.
-        mirrorEntity.ClearHouses();
-        for (auto const& plot : _plots)
-        {
-            if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-                mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
-            else
-                mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
-        }
-
-        // Managers
-        mirrorEntity.ClearManagers();
-        for (auto const& m : _members)
-        {
-            if (m.Role == NEIGHBORHOOD_ROLE_MANAGER || m.Role == NEIGHBORHOOD_ROLE_OWNER)
-            {
-                ObjectGuid bnetGuid;
-                if (Player* mgr = ObjectAccessor::FindPlayer(m.PlayerGuid))
-                    bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-                mirrorEntity.AddManager(bnetGuid, m.PlayerGuid);
-            }
-        }
-
-        // Push the rebuilt fields to the client. Set/Add methods only flip dirty
-        // bits on the in-memory entity; without an explicit Send the client keeps
-        // the previous state and the in-world neighborhood map stays stale until
-        // an unrelated update arrives (e.g. opening the roster UI). Re-sending as
-        // CREATE matches retail behaviour for a wholesale Houses/Managers replace
-        // — incremental UPDATE_OBJECT also works but the client's map-icon refresh
-        // path only re-runs on CREATE.
-        mirrorEntity.SendCreateToPlayer(player);
-    }
+        if (Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid))
+            RefreshMirrorDataForPlayer(player);
 }
 
 // --- Plot Reservation System ---

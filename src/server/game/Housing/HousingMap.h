@@ -197,6 +197,12 @@ public:
     // so a house spawned while players are already standing here has to be pushed explicitly.
     void SendPlotMeshObjectsToPlayers(uint8 plotIndex);
 
+    // Transmit a plot's geometry entities (room identity, Geobox room-component mesh, exterior
+    // root Entity, Group B mirrors) to one player — the entities the client's placement/move
+    // validation consumes. Login ships them in the self bundle; mid-session site changes must
+    // re-send them explicitly or the client rejects placements until a relog.
+    void SendPlotGeometryEntitiesToPlayer(uint8 plotIndex, Player* player);
+
     // Manual spell packet helpers — called from AddPlayerToMap and at_housing_plot AT script.
     // These spells don't exist in DB2, so CastSpell() silently fails; manual packets are required.
     void SendPlotEnterSpellPackets(Player* player, uint8 plotIndex);

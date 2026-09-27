@@ -4619,3 +4619,63 @@ ProfanityFilter.ServeURL = ""
 
 #
 ###################################################################################################
+
+###################################################################################################
+#    PLAYER HOUSING
+#
+#    Housing.EnableBuyHouse
+#        Description: Allow players to purchase house plots (cornerstone purchases and
+#                      plot reservations).
+#        Default:     true
+
+Housing.EnableBuyHouse = 1
+
+#    Housing.EnableDeleteHouse
+#        Description: Allow players to relinquish (delete) their house and release its plot.
+#        Default:     true
+
+Housing.EnableDeleteHouse = 1
+
+#    Housing.EnableMoveHouse
+#        Description: Allow players to move their house to another plot (cornerstone move).
+#        Default:     true
+
+Housing.EnableMoveHouse = 1
+
+#    Housing.EnableCreateCharterNeighborhood
+#        Description: Allow players to found their own (charter) neighborhood via the
+#                      Neighborhood Charter: the housing stewards hand out the charter,
+#                      signatures are collected through the charter UI and the completed
+#                      charter is finalized into a new neighborhood.
+#        Default:     true
+
+Housing.EnableCreateCharterNeighborhood = 1
+
+#    Housing.EnableCreateGuildNeighborhood
+#        Description: Allow guild-based neighborhood creation.
+#        Default:     true
+
+Housing.EnableCreateGuildNeighborhood = 1
+
+#    Housing.TutorialsEnabled
+#        Description: Enable the housing tutorial quests and intro flow.
+#        Default:     true
+
+Housing.TutorialsEnabled = 1
+
+#    Housing.MaxHousesPerAccount
+#        Description: Maximum number of houses one battle.net account may own.
+#        Default:     2
+
+Housing.MaxHousesPerAccount = 2
+
+#    Housing.CharterFoundingCost
+#        Description: Founding fee for a charter neighborhood, in copper, charged when the
+#                      charter is finalized. Retail charges nothing beyond the plot price,
+#                      so 0 keeps charter founding free.
+#        Default:     0 - (free)
+
+Housing.CharterFoundingCost = 0
+
+#
+###################################################################################################

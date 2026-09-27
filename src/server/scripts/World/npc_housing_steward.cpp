@@ -19,9 +19,13 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "GossipDef.h"
+#include "HousingDefines.h"
 #include "Log.h"
+#include "NeighborhoodMgr.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptedGossip.h"
+#include "World.h"
 
 enum HousingTutorialData
 {
@@ -34,6 +38,7 @@ enum HousingTutorialData
 
     // Gossip actions
     GOSSIP_ACTION_ASK_TO_JOIN       = 1001,
+    GOSSIP_ACTION_FOUND_NEIGHBORHOOD = 1002,
 };
 
 // Lyssabel Dawnpetal (233063) / Tocho (233708) — Housing tutorial steward NPCs.
@@ -56,18 +61,35 @@ struct npc_housing_steward : public CreatureAI
         TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} greeted steward {} (kill credit {}, talkto {})",
             player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_GREET_STEWARD, me->GetEntry());
 
+        // Founding path (retail: the steward near the bulletin board offers neighborhood
+        // founding). Shown to players who neither own a neighborhood nor carry a charter
+        // already, when charter founding is enabled.
+        bool const canFoundNeighborhood = sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD)
+            && !sNeighborhoodMgr.GetNeighborhoodByOwner(player->GetGUID())
+            && !player->HasItemCount(ITEM_NEIGHBORHOOD_CHARTER);
+
         // Only show the custom "Ask the steward to join" gossip when the player is on
         // "My First Home" (91863) and hasn't yet asked the steward (kill credit 248857).
         // For all other interactions (including quest 94210 "Feathering the Nest" turn-in),
         // return false to let the default QuestGiver / gossip pathway proceed.
-        if (player->GetQuestStatus(QUEST_MY_FIRST_HOME) == QUEST_STATUS_INCOMPLETE)
+        bool const onTutorial = player->GetQuestStatus(QUEST_MY_FIRST_HOME) == QUEST_STATUS_INCOMPLETE;
+
+        if (onTutorial || canFoundNeighborhood)
         {
             InitGossipMenuFor(player, 0);
             if (me->IsQuestGiver())
                 player->PrepareQuestMenu(me->GetGUID());
-            AddGossipItemFor(player, GossipOptionNpc::None,
-                "Ask the steward to become your neighbor.",
-                GOSSIP_SENDER_MAIN, GOSSIP_ACTION_ASK_TO_JOIN);
+
+            if (onTutorial)
+                AddGossipItemFor(player, GossipOptionNpc::None,
+                    "Ask the steward to become your neighbor.",
+                    GOSSIP_SENDER_MAIN, GOSSIP_ACTION_ASK_TO_JOIN);
+
+            if (canFoundNeighborhood)
+                AddGossipItemFor(player, GossipOptionNpc::None,
+                    "I'm interested in founding my own Neighborhood.",
+                    GOSSIP_SENDER_MAIN, GOSSIP_ACTION_FOUND_NEIGHBORHOOD);
+
             SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, me->GetGUID());
             return true;
         }
@@ -87,6 +109,28 @@ struct npc_housing_steward : public CreatureAI
 
             TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} asked steward {} to join (kill credit {})",
                 player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_ASK_STEWARD);
+        }
+        else if (action == GOSSIP_ACTION_FOUND_NEIGHBORHOOD)
+        {
+            // Hand out the Neighborhood Charter; using it opens the client's charter UI,
+            // which drives the CMSG_NEIGHBORHOOD_CHARTER_* flow (create / sign / finalize).
+            if (!sObjectMgr->GetItemTemplate(ITEM_NEIGHBORHOOD_CHARTER))
+            {
+                TC_LOG_ERROR("housing", "npc_housing_steward: Item {} (Neighborhood Charter) missing from item_template, cannot hand it to player {}",
+                    ITEM_NEIGHBORHOOD_CHARTER, player->GetGUID().ToString());
+                return true;
+            }
+
+            if (!player->AddItem(ITEM_NEIGHBORHOOD_CHARTER, 1))
+            {
+                player->SendEquipError(EQUIP_ERR_BAG_FULL, nullptr, nullptr, ITEM_NEIGHBORHOOD_CHARTER);
+                TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} could not receive the Neighborhood Charter (bags full?)",
+                    player->GetGUID().ToString());
+                return true;
+            }
+
+            TC_LOG_INFO("housing", "npc_housing_steward: Player {} received the Neighborhood Charter from steward {}",
+                player->GetGUID().ToString(), me->GetEntry());
         }
 
         return true;

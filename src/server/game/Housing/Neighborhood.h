@@ -215,6 +215,11 @@ public:
     // Rebuild NeighborhoodMirrorData on every online member's Account entity.
     // Call after any mutation to name, owner, managers, or houses.
     void RefreshMirrorDataForOnlineMembers() const;
+    // Per-player variant — used by the map-entry refresh path (SendNeighborhoodMapRefresh).
+    void RefreshMirrorDataForPlayer(Player* player) const;
+    // Setter-only half of RefreshMirrorDataForPlayer (no packet); lets callers pick the
+    // wire form — VALUES when the client already holds the entity, CREATE otherwise.
+    void RebuildMirrorDataFor(Player* player) const;
 
 private:
     ObjectGuid _guid;

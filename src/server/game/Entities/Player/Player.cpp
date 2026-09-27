@@ -3651,9 +3651,19 @@ void Player::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) c
             if (item)
                 item->BuildCreateUpdateBlockForPlayer(data, target);
 
-        GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
-        GetSession()->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(data, target);
-        GetSession()->GetHousingNeighborhoodMirrorEntity().BuildCreateUpdateBlockForPlayer(data, target);
+        // The three session entities are NOT map-scoped: the client retains them across map
+        // switches, so re-embedding a CREATE in every SendInitSelf bundle sends a duplicate
+        // CREATE for a GUID the client still holds — which resets/drops the Housing/4 dynamic
+        // Houses array and the Housing/3 plot proxies, and the neighborhood-map pins lose
+        // their name prefix and ownership state until the next relog. The after-add housing
+        // block re-dirtying the fields emits a VALUES update instead; at a fresh login
+        // m_clientGUIDs is empty and the CREATE path is taken as before.
+        if (!target->HaveAtClient(&GetSession()->GetBattlenetAccount()))
+            GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
+        if (!target->HaveAtClient(&GetSession()->GetHousingPlayerHouseEntity()))
+            GetSession()->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(data, target);
+        if (!target->HaveAtClient(&GetSession()->GetHousingNeighborhoodMirrorEntity()))
+            GetSession()->GetHousingNeighborhoodMirrorEntity().BuildCreateUpdateBlockForPlayer(data, target);
 
         // The own HousingPlayerHouseEntity is sent via the session entity above.
         // That entity's GUID is constructed by Housing::Create as
@@ -27187,6 +27197,17 @@ void Player::SendInitialPacketsBeforeAddToMap()
 
 void Player::SendInitialPacketsAfterAddToMap()
 {
+    // Re-insert the session entity GUIDs BEFORE UpdateVisibilityForPlayer(): its self create
+    // block (Player::BuildCreateUpdateBlockForPlayer) gates the BNet/Housing/3/Housing/4
+    // CREATEs on HaveAtClient. The client retains these entities across map switches, so a
+    // duplicate CREATE here reset the Housing/4 dynamic Houses array and Name on its side —
+    // the neighborhood-map pins then lost their name prefix and ownership until a relog.
+    m_clientGUIDs.insert(GetSession()->GetBattlenetAccount().GetGUID());
+    m_clientGUIDs.insert(GetSession()->GetHousingPlayerHouseEntity().GetGUID());
+    m_clientGUIDs.insert(GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID());
+
+    // HousingRoomEntity GUIDs tracked in deferred callback (not initial UPDATE_OBJECT)
+
     UpdateVisibilityForPlayer();
 
     SetPlayerLocalFlag(PLAYER_LOCAL_FLAG_ACCOUNT_SECURED);
@@ -27196,11 +27217,6 @@ void Player::SendInitialPacketsAfterAddToMap()
     // The Account entity CREATE is embedded in the player's own create block
     // (Player::BuildCreateUpdateBlockForPlayer), which was just sent by
     // UpdateVisibilityForPlayer() above.
-    m_clientGUIDs.insert(GetSession()->GetBattlenetAccount().GetGUID());
-    m_clientGUIDs.insert(GetSession()->GetHousingPlayerHouseEntity().GetGUID());
-    m_clientGUIDs.insert(GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID());
-
-    // HousingRoomEntity GUIDs tracked in deferred callback (not initial UPDATE_OBJECT)
 
     // Send map wide vignettes before UpdateZone, that will send zone wide vignettes
     // But first send on new map will wipe all vignettes on client
@@ -27366,9 +27382,16 @@ void Player::SendInitialPacketsAfterAddToMap()
                 housing->PopulateCatalogStorageEntries();
             }
 
-            TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - state set on session entities (blizzlike: no unprompted SMSGs emitted). Neighborhood='{}' {}, Members={}, Plots={}, HasHouse={}",
+            TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - state set on session entities. Neighborhood='{}' {}, Members={}, Plots={}, HasHouse={}",
                 GetGUID().ToString(), GetMapId(), neighborhood->GetName(), neighborhood->GetGuid().ToString(),
                 neighborhood->GetMembers().size(), neighborhood->GetOccupiedPlotCount(), housing ? "yes" : "no");
+
+            // The setter-only refresh above leaves the mirror fields riding a VALUES_UPDATE, which
+            // never re-runs the client's map-icon build — after leaving and re-opening the
+            // neighborhood map the pins lost their name prefix and ownership state (everything
+            // worked right after a relog because the login bundle is a fresh CREATE). Re-prime
+            // the map state explicitly: mirror CREATE + neighborhood name + plot-owner names.
+            GetSession()->SendNeighborhoodMapRefresh();
         }
     }
 

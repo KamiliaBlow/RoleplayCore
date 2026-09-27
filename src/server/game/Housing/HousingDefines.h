@@ -902,6 +902,14 @@ static constexpr uint32 VISUAL_HOUSING_MAP_ENTRY_NEIGHBOR  = 503683;
 // post-tutorial aura set and all editor modes (expert/cleanup/layout/customize) unlock.
 static constexpr uint32 QUEST_HOUSING_TUTORIAL_COMPLETE = 94455; // "Home at Last"
 
+// "Create a Neighborhood" — retail wires charter founding to this quest: it provides the
+// Neighborhood Charter item (239098), whose use opens the charter UI, and the completed
+// charter is turned in to the steward. Blizzard support: charter neighborhoods require
+// 10 signatures on retail (MIN_CHARTER_SIGNATURES above is the current server policy).
+static constexpr uint32 QUEST_CREATE_A_NEIGHBORHOOD = 89450;
+// Neighborhood Charter — provided by quest 89450; re-obtainable from stewards on retail.
+static constexpr uint32 ITEM_NEIGHBORHOOD_CHARTER = 239098;
+
 // Post-tutorial auras — applied when QUEST_HOUSING_TUTORIAL_COMPLETE is completed.
 // Sniff-verified: quest reward removes old tutorial auras (slots 8,9,50) and replaces them
 // with these three new ones. These don't exist in DB2, so we send manual SMSG_AURA_UPDATE.

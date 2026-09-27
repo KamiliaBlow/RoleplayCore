@@ -1292,6 +1292,14 @@ class TC_GAME_API WorldSession
         // Appends the Account (FHousingStorage_C) and HousingPlayerHouseEntity blocks for `player`:
         // a values update when the client already holds the entity, a CREATE otherwise.
         void BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player);
+        // Re-primes the neighborhood map state on every map entry: re-sends the roster (the
+        // client's HousingNeighborhoodState singleton is only filled by the roster response and
+        // is not re-requested on mid-session re-entry), feeds the JamCliNeighborhoodName
+        // DataCache, re-pushes the Housing/4 mirror (VALUES when the client holds it, CREATE
+        // otherwise) and pre-pushes plot-owner names for the NameCache. Without this the
+        // map pins lose their name prefix and ownership state after leaving and re-opening
+        // the neighborhood map.
+        void SendNeighborhoodMapRefresh();
         Player* GetPlayer() const { return _player; }
         std::string const& GetPlayerName() const;
         std::string GetPlayerInfo() const;
@@ -1780,8 +1788,6 @@ class TC_GAME_API WorldSession
         void HandleClubFinderApplicationResponse(WorldPackets::ClubFinder::ClubFinderApplicationResponse& request);
         void HandleClubFinderWhisperApplicantRequest(WorldPackets::ClubFinder::ClubFinderWhisperApplicantRequest& request);
         void SendClubFinderPendingApplications(uint8 type);
-
-        void HandleDeclineNeighborhoodInvites(WorldPackets::Housing::DeclineNeighborhoodInvites const& declineNeighborhoodInvites);
 
         // Housing - Exterior/Interior
         void HandleHouseExteriorSetHousePosition(WorldPackets::Housing::HouseExteriorCommitPosition const& houseExteriorCommitPosition);

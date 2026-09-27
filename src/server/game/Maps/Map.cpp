@@ -72,6 +72,9 @@
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
 #include "WorldStatePackets.h"
+#include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include <boost/heap/fibonacci_heap.hpp>
 #include <sstream>
 
@@ -439,7 +442,26 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     SendInitTransports(player);
 
     if (initPlayer)
+    {
+        // Session-scoped entities (BNet account, Housing/3, Housing/4) are retained by the
+        // client across map switches. Keep their "at client" marks through the visibility-set
+        // reset so the post-clear visibility rebuild (UpdateObjectVisibility /
+        // UpdateVisibilityForPlayer) does not re-send duplicate CREATEs for GUIDs the client
+        // still holds — a second CREATE resets the Housing/4 dynamic Houses array and Name on
+        // the client, which broke the neighborhood-map pins until the next relog.
+        ObjectGuid bnetAccountGuid = player->GetSession()->GetBattlenetAccount().GetGUID();
+        ObjectGuid houseEntityGuid = player->GetSession()->HasHousingPlayerHouseEntity() ? player->GetSession()->GetHousingPlayerHouseEntity().GetGUID() : ObjectGuid::Empty;
+        ObjectGuid mirrorEntityGuid = player->GetSession()->HasHousingNeighborhoodMirrorEntity() ? player->GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID() : ObjectGuid::Empty;
+
         player->m_clientGUIDs.clear();
+
+        if (!bnetAccountGuid.IsEmpty())
+            player->m_clientGUIDs.insert(bnetAccountGuid);
+        if (!houseEntityGuid.IsEmpty())
+            player->m_clientGUIDs.insert(houseEntityGuid);
+        if (!mirrorEntityGuid.IsEmpty())
+            player->m_clientGUIDs.insert(mirrorEntityGuid);
+    }
 
     player->UpdateObjectVisibility(false);
     PhasingHandler::SendToPlayer(player);

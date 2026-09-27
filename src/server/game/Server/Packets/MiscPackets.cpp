@@ -995,6 +995,7 @@ WorldPacket const* AccountStoreFrontUpdate::Write()
     _worldPacket << Result;
     _worldPacket << Unknown;
     return &_worldPacket;
+}
 
 WorldPacket const* DisplayWorldText::Write()
 {

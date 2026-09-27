@@ -34,8 +34,10 @@
 #include "StringConvert.h"
 #include "StringFormat.h"
 #include "Util.h"
+#include "World.h"
 #include "WorldSession.h"
 #include <cmath>
+#include <cstring>
 #include <queue>
 #include <unordered_set>
 
@@ -2520,6 +2522,93 @@ void Housing::MoveHookFixtures(uint32 oldCompId, uint32 newCompId)
     }
 }
 
+void Housing::RemapFixturesForHouseSize(uint8 newSize)
+{
+    if (_houseGuid.IsEmpty())
+        return;
+
+    // Size lives on each ExteriorComponent (HouseExteriorWmoDataID is the style), so a size change
+    // invalidates every stored root fixture: SpawnFullHouseMeshObjects filters candidates by size, and
+    // stale old-size Base/Roof selections either suppress the rebuild or fall back to arbitrary-size
+    // defaults instead of the player's chosen styles.
+    std::vector<std::pair<uint32, uint32>> rootMoves; // old componentID -> new componentID
+
+    for (auto const& [pointId, fixture] : _fixtures)
+    {
+        if (fixture.OptionId != 0)
+            continue;
+
+        ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(pointId);
+        if (!comp || comp->Size == newSize)
+            continue;
+        if (comp->Type != HOUSING_FIXTURE_TYPE_BASE && comp->Type != HOUSING_FIXTURE_TYPE_ROOF)
+            continue;
+        if (_houseType != 0 && comp->HouseExteriorWmoDataID != static_cast<uint32>(_houseType))
+            continue;
+
+        uint32 newCompId = 0;
+        if (comp->ParentComponentID == 0)
+        {
+            // Plain structural root: the same style's default at the requested size.
+            newCompId = sHousingMgr.GetDefaultFixtureForType(comp->Type, comp->HouseExteriorWmoDataID, newSize);
+        }
+        else
+        {
+            // Style/color variant: keep the player's pick by matching the variant name among the
+            // new-size candidates of the same style and type.
+            char const* oldName = comp->Name[sWorld->GetDefaultDbcLocale()];
+            if (oldName)
+            {
+                for (ExteriorComponentEntry const* candidate : sExteriorComponentStore)
+                {
+                    if (!candidate || candidate->Size != newSize || candidate->Type != comp->Type
+                        || uint32(candidate->HouseExteriorWmoDataID) != comp->HouseExteriorWmoDataID)
+                        continue;
+                    if (char const* candidateName = candidate->Name[sWorld->GetDefaultDbcLocale()];
+                        candidateName && strcmp(candidateName, oldName) == 0)
+                    {
+                        newCompId = candidate->ID;
+                        break;
+                    }
+                }
+            }
+
+            if (!newCompId)
+                newCompId = sHousingMgr.GetDefaultFixtureForType(comp->Type, comp->HouseExteriorWmoDataID, newSize);
+        }
+
+        if (newCompId && newCompId != pointId)
+            rootMoves.emplace_back(pointId, newCompId);
+    }
+
+    uint64 const ownerGuid = _owner->GetGUID().GetCounter();
+    for (auto const& [oldCompId, newCompId] : rootMoves)
+    {
+        // Hook fixtures hang on the old root's hooks; re-key them before the root row itself moves.
+        MoveHookFixtures(oldCompId, newCompId);
+
+        uint32 const optionId = _fixtures[oldCompId].OptionId;
+        _fixtures.erase(oldCompId);
+        Fixture& moved = _fixtures[newCompId];
+        moved.FixturePointId = newCompId;
+        moved.OptionId = optionId;
+
+        CharacterDatabasePreparedStatement* del = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE);
+        del->setUInt64(0, ownerGuid);
+        del->setUInt32(1, oldCompId);
+        CharacterDatabase.Execute(del);
+
+        CharacterDatabasePreparedStatement* ins = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_FIXTURES);
+        ins->setUInt64(0, ownerGuid);
+        ins->setUInt32(1, newCompId);
+        ins->setUInt32(2, optionId);
+        CharacterDatabase.Execute(ins);
+
+        TC_LOG_INFO("housing", "Housing::RemapFixturesForHouseSize: root fixture comp {} remapped to comp {} for house size {}",
+            oldCompId, newCompId, newSize);
+    }
+}
+
 HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionId, std::vector<uint32>* removedHookIDs /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
@@ -3396,6 +3485,7 @@ void Housing::SetExteriorLocked(bool locked)
 
 void Housing::SetHouseSize(uint8 size)
 {
+    bool const changed = _houseSize != size;
     _houseSize = size;
 
     // Immediate persist for crash safety
@@ -3403,6 +3493,11 @@ void Housing::SetHouseSize(uint8 size)
     stmt->setUInt8(0, size);
     stmt->setUInt64(1, _owner->GetGUID().GetCounter());
     CharacterDatabase.Execute(stmt);
+
+    // Stored root fixtures (Base/Roof/core) reference old-size components; re-resolve them to the same
+    // style at the new size so the exterior rebuild applies the player's chosen styles at the new size.
+    if (changed)
+        RemapFixturesForHouseSize(size);
 
     SyncUpdateFields();
 

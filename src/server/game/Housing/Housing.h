@@ -47,6 +47,16 @@ inline Position HousingWorldToRoomLocal(Position const& roomWorldPos, Position c
     return Position(cosF * dx + sinF * dy, -sinF * dx + cosF * dy, worldPos.GetPositionZ() - roomWorldPos.GetPositionZ());
 }
 
+// Rotation counterpart of HousingWorldToRoomLocal: the client composes worldRot = roomRot ⊗ localRot, so a
+// world-frame quaternion written as RotationLocalSpace comes out rotated by the room's facing. Room parents are
+// yaw-only, and pre-multiplying by an inverse yaw equals subtracting it from the ZYX euler yaw.
+inline QuaternionData HousingWorldRotationToRoomLocal(float roomWorldYaw, QuaternionData const& worldRot)
+{
+    float z, y, x;
+    worldRot.toEulerAnglesZYX(z, y, x);
+    return QuaternionData::fromEulerAnglesZYX(z - roomWorldYaw, y, x);
+}
+
 class TC_GAME_API Housing
 {
 public:
@@ -285,6 +295,9 @@ public:
     HousingResult SelectFixtureOption(uint32 fixturePointId, uint32 optionId, std::vector<uint32>* removedHookIDs = nullptr);
     // Re-keys the fixtures on oldCompId's hooks to the equivalent hooks (same fixture type and rank) of newCompId.
     void MoveHookFixtures(uint32 oldCompId, uint32 newCompId);
+    // Re-resolves Base/Roof root fixtures stored at the old size to the same style at newSize
+    // (hook fixtures follow their root). Call after _houseSize changes.
+    void RemapFixturesForHouseSize(uint8 newSize);
     HousingResult RemoveFixture(uint32 componentID, uint32* outHookID = nullptr);
     std::vector<Fixture const*> GetFixtures() const;
     std::unordered_map<uint32, uint32> GetFixtureOverrideMap() const;
