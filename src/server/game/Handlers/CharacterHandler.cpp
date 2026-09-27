@@ -50,6 +50,8 @@
 #include "Metric.h"
 #include "MiscPackets.h"
 #include "MotionMaster.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
@@ -395,6 +397,26 @@ bool LoginQueryHolder::Initialize()
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PERKS_MILESTONES);
     stmt->setUInt64(0, lowGuid);
     res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PERKS_MILESTONES, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING);
+    stmt->setUInt64(0, lowGuid);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOUSING, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING_DECOR);
+    stmt->setUInt64(0, lowGuid);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOUSING_DECOR, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING_ROOMS);
+    stmt->setUInt64(0, lowGuid);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING_FIXTURES);
+    stmt->setUInt64(0, lowGuid);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING_CATALOG);
+    stmt->setUInt64(0, lowGuid);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG, stmt);
 
     return res;
 }
@@ -2069,6 +2091,10 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder const& holder)
 
     sScriptMgr->OnPlayerLogin(pCurrChar, firstLogin);
 
+    // The other residents' bulletin boards show this player online (NeighborhoodRosterMemberUpdateInfo.isOnline).
+    for (Neighborhood const* neighborhood : sNeighborhoodMgr.GetNeighborhoodsForPlayer(pCurrChar->GetGUID()))
+        neighborhood->BroadcastMemberStatus(pCurrChar->GetGUID(), true);
+
     TC_METRIC_EVENT("player_events", "Login", pCurrChar->GetName());
 }
 
@@ -2186,6 +2212,18 @@ void WorldSession::HandleTutorialFlag(WorldPackets::Misc::TutorialSetFlag& packe
                 SetTutorialInt(i, 0xFFFFFFFF);
             break;
         case TUTORIAL_ACTION_RESET:
+            // RESET means "show the tutorials again" and must zero the bits (upstream behaviour).
+            //
+            // This was locally changed to set all bits instead, on the reasoning that the client sends RESET
+            // during the housing tutorial flow and that zeroing "clears housing mode-unlock bits (38-40),
+            // blocking editor modes". That conflated two different stores: bits 38-40 are
+            // Enum.FrameTutorialAccount values living in the client CVar bitfield
+            // closedInfoFramesAccountWide, which these 256 server-side flags cannot touch at all (see
+            // HOUSING_MODES_UNLOCKED_CVAR, which sets bit 38 explicitly and keeps the editor unlocked).
+            //
+            // The practical effect was self-defeating: the client sends RESET precisely when it is STARTING a
+            // tutorial sequence, and we answered by marking all 256 tutorials as already seen - so the tutorial
+            // the client had just begun was immediately considered finished and never appeared.
             for (uint8 i = 0; i < MAX_ACCOUNT_TUTORIAL_VALUES; ++i)
                 SetTutorialInt(i, 0x00000000);
             break;

@@ -48,6 +48,7 @@
 #include "GuildPackets.h"
 #include "HotfixPackets.h"
 #include "HousingPackets.h"
+#include "HousingBlueprintPackets.h"
 #include "InspectPackets.h"
 #include "InstancePackets.h"
 #include "ItemPackets.h"

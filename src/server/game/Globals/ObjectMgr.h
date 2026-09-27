@@ -1049,6 +1049,7 @@ class TC_GAME_API ObjectMgr
         DestructibleHitpoint const* GetDestructibleHitpoint(uint32 entry) const;
         GameObjectTemplate const* GetGameObjectTemplate(uint32 entry) const;
         GameObjectTemplateContainer const& GetGameObjectTemplates() const { return _gameObjectTemplateStore; }
+        GameObjectTemplateContainer& GetGameObjectTemplateStoreForHotfix() { return _gameObjectTemplateStore; }
         uint32 LoadReferenceVendor(int32 vendor, int32 item_id, std::set<uint32>* skip_vendors);
 
         void LoadDestructibleHitpoints();

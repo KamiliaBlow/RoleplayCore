@@ -1971,6 +1971,12 @@ struct HousingDoorData : public IsUpdateFieldStructureTag, public HasChangesMask
     void ClearChangesMask();
 };
 
+// 12.0.7 (68275) dropped the trailing int32 FloorIndex from this fragment.
+// Verified against C:\sniff\housing12.0.7.pkt: 49/49 FHousingRoom_C create blocks
+// carry PackedGuid + 4 int32 (HouseRoomID, Flags, MeshObjects.size, Doors.size)
+// and then the arrays, while every 12.0.1/12.0.5 capture carries 5 int32.
+// The floor number is server-side only now - HousingRoomEntity keeps it in a
+// plain member; do NOT re-add it to the wire.
 struct HousingRoomData : public IsUpdateFieldStructureTag, public HasChangesMask<6>
 {
     DynamicUpdateField<ObjectGuid, 0, 1> MeshObjects;

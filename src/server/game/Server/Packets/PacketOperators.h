@@ -20,6 +20,8 @@
 
 #include "ByteBuffer.h"
 #include "Optional.h"
+#include <algorithm>
+#include <cstddef>
 #include <memory>
 
 namespace WorldPackets
@@ -210,6 +212,36 @@ namespace WorldPackets
 
     template<AsWritable Underlying, ContainerReadable<Underlying> Container>
     inline SizeReaderWriter<Underlying, Container> Size(Container& value) { return { value }; }
+
+    // Size<> resizes from the wire value before a single element is read, so a
+    // hostile count is an allocation request, not a short read — an unbounded
+    // uint32 asks for up to 16 GiB and takes the world thread down with
+    // std::bad_alloc. BoundedSize clamps the count against the bytes actually
+    // left in the packet first: no element occupies less than one byte, so the
+    // remaining length is always a valid upper bound on the element count, and
+    // a malformed count degrades into a short read the element loop rejects.
+    //
+    // Prefer this over Size<> for any container whose length comes from the
+    // client. Writing is identical; only the read path differs.
+    template<AsWritable Underlying, ContainerReadable<Underlying> Container>
+    struct BoundedSizeReaderWriter : SizeWriter<Underlying, Container>
+    {
+        friend inline ByteBuffer& operator>>(ByteBuffer& data, BoundedSizeReaderWriter const& size)
+        {
+            Underlying temp;
+            data >> temp;
+
+            std::size_t const remaining = data.size() > data.rpos() ? data.size() - data.rpos() : 0;
+            const_cast<Container&>(size.Value).resize(std::min<std::size_t>(std::size_t(temp), remaining));
+            return data;
+        }
+    };
+
+    template<AsWritable Underlying, ContainerWritable<Underlying> Container>
+    inline SizeWriter<Underlying, Container> BoundedSize(Container const& value) { return { value }; }
+
+    template<AsWritable Underlying, ContainerReadable<Underlying> Container>
+    inline BoundedSizeReaderWriter<Underlying, Container> BoundedSize(Container& value) { return { value }; }
 
     template<uint32 BitCount, ContainerWritable<uint32> Container>
     struct BitsSizeWriter
@@ -522,6 +554,11 @@ namespace WorldPackets
 
     template <typename T>
     inline constexpr IgnoredReaderWriter<T> Ignored;
+
+    // Merge 2026-09-01 (ADV e004d7a4bf): removed a byte-for-byte duplicate of the
+    // BoundedSizeReaderWriter/BoundedSize block above — both branches independently added the
+    // same DoS-hardening fix at different insertion points in this file, and since the two hunks
+    // didn't overlap textually the merge kept both. Definition retained once, higher up.
 }
 
 #endif // TRINITYCORE_PACKET_OPERATORS_H

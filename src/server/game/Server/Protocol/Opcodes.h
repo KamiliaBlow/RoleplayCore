@@ -1671,12 +1671,30 @@ enum OpcodeServer : uint32
     SMSG_HOTFIX_MESSAGE                                             = 0x490002,
     SMSG_HOUSE_EXTERIOR_LOCK_RESPONSE                               = 0x530000,
     SMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION_RESPONSE                 = 0x530001,
-    SMSG_HOUSING_BLUEPRINT_CHECK_RESPONSE                           = 0x540007,
-    SMSG_HOUSING_BLUEPRINT_DELETE_RESPONSE                          = 0x540003,
+    // Housing blueprints: 12.1.0.69587 dispatcher 0x7FF7CD50C8C0, named from what each case's handler does (export and
+    // import results turn a UUID into a share code, the collection builds HousingBlueprintInfo, rename and delete fire their
+    // HOUSING_BLUEPRINT_* events, 0x540007 is HousingBlueprintContentInfo). Cases 0x540005 {bit, SizedCString<24>, u32 x4}
+    // and 0x540006 {u8} are read and dropped by this client.
     SMSG_HOUSING_BLUEPRINT_EXPORT_RESPONSE                          = 0x540000,
-    SMSG_HOUSING_BLUEPRINT_GET_RESPONSE                             = 0x540001,
-    SMSG_HOUSING_BLUEPRINT_IMPORT_RESPONSE                          = 0x540004,
+    SMSG_HOUSING_BLUEPRINT_COLLECTION                               = 0x540001,
     SMSG_HOUSING_BLUEPRINT_RENAME_RESPONSE                          = 0x540002,
+    SMSG_HOUSING_BLUEPRINT_DELETE_RESPONSE                          = 0x540003,
+    SMSG_HOUSING_BLUEPRINT_IMPORT_RESPONSE                          = 0x540004,
+    SMSG_HOUSING_BLUEPRINT_CONTENTS                                 = 0x540007,
+    // HOUSE_BUDGETS_UPDATE: clean, family 0x62 has capacity 1 (sole slot) and is otherwise unused
+    // in the 12.1 numbering (12.1 moved the Spell family that occupied 0x62 in ADV's 68275
+    // numbering to family 0x67 instead) — no collision.
+    SMSG_HOUSING_HOUSE_BUDGETS_UPDATE                               = 0x620000, // JamHouseBudgets
+    // EXPORT_HOUSE_RESPONSE: the 12.1.0.69587 client dispatches this message's class (getter 0x7FF7CD536220)
+    // from case 0x590003 of dispatcher 0x7FF7CD536260 - family 0x59, not 0x55.
+    SMSG_HOUSING_EXPORT_HOUSE_RESPONSE                              = 0x590003,
+    // Family 0x55 (decor responses), renumbered from the 12.1.0.69587 client: dispatcher 0x7FF7CD50D4B0 switches
+    // on opcode - 0x550000. Case 0 reads SET_EDIT_MODE_RESPONSE's layout, case 2 prints "Draw server lighting debug
+    // spheres updated", case 3 "Decor move failed", case 4 "Decor place failed", case 8 instantiates the mirrored
+    // storage object; cases 5-7 and 9-12 read exactly the layouts these classes write. Upstream (and WPP) number
+    // this block one lower from 0x550001 on, so every response went out under its neighbour's number (retail
+    // answers CMSG_HOUSING_DECOR_PLACE on 0x550004, CMSG_HOUSING_DECOR_REQUEST_STORAGE on 0x550008,
+    // CMSG_HOUSING_DECOR_REDEEM_DEFERRED_DECOR on 0x55000B). 0x550001 is a one-byte message with no name here.
     SMSG_HOUSING_DECOR_ADD_TO_HOUSE_CHEST_RESPONSE                  = 0x550009,
     SMSG_HOUSING_DECOR_DELETE_FROM_STORAGE_RESPONSE                 = 0x550007,
     SMSG_HOUSING_DECOR_DRAW_SERVER_LIGHTING_DEBUG_SPHERES_RESPONSE  = 0x550002,
@@ -1702,7 +1720,10 @@ enum OpcodeServer : uint32
     SMSG_HOUSING_PHOTO_SHARING_AUTHORIZATION_CLEARED_RESULT         = 0x450382,
     SMSG_HOUSING_PHOTO_SHARING_AUTHORIZATION_RESULT                 = 0x450381,
     SMSG_HOUSING_REDEEM_DEFERRED_DECOR_RESPONSE                     = 0x55000B,
-    SMSG_HOUSING_RESET_HOUSE_RESPONSE                               = 0x590006,
+    // 12.1.0.69587 dispatcher 0x7FF7CD536260: case 0x590007 reads one u8 and runs the reset-house result handler
+    // (0x7FF7CD072AB0: "ResetHouse successful" / "ResetHouse failed", HOUSE_RESET_COMPLETED / HOUSE_RESET_FAILED). Case
+    // 0x590006 reads a u8 and a string and drops both.
+    SMSG_HOUSING_RESET_HOUSE_RESPONSE                               = 0x590007,
     SMSG_HOUSING_RESET_KIOSK_MODE_RESPONSE                          = 0x590005,
     SMSG_HOUSING_ROOM_ADD_RESPONSE                                  = 0x570001,
     SMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS_RESPONSE            = 0x570005,

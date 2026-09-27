@@ -1269,6 +1269,18 @@ namespace WorldPackets
             uint32 StoreFrontID = 0;
             int32 Result = 0;
             uint32 Unknown = 0;
+
+        class DisplayWorldText final : public ServerPacket
+        {
+        public:
+            explicit DisplayWorldText() : ServerPacket(SMSG_DISPLAY_WORLD_TEXT) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid Guid;
+            uint32 Arg1 = 0;
+            uint32 Arg2 = 0;
+            std::string Text;
         };
     }
 }

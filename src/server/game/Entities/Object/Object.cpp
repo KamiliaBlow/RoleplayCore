@@ -138,6 +138,10 @@ void Object::BuildEntityFragmentsForValuesUpdateForPlayerWithMask(ByteBuffer& da
 void Object::ClearValuesChangesMask()
 {
     m_values.ClearChangesMask(&Object::m_objectData);
+    m_values.ClearChangesMask(&Object::m_housingDecorData);
+    m_values.ClearChangesMask(&Object::m_housingRoomData);
+    m_values.ClearChangesMask(&Object::m_housingRoomComponentMeshData);
+    m_values.ClearChangesMask(&Object::m_housingFixtureData);
 }
 
 void Object::BuildValuesUpdateWithFlag(UF::UpdateFieldFlag /*flags*/, ByteBuffer& data, Player const* /*target*/) const
