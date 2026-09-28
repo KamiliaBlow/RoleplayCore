@@ -61,6 +61,7 @@ public:
     bool IsExteriorRoot() const { return _isExteriorRoot; }
     int32 GetExteriorComponentHookID() const { return _exteriorComponentHookID; }
     int32 GetExteriorComponentID() const { return _exteriorComponentID; }
+    uint8 GetExteriorComponentType() const { return _exteriorComponentType; }
     void UpdateExteriorComponentID(int32 id);
 
     // Movement block Room/Decor data accessors (used by BaseEntity::BuildMovementUpdate)
@@ -147,6 +148,7 @@ private:
     bool _isExteriorRoot = false;
     int32 _exteriorComponentHookID = -1;
     int32 _exteriorComponentID = 0;
+    uint8 _exteriorComponentType = 0;
     ObjectGuid _fixtureGuid;
 };
 

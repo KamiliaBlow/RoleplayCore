@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
+class Housing;
 class WorldPacket;
 
 namespace WorldPackets::Neighborhood
@@ -217,6 +218,10 @@ public:
     void RefreshMirrorDataForOnlineMembers() const;
     // Per-player variant — used by the map-entry refresh path (SendNeighborhoodMapRefresh).
     void RefreshMirrorDataForPlayer(Player* player) const;
+    // Re-mirrors the owner's live exterior data (house type, fixtures, custom position)
+    // onto the plot's PlotInfo. The mirror is loaded once at server startup, so exterior
+    // edits made since would otherwise be invisible to the offline-spawn path.
+    void RefreshPlotExteriorMirror(Housing const* housing);
     // Setter-only half of RefreshMirrorDataForPlayer (no packet); lets callers pick the
     // wire form — VALUES when the client already holds the entity, CREATE otherwise.
     void RebuildMirrorDataFor(Player* player) const;

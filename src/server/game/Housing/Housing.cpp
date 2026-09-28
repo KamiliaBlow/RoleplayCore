@@ -2148,12 +2148,37 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
         return true;
     };
 
-    float minX, minY, maxX, maxY;
-    if (!getBox(roomEntryId, gridX, gridY, orientation, minX, minY, maxX, maxY))
-        return true;
-
     // Neighbouring walls stand on (almost) the same line.
     constexpr float TOLERANCE = 0.5f;
+
+    // Round rooms (HAS_CUSTOM_GEOMETRY: Day/Evening round rooms, RoomWmoData 233/255) have a circular
+    // footprint: center = room position, radius = the horizontal distance of their wall door (which sits
+    // on the room wall).
+    auto getCircle = [](uint32 entryId, int32 x, int32 y, uint32 turn, float& cx, float& cy, float& radius)
+    {
+        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(entryId);
+        if (!roomData || !roomData->HasCustomGeometry())
+            return false;
+
+        cx = float(x);
+        cy = float(y);
+        radius = 0.0f;
+        for (RoomDoor const& door : GetRoomDoors(entryId, 0.0f, 0.0f, turn))
+        {
+            if (door.IsVertical())
+                continue;
+            radius = std::max(radius, std::hypot(door.X, door.Y));
+        }
+        return radius > 0.0f;
+    };
+
+    float thisMinX, thisMinY, thisMaxX, thisMaxY;
+    if (!getBox(roomEntryId, gridX, gridY, orientation, thisMinX, thisMinY, thisMaxX, thisMaxY))
+        return true;
+
+    float thisCx = 0.0f, thisCy = 0.0f, thisRadius = 0.0f;
+    bool const thisIsCircle = getCircle(roomEntryId, gridX, gridY, orientation, thisCx, thisCy, thisRadius);
+
     for (Room const* other : rooms)
     {
         if (!other || other->Guid == ignoreRoom || other->FloorIndex != floorIndex)
@@ -2163,7 +2188,42 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
         if (!getBox(other->RoomEntryId, other->GridX, other->GridY, other->Orientation, otherMinX, otherMinY, otherMaxX, otherMaxY))
             continue;
 
-        if (minX < otherMaxX - TOLERANCE && maxX > otherMinX + TOLERANCE && minY < otherMaxY - TOLERANCE && maxY > otherMinY + TOLERANCE)
+        float otherCx = 0.0f, otherCy = 0.0f, otherRadius = 0.0f;
+        bool const otherIsCircle = getCircle(other->RoomEntryId, other->GridX, other->GridY, other->Orientation, otherCx, otherCy, otherRadius);
+
+        // Circle vs circle: reject when the two circles overlap past the wall tolerance.
+        if (thisIsCircle && otherIsCircle)
+        {
+            if (std::hypot(thisCx - otherCx, thisCy - otherCy) < thisRadius + otherRadius - TOLERANCE)
+                return false;
+            continue;
+        }
+
+        // Circle vs box: reject when the nearest box edge is closer than the circle radius minus the
+        // wall tolerance (boxes butt: a small gap is the normal state).
+        if (thisIsCircle)
+        {
+            float const closestX = std::clamp(thisCx, otherMinX, otherMaxX);
+            float const closestY = std::clamp(thisCy, otherMinY, otherMaxY);
+            if (std::hypot(thisCx - closestX, thisCy - closestY) < thisRadius - TOLERANCE)
+                return false;
+            continue;
+        }
+
+        // Box vs circle: a custom-geometry neighbour's WMO box legitimately covers this room (the
+        // doorway tunnel passes over the shared wall) - the client walks on the WMO's own collision,
+        // so the overlap is by design. Only the tunnel-mouth circle is checked.
+        if (otherIsCircle)
+        {
+            float const closestX = std::clamp(otherCx, thisMinX, thisMaxX);
+            float const closestY = std::clamp(otherCy, thisMinY, thisMaxY);
+            if (std::hypot(otherCx - closestX, otherCy - closestY) < otherRadius - TOLERANCE)
+                return false;
+            continue;
+        }
+
+        if (thisMinX < otherMaxX - TOLERANCE && thisMaxX > otherMinX + TOLERANCE
+            && thisMinY < otherMaxY - TOLERANCE && thisMaxY > otherMinY + TOLERANCE)
             return false;
     }
 
@@ -2176,6 +2236,10 @@ bool Housing::FitRoomToDoor(std::vector<Room const*> const& rooms, uint32 roomEn
     if (target.IsVertical())
         return false;
 
+    // Round rooms (custom geometry) attach through the same door-meeting arithmetic as the
+    // rectangular ones: their doorway sits on the wall facing the target, and the generic
+    // center = target door - door offset lands it exactly on the shared plane. RoomFits skips
+    // the AABB overlap rejection for them (their bounding box legitimately covers the target's).
     for (RoomDoor const& door : GetRoomDoors(roomEntryId, 0.0f, 0.0f, orientation))
     {
         if (door.IsVertical() || door.DirX != -target.DirX || door.DirY != -target.DirY)
@@ -2630,6 +2694,12 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
     }
 }
 
+void Housing::RefreshNeighborhoodMirror()
+{
+    if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
+        neighborhood->RefreshPlotExteriorMirror(this);
+}
+
 HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionId, std::vector<uint32>* removedHookIDs /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
@@ -2801,6 +2871,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
         _owner->GetSession()->SendPacket(notif.Write());
     }
 
+    RefreshNeighborhoodMirror();
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
@@ -3515,7 +3586,10 @@ void Housing::SetHouseSize(uint8 size)
     // Stored root fixtures (Base/Roof/core) reference old-size components; re-resolve them to the same
     // style at the new size so the exterior rebuild applies the player's chosen styles at the new size.
     if (changed)
+    {
         RemapFixturesForHouseSize(size);
+        RefreshNeighborhoodMirror();
+    }
 
     SyncUpdateFields();
 
@@ -3537,7 +3611,10 @@ void Housing::SetHouseType(uint32 typeId)
     // The previous type's roots and hook fixtures belong to other components; without starter fixtures for
     // the new type the rebuilt house had no roof selection and no entrance.
     if (changed)
+    {
         PopulateStarterFixtures();
+        RefreshNeighborhoodMirror();
+    }
 
     SyncUpdateFields();
 

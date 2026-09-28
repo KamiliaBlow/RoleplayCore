@@ -1340,6 +1340,33 @@ void Neighborhood::RebuildMirrorDataFor(Player* player) const
     }
 }
 
+void Neighborhood::RefreshPlotExteriorMirror(Housing const* housing)
+{
+    if (!housing)
+        return;
+
+    uint8 const plotIndex = housing->GetPlotIndex();
+    if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
+        return;
+
+    PlotInfo& plot = _plots[plotIndex];
+    if (plot.OwnerGuid.IsEmpty() || plot.OwnerGuid != housing->GetOwnerGuid())
+        return;
+
+    plot.HouseType = housing->GetHouseType();
+
+    plot.Fixtures.clear();
+    for (Housing::Fixture const* fixture : housing->GetFixtures())
+        if (fixture)
+            plot.Fixtures[fixture->FixturePointId] = fixture->OptionId;
+
+    if (housing->HasCustomPosition())
+        plot.HousePosition = housing->GetHousePosition();
+
+    TC_LOG_DEBUG("housing", "Neighborhood::RefreshPlotExteriorMirror: plot {} re-mirrored from live housing (type {}, {} fixtures)",
+        plotIndex, plot.HouseType, uint32(plot.Fixtures.size()));
+}
+
 void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
 {
     if (!player || !player->GetSession())

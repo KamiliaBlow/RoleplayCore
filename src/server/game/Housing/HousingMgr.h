@@ -82,6 +82,7 @@ struct HouseRoomData
 
     bool IsBaseRoom() const { return (Flags & HOUSING_ROOM_FLAG_BASE_ROOM) != 0; }
     bool HasStairs() const { return (Flags & HOUSING_ROOM_FLAG_HAS_STAIRS) != 0; }
+    bool HasCustomGeometry() const { return (Flags & HOUSING_ROOM_FLAG_HAS_CUSTOM_GEOMETRY) != 0; }
 };
 
 struct RoomDoorInfo

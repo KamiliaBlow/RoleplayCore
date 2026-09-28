@@ -855,6 +855,18 @@ constexpr char const HOUSING_WORLD_TEXT_NEIGHBORLY[] = "|cnYELLOW_FONT_COLOR:+Ne
 // Quest 91863 objective 17 ("Acquire a house") kill credit, granted on successful purchase.
 static constexpr uint32 NPC_KILL_CREDIT_BUY_HOME        = 248858;
 
+// The housing tutorial chain — the client keeps offering the tutorial until every quest in
+// it is flagged completed (A House for You -> My First Home -> Welcome Home -> Time to
+// Decorate). Housing.TutorialsEnabled = 0 rewards all four at login (Player::LoadFromDB)
+// to suppress the offer.
+static constexpr uint32 HOUSING_TUTORIAL_QUESTS[] =
+{
+    93057, // "A House for You"
+    91863, // "My First Home"
+    91968, // "Welcome Home"
+    91969, // "Time to Decorate"
+};
+
 // Spell applied during housing decor edit mode (creates "phased-out" visual effect)
 // Sniff: aura slot 51, Flags=NoCaster, ActiveFlags=15, CastLevel=36
 static constexpr uint32 SPELL_HOUSING_EDIT_MODE_AURA    = 1263303;

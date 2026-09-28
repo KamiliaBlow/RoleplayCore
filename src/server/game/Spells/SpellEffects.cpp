@@ -457,7 +457,7 @@ NonDefaultConstructible<SpellEffectHandlerFn> SpellEffectHandlers[TOTAL_SPELL_EF
     &Spell::EffectLearnHouseRoomComponentTexture,            //352 SPELL_EFFECT_LEARN_HOUSE_ROOM_COMPONENT_TEXTURE
     &Spell::EffectCreateAreaTrigger,                        //353 SPELL_EFFECT_CREATE_AREATRIGGER_2
     &Spell::EffectSetNeighborhoodInitiative,                 //354 SPELL_EFFECT_SET_NEIGHBORHOOD_INITIATIVE
-    &Spell::EffectNULL,                                     //355 SPELL_EFFECT_LEARN_HOUSE_TYPE
+    &Spell::EffectLearnHouseType,                            //355 SPELL_EFFECT_LEARN_HOUSE_TYPE
     &Spell::EffectNULL,                                     //356 SPELL_EFFECT_356
     &Spell::EffectNULL,                                     //357 SPELL_EFFECT_357
     &Spell::EffectNULL,                                     //358 SPELL_EFFECT_358
@@ -7172,6 +7172,28 @@ void Spell::EffectLearnHouseExteriorComponent()
     // Send collection update to the client
     WorldPackets::Housing::AccountExteriorFixtureCollectionUpdate collectionUpdate;
     collectionUpdate.AddSingle(exteriorComponentId);
+    player->SendDirectMessage(collectionUpdate.Write());
+}
+
+void Spell::EffectLearnHouseType()
+{
+    if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
+        return;
+
+    Player* player = Object::ToPlayer(unitTarget);
+    if (!player)
+        return;
+
+    uint32 houseTypeId = effectInfo->MiscValue;
+    if (!houseTypeId)
+        return;
+
+    TC_LOG_DEBUG("spells", "Spell::EffectLearnHouseType: Player {} learned house type ID {} from spell {}",
+        player->GetName(), houseTypeId, m_spellInfo->Id);
+
+    // Send collection update to the client
+    WorldPackets::Housing::AccountHouseTypeCollectionUpdate collectionUpdate;
+    collectionUpdate.AddSingle(houseTypeId);
     player->SendDirectMessage(collectionUpdate.Write());
 }
 

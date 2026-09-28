@@ -280,6 +280,7 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, ObjectGuid fixture
     // Cache for targeted fixture lookup and hierarchy traversal
     _exteriorComponentHookID = exteriorComponentHookID;
     _exteriorComponentID = exteriorComponentID;
+    _exteriorComponentType = exteriorComponentType;
     _fixtureGuid = fixtureGuid;
 
     // Every house mesh is a Tag_HouseExteriorPiece, the base included: retail only puts Tag_HouseExteriorRoot on the

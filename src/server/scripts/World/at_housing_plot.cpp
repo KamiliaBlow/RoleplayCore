@@ -72,6 +72,9 @@ struct at_housing_plot : AreaTriggerAI
         // Houses belong to the account: a plot bought by another character of the account is the player's own.
         bool isOwnPlot = !ownerGuid.IsEmpty() && (player->GetGUID() == ownerGuid || player->GetHousingByOwner(ownerGuid));
 
+        TC_LOG_INFO("housing", "at_housing_plot: player {} entered plot {} AT (owner={}, house={}, isOwnPlot={})",
+            player->GetGUID().ToString(), plotIdx, ownerGuid.ToString(), houseGuid.ToString(), isOwnPlot);
+
         // Visitor access permission check — only matters for plots with an owner.
         //
         // H-11: the check used to sit inside `if (Player* owner = FindPlayer(...))`,
@@ -125,6 +128,8 @@ struct at_housing_plot : AreaTriggerAI
         {
             Housing const* ownerHousing = player->GetHousingByOwner(ownerGuid);
             if (!ownerHousing)
+                ownerHousing = player->GetHousingForNeighborhood(housingMap->GetNeighborhood()->GetGuid());
+            if (!ownerHousing)
                 if (Player* plotOwner = ObjectAccessor::FindPlayer(ownerGuid))
                     ownerHousing = plotOwner->GetHousingByOwner(ownerGuid);
 
@@ -146,6 +151,14 @@ struct at_housing_plot : AreaTriggerAI
 
                 TC_LOG_DEBUG("housing", "at_housing_plot: Sent HouseStatus+Permissions for player {} (own={}, flags=0x{:X})",
                     player->GetGUID().ToString(), isOwnPlot, permResponse.PermissionFlags);
+
+                // Guarantee the plot geometry chain (room identity, geobox mesh, exterior root
+                // Entity, Group B mirrors) reaches an account owner entering their plot: the
+                // client's drag anchor and placement validation run against these, and ordinary
+                // grid visibility does not deliver them reliably for a cross-faction account
+                // owner whose "own plot" keying in the login bundle is keyed on GetHousing().
+                if (isOwnPlot)
+                    housingMap->SendPlotGeometryEntitiesToPlayer(static_cast<uint8>(plotIdx), player);
             }
         }
 
