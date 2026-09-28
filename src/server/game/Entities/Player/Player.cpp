@@ -847,7 +847,7 @@ void Player::HandleDrowning(uint32 time_diff)
             if (m_MirrorTimer[FATIGUE_TIMER] >= DarkWaterTime || !IsAlive())
                 StopMirrorTimer(FATIGUE_TIMER);
             else if (m_MirrorTimerFlagsLast & UNDERWATER_INDARKWATER)
-                SendMirrorTimer(FATIGUE_TIMER, DarkWaterTime, m_MirrorTimer[FATIGUE_TIMER], 10);
+                SendMirrorTimer(FATIGUE_TIMER, DarkWaterTime, m_MirrorTimer[FATIGUE_TIMER], 10, 0);
         }
     }
 

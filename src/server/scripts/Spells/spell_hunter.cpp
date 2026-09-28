@@ -1856,42 +1856,6 @@ class spell_hunter_freezing_trap_aura : public AuraScript
     }
 };
 
-// Flare - 1543
-// AreaTriggerID - 510
-class at_hun_flare : public AreaTriggerEntityScript
-{
-public:
-    at_hun_flare() : AreaTriggerEntityScript("at_hun_flare") {}
-
-    struct at_hun_flareAI : AreaTriggerAI
-    {
-        at_hun_flareAI(AreaTrigger* areatrigger) : AreaTriggerAI(areatrigger) { }
-
-        void OnCreate(Spell const* /*creatingSpell*/) override
-        {
-            Unit* caster = at->GetCaster();
-            if (!caster)
-                return;
-
-            if (caster->GetTypeId() != TYPEID_PLAYER)
-                return;
-
-            if (TempSummon* tempSumm = caster->SummonCreature(WORLD_TRIGGER, at->GetPosition(), TEMPSUMMON_TIMED_DESPAWN, 200ms))
-            {
-                tempSumm->SetFaction(caster->GetFaction());
-                tempSumm->SetSummonerGUID(caster->GetGUID());
-                PhasingHandler::InheritPhaseShift(tempSumm, caster);
-                caster->CastSpell(tempSumm, SPELL_HUNTER_FLARE_EFFECT, true);
-            }
-        }
-    };
-
-    AreaTriggerAI* GetAI(AreaTrigger* areatrigger) const override
-    {
-        return new at_hun_flareAI(areatrigger);
-    }
-};
-
 // Kill Command - 34026
 class spell_hun_kill_command : public SpellScript
 {
@@ -2115,6 +2079,31 @@ class spell_hun_wilderness_medicine : public AuraScript
     }
 
     SpellEffectValue _dispelChance = 0;
+};
+
+// 473523 - Windrunner Quiver
+class spell_hun_windrunner_quiver : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_HUNTER_LOCK_AND_LOAD });
+    }
+
+    static bool CheckProc(AuraScript const&, AuraEffect const* aurEff, ProcEventInfo const& /*eventInfo*/)
+    {
+        return roll_chance(aurEff->GetAmount());
+    }
+
+    static void HandleProc(AuraScript const&, AuraEffect const* /*aurEff*/, ProcEventInfo const& eventInfo)
+    {
+        eventInfo.GetActor()->CastSpell(eventInfo.GetActor(), SPELL_HUNTER_LOCK_AND_LOAD, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_hun_windrunner_quiver::CheckProc, EFFECT_1, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_hun_windrunner_quiver::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
+    }
 };
 
 //217200 - Barbed Shot
@@ -2924,7 +2913,6 @@ void AddSC_hunter_spell_scripts()
     //new
     RegisterAreaTriggerAI(at_hunter_freezing_trap);
     RegisterSpellScript(spell_hunter_freezing_trap_aura);
-    new at_hun_flare();
     RegisterSpellScript(spell_hun_kill_command);
     RegisterSpellScript(spell_hun_kill_command_proc);
     RegisterSpellScript(spell_hun_intimidation);
