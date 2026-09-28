@@ -19,7 +19,9 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "GossipDef.h"
+#include "Housing.h"
 #include "HousingDefines.h"
+#include "HousingMgr.h"
 #include "Log.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectMgr.h"
@@ -137,7 +139,66 @@ struct npc_housing_steward : public CreatureAI
     }
 };
 
+enum HousingHouseUpgrade
+{
+    // Jorvan Longmoor (255104), Founder's Point
+    GOSSIP_MENU_HOUSE_UPGRADE           = 41352,
+    GOSSIP_OPTION_UPGRADE_READY         = 0,        // 137141 -> 41353
+    GOSSIP_OPTION_UPGRADE_NOT_READY     = 1,        // 137143 -> 41354
+    GOSSIP_OPTION_CREATIVE_BLUEPRINTS   = 2,        // 139907, vendor
+    GOSSIP_MENU_HOUSE_UPGRADE_CONFIRM   = 41353,    // "Let's go!"
+
+    // [DNT] Level Up Houses - Cover: force-casts 1252051 (SPELL_EFFECT_GIVE_HOUSE_LEVEL) + kill credit 257414
+    SPELL_LEVEL_UP_HOUSES_COVER         = 1264549
+};
+
+// Jorvan Longmoor (255104) — raises the house level (retail 12.1.0.69933, sniff 11-13-10).
+// Menu 41352 shows one of two "I'd like to upgrade my house." options: 137141 when the house has the
+// favor for the next level (-> 41353 "Let's go!", which casts 1264549), 137143 otherwise (-> 41354).
+struct npc_housing_house_upgrade : public CreatureAI
+{
+    npc_housing_house_upgrade(Creature* creature) : CreatureAI(creature) { }
+
+    void UpdateAI(uint32 /*diff*/) override { }
+
+    static bool CanUpgrade(Player* player)
+    {
+        Housing const* housing = player->GetHousing();
+        if (!housing || housing->GetLevel() >= MAX_HOUSE_LEVEL)
+            return false;
+
+        return housing->GetFavor() >= sHousingMgr.GetFavorThresholdForLevel(housing->GetLevel() + 1);
+    }
+
+    bool OnGossipHello(Player* player) override
+    {
+        InitGossipMenuFor(player, GOSSIP_MENU_HOUSE_UPGRADE);
+        if (me->IsQuestGiver())
+            player->PrepareQuestMenu(me->GetGUID());
+
+        if (player->GetHousing())
+            AddGossipItemFor(player, GOSSIP_MENU_HOUSE_UPGRADE,
+                CanUpgrade(player) ? GOSSIP_OPTION_UPGRADE_READY : GOSSIP_OPTION_UPGRADE_NOT_READY, GOSSIP_SENDER_MAIN, 0);
+        AddGossipItemFor(player, GOSSIP_MENU_HOUSE_UPGRADE, GOSSIP_OPTION_CREATIVE_BLUEPRINTS, GOSSIP_SENDER_MAIN, 0);
+
+        SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_HOUSE_UPGRADE, me), me->GetGUID());
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, uint32 menuId, uint32 /*gossipListId*/) override
+    {
+        if (menuId != GOSSIP_MENU_HOUSE_UPGRADE_CONFIRM)
+            return false;
+
+        CloseGossipMenuFor(player);
+        if (CanUpgrade(player))
+            player->CastSpell(player, SPELL_LEVEL_UP_HOUSES_COVER, true);
+        return true;
+    }
+};
+
 void AddSC_npc_housing_steward()
 {
     RegisterCreatureAI(npc_housing_steward);
+    RegisterCreatureAI(npc_housing_house_upgrade);
 }

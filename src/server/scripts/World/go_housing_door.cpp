@@ -205,7 +205,11 @@ public:
 
             // Check visitor access permissions if this isn't the player's own plot
             Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(plotIndex));
-            bool isVisit = plotInfo && plotInfo->OwnerGuid != player->GetGUID();
+            // Houses belong to the account: another character of the account enters it as its owner.
+            bool const accountHouse = plotInfo && player->GetHousingByOwner(plotInfo->OwnerGuid);
+            bool isVisit = plotInfo && plotInfo->OwnerGuid != player->GetGUID() && !accountHouse;
+            if (accountHouse && plotInfo->OwnerGuid != player->GetGUID())
+                player->SetHouseVisitTarget(plotInfo->OwnerGuid); // route to the buyer's interior instance
             if (isVisit)
             {
                 // Permissions check. Prefer the live Housing object when the owner
@@ -319,9 +323,27 @@ class spell_housing_plot_teleport : public SpellScript
     }
 };
 
+// Doors placed as decor (HouseDecor.GameObjectID of GAMEOBJECT_TYPE_DOOR, e.g. 527736 for decor 378).
+// Retail 12.1.0.69933 (sniff 11-13-10): every CMSG_GAME_OBJ_USE flips State 1 <-> 0 (the first one also
+// drops GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE) and the door never closes on its own (autoClose 0).
+// UseDoorOrButton would open it once and ignore every later use.
+struct go_housing_decor_door : public GameObjectAI
+{
+    go_housing_decor_door(GameObject* go) : GameObjectAI(go) { }
+
+    bool OnGossipHello(Player* /*player*/) override
+    {
+        me->SetFlag(GO_FLAG_IN_USE);
+        me->RemoveDynamicFlag(GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE);
+        me->SetGoState(me->GetGoState() == GO_STATE_READY ? GO_STATE_ACTIVE : GO_STATE_READY);
+        return true;
+    }
+};
+
 void AddSC_go_housing_door()
 {
     new go_housing_door();
+    RegisterGameObjectAI(go_housing_decor_door);
     RegisterSpellScript(spell_housing_leave_house);
     RegisterSpellScript(spell_housing_plot_teleport);
 }

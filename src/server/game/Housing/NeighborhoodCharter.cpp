@@ -149,8 +149,8 @@ bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::AddSignature: Player {} signed charter {} ({}/{} signatures)",
-        signerGuid.ToString(), _id, _signatures.size(), MIN_CHARTER_SIGNATURES);
+    TC_LOG_DEBUG("housing", "NeighborhoodCharter::AddSignature: Player {} signed charter {} ({} signatures)",
+        signerGuid.ToString(), _id, _signatures.size());
 
     return true;
 }

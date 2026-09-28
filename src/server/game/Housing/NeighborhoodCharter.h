@@ -45,7 +45,7 @@ public:
     bool AddSignature(ObjectGuid signerGuid);
     bool HasSigned(ObjectGuid signerGuid) const;
     uint32 GetSignatureCount() const { return static_cast<uint32>(_signatures.size()); }
-    bool HasEnoughSignatures() const { return GetSignatureCount() >= MIN_CHARTER_SIGNATURES; }
+    bool HasEnoughSignatures(uint32 required) const { return GetSignatureCount() >= required; }
     std::vector<ObjectGuid> const& GetSignatures() const { return _signatures; }
 
     void SaveToDB(CharacterDatabaseTransaction trans);

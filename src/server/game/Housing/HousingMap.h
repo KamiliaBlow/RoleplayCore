@@ -176,6 +176,7 @@ public:
     void DespawnAllDecorForPlot(uint8 plotIndex);
     void SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing);
     void UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
+    void UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
 
     // Track which plot a player is currently visiting (set by at_housing_plot)
     void SetPlayerCurrentPlot(ObjectGuid playerGuid, uint8 plotIndex) { _playerCurrentPlot[playerGuid] = plotIndex; }

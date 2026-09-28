@@ -69,7 +69,8 @@ struct at_housing_plot : AreaTriggerAI
         ObjectGuid ownerGuid = plotInfo ? plotInfo->OwnerGuid : ObjectGuid::Empty;
         ObjectGuid houseGuid = plotInfo ? plotInfo->HouseGuid : ObjectGuid::Empty;
 
-        bool isOwnPlot = !ownerGuid.IsEmpty() && player->GetGUID() == ownerGuid;
+        // Houses belong to the account: a plot bought by another character of the account is the player's own.
+        bool isOwnPlot = !ownerGuid.IsEmpty() && (player->GetGUID() == ownerGuid || player->GetHousingByOwner(ownerGuid));
 
         // Visitor access permission check — only matters for plots with an owner.
         //
@@ -122,8 +123,10 @@ struct at_housing_plot : AreaTriggerAI
         // editor-gate check (a1[76] && a1[72]) evaluates true.
         if (!ownerGuid.IsEmpty())
         {
-            Player* plotOwner = isOwnPlot ? player : ObjectAccessor::FindPlayer(ownerGuid);
-            Housing const* ownerHousing = plotOwner ? plotOwner->GetHousing() : nullptr;
+            Housing const* ownerHousing = player->GetHousingByOwner(ownerGuid);
+            if (!ownerHousing)
+                if (Player* plotOwner = ObjectAccessor::FindPlayer(ownerGuid))
+                    ownerHousing = plotOwner->GetHousingByOwner(ownerGuid);
 
             if (ownerHousing)
             {
@@ -197,7 +200,8 @@ struct at_housing_plot : AreaTriggerAI
             ? nbh->GetPlotInfo(static_cast<uint8>(plotIdx)) : nullptr;
         ObjectGuid ownerGuid = plotInfo ? plotInfo->OwnerGuid : ObjectGuid::Empty;
 
-        bool isOwnPlot = !ownerGuid.IsEmpty() && player->GetGUID() == ownerGuid;
+        // Houses belong to the account: a plot bought by another character of the account is the player's own.
+        bool isOwnPlot = !ownerGuid.IsEmpty() && (player->GetGUID() == ownerGuid || player->GetHousingByOwner(ownerGuid));
 
         // Remove plot-auras (manual packets, spells aren't in DB2).
         housingMap->SendPlotLeaveAuraRemoval(player);

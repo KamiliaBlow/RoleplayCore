@@ -20,6 +20,7 @@
 #include "Player.h"
 #include "SpellInfo.h"
 #include "SpellScript.h"
+#include "WorldSession.h"
 
 enum HousingCornerstoneSpells
 {
@@ -54,7 +55,24 @@ class spell_housing_trigger_convo_unowned_plot : public SpellScript
     }
 };
 
+// 1225512 - Open Neighborhood Charter (use of item 239098)
+// Retail answers the item use with SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE carrying the charter state.
+class spell_housing_neighborhood_charter : public SpellScript
+{
+    void HandleDummy(SpellEffIndex /*effIndex*/) const
+    {
+        if (Player* player = GetCaster()->ToPlayer())
+            player->GetSession()->SendNeighborhoodCharterOpenUI();
+    }
+
+    void Register() override
+    {
+        OnEffectHit += SpellEffectFn(spell_housing_neighborhood_charter::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 void AddSC_housing_spell_scripts()
 {
     RegisterSpellScript(spell_housing_trigger_convo_unowned_plot);
+    RegisterSpellScript(spell_housing_neighborhood_charter);
 }

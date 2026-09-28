@@ -7146,10 +7146,7 @@ void Spell::EffectLearnHouseRoom()
     TC_LOG_DEBUG("spells", "Spell::EffectLearnHouseRoom: Player {} learned house room '{}' (ID: {})",
         player->GetName(), roomData->Name, houseRoomId);
 
-    // Send collection update to the client
-    WorldPackets::Housing::AccountRoomCollectionUpdate collectionUpdate;
-    collectionUpdate.AddSingle(houseRoomId);
-    player->SendDirectMessage(collectionUpdate.Write());
+    player->LearnHouseRoom(houseRoomId);
 }
 
 void Spell::EffectLearnHouseExteriorComponent()

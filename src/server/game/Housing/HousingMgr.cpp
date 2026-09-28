@@ -701,121 +701,42 @@ uint32 HousingMgr::GetQuestForLevel(uint32 level) const
     return 0;
 }
 
-// Retail-verified cumulative favor thresholds to REACH each level.
-// Captured by running /script print(C_Housing.GetHouseLevelFavorForLevel(N))
-// for N=2..9 on a live retail 12.0.1.66838 client. These values are NOT in
-// any DB2 and NOT sent over the wire — the client keeps them in a C++
-// binary-search table initialized at startup.
-//
-// Lua UI semantics (verified from Blizzard_HousingDashboardHouseUpgrade.lua):
-//   - houseFavor stored on the Housing/3 entity is CUMULATIVE lifetime favor
-//   - GetHouseLevelFavorForLevel(N) = cumulative favor needed to UNLOCK level N
-//   - Progress bar = (currentFavor - threshold[level]) / (threshold[level+1] - threshold[level])
-//   - CanUpgrade(level) = currentFavor >= threshold[level]
-//
-// Level-up gating is server-side and not client-callable — there is no
-// C_Housing.UpgradeHouse API. For levels 2..6 the HouseLevelData DB2 has a
-// QuestID, so the NPC most likely offers that quest once favor crosses the
-// threshold (not yet verified from sniff). Levels 7..9 have QuestID=0 —
-// gate unknown. Store-only for now; do NOT use to trigger level-up until
-// the NPC/auto-level mechanism is sniff-verified.
-uint32 HousingMgr::GetFavorThresholdForLevel(uint32 level) const
+// Per-level house values are GlobalCurve.db2 curves (types 37-41) evaluated at the house level; every
+// value matches the Housing/3 entities of the 12.1.0.69933 retail sniffs for levels 1-12:
+//   37 cumulative favor to reach the level, 38 interior decor, 39 exterior decor,
+//   40 room placement (19..134), 41 exterior fixture (1000..5000) budget.
+static uint32 GetHouseLevelCurveValue(GlobalCurve curve, uint32 level)
 {
-    //               L1  L2     L3     L4     L5     L6     L7      L8       L9
-    static constexpr uint32 Thresholds[] = {
-        /* L1 */ 0,     // starter — no favor needed
-        /* L2 */ 10,
-        /* L3 */ 1200,
-        /* L4 */ 2400,
-        /* L5 */ 3700,
-        /* L6 */ 5700,
-        /* L7 */ 7900,
-        /* L8 */ 10300,
-        /* L9 */ 12900,
-    };
-    constexpr uint32 MaxLevel = sizeof(Thresholds) / sizeof(Thresholds[0]) - 1;  // 9
-    if (level <= MaxLevel)
-        return Thresholds[level];
-    // Above the verified range, hold at L9 — extrapolation would be a guess.
-    return Thresholds[MaxLevel];
+    uint32 const curveId = sDB2Manager.GetGlobalCurveId(curve);
+    if (!curveId)
+        return 0;
+
+    return static_cast<uint32>(std::lround(sDB2Manager.GetCurveValueAt(curveId, float(std::max<uint32>(level, 1)))));
 }
 
-// Retail-verified budget tables for levels 1..7, decoded from every Housing/3
-// CREATE block in dump_12.0.1.66838_2026-04-15_09-35-59 idx 9984 (n=47).
-// Every block at a given level has the same 4 values — zero variance.
-//   L1: Interior=910   Exterior=200  Room=1000  Fixture=19
-//   L2: Interior=1155  Exterior=200  Room=2000  Fixture=24
-//   L3: Interior=1450  Exterior=250  Room=3000  Fixture=30
-//   L4: Interior=1745  Exterior=250  Room=4000  Fixture=36
-//   L5: Interior=2050  Exterior=250  Room=5000  Fixture=43
-//   L6: Interior=2360  Exterior=250  Room=5000  Fixture=50
-//   L7: Interior=3180  Exterior=250  Room=5000  Fixture=68
-// Levels above 7 extrapolated linearly until a sniff covers higher tiers.
-// The HouseLevelData DB2 (hotfixes.house_level_data) only carries
-// ID/Level/QuestID — no budget columns — so this fallback is the hot path.
-//
-// #16 Outdoor Lighting (A3): 12.0.7 raised the EXTERIOR decor limit alongside
-// outdoor light placement — houses level 5-6 -> 300, levels 7+ -> 350 (per the
-// small-activities blueprint; the 66838 dump predates 12.0.7 so these two tiers
-// are DOCUMENTED-not-DB2-confirmed and flagged CAPTURE-BLOCKED until a 12.0.7
-// CREATE block is sniffed). Interior/room/fixture values are unchanged. The
-// exterior budget is now genuinely CHARGED on placement (see Housing.cpp M2), so
-// these caps are enforced rather than cosmetic.
-namespace {
-    struct RetailBudget { uint32 interior, exterior, room, fixture; };
-    static constexpr RetailBudget RetailBudgetByLevel[] = {
-        /* 0 */ {   0,   0,    0,  0 },  // unused
-        /* 1 */ { 910, 200, 1000, 19 },
-        /* 2 */ {1155, 200, 2000, 24 },
-        /* 3 */ {1450, 250, 3000, 30 },
-        /* 4 */ {1745, 250, 4000, 36 },
-        /* 5 */ {2050, 300, 5000, 43 },  // exterior 250->300 (12.0.7 #16, DOCUMENTED)
-        /* 6 */ {2360, 300, 5000, 50 },  // exterior 250->300 (12.0.7 #16, DOCUMENTED)
-        /* 7 */ {3180, 350, 5000, 68 },  // exterior 250->350 (12.0.7 #16, DOCUMENTED)
-    };
-    constexpr uint32 MAX_VERIFIED_LEVEL = 7;
-
-    RetailBudget RetailBudgetFor(uint32 level)
-    {
-        if (level >= 1 && level <= MAX_VERIFIED_LEVEL)
-            return RetailBudgetByLevel[level];
-        if (level == 0)
-            return RetailBudgetByLevel[1];
-        // Above verified tier: hold at L7 values (conservative — bump once sniffed)
-        return RetailBudgetByLevel[MAX_VERIFIED_LEVEL];
-    }
+uint32 HousingMgr::GetFavorThresholdForLevel(uint32 level) const
+{
+    return GetHouseLevelCurveValue(GlobalCurve::HouseLevelFavorForLevel, level);
 }
 
 uint32 HousingMgr::GetInteriorDecorBudgetForLevel(uint32 level) const
 {
-    HouseLevelData const* levelData = GetLevelData(level);
-    if (levelData && levelData->InteriorDecorPlacementBudget > 0)
-        return static_cast<uint32>(levelData->InteriorDecorPlacementBudget);
-    return RetailBudgetFor(level).interior;
+    return GetHouseLevelCurveValue(GlobalCurve::HouseInteriorDecorBudget, level);
 }
 
 uint32 HousingMgr::GetExteriorDecorBudgetForLevel(uint32 level) const
 {
-    HouseLevelData const* levelData = GetLevelData(level);
-    if (levelData && levelData->ExteriorDecorPlacementBudget > 0)
-        return static_cast<uint32>(levelData->ExteriorDecorPlacementBudget);
-    return RetailBudgetFor(level).exterior;
+    return GetHouseLevelCurveValue(GlobalCurve::HouseExteriorDecorBudget, level);
 }
 
 uint32 HousingMgr::GetRoomBudgetForLevel(uint32 level) const
 {
-    HouseLevelData const* levelData = GetLevelData(level);
-    if (levelData && levelData->RoomPlacementBudget > 0)
-        return static_cast<uint32>(levelData->RoomPlacementBudget);
-    return RetailBudgetFor(level).room;
+    return GetHouseLevelCurveValue(GlobalCurve::HouseRoomPlacementBudget, level);
 }
 
 uint32 HousingMgr::GetFixtureBudgetForLevel(uint32 level) const
 {
-    HouseLevelData const* levelData = GetLevelData(level);
-    if (levelData && levelData->ExteriorFixtureBudget > 0)
-        return static_cast<uint32>(levelData->ExteriorFixtureBudget);
-    return RetailBudgetFor(level).fixture;
+    return GetHouseLevelCurveValue(GlobalCurve::HouseFixtureBudget, level);
 }
 
 uint32 HousingMgr::GetDecorWeightCost(uint32 decorEntryId) const
@@ -894,7 +815,8 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
     if (!visitor || ownerGuid.IsEmpty())
         return false;
 
-    if (visitor->GetGUID() == ownerGuid)
+    // Houses belong to the account: every character of the owner's account has owner access.
+    if (visitor->GetGUID() == ownerGuid || visitor->GetHousingByOwner(ownerGuid))
         return true;
 
     uint32 anyoneFlag    = isInterior ? HOUSE_SETTING_HOUSE_ACCESS_ANYONE    : HOUSE_SETTING_PLOT_ACCESS_ANYONE;
@@ -957,7 +879,7 @@ bool HousingMgr::CanVisitorExportBlueprint(Player const* visitor, ObjectGuid own
     if (!visitor || ownerGuid.IsEmpty())
         return false;
 
-    if (visitor->GetGUID() == ownerGuid)
+    if (visitor->GetGUID() == ownerGuid || visitor->GetHousingByOwner(ownerGuid))
         return true;
 
     if (settingsFlags & HOUSE_SETTING_BLUEPRINT_EXPORT_ANYONE)
@@ -1071,37 +993,15 @@ void HousingMgr::LoadHouseLevelRewardInfoData()
     for (auto const& [id, reward] : _houseLevelRewardInfoStore)
         _rewardsByLevel[reward.HouseLevelDataID].push_back(&reward);
 
-    // HouseLevelRewardInfo DB2 fields verified from runtime data + IDA:
-    //   Field_4 = HouseLevelRewardType enum: Value(0) or Object(1)
-    //   IconFileDataID = actual FileData icon reference (values: 135769, 4217590, 7252953, 7487068)
-    //   DB2 does NOT contain budget type (ExteriorDecor/InteriorDecor/Rooms/Fixtures) or budget values.
-    //   Budget capacities come entirely from the hardcoded fallback table below.
-    //   Client enum HouseLevelRewardValueType(0-3) is used in Lua UI, not stored in this DB2.
+    // HouseLevelRewardInfo: HouseLevelDataID points at the HouseLevelData row ID, Field_4 is the display
+    // order inside a level. The rewards are display text only; budgets come from GlobalCurve 37-41
+    // (see GetHouseLevelCurveValue) and rooms/decor from the level's award quest (HouseLevelData.QuestID).
     uint32 budgetWired = 0;
-
-    // Historical note: a load-time fallback here used to pre-fill every
-    // HouseLevelData.{Interior,Exterior,Room,Fixture}Budget field with
-    // hardcoded values when DB2 had 0. Those values had Room/Fixture
-    // swapped (Room=19, Fixture=1000 for L1 — retail is Room=1000,
-    // Fixture=19) and Interior L4 off-by-5 (1750 vs retail 1745).
-    //
-    // Because GetXxxBudgetForLevel() checks `levelData->XxxBudget > 0`
-    // FIRST, the load-time fallback masked the per-call RetailBudgetFor()
-    // table. Sniff-verified against dump_12.0.1.66838_2026-04-22_21-23-22
-    // idx 298: server emitted Room=19, Fixture=1000 despite
-    // commit 352ec7e3df fixing the per-call fallback.
-    //
-    // Removed: the per-call fallback in GetInteriorDecorBudgetForLevel /
-    // GetExteriorDecorBudgetForLevel / GetRoomBudgetForLevel /
-    // GetFixtureBudgetForLevel already handles zero/missing DB2 values
-    // with the retail-verified RetailBudgetByLevel table.
 
     TC_LOG_INFO("housing", "HousingMgr::LoadHouseLevelRewardInfoData: Loaded {} HouseLevelRewardInfo entries, wired {} budget values from DB2",
         uint32(_houseLevelRewardInfoStore.size()), budgetWired);
 
-    // Log final budget values per level for verification. When DB2 has no
-    // budget rows, the fields here are 0 and the per-call GetXxxBudgetForLevel
-    // fallback supplies the retail-verified values.
+    // Log final budget values per level for verification (GetXxxBudgetForLevel reads GlobalCurve.db2).
     for (auto const& [id, levelData] : _houseLevelDataStore)
     {
         TC_LOG_INFO("housing", "  Level {} (ID {}): DB2 Interior={} Exterior={} Room={} Fixture={} (resolved via GetXxxBudgetForLevel: {} {} {} {})",

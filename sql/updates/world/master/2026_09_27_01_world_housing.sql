@@ -4931,6 +4931,38 @@ INSERT INTO `gameobject_template` (`entry`, `type`, `displayId`, `name`, `IconNa
 (629423, 5, 17666, 'Advert: 11.2.7 - Housing - Domesticated - Food - Pet Bowl (RPS)', '', '', '', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 65940),
 (648554, 10, 124218, 'Front Door', '', '', '', 1, 4296, 0, 0, 3000, 0, 0, 0, 0, 0, 0, 1234192, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, '', 'go_housing_door', NULL, 69933);
 
+-- GameObjects behind HouseDecor.GameObjectID that TDB lacks (retail 12.1.0.69933 query responses).
+-- Decor whose GameObject has no template spawns as a plain mesh and cannot be used.
+DELETE FROM `gameobject_template` WHERE `entry` IN (527736, 547193, 554708, 563484, 565054, 565537, 572483, 574894, 584163, 612070);
+INSERT INTO `gameobject_template` (`entry`, `type`, `displayId`, `name`, `IconName`, `castBarCaption`, `unk1`, `size`, `Data0`, `Data1`, `Data2`, `Data3`, `Data4`, `Data5`, `Data6`, `Data7`, `Data8`, `Data9`, `Data10`, `Data11`, `Data12`, `Data13`, `Data14`, `Data15`, `Data16`, `Data17`, `Data18`, `Data19`, `Data20`, `Data21`, `Data22`, `Data23`, `Data24`, `Data25`, `Data26`, `Data27`, `Data28`, `Data29`, `Data30`, `Data31`, `Data32`, `Data33`, `Data34`, `ContentTuningId`, `RequiredLevel`, `AIName`, `ScriptName`, `StringId`, `VerifiedBuild`) VALUES
+(527736, 0, 103856, 'Прочная деревянная дверь (интерьер)', '', '', '', 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 'go_housing_decor_door', NULL, 69933),
+(547193, 10, 106202, 'Прочный очаг', '', '', '', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(554708, 7, 107830, 'Прочная деревянная скамья', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(563484, 7, 46157, 'Скамья усталого тролля', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(565054, 7, 110022, 'Прелестный диван', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(565537, 7, 120841, 'Штормградская деревянная скамья', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(572483, 10, 112640, 'Клыкастый подсвечник', '', '', '', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(574894, 7, 113464, 'Стул с плюшевыми вставками', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(584163, 10, 114481, 'Увитое корнями окно', '', '', '', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, '', '', NULL, 69933),
+(612070, 7, 116300, 'Маленький элегантный мягкий стул', '', '', '', 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', '', NULL, 69933);
+
+DELETE FROM `gameobject_template_locale` WHERE `locale` = 'ruRU' AND `entry` IN (527736, 547193, 554708, 563484, 565054, 565537, 572483, 574894, 584163, 612070);
+INSERT INTO `gameobject_template_locale` (`entry`, `locale`, `name`, `castBarCaption`, `unk1`, `VerifiedBuild`) VALUES
+(527736, 'ruRU', 'Прочная деревянная дверь (интерьер)', '', '', 69933),
+(547193, 'ruRU', 'Прочный очаг', '', '', 69933),
+(554708, 'ruRU', 'Прочная деревянная скамья', '', '', 69933),
+(563484, 'ruRU', 'Скамья усталого тролля', '', '', 69933),
+(565054, 'ruRU', 'Прелестный диван', '', '', 69933),
+(565537, 'ruRU', 'Штормградская деревянная скамья', '', '', 69933),
+(572483, 'ruRU', 'Клыкастый подсвечник', '', '', 69933),
+(574894, 'ruRU', 'Стул с плюшевыми вставками', '', '', 69933),
+(584163, 'ruRU', 'Увитое корнями окно', '', '', 69933),
+(612070, 'ruRU', 'Маленький элегантный мягкий стул', '', '', 69933);
+
+DELETE FROM `gameobject_template_addon` WHERE `entry` = 527736;
+INSERT INTO `gameobject_template_addon` (`entry`, `faction`, `flags`) VALUES
+(527736, 0, 32); -- GO_FLAG_NODESPAWN like the retail door
+
 -- Creature template addons
 DELETE FROM `creature_template_addon` WHERE `entry` IN (233063, 233124, 234993, 234995, 235014, 235016, 235017, 235021, 235026, 235451, 235452, 235453, 235454, 235455, 235456, 235457, 235458, 235460, 235461, 236111, 236112, 236113, 236115, 236116, 236117, 236118, 236119, 236820, 237063, 237438, 238582, 238584, 239415, 239906, 239919, 240353, 242052, 242122, 244166, 244547, 244568, 244569, 244570, 244575, 244681, 244688, 244697, 244756, 244806, 244850, 244862, 244864, 244951, 244973, 245038, 245042, 245045, 245087, 245134, 245259, 245276, 245551, 245815, 246336, 246971, 247298, 247302, 247958, 248854, 249435, 249503, 255104, 255110, 255126, 255196, 255197, 255198, 255200, 255202, 255203, 255213, 255216, 255218, 255221, 255227, 255519, 255651, 255654, 255778, 255912, 255914, 255918, 255920, 255924, 255941, 255943, 256085, 256327, 256416, 256521, 256525, 256526, 256632, 256636, 256825);
 INSERT INTO `creature_template_addon` (`entry`, `PathId`, `mount`, `MountCreatureID`, `StandState`, `AnimTier`, `VisFlags`, `SheathState`, `PvPFlags`, `emote`, `aiAnimKit`, `movementAnimKit`, `meleeAnimKit`, `visibilityDistanceType`, `auras`) VALUES
@@ -5341,11 +5373,12 @@ INSERT INTO `spell_target_position` (`ID`, `EffectIndex`, `OrderIndex`, `MapID`,
 (1258484, 0, 0, 2736, 2053.6, 175.468, 175.12, 0, 57388);
 
 -- Spell scripts
-DELETE FROM `spell_script_names` WHERE `ScriptName` IN ('spell_housing_leave_house', 'spell_housing_plot_teleport');
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN ('spell_housing_leave_house', 'spell_housing_plot_teleport', 'spell_housing_neighborhood_charter');
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (1234193, 'spell_housing_leave_house'),
 (1233637, 'spell_housing_plot_teleport'),
-(1265142, 'spell_housing_plot_teleport');
+(1265142, 'spell_housing_plot_teleport'),
+(1225512, 'spell_housing_neighborhood_charter');
 
 -- TDB has these NPCs without faction, NPC and unit flags: retail 12.1.0.69933 values where sniffed, older sniffs otherwise
 UPDATE `creature_template` SET `faction` = 35, `npcflag` = 8193, `BaseAttackTime` = 2000, `unit_flags2` = 2048 WHERE `entry` = 227878;
@@ -5501,4 +5534,5 @@ UPDATE `creature_template` SET `faction` = 35, `npcflag` = 128, `BaseAttackTime`
 UPDATE `creature_template` SET `faction` = 35, `unit_flags` = 33536, `unit_flags2` = 67667968, `unit_flags3` = 1090551808 WHERE `entry` = 256825;
 UPDATE `creature_template` SET `faction` = 35, `speed_run` = 1, `BaseAttackTime` = 2000, `unit_flags` = 33555200, `unit_flags2` = 67110912, `unit_flags3` = 1090551808 WHERE `entry` = 257229;
 UPDATE `creature_template` SET `ScriptName` = 'npc_housing_steward' WHERE `entry` IN (233063, 233708);
+UPDATE `creature_template` SET `ScriptName` = 'npc_housing_house_upgrade' WHERE `entry` = 255104;
 

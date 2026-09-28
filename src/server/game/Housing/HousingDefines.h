@@ -822,11 +822,10 @@ static constexpr uint32 MAX_HOUSING_DYE_SLOTS           = 3;
 static constexpr uint32 MAX_NEIGHBORHOOD_PLOTS          = 55;
 static constexpr uint32 MAX_NEIGHBORHOOD_MANAGERS       = 5;
 static constexpr uint32 MAX_PENDING_INVITES             = 20;
-static constexpr uint32 MIN_CHARTER_SIGNATURES          = 4;
 static constexpr uint8  INVALID_PLOT_INDEX              = 255;
 static constexpr uint32 HOUSING_MAX_NAME_LENGTH         = 64;
 static constexpr uint64 HOUSE_MOVE_COST_COPPER          = 500ULL * 10000ULL;       // 500g move cost
-static constexpr uint32 MAX_HOUSE_LEVEL                 = 20;
+static constexpr uint32 MAX_HOUSE_LEVEL                 = 12;   // HouseLevelData.db2 levels 1-12
 
 // Starter favor granted on house purchase (sniff: ChangeAmount=910, NewFavorTotal=910 in the
 // post-purchase HousingSvcsUpdateHousesLevelFavor pair).
@@ -922,9 +921,8 @@ static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_2   = 1285424;
 static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_3   = 1266699;
 
 // WorldState IDs — continuous counters sent throughout the entire housing session.
-// Sniff-verified: 5 counters total, sent as individual SMSG_UPDATE_WORLD_STATE packets.
-// Counters 1-3 increment by ~1333 every ~300ms.
-// Counters 4-5 increment by ~7233 every ~300ms.
+// 12.1.0.69933 retail sends counters 1-3 as individual SMSG_UPDATE_WORLD_STATE packets every ~5 s
+// (+1333 each); counters 4-5 came from older sniffs and are no longer sent.
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_2    = 13437;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
@@ -935,7 +933,7 @@ static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_5    = 16711;
 static constexpr uint32 WORLDSTATE_HOUSING_INTERIOR     = 30906;
 
 // Interval and increment for housing WorldState counter updates
-static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 300;
+static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 5000;  // 12.1.0.69933: counters 1-3 every ~5 s (+1333)
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT    = 1333;
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT_2  = 7233;
 
@@ -1098,11 +1096,6 @@ static constexpr uint32 HOUSING_BLUEPRINT_NAME_MAX_CHARACTERS           = 50;
 // [BIN symbols]. Default caps are placeholders until a value capture/DB confirms. [INF]
 static constexpr uint32 HOUSING_MAX_PET_BEDS_INTERIOR = 6;
 static constexpr uint32 HOUSING_MAX_PET_BEDS_EXTERIOR = 6;
-
-// 12.1 raised the displayed house level cap to 12 (patch notes). MAX_HOUSE_LEVEL above is
-// already 20 (headroom); levels 11-12 are HouseLevelData.db2 rows + larger budgets +
-// large-exterior unlock — a DATA change, not a code cap. [data]
-static constexpr uint32 HOUSING_DISPLAY_LEVEL_CAP_12_1 = 12;
 
 // The three post-tutorial auras (slots 8, 9, 50) are re-sent whenever the player enters either
 // housing map, so the sequence lives in one place instead of being carried by both map classes.

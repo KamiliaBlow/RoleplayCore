@@ -101,10 +101,8 @@ namespace
         return result;
     }
 
-    // Recurring event that sends housing WorldState counters every ~300ms.
-    // Sniff-verified: 5 continuous counters throughout the entire housing map session.
-    // Counters 1-3 (13436/13437/13438) increment by ~1333 each tick.
-    // Counters 4-5 (16035/16711) increment by ~7233 each tick.
+    // Recurring event that sends the housing WorldState counters 13436/13437/13438 every ~5 s,
+    // +1333 per tick (12.1.0.69933 sniff 11-13-10).
     class HousingWorldStateCounterEvent : public BasicEvent
     {
     public:
@@ -125,8 +123,7 @@ namespace
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_1, _counter1);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_2, _counter2);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_3, _counter3);
-            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_4, _counter4);
-            player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_5, _counter5);
+            // 16035/16711 are not sent by 12.1.0.69933 retail (sniff 11-13-10).
 
             // Increment for next tick (different rates per sniff)
             _counter1 += HOUSING_WORLDSTATE_INCREMENT;
@@ -959,7 +956,8 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Player {} has housing: plotIndex={} houseType={} houseGuid={}",
             player->GetGUID().ToString(), housing->GetPlotIndex(), housing->GetHouseType(), housing->GetHouseGuid().ToString());
 
-        AddPlayerHousing(player->GetGUID(), housing);
+        // Keyed by the buying character: plots carry that GUID, and another character of the account may be here.
+        AddPlayerHousing(housing->GetOwnerGuid(), housing);
 
         // Ensure the neighborhood PlotInfo has the HouseGuid (may be missing after server restart
         // since LoadFromDB only populates it if character_housing row exists)
@@ -1499,8 +1497,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
 void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
 {
-    // Remove plot auras before removing housing data.
-    if (Housing const* housing = GetHousingForPlayer(player->GetGUID()))
+    // Remove plot auras before removing housing data. The house is registered under its buyer, which may be
+    // another character of the leaving player's account.
+    Housing const* leavingHousing = _neighborhood ? player->GetHousingForNeighborhood(_neighborhood->GetGuid()) : nullptr;
+    if (Housing const* housing = leavingHousing ? GetHousingForPlayer(leavingHousing->GetOwnerGuid()) : nullptr)
     {
         // Remove all plot enter/presence auras (manual packets — spells not in DB2)
         SendPlotLeaveAuraRemoval(player);
@@ -1513,7 +1513,8 @@ void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
     // go_housing_door fallback on a later visit.
     ClearPlayerCurrentPlot(player->GetGUID());
 
-    RemovePlayerHousing(player->GetGUID());
+    if (leavingHousing)
+        RemovePlayerHousing(leavingHousing->GetOwnerGuid());
 
     TC_LOG_DEBUG("housing", "HousingMap::RemovePlayerFromMap: Player {} leaving housing map {} instanceId {}",
         player->GetGUID().ToString(), GetId(), GetInstanceId());
@@ -3684,6 +3685,7 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
                 // Order matches the sniff-verified fragment list.
                 go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                     roomEntityGuid, decor.SourceType, decor.SourceValue);
+                go->SetHousingDecorDyeSlots(decor.DyeSlots);
                 go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
 
                 if (!AddToMap(go))
@@ -3755,6 +3757,7 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
 
     PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
     mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
+    mesh->SetHousingDecorDyeSlots(decor.DyeSlots);
 
     if (!AddToMap(mesh))
     {
@@ -3873,6 +3876,21 @@ void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
         "(failed={}, neighborhood='{}')",
         spawnCount, exteriorCount, plotIndex, failCount,
         _neighborhood ? _neighborhood->GetName() : "?");
+}
+
+void HousingMap::UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots)
+{
+    auto itr = _decorGuidToGoGuid.find(decorGuid);
+    if (itr == _decorGuidToGoGuid.end())
+        return;
+
+    if (itr->second.IsGameObject())
+    {
+        if (GameObject* go = GetGameObject(itr->second))
+            go->SetHousingDecorDyeSlots(dyeSlots);
+    }
+    else if (MeshObject* mesh = GetMeshObject(itr->second))
+        mesh->SetHousingDecorDyeSlots(dyeSlots);
 }
 
 void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale /*= 1.0f*/)

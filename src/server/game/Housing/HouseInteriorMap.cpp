@@ -96,13 +96,24 @@ void HouseInteriorMap::LoadGridObjects(NGridType* grid)
 
 Housing* HouseInteriorMap::GetOwnerHousing()
 {
+    // Houses belong to the account: any character of the owner's account carries this house.
     if (_loadingPlayer)
-        return _loadingPlayer->GetHousing();
+        if (Housing* housing = _loadingPlayer->GetHousingByOwner(_owner))
+            return housing;
+
+    for (MapReference const& ref : GetPlayers())
+        if (Housing* housing = ref.GetSource()->GetHousingByOwner(_owner))
+            return housing;
 
     if (Player* owner = ObjectAccessor::FindConnectedPlayer(_owner))
-        return owner->GetHousing();
+        return owner->GetHousingByOwner(_owner);
 
     return nullptr;
+}
+
+bool HouseInteriorMap::IsHouseOwnerAccount(Player const* player) const
+{
+    return player->GetGUID() == _owner || player->GetHousingByOwner(_owner) != nullptr;
 }
 
 void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction)
@@ -971,6 +982,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                     // Template default flags — keep CHAIR/CHEST/MAILBOX interactive behavior.
                     go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                         roomEntityGuid, decor.SourceType, decor.SourceValue);
+                    go->SetHousingDecorDyeSlots(decor.DyeSlots);
                     go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
 
                     if (AddToMap(go))
@@ -1031,6 +1043,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
 
         PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
         mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
+        mesh->SetHousingDecorDyeSlots(decor.DyeSlots);
 
         if (AddToMap(mesh))
         {
@@ -1151,9 +1164,10 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
             {
                 PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
                 go->SetObjectScale(decorScale);
-                go->ReplaceAllFlags(GameObjectFlags(0x40000));
+                // Template default flags, like the login spawn — retail decor doors carry GO_FLAG_NODESPAWN only.
                 go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                     roomEntityGuid, decor.SourceType, decor.SourceValue);
+                go->SetHousingDecorDyeSlots(decor.DyeSlots);
                 go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
 
                 if (AddToMap(go))
@@ -1198,6 +1212,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
 
     PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
     mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
+    mesh->SetHousingDecorDyeSlots(decor.DyeSlots);
 
     if (AddToMap(mesh))
     {
@@ -1210,6 +1225,21 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
     {
         delete mesh;
     }
+}
+
+void HouseInteriorMap::UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots)
+{
+    auto itr = _decorGuidToObjGuid.find(decorGuid);
+    if (itr == _decorGuidToObjGuid.end())
+        return;
+
+    if (itr->second.IsGameObject())
+    {
+        if (GameObject* go = GetGameObject(itr->second))
+            go->SetHousingDecorDyeSlots(dyeSlots);
+    }
+    else if (MeshObject* mesh = GetMeshObject(itr->second))
+        mesh->SetHousingDecorDyeSlots(dyeSlots);
 }
 
 void HouseInteriorMap::UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale /*= 1.0f*/)
@@ -1288,10 +1318,10 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
     TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: ENTER player={} owner={} isOwner={} "
         "_roomsSpawned={} map={} instanceId={} this={}",
         player->GetGUID().ToString(), _owner.ToString(),
-        player->GetGUID() == _owner, _roomsSpawned,
+        IsHouseOwnerAccount(player), _roomsSpawned,
         GetId(), GetInstanceId(), (void*)this);
 
-    if (player->GetGUID() == _owner)
+    if (IsHouseOwnerAccount(player))
         _loadingPlayer = player;
 
     // === PRE-SPAWN: Populate ALL housing entities BEFORE Map::AddPlayerToMap ===
@@ -1304,8 +1334,10 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
     // isn't the map's owner. Spawn rooms/decor from PlotInfo (mirrored from
     // the DB) so visitors see the owner's actual layout without needing the
     // owner online.
-    Housing* preloadHousing = player->GetHousing();
-    bool visitingOfflineOwner = !_roomsSpawned && player->GetGUID() != _owner;
+    Housing* preloadHousing = IsHouseOwnerAccount(player) ? player->GetHousingByOwner(_owner) : player->GetHousing();
+    if (!preloadHousing && player->GetGUID() == _owner)
+        preloadHousing = player->GetHousing();
+    bool visitingOfflineOwner = !_roomsSpawned && !IsHouseOwnerAccount(player);
     if (visitingOfflineOwner)
     {
         for (Neighborhood* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(_owner))
@@ -1337,7 +1369,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         }
     }
 
-    bool const ownerPreSpawn = preloadHousing && player->GetGUID() == _owner;
+    bool const ownerPreSpawn = preloadHousing && IsHouseOwnerAccount(player);
     if (ownerPreSpawn)
     {
         // Rebuild rooms left over from an earlier visit (they may carry stale fragment formats),
@@ -1390,7 +1422,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
 
     bool result = Map::AddPlayerToMap(player, initPlayer);
 
-    if (player->GetGUID() == _owner)
+    if (IsHouseOwnerAccount(player))
         _loadingPlayer = nullptr;
 
     TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: Map::AddPlayerToMap returned {} for player={}",
@@ -1415,7 +1447,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
 
             // Spawn room meshes on first entry. The owner's rooms were already (re)built in the
             // pre-spawn above and delivered with the initial UPDATE_OBJECT.
-            if (player->GetGUID() == _owner && !ownerPreSpawn)
+            if (IsHouseOwnerAccount(player) && !ownerPreSpawn)
             {
                 // Always force a fresh spawn on login — old entities from a previous binary/session
                 // may have stale fragment formats (e.g., root MeshObjects with FHousingRoom_C that
@@ -1583,9 +1615,10 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                         // The interior map is instanced per-HOUSE, not per-visitor.
                         // Guests can enter the owner's house — p->GetHousing() is the VISITOR's house,
                         // not the one being visited. Always resolve the OWNER's housing for door context.
-                        Housing* ownerHousing = nullptr;
-                        if (Player* ownerPlayer = ObjectAccessor::FindPlayer(_owner))
-                            ownerHousing = ownerPlayer->GetHousing();
+                        Housing* ownerHousing = p->GetHousingByOwner(_owner);
+                        if (!ownerHousing)
+                            if (Player* ownerPlayer = ObjectAccessor::FindPlayer(_owner))
+                                ownerHousing = ownerPlayer->GetHousingByOwner(_owner);
 
                         if (!ownerHousing)
                         {
@@ -1791,7 +1824,7 @@ void HouseInteriorMap::RemovePlayerFromMap(Player* player, bool remove)
 
         // Leaving by any path (hearthstone, teleport, logout) must not carry an editor out of the house:
         // the layout editor's stun/no-gravity aura and the editing context would stick to the player.
-        if (player->GetGUID() == _owner && housing->GetEditorMode() != HOUSING_EDITOR_MODE_NONE)
+        if (IsHouseOwnerAccount(player) && housing->GetEditorMode() != HOUSING_EDITOR_MODE_NONE)
         {
             housing->SetEditorMode(HOUSING_EDITOR_MODE_NONE);
             player->RemoveUnitFlag(UNIT_FLAG_PACIFIED);

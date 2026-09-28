@@ -218,7 +218,7 @@ void PlaceBlueprintDecor(Player* player, Housing* housing, HousingBlueprintDecor
     }
 
     if (std::any_of(decor.DyeSlots.begin(), decor.DyeSlots.end(), [](uint32 dye) { return dye != 0; }))
-        housing->CommitDecorDyes(decorGuid, decor.DyeSlots);
+        housing->CommitDecorDyes(decorGuid, decor.DyeSlots, /*consumeDyes*/ false);
 
     ++result.PlacedDecor;
 }

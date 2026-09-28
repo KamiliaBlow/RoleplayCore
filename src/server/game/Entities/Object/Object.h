@@ -177,6 +177,8 @@ class TC_GAME_API Object : public BaseEntity
 
         // Housing entity fragments (optional - only set on housing entities)
         bool HasHousingDecorData() const { return m_housingDecorData.has_value(); }
+        // DyeColor.db2 IDs per DecorDyeSlot (0 = undyed); all zero drops the optional DyeSlots.
+        void SetHousingDecorDyeSlots(std::array<uint32, 3> const& dyeSlots);
         UF::OptionalUpdateField<UF::HousingDecorData, int32(WowCS::EntityFragment::FHousingDecor_C), 0> m_housingDecorData;
         UF::OptionalUpdateField<UF::HousingRoomData, int32(WowCS::EntityFragment::FHousingRoom_C), 0> m_housingRoomData;
         UF::OptionalUpdateField<UF::HousingRoomComponentMeshData, int32(WowCS::EntityFragment::FHousingRoomComponentMesh_C), 0> m_housingRoomComponentMeshData;

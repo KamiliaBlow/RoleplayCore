@@ -21,6 +21,7 @@
 #include "StringFormat.h"
 #include "UpdateData.h"
 #include "WorldSession.h"
+#include <algorithm>
 
 namespace Battlenet
 {
@@ -29,8 +30,8 @@ Account::Account(WorldSession* session, ObjectGuid guid, std::string&& name) : m
     _Create(guid);
 
     // Only FHousingStorage_C belongs on the BNetAccount entity.
-    // FHousingPlayerHouse_C → Housing/3 entity (HousingPlayerHouseEntity)
-    // FNeighborhoodMirrorData_C → Housing/4 entity (HousingNeighborhoodMirrorEntity)
+    // FHousingPlayerHouse_C ? Housing/3 entity (HousingPlayerHouseEntity)
+    // FNeighborhoodMirrorData_C ? Housing/4 entity (HousingNeighborhoodMirrorEntity)
     m_entityFragments.Add(WowCS::EntityFragment::FHousingStorage_C, false, WowCS::GetRawFragmentData(m_housingStorageData));
 
     // Default value
@@ -106,6 +107,16 @@ void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid house
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
+}
+
+void Account::SetHousingDecorDyeSlots(ObjectGuid decorGuid, std::array<uint32, 3> const& dyeSlots)
+{
+    auto ref = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor, decorGuid);
+    if (std::ranges::any_of(dyeSlots, [](uint32 dye) { return dye != 0; }))
+        SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::DyeSlots, 0)
+            .ModifyValue(&UF::DecorDyeSlots::DyeColorID), { int32(dyeSlots[0]), int32(dyeSlots[1]), int32(dyeSlots[2]) });
+    else
+        RemoveOptionalUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::DyeSlots));
 }
 
 void Account::RemoveHousingDecorStorageEntry(ObjectGuid decorGuid)

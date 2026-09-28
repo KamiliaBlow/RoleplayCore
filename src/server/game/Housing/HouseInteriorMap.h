@@ -50,6 +50,8 @@ public:
 
     /// Get the Housing data for the owner (needed for room/decor state).
     Housing* GetOwnerHousing();
+    // The house belongs to the player's account (the owner or another character of the same account).
+    bool IsHouseOwnerAccount(Player const* player) const;
 
     /// The neighborhood map ID the owner came from (for exit teleport).
     uint32 GetSourceNeighborhoodMapId() const { return _sourceNeighborhoodMapId; }
@@ -64,7 +66,7 @@ public:
     /// @param factionRestriction  NEIGHBORHOOD_FACTION_ALLIANCE or NEIGHBORHOOD_FACTION_HORDE
     void SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction);
 
-    /// Overload that takes raw rooms — used when visiting an offline owner's
+    /// Overload that takes raw rooms ? used when visiting an offline owner's
     /// house where no live Housing object exists; data comes from
     /// Neighborhood::PlotInfo.Rooms (which mirrors character_housing_rooms).
     /// @param houseGuid  owner's HousingPlayerHouse GUID, set as the parent on
@@ -75,7 +77,7 @@ public:
     void DespawnAllRoomMeshObjects();
 
     /// Update room component textures in-place (material/wallpaper change).
-    /// Sends UPDATE_OBJECT with changed texture fields — no model change.
+    /// Sends UPDATE_OBJECT with changed texture fields ? no model change.
     void UpdateRoomComponentTextures(ObjectGuid roomGuid, Housing::Room const& room,
         std::vector<uint32> const* componentIDs, int32 textureID);
 
@@ -103,7 +105,7 @@ public:
     /// Spawn all placed decor for the owner's house on the interior map.
     void SpawnInteriorDecor(Housing* housing);
 
-    /// Overload for visits to offline owners — iterates a raw decor vector
+    /// Overload for visits to offline owners ? iterates a raw decor vector
     /// sourced from Neighborhood::PlotInfo.Decor (mirror of character_housing_decor)
     /// with the owner's HouseGuid passed explicitly.
     void SpawnInteriorDecorFromList(std::vector<Housing::PlacedDecor> const& decor, ObjectGuid houseGuid);
@@ -113,14 +115,15 @@ public:
 
     /// Update position/rotation of a single interior decor item.
     void UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
+    void UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
 
     /// Despawn a single decor item by its Housing decor GUID.
     void DespawnDecorItem(ObjectGuid decorGuid);
 
-    /// Get the interior decor GUID → MeshObject GUID map (for edit mode CREATEs).
+    /// Get the interior decor GUID ? MeshObject GUID map (for edit mode CREATEs).
     std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToObjGuid; }
 
-    /// Get the room GUID → room MeshObject GUID vectors (for entity set synchronization).
+    /// Get the room GUID ? room MeshObject GUID vectors (for entity set synchronization).
     std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> const& GetRoomMeshObjects() const { return _roomMeshObjects; }
 
     /// Get HousingRoomEntity instances for inclusion in initial UPDATE_OBJECT
@@ -174,7 +177,7 @@ private:
     /// GUIDs of all spawned room MeshObjects, indexed by room GUID
     std::unordered_map<ObjectGuid /*roomGuid*/, std::vector<ObjectGuid>> _roomMeshObjects;
 
-    /// Decor GUID → visual object GUID (for despawning individual decor items)
+    /// Decor GUID ? visual object GUID (for despawning individual decor items)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
 
     /// HousingRoomEntity instances (objectType=18, Housing/2 GUIDs) for the layout editor

@@ -1300,6 +1300,8 @@ class TC_GAME_API WorldSession
         // map pins lose their name prefix and ownership state after leaving and re-opening
         // the neighborhood map.
         void SendNeighborhoodMapRefresh();
+        // SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE with the player's pending charter (charter item use).
+        void SendNeighborhoodCharterOpenUI();
         Player* GetPlayer() const { return _player; }
         std::string const& GetPlayerName() const;
         std::string GetPlayerInfo() const;
