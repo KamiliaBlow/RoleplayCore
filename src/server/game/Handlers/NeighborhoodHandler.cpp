@@ -69,6 +69,27 @@ namespace
     {
         return fmt::format("lo={:016X} hi={:016X}", guid.GetRawValue(0), guid.GetRawValue(1));
     }
+
+    // Charter ids are the creator's player GUID counter.
+    bool LoadNeighborhoodCharter(uint64 charterId, NeighborhoodCharter& charter)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
+        stmt->setUInt64(0, charterId);
+        PreparedQueryResult charterResult = CharacterDatabase.Query(stmt);
+        if (!charterResult)
+            return false;
+
+        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER_SIGNATURES);
+        stmt->setUInt64(0, charterId);
+        return charter.LoadFromDB(charterResult, CharacterDatabase.Query(stmt));
+    }
+
+    // Signatures a charter still needs, the creator counting as one (Housing.CharterRequiredSignatures).
+    bool CharterHasEnoughSignatures(NeighborhoodCharter const& charter)
+    {
+        uint32 const requiredSignatures = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES);
+        return charter.HasEnoughSignatures(requiredSignatures > 0 ? requiredSignatures - 1 : 0);
+    }
 }
 
 // ============================================================
@@ -84,17 +105,31 @@ void WorldSession::HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Nei
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_OPEN_CONFIRMATION_UI received for player {}",
         player->GetGUID().ToString());
 
-    // A charter already in flight: push its full state first (same body as the create reply).
-    SendNeighborhoodCharterOpenUI();
-
-    // Client requests to open the charter creation confirmation UI
-    // The client handles UI display; server acknowledges readiness
+    // Sent after the steward's "found the neighborhood" gossip option (OptionNpc 63). The reply feeds
+    // OPEN_CHARTER_CONFIRMATION_UI(neighborhoodName, locationName); its Confirm button sends
+    // CMSG_NEIGHBORHOOD_CHARTER_FINALIZE.
     WorldPackets::Neighborhood::NeighborhoodCharterOpenConfirmationUIResponse response;
-    response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+
+    uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
+    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+    else if (!LoadNeighborhoodCharter(charterId, charter))
+        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+    else if (!CharterHasEnoughSignatures(charter))
+        response.Result = static_cast<uint8>(HOUSING_RESULT_MORE_SIGNATURES_NEEDED);
+    else
+    {
+        response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+        response.Field1 = charter.GetNeighborhoodMapID();
+        response.Field2 = charter.GetFactionFlags();
+        response.NeighborhoodName = charter.GetName();
+    }
+
     SendPacket(response.Write());
 
-    TC_LOG_DEBUG("housing", "Sent NeighborhoodCharterOpenConfirmationUIResponse (SUCCESS) to player {}",
-        player->GetGUID().ToString());
+    TC_LOG_DEBUG("housing", "Sent NeighborhoodCharterOpenConfirmationUIResponse (result {}) for charter {} to player {}",
+        uint32(response.Result), charterId, player->GetGUID().ToString());
 }
 
 void WorldSession::SendNeighborhoodCharterOpenUI()
@@ -363,61 +398,45 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     if (!player)
         return;
 
-    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
-    {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
-        SendPacket(response.Write());
-        return;
-    }
-
     TC_LOG_INFO("housing", "CMSG_NEIGHBORHOOD_CHARTER_FINALIZE received for player {}",
         player->GetGUID().ToString());
 
-    // Load charter from DB using player's GUID counter as charter ID
-    uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
-
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
-    stmt->setUInt64(0, charterId);
-    PreparedQueryResult charterResult = CharacterDatabase.Query(stmt);
-
-    if (!charterResult)
+    // The confirmation frame listens for CREATE_NEIGHBORHOOD_RESULT(result, neighborhoodName), which comes
+    // from SMSG_HOUSING_SVCS_CREATE_CHARTER_NEIGHBORHOOD_RESPONSE; a failure shows HousingResultToErrorText.
+    auto sendResult = [this](HousingResult result, Neighborhood const* neighborhood = nullptr)
     {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        WorldPackets::Housing::HousingSvcsCreateCharterNeighborhoodResponse response;
+        response.TrailingResult = static_cast<uint8>(result);
+        if (neighborhood)
+        {
+            response.Neighborhood.NeighborhoodGUID = neighborhood->GetGuid();
+            response.Neighborhood.OwnerGUID = neighborhood->GetClientOwnerGuid();
+            response.Neighborhood.Name = neighborhood->GetName();
+        }
         SendPacket(response.Write());
+    };
 
+    if (!sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD))
+    {
+        sendResult(HOUSING_RESULT_SERVICE_NOT_AVAILABLE);
+        return;
+    }
+
+    uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
+    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
+    if (!LoadNeighborhoodCharter(charterId, charter))
+    {
+        sendResult(HOUSING_RESULT_GENERIC_FAILURE);
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: No charter found for player {}",
             player->GetGUID().ToString());
         return;
     }
 
-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER_SIGNATURES);
-    stmt->setUInt64(0, charterId);
-    PreparedQueryResult sigResult = CharacterDatabase.Query(stmt);
-
-    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
-    if (!charter.LoadFromDB(charterResult, sigResult))
+    if (!CharterHasEnoughSignatures(charter))
     {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_DB_ERROR);
-        SendPacket(response.Write());
-
-        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Failed to load charter {} from DB",
-            charterId);
-        return;
-    }
-
-    // Verify enough signatures
-    uint32 const requiredSignatures = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES);
-    if (!charter.HasEnoughSignatures(requiredSignatures > 0 ? requiredSignatures - 1 : 0)) // the creator counts as one
-    {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_MORE_SIGNATURES_NEEDED);
-        SendPacket(response.Write());
-
-        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Charter {} has only {}/{} signatures",
-            charterId, charter.GetSignatureCount(), requiredSignatures);
+        sendResult(HOUSING_RESULT_MORE_SIGNATURES_NEEDED);
+        TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Charter {} has only {} co-signature(s), {} signature(s) required",
+            charterId, charter.GetSignatureCount(), sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES));
         return;
     }
 
@@ -426,53 +445,39 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     uint32 const foundingCost = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_FOUNDING_COST);
     if (foundingCost && !player->HasEnoughMoney(uint64(foundingCost)))
     {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_CANNOT_AFFORD);
-        SendPacket(response.Write());
-
+        sendResult(HOUSING_RESULT_CANNOT_AFFORD);
         TC_LOG_DEBUG("housing", "HandleNeighborhoodCharterFinalize: Player {} cannot afford founding cost {} for charter '{}'",
             player->GetGUID().ToString(), foundingCost, charter.GetName());
         return;
     }
 
-    // Create neighborhood from charter data
-    Neighborhood* neighborhood = sNeighborhoodMgr.CreateNeighborhood(
-        player->GetGUID(),
-        charter.GetName(),
-        charter.GetNeighborhoodMapID(),
-        charter.GetFactionFlags()
-    );
-
-    if (neighborhood)
+    // The charter's FactionFlags come from the client (1 for an Alliance charter in the 11-13-10 sniff) and are
+    // not a NeighborhoodFactionRestriction (1 = Horde), so restrict by the founder's faction like guild neighborhoods.
+    int32 const factionRestriction = player->GetTeam() == HORDE ? NEIGHBORHOOD_FACTION_HORDE : NEIGHBORHOOD_FACTION_ALLIANCE;
+    Neighborhood* neighborhood = sNeighborhoodMgr.CreateNeighborhood(player->GetGUID(), charter.GetName(),
+        charter.GetNeighborhoodMapID(), factionRestriction);
+    if (!neighborhood)
     {
-        if (foundingCost)
-            player->ModifyMoney(-static_cast<int64>(foundingCost));
-
-        // Clean up charter from DB
-        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-        NeighborhoodCharter::DeleteFromDB(charterId, trans);
-        CharacterDatabase.CommitTransaction(trans);
-
-        // The charter item has served its purpose once the neighborhood exists.
-        player->DestroyItemCount(ITEM_NEIGHBORHOOD_CHARTER, 1, true);
-
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
-        SendPacket(response.Write());
-
-        TC_LOG_DEBUG("housing", "Player {} finalized charter '{}', created neighborhood {}",
-            player->GetGUID().ToString(), charter.GetName(),
-            neighborhood->GetGuid().ToString());
-    }
-    else
-    {
-        WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_DB_ERROR);
-        SendPacket(response.Write());
-
+        sendResult(HOUSING_RESULT_DB_ERROR);
         TC_LOG_DEBUG("housing", "Player {} failed to finalize charter '{}' - neighborhood creation failed",
             player->GetGUID().ToString(), charter.GetName());
+        return;
     }
+
+    if (foundingCost)
+        player->ModifyMoney(-static_cast<int64>(foundingCost));
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    NeighborhoodCharter::DeleteFromDB(charterId, trans);
+    CharacterDatabase.CommitTransaction(trans);
+
+    // The charter item has served its purpose once the neighborhood exists.
+    player->DestroyItemCount(ITEM_NEIGHBORHOOD_CHARTER, 1, true);
+
+    sendResult(HOUSING_RESULT_SUCCESS, neighborhood);
+
+    TC_LOG_DEBUG("housing", "Player {} finalized charter '{}', created neighborhood {}",
+        player->GetGUID().ToString(), charter.GetName(), neighborhood->GetGuid().ToString());
 }
 
 void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborhood::NeighborhoodCharterAddSignature const& neighborhoodCharterAddSignature)
@@ -594,10 +599,22 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
         return;
     }
 
-    // Send signature request notification to the target player's client
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
+    NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
+    if (!LoadNeighborhoodCharter(charterId, charter))
+    {
+        WorldPackets::Housing::HousingSvcsNotifyPermissionsFailure response;
+        response.FailureType = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Send signature request notification to the target player's client; the dialog shows the
+    // charter's name and location (OPEN_NEIGHBORHOOD_CHARTER_SIGNATURE_REQUEST).
     WorldPackets::Neighborhood::NeighborhoodCharterSignRequest signRequest;
     signRequest.CharterGuid = player->GetGUID();
+    signRequest.MapID = charter.GetNeighborhoodMapID();
+    signRequest.NeighborhoodName = charter.GetName();
     targetPlayer->SendDirectMessage(signRequest.Write());
 
     // H-25: record that this player was actually asked. ADD_SIGNATURE takes the charter
@@ -1604,7 +1621,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
 
                 if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
                     GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
-                else
+                else if (CanSeeHousingPlayerHouseEntity())
                 {
                     GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
                     player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
@@ -1788,7 +1805,8 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
             // explicit re-push here, SyncUpdateFields just flips dirty bits and
             // the client's local entity copy stays at the old PlotIndex ?
             // the new plot's icon stays "unowned" until the player re-logs.
-            GetHousingPlayerHouseEntity().SendCreateToPlayer(player);
+            if (CanSeeHousingPlayerHouseEntity())
+                GetHousingPlayerHouseEntity().SendCreateToPlayer(player);
         }
 
         player->ModifyMoney(-static_cast<int64>(HOUSE_MOVE_COST_COPPER));
@@ -2212,35 +2230,41 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     SendPacket(rosterPkt);
 
     // Populate the Housing/4 entity with this neighborhood's mirror data so the
-    // client's internal house list stays in sync for plot resolution.
+    // client's internal house list stays in sync for plot resolution. The mirror is the neighborhood the
+    // player stands in (the map pins come from it), so a roster of another one leaves it alone.
+    HousingMap const* housingMap = dynamic_cast<HousingMap const*>(player->GetMap());
+    bool const refreshMirror = housingMap && housingMap->GetNeighborhood() == neighborhood;
     HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
-    mirrorEntity.SetName(neighborhood->GetName());
-    mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
-
-    mirrorEntity.ClearHouses();
-    for (auto const& plot : neighborhood->GetPlots())
+    if (refreshMirror)
     {
-        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-            mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
-        else
-            mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
-    }
+        mirrorEntity.SetName(neighborhood->GetName());
+        mirrorEntity.SetOwnerGUID(neighborhood->GetClientOwnerGuid());
 
-    mirrorEntity.ClearManagers();
-    for (auto const& member : neighborhood->GetMembers())
-    {
-        if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+        mirrorEntity.ClearHouses();
+        for (auto const& plot : neighborhood->GetPlots())
         {
-            ObjectGuid bnetGuid;
-            if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
-                bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-            mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+            if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+            else
+                mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
         }
+
+        mirrorEntity.ClearManagers();
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+            {
+                ObjectGuid bnetGuid;
+                if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                    bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+                mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+            }
+        }
+        // Wholesale re-push (ClearHouses + 55 AddHouse + ClearManagers + AddManagers).
+        // Retail emits CREATE_OBJECT here (sniff-verified). The client's map-icon
+        // refresh path only fires on CREATE.
+        mirrorEntity.SendCreateToPlayer(player);
     }
-    // Wholesale re-push (ClearHouses + 55 AddHouse + ClearManagers + AddManagers).
-    // Retail emits CREATE_OBJECT here (sniff-verified). The client's map-icon
-    // refresh path only fires on CREATE.
-    mirrorEntity.SendCreateToPlayer(player);
 
     // Pre-push player names for all plot owners so the client can format
     // plot names via HOUSING_HOUSE_NAME_FORMAT without waiting for async name queries.
@@ -2587,6 +2611,3 @@ void WorldSession::HandleInitiativeUpdateActiveNeighborhood(WorldPackets::Neighb
 // ============================================================
 // Phase 7 ? Neighborhood Handlers
 // ============================================================
-
-
-

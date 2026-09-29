@@ -333,7 +333,7 @@ enum BulkRefundResult : uint8
     BULK_REFUND_RESULT_TIMEOUT                  = 5
 };
 
-// HouseOwnerError enum - 4 values
+// HouseOwnerError enum - 4 values (JamPotentialCosmeticHouseOwner.Error: the house settings owner list greys the character out)
 enum HouseOwnerError : uint8
 {
     HOUSE_OWNER_ERROR_NONE                  = 0,
@@ -712,8 +712,8 @@ enum InvalidPlotScreenshotReason : uint8
     INVALID_PLOT_SCREENSHOT_NO_ACTIVE_PLAYER    = 4
 };
 
-// HouseFinderSuggestionReason enum - 7 values (bitmask)
-enum HouseFinderSuggestionReason : uint32
+// HouseFinderSuggestionReason enum - 9 values (Enum.HouseFinderSuggestionReason, 12.1.0.69933)
+enum HouseFinderSuggestionReason : uint8
 {
     HOUSE_FINDER_SUGGESTION_NONE            = 0x00,
     HOUSE_FINDER_SUGGESTION_OWNER           = 0x01,
@@ -721,7 +721,9 @@ enum HouseFinderSuggestionReason : uint32
     HOUSE_FINDER_SUGGESTION_GUILD           = 0x04,
     HOUSE_FINDER_SUGGESTION_BNET_FRIENDS    = 0x08,
     HOUSE_FINDER_SUGGESTION_PARTY_SYNC      = 0x10,
-    HOUSE_FINDER_SUGGESTION_RANDOM          = 0x20
+    HOUSE_FINDER_SUGGESTION_RANDOM          = 0x20,
+    HOUSE_FINDER_SUGGESTION_HOME_OWNER      = 0x40,
+    HOUSE_FINDER_SUGGESTION_RELINQUISHED    = 0x80
 };
 
 // CornerstonePurchaseMode enum - 3 values
@@ -1101,6 +1103,5 @@ static constexpr uint32 HOUSING_MAX_PET_BEDS_EXTERIOR = 6;
 // housing map, so the sequence lives in one place instead of being carried by both map classes.
 class Player;
 TC_GAME_API void SendHousingPostTutorialAuras(Player* player);
-
 
 #endif // TRINITYCORE_HOUSING_DEFINES_H

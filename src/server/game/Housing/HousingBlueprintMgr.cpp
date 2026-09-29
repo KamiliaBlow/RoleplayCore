@@ -155,6 +155,15 @@ uint32 FixtureComponentId(HousingBlueprintFixture const& fixture)
     return fixture.OptionId ? fixture.OptionId : fixture.FixturePointId;
 }
 
+// Item facades (no UnlockedByDefault flag) belong to the house owner's account collection.
+bool IsHouseTypeCollected(Housing const& housing, HouseExteriorWmoData const& wmoData)
+{
+    if (wmoData.Flags & HOUSE_EXTERIOR_WMO_FLAG_UNLOCKED_BY_DEFAULT)
+        return true;
+    Player const* owner = housing.GetOwner();
+    return owner && owner->HasHouseType(wmoData.ID);
+}
+
 uint32 CatalogCount(Housing const& housing, uint32 decorEntryId)
 {
     for (Housing::CatalogEntry const* entry : housing.GetCatalogEntries())
@@ -814,18 +823,12 @@ void HousingBlueprintMgr::Evaluate(HousingBlueprint const& blueprint, Housing co
             evaluation.UnmetRequirementFlags |= HOUSING_BLUEPRINT_UNMET_MISSING_FIXTURE;
         else if (target)
         {
-            // HouseExteriorWMOData.Flags limit a house type to Horde and/or Alliance neighborhoods.
             Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(target->GetNeighborhoodGuid());
             int32 const faction = neighborhood ? neighborhood->GetFactionRestriction() : NEIGHBORHOOD_FACTION_NONE;
-            uint32 const factionFlags = uint32(wmoData->Flags) & (HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_HORDE_NEIGHBORHOODS | HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_ALLIANCE_NEIGHBORHOODS);
-            if (factionFlags)
-            {
-                bool const allowed = (faction == NEIGHBORHOOD_FACTION_HORDE && (factionFlags & HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_HORDE_NEIGHBORHOODS))
-                    || (faction == NEIGHBORHOOD_FACTION_ALLIANCE && (factionFlags & HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_ALLIANCE_NEIGHBORHOODS))
-                    || faction == NEIGHBORHOOD_FACTION_NONE;
-                if (!allowed)
-                    evaluation.UnmetRequirementFlags |= HOUSING_BLUEPRINT_UNMET_MISMATCHED_EXTERIOR_FACTION;
-            }
+            if (!HousingMgr::IsHouseTypeAllowedInNeighborhood(wmoData->Flags, faction))
+                evaluation.UnmetRequirementFlags |= HOUSING_BLUEPRINT_UNMET_MISMATCHED_EXTERIOR_FACTION;
+            if (!IsHouseTypeCollected(*target, *wmoData))
+                evaluation.UnmetRequirementFlags |= HOUSING_BLUEPRINT_UNMET_HOUSE_TYPE_LOCKED;
         }
     }
 
@@ -938,7 +941,9 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
     {
         TakeDecorOut(housing, /*exterior*/ true, pool, result);
 
-        if (content.HouseType && sHousingMgr.GetHouseExteriorWmoData(content.HouseType) && content.HouseType != housing->GetHouseType())
+        // HOUSE_TYPE_LOCKED does not block the import: an uncollected facade keeps the current house type
+        HouseExteriorWmoData const* wmoData = content.HouseType ? sHousingMgr.GetHouseExteriorWmoData(content.HouseType) : nullptr;
+        if (wmoData && content.HouseType != housing->GetHouseType() && IsHouseTypeCollected(*housing, *wmoData))
             housing->SetHouseType(content.HouseType);
         if (content.HouseSize >= HOUSING_FIXTURE_SIZE_ANY && content.HouseSize <= HOUSING_FIXTURE_SIZE_LARGE && content.HouseSize != housing->GetHouseSize())
             housing->SetHouseSize(content.HouseSize);

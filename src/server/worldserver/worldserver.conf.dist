@@ -4745,5 +4745,13 @@ Housing.CharterFoundingCost = 0
 
 Housing.CharterRequiredSignatures = 10
 
+#    Housing.GuildNeighborhoodMinAccounts
+#        Description: Distinct accounts a guild needs before it can found a guild neighborhood
+#                      (answered with HousingResult GuildMoreAccountsNeeded below it). The retail
+#                      minimum is not known. 1 = a single-account guild can found one.
+#        Default:     3
+
+Housing.GuildNeighborhoodMinAccounts = 3
+
 #
 ###################################################################################################

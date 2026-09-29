@@ -420,6 +420,25 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         }
     }
 
+    // A Small-only item facade saved on a bigger house (before IsHouseSizeAvailableForType checked the exact size), and
+    // this type's roots stored at another size (kept from before a size change under a different type): the client
+    // shows no base/roof style when the roots do not match the house size.
+    if (_houseType && _houseSize > HOUSING_FIXTURE_SIZE_SMALL && !sHousingMgr.IsHouseSizeAvailableForType(_houseType, _houseSize))
+    {
+        if (uint8 const size = sHousingMgr.GetLargestHouseSizeForType(_houseType, _houseSize - 1))
+        {
+            TC_LOG_INFO("housing", "Housing::LoadFromDB: house {} type {} has no size {}, shrinking to {}",
+                _houseGuid.ToString(), _houseType, _houseSize, size);
+            _houseSize = size;
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_HOUSE_SIZE);
+            stmt->setUInt8(0, _houseSize);
+            stmt->setUInt64(1, _ownerGuid.GetCounter());
+            CharacterDatabase.Execute(stmt);
+        }
+    }
+    if (_houseSize >= HOUSING_FIXTURE_SIZE_SMALL)
+        RemapFixturesForHouseSize(_houseSize);
+
     // Migration: populate starter fixtures for houses created before persistence was added.
     // Also handles existing houses that have fixtures but are missing starter roots (Base/Roof) or door.
     bool hasBaseRoot = false, hasRoofRoot = false, hasDoor = false;
@@ -469,7 +488,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     // This handles houses created before the catalog-population fix was added.
     if (_catalog.empty() && !_houseGuid.IsEmpty() && _owner)
     {
-        auto starterDecorWithQty = sHousingMgr.GetStarterDecorWithQuantities(_owner->GetTeam());
+        // The house's neighborhood, not the loading character: another character of the account may be of the
+        // other faction.
+        auto starterDecorWithQty = sHousingMgr.GetStarterDecorWithQuantities(GetNeighborhoodFaction() == NEIGHBORHOOD_FACTION_HORDE ? HORDE : ALLIANCE);
         if (!starterDecorWithQty.empty())
         {
             for (auto const& [decorId, qty] : starterDecorWithQty)
@@ -1725,13 +1746,7 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
         _owner->GetName(), roomEntryId, slotIndex, _houseGuid.ToString(),
         _roomWeightUsed, GetMaxRoomBudget());
 
-    // Account-level notification: room collection update
-    if (_owner->GetSession())
-    {
-        WorldPackets::Housing::AccountRoomCollectionUpdate notif;
-        notif.AddSingle(roomEntryId);
-        _owner->GetSession()->SendPacket(notif.Write());
-    }
+    // No SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE here: retail sends it once per login, never after any of 13 sniffed adds.
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -2131,25 +2146,46 @@ void Housing::LoadComponentStyles(Room& room, std::string const& componentStyles
 bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId, int32 gridX, int32 gridY, int32 floorIndex,
     uint32 orientation, ObjectGuid ignoreRoom /*= ObjectGuid::Empty*/)
 {
-    auto getBox = [](uint32 entryId, int32 x, int32 y, uint32 turn, float& minX, float& minY, float& maxX, float& maxY)
-    {
-        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(entryId);
-        RoomWmoDataEntry const* bounds = roomData && roomData->RoomWmoDataID ? sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID) : nullptr;
-        if (!bounds)
-            return false;
+    struct Box { float MinX, MinY, MaxX, MaxY; };
 
-        float ax, ay, bx, by;
-        RotateRoomOffset(bounds->BoundingBoxMinX, bounds->BoundingBoxMinY, turn, ax, ay);
-        RotateRoomOffset(bounds->BoundingBoxMaxX, bounds->BoundingBoxMaxY, turn, bx, by);
-        minX = x + std::min(ax, bx);
-        maxX = x + std::max(ax, bx);
-        minY = y + std::min(ay, by);
-        maxY = y + std::max(ay, by);
-        return true;
+    // The floor footprint is RoomGridLine.db2: one or more rectangles per RoomWmoData (round and cross-shaped rooms).
+    // The RoomWmoData bounding box is the model's extent and pokes past the doors of a round room (WMO 233: 24.1
+    // yards against a door at 22.9), which rejected every placement retail allows. Rooms without grid lines keep it.
+    auto getBoxes = [](uint32 entryId, int32 x, int32 y, uint32 turn)
+    {
+        std::vector<Box> boxes;
+        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(entryId);
+        if (!roomData || !roomData->RoomWmoDataID)
+            return boxes;
+
+        for (RoomGridLineEntry const* line : sRoomGridLineStore)
+        {
+            if (line->RoomWmoDataID != uint32(roomData->RoomWmoDataID))
+                continue;
+
+            float centerX, centerY, halfX, halfY;
+            RotateRoomOffset(line->Offset.X, line->Offset.Y, turn, centerX, centerY);
+            RotateRoomOffset(line->SizeX / 2.0f, line->SizeY / 2.0f, turn, halfX, halfY);
+            halfX = std::abs(halfX);
+            halfY = std::abs(halfY);
+            boxes.push_back({ x + centerX - halfX, y + centerY - halfY, x + centerX + halfX, y + centerY + halfY });
+        }
+
+        if (boxes.empty())
+        {
+            if (RoomWmoDataEntry const* bounds = sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID))
+            {
+                float ax, ay, bx, by;
+                RotateRoomOffset(bounds->BoundingBoxMinX, bounds->BoundingBoxMinY, turn, ax, ay);
+                RotateRoomOffset(bounds->BoundingBoxMaxX, bounds->BoundingBoxMaxY, turn, bx, by);
+                boxes.push_back({ x + std::min(ax, bx), y + std::min(ay, by), x + std::max(ax, bx), y + std::max(ay, by) });
+            }
+        }
+        return boxes;
     };
 
-    float minX, minY, maxX, maxY;
-    if (!getBox(roomEntryId, gridX, gridY, orientation, minX, minY, maxX, maxY))
+    std::vector<Box> const boxes = getBoxes(roomEntryId, gridX, gridY, orientation);
+    if (boxes.empty())
         return true;
 
     // Neighbouring walls stand on (almost) the same line.
@@ -2159,12 +2195,11 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
         if (!other || other->Guid == ignoreRoom || other->FloorIndex != floorIndex)
             continue;
 
-        float otherMinX, otherMinY, otherMaxX, otherMaxY;
-        if (!getBox(other->RoomEntryId, other->GridX, other->GridY, other->Orientation, otherMinX, otherMinY, otherMaxX, otherMaxY))
-            continue;
-
-        if (minX < otherMaxX - TOLERANCE && maxX > otherMinX + TOLERANCE && minY < otherMaxY - TOLERANCE && maxY > otherMinY + TOLERANCE)
-            return false;
+        for (Box const& otherBox : getBoxes(other->RoomEntryId, other->GridX, other->GridY, other->Orientation))
+            for (Box const& box : boxes)
+                if (box.MinX < otherBox.MaxX - TOLERANCE && box.MaxX > otherBox.MinX + TOLERANCE
+                    && box.MinY < otherBox.MaxY - TOLERANCE && box.MaxY > otherBox.MinY + TOLERANCE)
+                    return false;
     }
 
     return true;
@@ -2608,16 +2643,22 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
         // Hook fixtures hang on the old root's hooks; re-key them before the root row itself moves.
         MoveHookFixtures(oldCompId, newCompId);
 
+        // The new-size root may already be stored (kept from an earlier visit at that size): only drop the old one
+        bool const targetStored = _fixtures.contains(newCompId);
         uint32 const optionId = _fixtures[oldCompId].OptionId;
         _fixtures.erase(oldCompId);
-        Fixture& moved = _fixtures[newCompId];
-        moved.FixturePointId = newCompId;
-        moved.OptionId = optionId;
 
         CharacterDatabasePreparedStatement* del = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE);
         del->setUInt64(0, ownerGuid);
         del->setUInt32(1, oldCompId);
         CharacterDatabase.Execute(del);
+
+        if (targetStored)
+            continue;
+
+        Fixture& moved = _fixtures[newCompId];
+        moved.FixturePointId = newCompId;
+        moved.OptionId = optionId;
 
         CharacterDatabasePreparedStatement* ins = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_FIXTURES);
         ins->setUInt64(0, ownerGuid);
@@ -3363,6 +3404,7 @@ void Housing::SyncUpdateFields()
     if (houseEntity.GetGUID() != _houseGuid)
         houseEntity.SetGuid(_houseGuid);
     houseEntity.SetBnetAccount(_owner->GetSession()->GetBattlenetAccountGUID());
+    houseEntity.SetCosmeticOwner(_ownerGuid);
     houseEntity.SetEntityGUID(_houseGuid);
     // HouseType and HouseSize are NOT part of this fragment (IDA-verified).
     houseEntity.SetPlotIndex(static_cast<int32>(_plotIndex));
@@ -3501,6 +3543,47 @@ void Housing::SetExteriorLocked(bool locked)
         _owner->GetName(), locked ? "locked" : "unlocked", _houseGuid.ToString());
 }
 
+HousingResult Housing::ChangeOwner(ObjectGuid newOwnerGuid)
+{
+    if (newOwnerGuid == _ownerGuid)
+        return HOUSING_RESULT_SUCCESS;
+
+    Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid);
+    if (!neighborhood)
+        return HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND;
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    if (!neighborhood->TransferPlot(_ownerGuid, newOwnerGuid, trans))
+        return HOUSING_RESULT_PLOT_NOT_FOUND;
+
+    auto rekey = [&](CharacterDatabaseStatements index)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(index);
+        stmt->setUInt64(0, newOwnerGuid.GetCounter());
+        stmt->setUInt64(1, _ownerGuid.GetCounter());
+        trans->Append(stmt);
+    };
+    rekey(CHAR_UPD_CHARACTER_HOUSING_OWNER);
+    rekey(CHAR_UPD_CHARACTER_HOUSING_DECOR_OWNER);
+    rekey(CHAR_UPD_CHARACTER_HOUSING_ROOMS_OWNER);
+    rekey(CHAR_UPD_CHARACTER_HOUSING_FIXTURES_OWNER);
+
+    // The catalog travels with the house; rows left from an earlier house of the new owner would collide
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_CATALOG);
+    stmt->setUInt64(0, newOwnerGuid.GetCounter());
+    trans->Append(stmt);
+    rekey(CHAR_UPD_CHARACTER_HOUSING_CATALOG_OWNER);
+
+    CharacterDatabase.CommitTransaction(trans);
+
+    TC_LOG_INFO("housing", "Housing::ChangeOwner: house {} moved from {} to {}", _houseGuid.ToString(), _ownerGuid.ToString(),
+        newOwnerGuid.ToString());
+
+    _ownerGuid = newOwnerGuid;
+    SyncUpdateFields();
+    return HOUSING_RESULT_SUCCESS;
+}
+
 void Housing::SetHouseSize(uint8 size)
 {
     bool const changed = _houseSize != size;
@@ -3523,6 +3606,15 @@ void Housing::SetHouseSize(uint8 size)
         _owner->GetName(), _houseGuid.ToString(), size);
 }
 
+int32 Housing::GetNeighborhoodFaction() const
+{
+    if (Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
+        if (neighborhood->GetFactionRestriction() != NEIGHBORHOOD_FACTION_NONE)
+            return neighborhood->GetFactionRestriction();
+
+    return _owner && _owner->GetTeamId() == TEAM_HORDE ? NEIGHBORHOOD_FACTION_HORDE : NEIGHBORHOOD_FACTION_ALLIANCE;
+}
+
 void Housing::SetHouseType(uint32 typeId)
 {
     bool const changed = _houseType != typeId;
@@ -3534,10 +3626,19 @@ void Housing::SetHouseType(uint32 typeId)
     stmt->setUInt64(1, _ownerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
+    // Keep the neighborhood's mirror in step: it builds this house at map load when the owner is offline.
+    if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
+        neighborhood->UpdatePlotHouseType(_ownerGuid, typeId);
+
     // The previous type's roots and hook fixtures belong to other components; without starter fixtures for
-    // the new type the rebuilt house had no roof selection and no entrance.
+    // the new type the rebuilt house had no roof selection and no entrance. Roots this type kept from an earlier
+    // visit may be at another size than the house now has.
     if (changed)
+    {
+        if (_houseSize >= HOUSING_FIXTURE_SIZE_SMALL)
+            RemapFixturesForHouseSize(_houseSize);
         PopulateStarterFixtures();
+    }
 
     SyncUpdateFields();
 

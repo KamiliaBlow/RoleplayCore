@@ -20,6 +20,7 @@
 #include "CellImpl.h"
 #include "CreatureAI.h"
 #include "GridNotifiersImpl.h"
+#include "HousingNeighborhoodMirrorEntity.h"
 #include "HousingPlayerHouseEntity.h"
 #include "ObjectAccessor.h"
 #include "Transport.h"
@@ -82,14 +83,16 @@ void VisibleNotifier::SendToSelf()
         }
     }
 
-    // The session's own entities (Battle.net account, player house) live outside the grid, so no grid
-    // visit ever marks them visible - they are not out of range. Retail never destroys them; doing so drops
-    // the client's house state while it is still in use.
+    // The session's own entities (Battle.net account, player house, neighborhood mirror) live outside the grid, so
+    // no grid visit ever marks them visible - they are not out of range. Retail never destroys them; doing so drops
+    // the client's house state while it is still in use (the mirror went out of range on every visibility pass).
     if (WorldSession* session = i_player.GetSession())
     {
         vis_guids.erase(session->GetBattlenetAccount().GetGUID());
         if (session->HasHousingPlayerHouseEntity())
             vis_guids.erase(session->GetHousingPlayerHouseEntity().GetGUID());
+        if (session->HasHousingNeighborhoodMirrorEntity())
+            vis_guids.erase(session->GetHousingNeighborhoodMirrorEntity().GetGUID());
     }
 
     for (ObjectGuid const& outOfRangeGuid : vis_guids)

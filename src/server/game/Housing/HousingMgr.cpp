@@ -567,21 +567,21 @@ WorldLocation HousingMgr::GetPlotTeleportLocation(uint32 worldMapId, Neighborhoo
         plot.CornerstoneRotation[2]);
 }
 
-void HousingMgr::SetPendingPlotTeleport(ObjectGuid playerGuid, WorldLocation const& dest)
+void HousingMgr::SetPendingPlotTeleport(ObjectGuid playerGuid, WorldLocation const& dest, uint32 neighborhoodId)
 {
     std::lock_guard<std::mutex> lock(_pendingPlotTeleportsLock);
-    _pendingPlotTeleports[playerGuid] = dest;
+    _pendingPlotTeleports[playerGuid] = { dest, neighborhoodId };
 }
 
-Optional<WorldLocation> HousingMgr::TakePendingPlotTeleport(ObjectGuid playerGuid)
+Optional<HousingMgr::PendingPlotTeleport> HousingMgr::TakePendingPlotTeleport(ObjectGuid playerGuid)
 {
     std::lock_guard<std::mutex> lock(_pendingPlotTeleportsLock);
     auto itr = _pendingPlotTeleports.find(playerGuid);
     if (itr == _pendingPlotTeleports.end())
         return {};
-    WorldLocation dest = itr->second;
+    PendingPlotTeleport pending = itr->second;
     _pendingPlotTeleports.erase(itr);
-    return dest;
+    return pending;
 }
 
 Position HousingMgr::GetDefaultHousePosition(NeighborhoodPlotData const& plot) const
@@ -1653,6 +1653,34 @@ uint32 HousingMgr::GetRacialWmoDataID(uint8 race, uint32 teamId)
     }
 }
 
+bool HousingMgr::IsHouseSizeAvailableForType(uint32 wmoDataID, uint8 houseSize) const
+{
+    // Exact size only: GetDefaultFixtureForType falls back to any size, which let a Small-only facade stay Medium/Large
+    auto hasRoot = [&](uint8 componentType)
+    {
+        return _defaultFixtureByTypeWmo.contains((uint64(componentType) << 40) | (uint64(wmoDataID) << 8) | houseSize);
+    };
+    return hasRoot(HOUSING_FIXTURE_TYPE_BASE) && hasRoot(HOUSING_FIXTURE_TYPE_ROOF);
+}
+
+uint8 HousingMgr::GetLargestHouseSizeForType(uint32 wmoDataID, uint8 maxSize) const
+{
+    for (uint8 size = maxSize; size >= HOUSING_FIXTURE_SIZE_SMALL; --size)
+        if (IsHouseSizeAvailableForType(wmoDataID, size))
+            return size;
+    return HOUSING_FIXTURE_SIZE_NONE;
+}
+
+bool HousingMgr::IsHouseTypeAllowedInNeighborhood(int32 wmoDataFlags, int32 neighborhoodFaction)
+{
+    uint32 const factionFlags = uint32(wmoDataFlags) & (HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_HORDE_NEIGHBORHOODS | HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_ALLIANCE_NEIGHBORHOODS);
+    if (!factionFlags || neighborhoodFaction == NEIGHBORHOOD_FACTION_NONE)
+        return true;
+
+    return (neighborhoodFaction == NEIGHBORHOOD_FACTION_HORDE && (factionFlags & HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_HORDE_NEIGHBORHOODS))
+        || (neighborhoodFaction == NEIGHBORHOOD_FACTION_ALLIANCE && (factionFlags & HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_ALLIANCE_NEIGHBORHOODS));
+}
+
 ExteriorComponentExitPointEntry const* HousingMgr::GetExitPoint(uint32 extCompID) const
 {
     auto itr = _exitPointByExtComp.find(extCompID);
@@ -1890,7 +1918,7 @@ std::vector<RoomComponentOptionEntry const*> HousingMgr::FindAllRoomComponentOpt
     {
         if (!entry)
             continue;
-        if (entry->MeshStyleFilterID == meshStyleFilterID && entry->HouseThemeID == houseThemeID)
+        if (entry->MeshStyleFilterID == meshStyleFilterID && (!houseThemeID || entry->HouseThemeID == houseThemeID))
             results.push_back(entry);
     }
     return results;

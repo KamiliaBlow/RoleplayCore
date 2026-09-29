@@ -90,8 +90,9 @@ void NeighborhoodMgr::LoadFromDB()
         if (guidLow >= _nextGuid)
             _nextGuid = guidLow + 1;
 
-        // Rebuild exactly what GenerateNeighborhoodGuid minted: arg1 = neighborhoodMapID (fields[2]).
-        ObjectGuid neighborhoodGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ fields[2].GetUInt32(), /*arg2*/ 0, guidLow);
+        // Rebuild exactly what GenerateNeighborhoodGuid minted: arg1 = neighborhoodMapID (fields[2]), arg2 = a player
+        // owner (fields[3]; system neighborhoods store 0) names the neighborhood itself.
+        ObjectGuid neighborhoodGuid = MakeNeighborhoodGuid(fields[2].GetUInt32(), fields[3].GetUInt64() != 0, guidLow);
 
         auto neighborhood = std::make_unique<Neighborhood>(neighborhoodGuid);
 
@@ -133,8 +134,9 @@ void NeighborhoodMgr::LoadFromDB()
             continue;
         }
 
-        ObjectGuid ownerGuid = neighborhood->GetOwnerGuid();
-        _ownerToNeighborhood[ownerGuid] = neighborhoodGuid;
+        // One charter neighborhood per character; a guild neighborhood belongs to its guild (GetNeighborhoodByGuildId).
+        if (!neighborhood->GetGuildId())
+            _ownerToNeighborhood[neighborhood->GetOwnerGuid()] = neighborhoodGuid;
         _neighborhoods[neighborhoodGuid] = std::move(neighborhood);
         _neighborhoodsByCounter[guidLow] = _neighborhoods[neighborhoodGuid].get();
         ++count;
@@ -173,15 +175,16 @@ void NeighborhoodMgr::LoadFromDB()
 
 Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, int32 factionRestriction, bool isPublic /*= false*/, uint32 guildId /*= 0*/)
 {
-    // Check if owner already has a neighborhood
-    if (_ownerToNeighborhood.find(ownerGuid) != _ownerToNeighborhood.end())
+    // One charter neighborhood per character; a guild neighborhood belongs to its guild, one per guild.
+    if (guildId ? GetNeighborhoodByGuildId(guildId) != nullptr : _ownerToNeighborhood.contains(ownerGuid))
     {
         TC_LOG_DEBUG("housing", "NeighborhoodMgr::CreateNeighborhood: Owner {} already has a neighborhood",
             ownerGuid.ToString());
         return nullptr;
     }
 
-    ObjectGuid neighborhoodGuid = GenerateNeighborhoodGuid(neighborhoodMapID);
+    // System neighborhoods are owned by a HighGuid::Housing placeholder and keep a NeighborhoodNameGen name.
+    ObjectGuid neighborhoodGuid = GenerateNeighborhoodGuid(neighborhoodMapID, ownerGuid.IsPlayer());
 
     auto neighborhood = std::make_unique<Neighborhood>(neighborhoodGuid);
 
@@ -238,7 +241,8 @@ Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::str
     }
 
     Neighborhood* result = neighborhood.get();
-    _ownerToNeighborhood[ownerGuid] = neighborhoodGuid;
+    if (!guildId)
+        _ownerToNeighborhood[ownerGuid] = neighborhoodGuid;
     _neighborhoods[neighborhoodGuid] = std::move(neighborhood);
     _neighborhoodsByCounter[neighborhoodGuid.GetCounter()] = result;
 
@@ -281,8 +285,9 @@ void NeighborhoodMgr::DeleteNeighborhood(ObjectGuid neighborhoodGuid)
     Neighborhood::DeleteFromDB(neighborhoodGuid.GetCounter(), trans);
     CharacterDatabase.CommitTransaction(trans);
 
-    // Remove from maps
-    _ownerToNeighborhood.erase(ownerGuid);
+    // Remove from maps (a guild neighborhood was never registered under its founder)
+    if (auto ownerItr = _ownerToNeighborhood.find(ownerGuid); ownerItr != _ownerToNeighborhood.end() && ownerItr->second == neighborhoodGuid)
+        _ownerToNeighborhood.erase(ownerItr);
     _neighborhoodsByCounter.erase(it->first.GetCounter());
     _neighborhoods.erase(it);
 
@@ -963,7 +968,12 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
     }
 }
 
-ObjectGuid NeighborhoodMgr::GenerateNeighborhoodGuid(uint32 neighborhoodMapID)
+ObjectGuid NeighborhoodMgr::MakeNeighborhoodGuid(uint32 neighborhoodMapID, bool hasCustomName, uint64 counter)
+{
+    return ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ neighborhoodMapID, /*arg2*/ hasCustomName ? 1 : 0, counter);
+}
+
+ObjectGuid NeighborhoodMgr::GenerateNeighborhoodGuid(uint32 neighborhoodMapID, bool hasCustomName)
 {
     if (_nextGuid >= 0xFFFFFFFFFFFFFFFE)
     {
@@ -979,5 +989,5 @@ ObjectGuid NeighborhoodMgr::GenerateNeighborhoodGuid(uint32 neighborhoodMapID)
     // it and spins forever. Realm 3 made this visible; a realm whose id happened to equal a real
     // NeighborhoodMap id (e.g. 1 = the Alliance map) masked it for Alliance characters and would still have
     // failed for Horde.
-    return ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 4, /*arg1*/ neighborhoodMapID, /*arg2*/ 0, counter);
+    return MakeNeighborhoodGuid(neighborhoodMapID, hasCustomName, counter);
 }

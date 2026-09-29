@@ -3205,6 +3205,10 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         bool HasHouseRoom(uint32 houseRoomId) const;
         void LearnHouseRoom(uint32 houseRoomId);
 
+        // Account-wide house type collection (ActivePlayerData::HouseTypes, one bit per HouseExteriorWmoData ID).
+        bool HasHouseType(uint32 houseExteriorWmoDataId) const;
+        void LearnHouseType(uint32 houseExteriorWmoDataId);
+
         void AddWarbandScenesBlock(uint32 blockValue) { AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::WarbandScenes)) = blockValue; }
         void AddWarbandScenesFlag(uint32 slot, uint32 flag) { SetUpdateFieldFlagValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::WarbandScenes, slot), flag); }
 
@@ -3400,6 +3404,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadHouseRooms();
         void _LoadAccountHousings();
         void SetHouseRoomBit(uint32 houseRoomId);
+        void _LoadHouseTypes();
+        void SetHouseTypeBit(uint32 houseExteriorWmoDataId);
         std::vector<uint32> m_houseRoomCollection;   // for the login SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE
         bool m_houseRoomCollectionSent = false;
         void _LoadCharacterBankTabSettings(PreparedQueryResult result);

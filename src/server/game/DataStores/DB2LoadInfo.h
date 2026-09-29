@@ -53,6 +53,22 @@ struct AchievementLoadInfo
     static constexpr DB2LoadInfo Instance{ Fields, 19, &AchievementMeta::Instance, HOTFIX_SEL_ACHIEVEMENT };
 };
 
+struct RoomGridLineLoadInfo
+{
+    static constexpr DB2FieldMeta Fields[7] =
+    {
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetX" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetY" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "OffsetZ" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "ID" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "SizeX" },
+        { .IsSigned = false, .Type = FT_FLOAT, .Name = "SizeY" },
+        { .IsSigned = false, .Type = FT_INT, .Name = "RoomWmoDataID" },
+    };
+
+    static constexpr DB2LoadInfo Instance{ Fields, 7, &RoomGridLineMeta::Instance, HOTFIX_SEL_ROOM_GRID_LINE };
+};
+
 struct RoomWmoDataLoadInfo
 {
     static constexpr DB2FieldMeta Fields[8] =

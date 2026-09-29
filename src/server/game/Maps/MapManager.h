@@ -109,6 +109,9 @@ class TC_GAME_API MapManager
 
         void InitializeVisibilityDistanceInfo();
         void PreloadHousingMaps();
+        /// The neighborhood map instance of a neighborhood (instance id = neighborhood GUID counter), created when missing -
+        /// PreloadHousingMaps only covers neighborhoods that existed at startup, not ones founded later.
+        HousingMap* FindOrCreateHousingMap(uint32 mapId, uint32 neighborhoodId);
 
         /* statistics */
         uint32 GetNumInstances() const;

@@ -27,6 +27,7 @@
 #include "HousingMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
+#include "MapManager.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
@@ -110,7 +111,16 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
     TC_LOG_DEBUG("housing", "go_housing_door: Teleporting {} from interior (owner {}) to map {} plot {} at ({:.1f},{:.1f},{:.1f})",
         player->GetGUID().ToString(), houseOwner.ToString(), destMapId, ownerPlotIndex, exitX, exitY, exitZ);
 
-    player->TeleportTo(destMapId, exitX, exitY, exitZ, player->GetOrientation());
+    // Several neighborhoods share a world map; the house's own one is the instance whose id is its GUID counter.
+    uint32 const neighborhoodId = static_cast<uint32>(nbh->GetGuid().GetCounter());
+    if (!sMapMgr->FindOrCreateHousingMap(destMapId, neighborhoodId))
+    {
+        player->TeleportTo(player->m_homebind);
+        return;
+    }
+
+    player->TeleportTo(TeleportLocation{ .Location = WorldLocation(destMapId, exitX, exitY, exitZ, player->GetOrientation()),
+        .InstanceId = neighborhoodId });
 }
 
 // Script for the housing front door GO (entry 602702).
@@ -302,38 +312,82 @@ class spell_housing_plot_teleport : public SpellScript
 {
     // The plot to land on is chosen when the cast starts (HousingHandler: CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT, the house
     // finder's reservation). It lies on another map, so it cannot be an explicit cast target - CheckCast would refuse it
-    // as out of the spell's self range - and joins the teleport effect only now, after the cast bar.
-    void SetPlotDestination(SpellEffIndex effIndex)
+    // as out of the spell's self range - and is used only now, after the cast bar. The default effect cannot name a map
+    // instance, and every neighborhood on a world map is its own instance, so the script teleports by itself.
+    void TeleportToPlot(SpellEffIndex effIndex)
     {
-        Optional<WorldLocation> dest = sHousingMgr.TakePendingPlotTeleport(GetCaster()->GetGUID());
-        if (!dest)
-        {
-            PreventHitDefaultEffect(effIndex);
-            return;
-        }
+        PreventHitDefaultEffect(effIndex);
 
-        GetSpell()->m_targets.SetDst(dest->GetPositionX(), dest->GetPositionY(), dest->GetPositionZ(), dest->GetOrientation(), dest->GetMapId());
-        if (WorldLocation* hitDest = GetHitDest())
-            *hitDest = *dest;
+        Player* player = GetHitPlayer();
+        if (!player)
+            return;
+
+        Optional<HousingMgr::PendingPlotTeleport> pending = sHousingMgr.TakePendingPlotTeleport(player->GetGUID());
+        if (!pending || !sMapMgr->FindOrCreateHousingMap(pending->Dest.GetMapId(), pending->NeighborhoodId))
+            return;
+
+        player->TeleportTo(TeleportLocation{ .Location = pending->Dest, .InstanceId = pending->NeighborhoodId }, TELE_TO_SPELL, GetSpellInfo()->Id);
     }
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_housing_plot_teleport::SetPlotDestination, EFFECT_ALL, SPELL_EFFECT_TELEPORT_UNITS);
+        OnEffectHitTarget += SpellEffectFn(spell_housing_plot_teleport::TeleportToPlot, EFFECT_ALL, SPELL_EFFECT_TELEPORT_UNITS);
     }
 };
 
 // Doors placed as decor (HouseDecor.GameObjectID of GAMEOBJECT_TYPE_DOOR, e.g. 527736 for decor 378).
 // Retail 12.1.0.69933 (sniff 11-13-10): every CMSG_GAME_OBJ_USE flips State 1 <-> 0 (the first one also
 // drops GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE) and the door never closes on its own (autoClose 0).
+// GO_FLAG_IN_USE is set for the swing only: retail clears it ~3 s later (Flags 33 -> 32), and while it
+// is set the client refuses to use the door, so keeping it would leave the door stuck open.
 // UseDoorOrButton would open it once and ignore every later use.
 struct go_housing_decor_door : public GameObjectAI
 {
-    go_housing_decor_door(GameObject* go) : GameObjectAI(go) { }
+    static constexpr uint32 IN_USE_DURATION = 3 * IN_MILLISECONDS;
+
+    go_housing_decor_door(GameObject* go) : GameObjectAI(go), _inUseTimer(0) { }
 
     bool OnGossipHello(Player* /*player*/) override
     {
+        if (_inUseTimer)
+            return true;
+
         me->SetFlag(GO_FLAG_IN_USE);
+        me->RemoveDynamicFlag(GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE);
+        me->SetGoState(me->GetGoState() == GO_STATE_READY ? GO_STATE_ACTIVE : GO_STATE_READY);
+        _inUseTimer = IN_USE_DURATION;
+        return true;
+    }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (!_inUseTimer)
+            return;
+
+        if (_inUseTimer > diff)
+        {
+            _inUseTimer -= diff;
+            return;
+        }
+
+        _inUseTimer = 0;
+        me->RemoveFlag(GO_FLAG_IN_USE);
+    }
+
+private:
+    uint32 _inUseTimer;
+};
+
+// Lights and fireplaces placed as decor (Goober with empty data, e.g. 527890 fireplace, 527892 chandelier, 567758 chamberstick).
+// Retail 12.1.0.69933 (sniff 14-43-07): every CMSG_GAME_OBJ_USE flips State 1 <-> 0 and it stays until the next use, the
+// first one also drops GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE; Flags stay 0. The core Goober use would reset the state
+// on its own shortly after.
+struct go_housing_decor_toggle : public GameObjectAI
+{
+    go_housing_decor_toggle(GameObject* go) : GameObjectAI(go) { }
+
+    bool OnGossipHello(Player* /*player*/) override
+    {
         me->RemoveDynamicFlag(GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE);
         me->SetGoState(me->GetGoState() == GO_STATE_READY ? GO_STATE_ACTIVE : GO_STATE_READY);
         return true;
@@ -344,6 +398,7 @@ void AddSC_go_housing_door()
 {
     new go_housing_door();
     RegisterGameObjectAI(go_housing_decor_door);
+    RegisterGameObjectAI(go_housing_decor_toggle);
     RegisterSpellScript(spell_housing_leave_house);
     RegisterSpellScript(spell_housing_plot_teleport);
 }

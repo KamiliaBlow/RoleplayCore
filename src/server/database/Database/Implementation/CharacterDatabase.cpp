@@ -1006,6 +1006,14 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_SEL_ACCOUNT_HOUSING_ROOMS, "SELECT roomId FROM account_housing_room WHERE bnetAccountId = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_SEL_ACCOUNT_HOUSING_OWNERS, "SELECT ch.guid FROM character_housing ch JOIN characters c ON c.guid = ch.guid WHERE c.account = ? AND ch.guid <> ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_ACCOUNT_HOUSING_ROOM, "INSERT IGNORE INTO account_housing_room (bnetAccountId, roomId) VALUES (?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_ACCOUNT_HOUSING_HOUSE_TYPES, "SELECT houseExteriorWmoDataId FROM account_housing_house_type WHERE bnetAccountId = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_INS_ACCOUNT_HOUSING_HOUSE_TYPE, "INSERT IGNORE INTO account_housing_house_type (bnetAccountId, houseExteriorWmoDataId) VALUES (?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_OWNER, "UPDATE character_housing SET guid = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_OWNER, "UPDATE character_housing_decor SET ownerGuid = ? WHERE ownerGuid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_ROOMS_OWNER, "UPDATE character_housing_rooms SET ownerGuid = ? WHERE ownerGuid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_FIXTURES_OWNER, "UPDATE character_housing_fixtures SET ownerGuid = ? WHERE ownerGuid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_OWNER, "UPDATE character_housing_catalog SET ownerGuid = ? WHERE ownerGuid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLAYER, "UPDATE neighborhood_members SET playerGuid = ? WHERE neighborhoodGuid = ? AND playerGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_ROOM, "UPDATE character_housing_rooms SET slotIndex = ?, gridX = ?, gridY = ?, floorIndex = ?, orientation = ?, mirrored = ?, themeId = ?, wallTextureId = ?, floorTextureId = ?, ceilingTextureId = ?, colorOverride = ?, doorTypeId = ?, doorSlot = ?, ceilingTypeId = ?, ceilingSlot = ?, wallThemeId = ?, floorThemeId = ?, ceilingThemeId = ?, doorTypes = ?, componentStyles = ? WHERE ownerGuid = ? AND id = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_CHARACTER_HOUSING_FIXTURE, "UPDATE character_housing_fixtures SET fixtureOptionId = ? WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE, "DELETE FROM character_housing_fixtures WHERE ownerGuid = ? AND fixturePointId = ?", CONNECTION_ASYNC);

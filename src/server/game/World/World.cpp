@@ -866,6 +866,7 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Housing.MaxHousesPerAccount"sv, .DefaultValue = 2, .Index = CONFIG_HOUSING_MAX_HOUSES_PER_ACCOUNT },
         { .Name = "Housing.CharterFoundingCost"sv, .DefaultValue = 0, .Index = CONFIG_HOUSING_CHARTER_FOUNDING_COST },
         { .Name = "Housing.CharterRequiredSignatures"sv, .DefaultValue = 10, .Index = CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES },
+        { .Name = "Housing.GuildNeighborhoodMinAccounts"sv, .DefaultValue = 3, .Index = CONFIG_HOUSING_GUILD_NEIGHBORHOOD_MIN_ACCOUNTS },
         { .Name = "CharDelete.Method"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_METHOD },
         { .Name = "CharDelete.MinLevel"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_MIN_LEVEL },
         { .Name = "CharDelete.DeathKnight.MinLevel"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_DEATH_KNIGHT_MIN_LEVEL },

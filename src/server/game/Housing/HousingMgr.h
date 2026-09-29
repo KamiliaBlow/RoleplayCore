@@ -275,9 +275,15 @@ public:
     /// Where a housing teleport lands on a plot: TeleportPosition, facing CornerstoneRotation.Z (12.1.0.69933 sniff).
     static WorldLocation GetPlotTeleportLocation(uint32 worldMapId, NeighborhoodPlotData const& plot);
     /// Destination of a housing teleport spell (SPELL_HOUSING_TELEPORT_HOME / _VISIT_HOUSE) while it is being cast;
-    /// the spell script hands it to the teleport effect once the cast bar is done.
-    void SetPendingPlotTeleport(ObjectGuid playerGuid, WorldLocation const& dest);
-    Optional<WorldLocation> TakePendingPlotTeleport(ObjectGuid playerGuid);
+    /// the spell script teleports the player there once the cast bar is done. Several neighborhoods share one world map,
+    /// so the destination names the neighborhood too: its map instance id is the neighborhood GUID counter.
+    struct PendingPlotTeleport
+    {
+        WorldLocation Dest;
+        uint32 NeighborhoodId = 0;
+    };
+    void SetPendingPlotTeleport(ObjectGuid playerGuid, WorldLocation const& dest, uint32 neighborhoodId);
+    Optional<PendingPlotTeleport> TakePendingPlotTeleport(ObjectGuid playerGuid);
     // Find a plot by its cornerstone GO entry within a specific neighborhood map
     NeighborhoodPlotData const* GetPlotByCornerstoneEntry(uint32 neighborhoodMapId, uint32 cornerstoneGoEntry) const;
 
@@ -335,6 +341,7 @@ public:
     // The retail DB2 links RoomComponent to RoomComponentOption via MeshStyleFilterID.
     // Returns nullptr if no match found
     RoomComponentOptionEntry const* FindRoomComponentOption(int32 meshStyleFilterID, int32 houseThemeID) const;
+    // houseThemeID 0 matches every theme
     std::vector<RoomComponentOptionEntry const*> FindAllRoomComponentOptions(int32 meshStyleFilterID, int32 houseThemeID) const;
 
     // Get the base room entry ID (exterior geobox room, from DB2 IsBaseRoom flag, fallback 18)
@@ -368,9 +375,20 @@ public:
     // If houseSize is 0, returns any size match; otherwise filters to exact size.
     uint32 GetDefaultFixtureForType(uint8 componentType, uint32 wmoDataID, uint8 houseSize = 0) const;
 
+    // A style can only be built at a size it has Base and Roof components for: the item-unlock facades
+    // (HouseExteriorWmoData 166, 172, 250, 251) exist in Small only.
+    bool IsHouseSizeAvailableForType(uint32 wmoDataID, uint8 houseSize) const;
+    // Largest size up to maxSize the style has (HOUSING_FIXTURE_SIZE_NONE if none): where a style change shrinks the house to.
+    uint8 GetLargestHouseSizeForType(uint32 wmoDataID, uint8 maxSize) const;
+
     // Racial house style: maps player race to the appropriate HouseExteriorWmoDataID.
     // Night Elf → 55, Blood Elf → 56, other Alliance → 9 (Human), other Horde → 87 (Orc).
     static uint32 GetRacialWmoDataID(uint8 race, uint32 teamId);
+
+    // HouseExteriorWMOData.Flags limit a house type to Horde and/or Alliance neighborhoods; the editing
+    // character's own faction does not matter (retail 12.1.0.69933: Alliance Human set Orc 87 and Blood Elf 56
+    // on the Horde map 2736).
+    static bool IsHouseTypeAllowedInNeighborhood(int32 wmoDataFlags, int32 neighborhoodFaction);
 
     // Find the first HouseRoom entry with visual components (not the base room 18)
     uint32 GetDefaultVisualRoomEntry() const;
@@ -410,7 +428,7 @@ public:
 
 private:
     std::mutex _pendingPlotTeleportsLock;
-    std::unordered_map<ObjectGuid, WorldLocation> _pendingPlotTeleports;
+    std::unordered_map<ObjectGuid, PendingPlotTeleport> _pendingPlotTeleports;
     // Ensure the player's ignore set is loaded from DB into _ignoredNeighborhoods.
     std::unordered_set<ObjectGuid>& EnsureIgnoredNeighborhoodsLoaded(ObjectGuid playerGuid);
     void LoadHouseDecorData();

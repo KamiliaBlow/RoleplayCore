@@ -761,6 +761,18 @@ CREATE TABLE IF NOT EXISTS `room_component_texture_locale` (
  PARTITION zhCN VALUES IN ('zhCN') ENGINE = InnoDB,
  PARTITION zhTW VALUES IN ('zhTW') ENGINE = InnoDB) */;
 
+CREATE TABLE IF NOT EXISTS `room_grid_line` (
+  `OffsetX` float NOT NULL DEFAULT '0',
+  `OffsetY` float NOT NULL DEFAULT '0',
+  `OffsetZ` float NOT NULL DEFAULT '0',
+  `ID` int unsigned NOT NULL DEFAULT '0',
+  `SizeX` float NOT NULL DEFAULT '0',
+  `SizeY` float NOT NULL DEFAULT '0',
+  `RoomWmoDataID` int unsigned NOT NULL DEFAULT '0',
+  `VerifiedBuild` int NOT NULL DEFAULT '0',
+  PRIMARY KEY (`ID`,`VerifiedBuild`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `room_wmo_data` (
   `ID` int unsigned NOT NULL DEFAULT '0',
   `BoundingBoxMinX` float NOT NULL DEFAULT '0',

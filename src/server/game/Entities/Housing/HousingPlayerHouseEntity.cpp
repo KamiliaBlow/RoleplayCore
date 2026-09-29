@@ -150,6 +150,11 @@ void HousingPlayerHouseEntity::SetBnetAccount(ObjectGuid bnetAccountGuid)
     SetUpdateFieldValue(m_values.ModifyValue(&HousingPlayerHouseEntity::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::BnetAccount), bnetAccountGuid);
 }
 
+void HousingPlayerHouseEntity::SetCosmeticOwner(ObjectGuid ownerGuid)
+{
+    SetUpdateFieldValue(m_values.ModifyValue(&HousingPlayerHouseEntity::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::CosmeticOwner), ownerGuid);
+}
+
 void HousingPlayerHouseEntity::SetEntityGUID(ObjectGuid entityGuid)
 {
     SetUpdateFieldValue(m_values.ModifyValue(&HousingPlayerHouseEntity::m_housingPlayerHouseData).ModifyValue(&UF::HousingPlayerHouseData::EntityGUID), entityGuid);

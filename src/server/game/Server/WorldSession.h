@@ -1286,6 +1286,10 @@ class TC_GAME_API WorldSession
         ObjectGuid GetBattlenetAccountGUID() const;
         Battlenet::Account& GetBattlenetAccount() const { return *_battlenetAccount; }
         bool HasHousingPlayerHouseEntity() const { return _housingPlayerHouseEntity != nullptr; }
+        /// Whether the client may hold the Housing/3 entity of the player's own house right now. Retail 12.1.0.69933
+        /// (sniff 09-29 13-25-41) never sends it in a neighborhood where the account has no house: the client marks
+        /// the entity's PlotIndex as the player's own plot in whatever neighborhood the player stands in.
+        bool CanSeeHousingPlayerHouseEntity() const;
         bool HasHousingNeighborhoodMirrorEntity() const { return _housingNeighborhoodMirrorEntity != nullptr; }
         HousingPlayerHouseEntity& GetHousingPlayerHouseEntity() const { return *_housingPlayerHouseEntity; }
         HousingNeighborhoodMirrorEntity& GetHousingNeighborhoodMirrorEntity() const { return *_housingNeighborhoodMirrorEntity; }

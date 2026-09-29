@@ -436,30 +436,35 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     player->SetMap(this);
     player->AddToWorld();
 
+    // Session-scoped entities (BNet account, Housing/3, Housing/4): the client drops them on every map load. Retail
+    // re-creates them after each transfer (12.1.0.69933), and a VALUES update for one the client no longer holds
+    // is answered with CMSG_OBJECT_UPDATE_FAILED - so forget them here and let SendInitSelf re-create them.
+    ObjectGuid bnetAccountGuid = player->GetSession()->GetBattlenetAccount().GetGUID();
+    ObjectGuid houseEntityGuid = player->GetSession()->HasHousingPlayerHouseEntity() ? player->GetSession()->GetHousingPlayerHouseEntity().GetGUID() : ObjectGuid::Empty;
+    ObjectGuid mirrorEntityGuid = player->GetSession()->HasHousingNeighborhoodMirrorEntity() ? player->GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID() : ObjectGuid::Empty;
+
     if (initPlayer)
+    {
+        player->m_clientGUIDs.erase(bnetAccountGuid);
+        player->m_clientGUIDs.erase(houseEntityGuid);
+        player->m_clientGUIDs.erase(mirrorEntityGuid);
         SendInitSelf(player);
+    }
 
     SendInitTransports(player);
 
     if (initPlayer)
     {
-        // Session-scoped entities (BNet account, Housing/3, Housing/4) are retained by the
-        // client across map switches. Keep their "at client" marks through the visibility-set
-        // reset so the post-clear visibility rebuild (UpdateObjectVisibility /
-        // UpdateVisibilityForPlayer) does not re-send duplicate CREATEs for GUIDs the client
-        // still holds — a second CREATE resets the Housing/4 dynamic Houses array and Name on
-        // the client, which broke the neighborhood-map pins until the next relog.
-        ObjectGuid bnetAccountGuid = player->GetSession()->GetBattlenetAccount().GetGUID();
-        ObjectGuid houseEntityGuid = player->GetSession()->HasHousingPlayerHouseEntity() ? player->GetSession()->GetHousingPlayerHouseEntity().GetGUID() : ObjectGuid::Empty;
-        ObjectGuid mirrorEntityGuid = player->GetSession()->HasHousingNeighborhoodMirrorEntity() ? player->GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID() : ObjectGuid::Empty;
-
+        // Keep the marks of what SendInitSelf just created through the visibility-set reset, so the rebuild below
+        // does not send them a second time. The Housing/4 mirror is only created on neighborhood maps (retail sends
+        // none on other maps or inside a house interior).
         player->m_clientGUIDs.clear();
 
         if (!bnetAccountGuid.IsEmpty())
             player->m_clientGUIDs.insert(bnetAccountGuid);
         if (!houseEntityGuid.IsEmpty())
             player->m_clientGUIDs.insert(houseEntityGuid);
-        if (!mirrorEntityGuid.IsEmpty())
+        if (!mirrorEntityGuid.IsEmpty() && GetEntry()->IsNeighborhood())
             player->m_clientGUIDs.insert(mirrorEntityGuid);
     }
 

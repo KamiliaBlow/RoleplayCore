@@ -271,16 +271,19 @@ namespace
     }
 
     // Retail (12.1.0.69933 sniff 19-48-29) sends the player to a plot through a 10 s cast of a teleport spell; the spell
-    // script (spell_housing_plot_teleport) gives its teleport effect this destination once the cast bar is done.
-    void StartHousingPlotTeleport(Player* player, uint32 spellId, WorldLocation const& dest)
+    // script (spell_housing_plot_teleport) teleports to this destination once the cast bar is done. The neighborhood
+    // picks the map instance: every neighborhood on a world map is its own instance.
+    void StartHousingPlotTeleport(Player* player, uint32 spellId, WorldLocation const& dest, Neighborhood const* neighborhood)
     {
+        uint32 const neighborhoodId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
         if (!sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
         {
-            player->TeleportTo(dest);
+            if (sMapMgr->FindOrCreateHousingMap(dest.GetMapId(), neighborhoodId))
+                player->TeleportTo(TeleportLocation{ .Location = dest, .InstanceId = neighborhoodId });
             return;
         }
 
-        sHousingMgr.SetPendingPlotTeleport(player->GetGUID(), dest);
+        sHousingMgr.SetPendingPlotTeleport(player->GetGUID(), dest, neighborhoodId);
         player->CastSpell(player, spellId, CastSpellExtraArgs());
     }
 
@@ -292,16 +295,12 @@ namespace
         if (!interiorMap)
             return;
 
-        // Use player's team for faction theme, matching HouseInteriorMap::AddPlayerToMap pattern.
-        // NeighborhoodMapData::FactionRestriction is a bitmask (3 = both factions) and doesn't
-        // map to the enum values expected by GetFactionDefaultThemeID().
-        int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-            ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+        // The house's neighborhood decides the theme: an Alliance character in the account's Horde house sees Horde rooms
+        int32 faction = housing->GetNeighborhoodFaction();
 
         interiorMap->DespawnAllRoomMeshObjects();
         interiorMap->SpawnRoomMeshObjects(housing, faction);
     }
-
 
     // Checks whether the player is eligible for housing features.
     // Returns a bitmask of HousingWarningFlag reasons if restrictions apply.
@@ -1192,7 +1191,6 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
         }
     }
 
-
     HousingResult result = housing->PlaceDecorWithGuid(housingDecorPlace.DecorGuid, decorEntryId,
         posX, posY, posZ, rotX, rotY, rotZ, rotW, roomGuid, housingDecorPlace.Scale);
 
@@ -1547,6 +1545,19 @@ void WorldSession::HandleHousingDecorDeleteFromStorage(WorldPackets::Housing::Ho
 
 // Retired 2026-05-12: HandleHousingDecorDeleteFromStorageById ? fake CMSG 0x30000A, no client sender.
 
+bool WorldSession::CanSeeHousingPlayerHouseEntity() const
+{
+    Player* player = GetPlayer();
+    if (!player || !HasHousingPlayerHouseEntity())
+        return false;
+
+    if (HousingMap const* housingMap = dynamic_cast<HousingMap const*>(player->FindMap()))
+        if (Neighborhood const* neighborhood = housingMap->GetNeighborhood())
+            return player->GetHousingForNeighborhood(neighborhood->GetGuid()) != nullptr;
+
+    return true;
+}
+
 void WorldSession::BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player)
 {
     // Both entities are part of the player's own CREATE (Player::BuildCreateUpdateBlockForPlayer) and
@@ -1568,7 +1579,8 @@ void WorldSession::BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* p
     };
 
     build(GetBattlenetAccount());
-    build(GetHousingPlayerHouseEntity());
+    if (CanSeeHousingPlayerHouseEntity())
+        build(GetHousingPlayerHouseEntity());
 }
 
 void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& housingDecorRequestStorage)
@@ -1819,7 +1831,7 @@ void WorldSession::SendFixtureUpdateObject(Player* player, Housing* housing)
     // House entity VALUES_UPDATE (budget/type fields)
     if (player->HaveAtClient(&GetHousingPlayerHouseEntity()))
         GetHousingPlayerHouseEntity().BuildValuesUpdateBlockForPlayer(&updateData, player);
-    else
+    else if (CanSeeHousingPlayerHouseEntity())
     {
         GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(&updateData, player);
         player->m_clientGUIDs.insert(GetHousingPlayerHouseEntity().GetGUID());
@@ -2495,23 +2507,16 @@ void WorldSession::HandleHousingFixtureSetHouseSize(WorldPackets::Housing::Housi
         return;
     }
 
-    // HouseLevelRewardInfo: medium exterior fixtures unlock at house level 8, large ones at 12.
-    if ((requestedSize == HOUSING_FIXTURE_SIZE_MEDIUM && housing->GetLevel() < 8) ||
-        (requestedSize == HOUSING_FIXTURE_SIZE_LARGE && housing->GetLevel() < 12))
+    // The current style has to exist at that size, or the exterior stays on the old meshes while the stored size
+    // says otherwise (after a relog: "Small" with empty styles)
+    if (requestedSize >= HOUSING_FIXTURE_SIZE_SMALL && !sHousingMgr.IsHouseSizeAvailableForType(housing->GetHouseType(), requestedSize))
     {
         WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_SIZE_NOT_AVAILABLE);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_TYPE_SIZE_MISMATCH);
         SendPacket(response.Write());
-        return;
-    }
 
-    // HouseLevelRewardInfo: medium exterior fixtures unlock at house level 8, large ones at 12.
-    if ((requestedSize == HOUSING_FIXTURE_SIZE_MEDIUM && housing->GetLevel() < 8) ||
-        (requestedSize == HOUSING_FIXTURE_SIZE_LARGE && housing->GetLevel() < 12))
-    {
-        WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_SIZE_NOT_AVAILABLE);
-        SendPacket(response.Write());
+        TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE HouseGuid: {}, Size: {} REJECTED (house type {} has no Base/Roof at that size)",
+            housingFixtureSetHouseSize.HouseGuid.ToString(), requestedSize, housing->GetHouseType());
         return;
     }
 
@@ -2529,6 +2534,7 @@ void WorldSession::HandleHousingFixtureSetHouseSize(WorldPackets::Housing::Housi
 
     // Persist the new house size
     housing->SetHouseSize(requestedSize);
+    housing->SetPreferredHouseSize(requestedSize);
 
     // Respawn house MeshObjects with updated size (yard decor stays: it hangs off the plot room, which survives)
     if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
@@ -2597,6 +2603,32 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
         return;
     }
 
+    // The allowed types follow the neighborhood the house stands in, not the character's faction
+    Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid());
+    int32 const neighborhoodFaction = neighborhood ? neighborhood->GetFactionRestriction() : NEIGHBORHOOD_FACTION_NONE;
+    if (!HousingMgr::IsHouseTypeAllowedInNeighborhood(wmoData->Flags, neighborhoodFaction))
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_TYPE_NEIGHBORHOOD_MISMATCH);
+        SendPacket(response.Write());
+
+        TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE HouseGuid: {}, WmoDataID: {} REJECTED (flags 0x{:X} not allowed in neighborhood faction {})",
+            housingFixtureSetHouseType.HouseGuid.ToString(), wmoDataID, wmoData->Flags, neighborhoodFaction);
+        return;
+    }
+
+    // Types without UnlockedByDefault (the item facades 166, 172, 250, 251) need SPELL_EFFECT_LEARN_HOUSE_TYPE first
+    if (!(wmoData->Flags & HOUSE_EXTERIOR_WMO_FLAG_UNLOCKED_BY_DEFAULT) && !player->HasHouseType(wmoDataID))
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_UNCOLLECTED_HOUSE_TYPE);
+        SendPacket(response.Write());
+
+        TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE HouseGuid: {}, WmoDataID: {} REJECTED (not collected)",
+            housingFixtureSetHouseType.HouseGuid.ToString(), wmoDataID);
+        return;
+    }
+
     // Reject if already that type
     if (wmoDataID == housing->GetHouseType())
     {
@@ -2608,6 +2640,13 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
             housingFixtureSetHouseType.HouseGuid.ToString(), wmoDataID);
         return;
     }
+
+    // The house takes the largest size up to the one the player picked that the style has: the Small-only item facades
+    // shrink a medium or large house, switching back restores it. Before SetHouseType, whose starter fixtures use the size.
+    uint8 const oldSize = housing->GetHouseSize();
+    if (housing->GetPreferredHouseSize() >= HOUSING_FIXTURE_SIZE_SMALL)
+        if (uint8 const size = sHousingMgr.GetLargestHouseSizeForType(wmoDataID, housing->GetPreferredHouseSize()); size && size != oldSize)
+            housing->SetHouseSize(size);
 
     // Persist the new house type
     housing->SetHouseType(wmoDataID);
@@ -2634,10 +2673,19 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
     response.HouseExteriorTypeID = wmoDataID;
     SendPacket(response.Write());
 
-    // Notify account of house type collection update
-    WorldPackets::Housing::AccountHouseTypeCollectionUpdate collectionUpdate;
-    collectionUpdate.AddSingle(wmoDataID);
-    SendPacket(collectionUpdate.Write());
+    // No SMSG_ACCOUNT_HOUSE_TYPE_COLLECTION_UPDATE here: retail sends none after any of 6 sniffed type changes.
+
+    // The client keeps the house size it last got in a size response and rebuilds the size and style menus from it: a
+    // size the type change made needs one too, or the editor shows the old size with empty style menus until reopened.
+    // Before the UPDATE_OBJECT, as a size change sends it: sent after it, the roof and upper floor fixture points stayed
+    // missing.
+    if (housing->GetHouseSize() != oldSize)
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseSizeResponse sizeResponse;
+        sizeResponse.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+        sizeResponse.Size = housing->GetHouseSize();
+        SendPacket(sizeResponse.Write());
+    }
 
     // Sniff-verified: UPDATE_OBJECT follows the response, carrying updated MeshObject
     // data for the new house type. Send inline so client gets it immediately.
@@ -2869,8 +2917,7 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
 
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(GetPlayer()->GetMap()))
         {
-            int32 faction = (GetPlayer()->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
 
             // Spawn only the NEW room(s) (SpawnRoomMeshObjects skips rooms already on the map), then open the
             // wall it was attached to on the other side.
@@ -2878,10 +2925,6 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
             interiorMap->SpawnRoomMeshObjects(housing, faction);
             interiorMap->RefreshRoomDoors(rooms, faction);
         }
-
-        WorldPackets::Housing::AccountRoomCollectionUpdate roomUpdate;
-        roomUpdate.AddSingle(houseRoomID);
-        SendPacket(roomUpdate.Write());
     }
 
     return result;
@@ -2897,6 +2940,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
     if (!housing)
     {
         WorldPackets::Housing::HousingRoomRemoveResponse response;
+        response.PlayerGuid = player->GetGUID();
         response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_NOT_FOUND);
         SendPacket(response.Write());
         return;
@@ -2909,6 +2953,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
     if (!PlayerCanEditHousing(player, housing))
     {
         WorldPackets::Housing::HousingRoomRemoveResponse response;
+        response.PlayerGuid = player->GetGUID();
         response.Result = static_cast<uint8>(HOUSING_RESULT_NOT_ON_OWNED_PLOT);
         SendPacket(response.Write());
         return;
@@ -2981,6 +3026,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
     WorldPackets::Housing::HousingRoomRemoveResponse response;
     response.Result = static_cast<uint8>(result);
     response.RoomGuid = housingRoomRemove.RoomGuid;
+    response.PlayerGuid = player->GetGUID();
     SendPacket(response.Write());
 
     if (result == HOUSING_RESULT_SUCCESS)
@@ -2999,8 +3045,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
                 interiorMap->DespawnRoomEntities(pairedRoomGuid);
 
             // The neighbours' walls on the removed room's side close again
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
 
             // Standing in the room that went away: retail teleports the player back to the entry hall
@@ -3061,8 +3106,7 @@ void WorldSession::HandleHousingRoomRotate(WorldPackets::Housing::HousingRoomRot
                     interiorMap->UpdateRoomPlacement(*partner);
             }
 
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
         }
     }
@@ -3172,8 +3216,7 @@ void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::Hou
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
             auto const& rooms = housing->GetRoomsMap();
             auto roomItr = rooms.find(housingRoomSetComponentTheme.RoomGuid);
             if (roomItr != rooms.end())
@@ -3286,8 +3329,7 @@ void WorldSession::HandleHousingRoomSetDoorType(WorldPackets::Housing::HousingRo
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
         }
     }
@@ -3338,8 +3380,7 @@ void WorldSession::HandleHousingRoomSetCeilingType(WorldPackets::Housing::Housin
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetNeighborhoodFaction();
             auto const& rooms = housing->GetRoomsMap();
             auto roomItr = rooms.find(housingRoomSetCeilingType.RoomGuid);
             if (roomItr != rooms.end())
@@ -3389,16 +3430,22 @@ void WorldSession::HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housin
         return;
     }
 
-    static constexpr uint32 MIN_GUILD_SIZE_FOR_NEIGHBORHOOD = 3;
     static constexpr uint32 MAX_GUILD_SIZE_FOR_NEIGHBORHOOD = 1000;
 
-    if (guild->GetMembersCount() < MIN_GUILD_SIZE_FOR_NEIGHBORHOOD)
+    // The client's own error for a small guild is HousingResult GuildMoreAccountsNeeded: the guild is sized in
+    // accounts, not characters.
+    std::unordered_set<uint32> guildAccounts;
+    for (auto const& [memberGuid, member] : guild->GetMembers())
+        guildAccounts.insert(member.GetAccountId());
+
+    uint32 const minAccounts = sWorld->getIntConfig(CONFIG_HOUSING_GUILD_NEIGHBORHOOD_MIN_ACCOUNTS);
+    if (guildAccounts.size() < minAccounts)
     {
         WorldPackets::Housing::HousingSvcsCreateCharterNeighborhoodResponse response;
-        response.TrailingResult = static_cast<uint8>(HOUSING_RESULT_GENERIC_FAILURE);
+        response.TrailingResult = static_cast<uint8>(HOUSING_RESULT_GUILD_MORE_ACCOUNTS_NEEDED);
         SendPacket(response.Write());
-        TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GUILD_CREATE_NEIGHBORHOOD: Guild too small ({} < {})",
-            guild->GetMembersCount(), MIN_GUILD_SIZE_FOR_NEIGHBORHOOD);
+        TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GUILD_CREATE_NEIGHBORHOOD: Guild has {} account(s), {} needed",
+            uint32(guildAccounts.size()), minAccounts);
         return;
     }
 
@@ -3413,12 +3460,13 @@ void WorldSession::HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housin
     }
 
     // Per binary RE (see HousingPackets.h), the second numeric field on the wire is
-    // SecondaryID (likely HouseStyle/Theme ID) and not a faction ID. Derive the
-    // faction restriction from the player's team instead.
+    // SecondaryID (likely HouseStyle/Theme ID) and not a faction ID. A guild neighborhood is open to both
+    // factions: the 12.1.0.69933 client tells the founder so (HOUSING_CREATENEIGHBORHOOD_GUILD_INFODESCRIPTION:
+    // "Покупать участки могут как персонажи Альянса, так и персонажи Орды"), so it gets no faction restriction.
     Neighborhood* neighborhood = sNeighborhoodMgr.CreateGuildNeighborhood(
         player->GetGUID(), housingSvcsGuildCreateNeighborhood.NeighborhoodName,
         housingSvcsGuildCreateNeighborhood.NeighborhoodTypeID,
-        player->GetTeam(),
+        /*factionID*/ 0,
         player->GetGuildId()); // M8: persist guild link
 
     WorldPackets::Housing::HousingSvcsCreateCharterNeighborhoodResponse response;
@@ -3426,7 +3474,7 @@ void WorldSession::HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housin
     if (neighborhood)
     {
         response.Neighborhood.NeighborhoodGUID = neighborhood->GetGuid();
-        response.Neighborhood.OwnerGUID = player->GetGUID();
+        response.Neighborhood.OwnerGUID = neighborhood->GetClientOwnerGuid();
         response.Neighborhood.Name = housingSvcsGuildCreateNeighborhood.NeighborhoodName;
     }
     SendPacket(response.Write());
@@ -3524,7 +3572,7 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         uint32 worldMapId = sHousingMgr.GetWorldMapIdByNeighborhoodMapId(neighborhood->GetNeighborhoodMapID());
         for (NeighborhoodPlotData const* plot : sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
             if (worldMapId && plot->PlotIndex == int32(plotIndex))
-                StartHousingPlotTeleport(player, SPELL_HOUSING_VISIT_HOUSE, HousingMgr::GetPlotTeleportLocation(worldMapId, *plot));
+                StartHousingPlotTeleport(player, SPELL_HOUSING_VISIT_HOUSE, HousingMgr::GetPlotTeleportLocation(worldMapId, *plot), neighborhood);
     }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_NEIGHBORHOOD_RESERVE_PLOT PlotIndex: {}, Result: {}",
@@ -3572,13 +3620,35 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
         player->GetGUID().ToString(), houseGuid.ToString());
 }
 
+// Enum.HouseOwnerError of a character of the account for the house: the owner list greys it out with this, the owner
+// change refuses it.
+static HouseOwnerError GetHouseOwnerError(Player const* player, Housing const& housing, Neighborhood const& neighborhood,
+    CharacterCacheEntry const& character)
+{
+    int32 const faction = neighborhood.GetFactionRestriction();
+    TeamId const team = Player::TeamIdForRace(character.Race);
+    if ((faction == NEIGHBORHOOD_FACTION_HORDE && team != TEAM_HORDE) || (faction == NEIGHBORHOOD_FACTION_ALLIANCE && team != TEAM_ALLIANCE))
+        return HOUSE_OWNER_ERROR_FACTION;
+
+    if (neighborhood.GetGuildId() && character.GuildId != neighborhood.GetGuildId())
+        return HOUSE_OWNER_ERROR_GUILD;
+
+    // A character keys one house (character_housing): one that already owns another house of the account cannot take this one
+    if (Housing const* other = player->GetHousingByOwner(character.Guid); other && other != &housing)
+        return HOUSE_OWNER_ERROR_GENERIC_PERMISSION;
+
+    return HOUSE_OWNER_ERROR_NONE;
+}
+
 void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::HousingSvcsUpdateHouseSettings const& housingSvcsUpdateHouseSettings)
 {
     Player* player = GetPlayer();
     if (!player)
         return;
 
-    Housing* housing = player->GetHousing();
+    Housing* housing = player->GetHousingByHouseGuid(housingSvcsUpdateHouseSettings.HouseGuid);
+    if (!housing)
+        housing = player->GetHousing();
     if (!housing)
     {
         WorldPackets::Housing::HousingSvcsUpdateHouseSettingsResponse response;
@@ -3600,6 +3670,58 @@ void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::H
         return;
     }
 
+    // Owner change (the settings owner dropdown): the house goes to another character of the account
+    HousingResult ownerResult = HOUSING_RESULT_SUCCESS;
+    ObjectGuid const oldOwnerGuid = housing->GetOwnerGuid();
+    if (housingSvcsUpdateHouseSettings.NewOwnerGuid && *housingSvcsUpdateHouseSettings.NewOwnerGuid != oldOwnerGuid)
+    {
+        ObjectGuid const newOwnerGuid = *housingSvcsUpdateHouseSettings.NewOwnerGuid;
+        CharacterCacheEntry const* character = sCharacterCache->GetCharacterCacheByGuid(newOwnerGuid);
+        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid());
+        if (!character || character->IsDeleted || character->AccountId != GetAccountId())
+            ownerResult = HOUSING_RESULT_PLAYER_NOT_FOUND;
+        else if (!neighborhood)
+            ownerResult = HOUSING_RESULT_NEIGHBORHOOD_NOT_FOUND;
+        else
+        {
+            switch (GetHouseOwnerError(player, *housing, *neighborhood, *character))
+            {
+                case HOUSE_OWNER_ERROR_FACTION: ownerResult = HOUSING_RESULT_INCORRECT_FACTION; break;
+                case HOUSE_OWNER_ERROR_GUILD: ownerResult = HOUSING_RESULT_OWNER_NOT_IN_GUILD; break;
+                case HOUSE_OWNER_ERROR_GENERIC_PERMISSION: ownerResult = HOUSING_RESULT_PERMISSION_DENIED; break;
+                default: ownerResult = housing->ChangeOwner(newOwnerGuid); break;
+            }
+        }
+
+        TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS HouseGuid: {} owner {} -> {} result {}",
+            housing->GetHouseGuid().ToString(), oldOwnerGuid.ToString(), newOwnerGuid.ToString(), uint32(ownerResult));
+
+        if (ownerResult == HOUSING_RESULT_SUCCESS)
+        {
+            // The interior instance goes by the owner: whoever is inside stays in the house
+            if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()); interiorMap && interiorMap->GetOwnerGuid() == oldOwnerGuid)
+                interiorMap->SetOwnerGuid(newOwnerGuid);
+            // The neighborhood map finds the loaded house of a plot by its owner
+            if (HousingMap* ownerMap = dynamic_cast<HousingMap*>(player->GetMap()); ownerMap && ownerMap->GetHousingForPlayer(oldOwnerGuid) == housing)
+            {
+                ownerMap->RemovePlayerHousing(oldOwnerGuid);
+                ownerMap->AddPlayerHousing(newOwnerGuid, housing);
+            }
+
+            if (Neighborhood* ownerNeighborhood = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid()))
+            {
+                ownerNeighborhood->BroadcastRoster();
+                ownerNeighborhood->RefreshMirrorDataForOnlineMembers();
+            }
+
+            WorldPackets::Housing::HousingSvcsChangeHouseCosmeticOwner cosmeticOwner;
+            cosmeticOwner.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+            cosmeticOwner.HouseGuid = housing->GetHouseGuid();
+            cosmeticOwner.NewOwnerGuid = newOwnerGuid;
+            SendPacket(cosmeticOwner.Write());
+        }
+    }
+
     if (housingSvcsUpdateHouseSettings.PlotSettingsID)
     {
         uint32 newFlags = *housingSvcsUpdateHouseSettings.PlotSettingsID & HOUSE_SETTING_VALID_MASK;
@@ -3607,9 +3729,9 @@ void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::H
     }
 
     WorldPackets::Housing::HousingSvcsUpdateHouseSettingsResponse response;
-    response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+    response.Result = static_cast<uint8>(ownerResult);
     response.House.HouseGUID = housingSvcsUpdateHouseSettings.HouseGuid;
-    response.House.OwnerGUID = player->GetGUID();
+    response.House.OwnerGUID = housing->GetOwnerGuid();
     response.House.NeighborhoodGUID = housing->GetNeighborhoodGuid();
     response.House.HouseSettingFlags = housing->GetSettingsFlags();
     response.House.PlotIndex = housing->GetPlotIndex();
@@ -3626,7 +3748,7 @@ void WorldSession::HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::H
     {
         WorldPackets::Housing::HousingGetCurrentHouseInfoResponse houseInfoUpdate;
         houseInfoUpdate.House.HouseGUID = housing->GetHouseGuid();
-        houseInfoUpdate.House.OwnerGUID = player->GetGUID();
+        houseInfoUpdate.House.OwnerGUID = housing->GetOwnerGuid();
         houseInfoUpdate.House.NeighborhoodGUID = housing->GetNeighborhoodGuid();
         houseInfoUpdate.House.PlotIndex = housing->GetPlotIndex();
         houseInfoUpdate.House.HouseSettingFlags = housing->GetSettingsFlags();
@@ -3887,15 +4009,17 @@ void WorldSession::HandleHousingSvcsTeleportToPlot(WorldPackets::Housing::Housin
         // A house of the account: "Teleport Home"; anyone else's plot: "Visit House".
         bool const home = accountHousing && accountHousing->GetPlotIndex() == plotIndex;
         StartHousingPlotTeleport(player, home ? SPELL_HOUSING_TELEPORT_HOME : SPELL_HOUSING_VISIT_HOUSE,
-            HousingMgr::GetPlotTeleportLocation(mapData->MapID, *targetPlot));
+            HousingMgr::GetPlotTeleportLocation(mapData->MapID, *targetPlot), neighborhood);
 
         TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT: Casting the teleport of player {} to plot {} on map {}",
             player->GetGUID().ToString(), plotIndex, mapData->MapID);
     }
     else
     {
-        player->TeleportTo(mapData->MapID, mapData->Origin[0], mapData->Origin[1],
-            mapData->Origin[2], 0.0f);
+        uint32 const neighborhoodId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+        if (sMapMgr->FindOrCreateHousingMap(mapData->MapID, neighborhoodId))
+            player->TeleportTo(TeleportLocation{ .Location = WorldLocation(mapData->MapID, mapData->Origin[0], mapData->Origin[1],
+                mapData->Origin[2], 0.0f), .InstanceId = neighborhoodId });
 
         TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT: Plot {} not found in DB2, teleporting to neighborhood origin on map {}",
             plotIndex, mapData->MapID);
@@ -4108,7 +4232,7 @@ void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housin
     if (!player)
         return;
 
-    // Get the player's neighborhood and return members eligible for ownership
+    // The neighborhood of the house decides which factions may own it
     Housing* housing = player->GetHousing();
     if (!housing)
     {
@@ -4125,29 +4249,36 @@ void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housin
         return;
     }
 
-    std::vector<Neighborhood::Member> const& members = neighborhood->GetMembers();
-    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS: Neighborhood has {} members",
-        uint32(members.size()));
+    // The house belongs to the account: the owner list is the account's characters (retail 12.1.0.69933 sniff 14-43-07,
+    // JamPotentialCosmeticHouseOwner: 16 characters over several realms, class as ClassID). The client selects the one
+    // matching the house's CosmeticOwner and greys out those with an Error ("... cannot own a house in this neighborhood").
 
     // Sniff-verified format: PlayerName is "<CharacterName>-<RealmNormalizedName>"
-    // (cross-realm display name format). Examples from retail sniff:
-    //   "Anondk-AltarofStorms", "Dahuntermon-AltarofStorms", "Insanedk-Trollbane",
-    //   "Pewpewer-Khadgar", "Insanee-Gul'dan".
-    // Falls back to bare character name if the realm record is unavailable.
     std::string realmSuffix;
     if (std::shared_ptr<Realm const> currentRealm = sRealmList->GetCurrentRealm())
         realmSuffix = "-" + currentRealm->NormalizedName;
 
     WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse response;
-    response.PotentialOwners.reserve(members.size());
-    for (auto const& member : members)
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARS_BY_ACCOUNT_ID);
+    stmt->setUInt32(0, GetAccountId());
+    if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
     {
-        WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse::PotentialOwnerData ownerData;
-        ownerData.PlayerGuid = member.PlayerGuid;
-        if (Player* memberPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
-            ownerData.CharacterName = memberPlayer->GetName() + realmSuffix;
-        response.PotentialOwners.push_back(std::move(ownerData));
+        do
+        {
+            ObjectGuid const guid = ObjectGuid::Create<HighGuid::Player>((*result)[0].GetUInt64());
+            CharacterCacheEntry const* character = sCharacterCache->GetCharacterCacheByGuid(guid);
+            if (!character || character->IsDeleted)
+                continue;
+
+            WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse::PotentialOwnerData& ownerData = response.PotentialOwners.emplace_back();
+            ownerData.PlayerGuid = guid;
+            ownerData.ClassID = character->Class;
+            ownerData.Error = GetHouseOwnerError(player, *housing, *neighborhood, *character);
+            ownerData.CharacterName = character->Name + realmSuffix;
+        } while (result->NextRow());
     }
+
+    TC_LOG_DEBUG("housing", "CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS: {} account characters", response.PotentialOwners.size());
     SendPacket(response.Write());
 }
 
@@ -4157,18 +4288,38 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
     if (!player)
         return;
 
-    // Return list of public neighborhoods available through the finder, filtered by faction
-    std::vector<Neighborhood*> publicNeighborhoods = sNeighborhoodMgr.GetPublicNeighborhoods();
     uint32 playerTeam = player->GetTeam();
 
-    WorldPackets::Housing::HousingSvcsGetHouseFinderInfoResponse response;
-    response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
-    response.Entries.reserve(publicNeighborhoods.size());
-    for (Neighborhood* neighborhood : publicNeighborhoods)
+    // ExtraFlags is Enum.HouseFinderSuggestionReason: why the neighborhood is offered. Neighborhoods the player is tied
+    // to come first - a charter or guild neighborhood is private and is reachable only through this list - then the
+    // public ones (Random).
+    auto getSuggestionReason = [&](Neighborhood const* neighborhood) -> uint8
     {
-        // Faction filter: skip neighborhoods that don't match the player's faction
+        if (neighborhood->IsOwner(player->GetGUID()))
+            return HOUSE_FINDER_SUGGESTION_OWNER;
+        if (neighborhood->GetGuildId() && neighborhood->GetGuildId() == player->GetGuildId())
+            return HOUSE_FINDER_SUGGESTION_GUILD;
+        if (neighborhood->HasPendingInvite(player->GetGUID()))
+            return HOUSE_FINDER_SUGGESTION_CHARTER_INVITE;
+        if (player->GetHousingForNeighborhood(neighborhood->GetGuid()))
+            return HOUSE_FINDER_SUGGESTION_HOME_OWNER;
+        if (neighborhood->IsPublic())
+            return HOUSE_FINDER_SUGGESTION_RANDOM;
+        return HOUSE_FINDER_SUGGESTION_NONE;
+    };
+
+    std::vector<std::pair<Neighborhood*, uint8>> offered;
+    for (Neighborhood* neighborhood : sNeighborhoodMgr.GetAllNeighborhoods())
+    {
+        uint8 reason = getSuggestionReason(neighborhood);
+        if (reason == HOUSE_FINDER_SUGGESTION_NONE)
+            continue;
+
+        // Faction filter for the system neighborhoods (Random, HomeOwner): retail 12.1.0.69933 (sniff 09-29 13-25-41)
+        // leaves out the account's house in a neighborhood of the other faction. A charter or guild neighborhood the
+        // player is tied to is shown anyway (the client flags a faction mismatch only for NeighborhoodOwnerType None).
         int32 factionRestriction = neighborhood->GetFactionRestriction();
-        if (factionRestriction != NEIGHBORHOOD_FACTION_NONE)
+        if ((reason == HOUSE_FINDER_SUGGESTION_RANDOM || reason == HOUSE_FINDER_SUGGESTION_HOME_OWNER) && factionRestriction != NEIGHBORHOOD_FACTION_NONE)
         {
             if ((factionRestriction == NEIGHBORHOOD_FACTION_HORDE && playerTeam != HORDE) ||
                 (factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE && playerTeam != ALLIANCE))
@@ -4177,12 +4328,23 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
 
         // Ignore filter: skip neighborhoods the player hid via the house finder
         // (CMSG_HOUSING_SVCS_HOUSE_FINDER_IGNORE_NEIGHBORHOOD).
-        if (sHousingMgr.IsNeighborhoodIgnored(player->GetGUID(), neighborhood->GetGuid()))
+        if (reason == HOUSE_FINDER_SUGGESTION_RANDOM && sHousingMgr.IsNeighborhoodIgnored(player->GetGUID(), neighborhood->GetGuid()))
             continue;
+
+        offered.emplace_back(neighborhood, reason);
+    }
+
+    std::ranges::stable_sort(offered, {}, [](std::pair<Neighborhood*, uint8> const& entry) { return entry.second == HOUSE_FINDER_SUGGESTION_RANDOM; });
+
+    WorldPackets::Housing::HousingSvcsGetHouseFinderInfoResponse response;
+    response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+    response.Entries.reserve(offered.size());
+    for (auto const& [neighborhood, reason] : offered)
+    {
 
         WorldPackets::Housing::JamCliHouseFinderNeighborhood entry;
         entry.NeighborhoodGUID = neighborhood->GetGuid();
-        entry.OwnerGUID = neighborhood->GetOwnerGuid();
+        entry.OwnerGUID = neighborhood->GetClientOwnerGuid();
         entry.Name = neighborhood->GetName();
         // Field1 is the occupied-plot bitmask (1 << plotIndex). Proven against the retail capture: in all three
         // house-bearing records, set-bits(Field1) == sorted(the per-house uint8), so that uint8 is PlotIndex and
@@ -4209,7 +4371,7 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
         }
         entry.Field1 = occupiedBitmask;
         entry.Field2 = 0;
-        entry.ExtraFlags = 0x20; // Retail sniff: finder list entries always have ExtraFlags=0x20
+        entry.ExtraFlags = reason;
 
         // Retail LIST response has an EMPTY Houses array ? the client only needs houses in
         // the DETAIL response (HandleHousingSvcsGetHouseFinderNeighborhood). Populating
@@ -4220,8 +4382,8 @@ void WorldSession::HandleHousingSvcsGetHouseFinderInfo(WorldPackets::Housing::Ho
 
     SendPacket(response.Write());
 
-    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO: player={} team={} total_public={} sent={}",
-        player->GetName(), playerTeam, uint32(publicNeighborhoods.size()), uint32(response.Entries.size()));
+    TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_GET_HOUSE_FINDER_INFO: player={} team={} sent={}",
+        player->GetName(), playerTeam, uint32(response.Entries.size()));
     for (auto const& entry : response.Entries)
     {
         TC_LOG_INFO("housing", "  FINDER_LIST entry: nbGuid={} owner={} name='{}' occupiedBitmask=0x{:016X} "
@@ -4268,7 +4430,7 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     WorldPackets::Housing::HousingSvcsGetHouseFinderNeighborhoodResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.Neighborhood.NeighborhoodGUID = neighborhood->GetGuid();
-    response.Neighborhood.OwnerGUID = neighborhood->GetOwnerGuid();
+    response.Neighborhood.OwnerGUID = neighborhood->GetClientOwnerGuid();
     response.Neighborhood.Name = neighborhood->GetName();
 
     // Field1 | Field2 is a BITMASK of occupied plot indices (IDA: client ORs them at offset 520,
@@ -4312,49 +4474,9 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     TC_LOG_INFO("housing", "  DETAIL: sending {} houses in Houses[] array", uint32(response.Neighborhood.Houses.size()));
     SendPacket(response.Write());
 
-    // Populate the Housing/4 entity with this neighborhood's mirror data so the
-    // client's internal house list stays in sync for plot resolution.
-    HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
-    mirrorEntity.SetName(neighborhood->GetName());
-    mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
-
-    mirrorEntity.ClearHouses();
-    for (auto const& plot : neighborhood->GetPlots())
-    {
-        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-            mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
-        else
-            mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
-    }
-
-    // Count what we're sending on the mirror entity
-    uint32 mirrorOccupied = 0;
-    uint32 mirrorEmpty = 0;
-    for (auto const& plot : neighborhood->GetPlots())
-    {
-        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-            ++mirrorOccupied;
-        else
-            ++mirrorEmpty;
-    }
-    TC_LOG_INFO("housing", "  MIRROR: sending {} occupied + {} empty = {} total slots",
-        mirrorOccupied, mirrorEmpty, mirrorOccupied + mirrorEmpty);
-
-    mirrorEntity.ClearManagers();
-    for (auto const& member : neighborhood->GetMembers())
-    {
-        if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
-        {
-            ObjectGuid bnetGuid;
-            if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
-                bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-            mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
-        }
-    }
-    // Wholesale re-push; retail uses CREATE for this (sniff-verified).
-    mirrorEntity.SendCreateToPlayer(player);
-
-    TC_LOG_INFO("housing", "  MIRROR: update sent to player {}", player->GetName());
+    // The Housing/4 mirror entity is the neighborhood the player stands in: the world map and minimap draw their plot
+    // pins from it. Retail sends it only on entering a neighborhood (12.1.0.69933 sniff 19-48-29); refilling it here
+    // with the finder's selection repainted the pins of the current neighborhood with another one's houses.
 }
 
 void WorldSession::HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& housingSvcsGetBnetFriendNeighborhoods)
@@ -4398,7 +4520,7 @@ void WorldSession::HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Hou
 
         WorldPackets::Housing::JamCliHouseFinderNeighborhood entry;
         entry.NeighborhoodGUID = neighborhood->GetGuid();
-        entry.OwnerGUID = neighborhood->GetOwnerGuid();
+        entry.OwnerGUID = neighborhood->GetClientOwnerGuid();
         entry.Name = neighborhood->GetName();
         auto plotsForMap = sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID());
         uint32 totalPlots = !plotsForMap.empty() ? static_cast<uint32>(plotsForMap.size()) : MAX_NEIGHBORHOOD_PLOTS;
@@ -5575,7 +5697,7 @@ void WorldSession::RespawnHousingAfterBlueprintImport(Player* player, Housing* h
     // processed between map updates, so touching another map here is safe.
     ObjectGuid const ownerGuid = player->GetGUID();
     ObjectGuid const neighborhoodGuid = housing->GetNeighborhoodGuid();
-    int32 const faction = player->GetTeamId() == TEAM_ALLIANCE ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+    int32 const faction = housing->GetNeighborhoodFaction();
 
     sMapMgr->DoForAllMaps([&](Map* map)
     {

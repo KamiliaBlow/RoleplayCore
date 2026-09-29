@@ -204,13 +204,20 @@ std::vector<RoomComponentOptionEntry const*> HouseInteriorMap::SelectComponentOp
     int32 lookupTheme = sHousingMgr.GetBaseThemeID(rawTheme);
     if (lookupTheme <= 0)
         lookupTheme = rawTheme;
-    std::vector<RoomComponentOptionEntry const*> allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, lookupTheme);
-    if (allOptions.empty())
+    // Theme 0 means "any theme" to FindAllRoomComponentOptions, so only the last fallback below may pass it
+    std::vector<RoomComponentOptionEntry const*> allOptions;
+    if (lookupTheme > 0)
+        allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, lookupTheme);
+    if (allOptions.empty() && factionThemeID > 0)
         allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, factionThemeID);
     if (allOptions.empty() && factionThemeID != 2)
         allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, 2);
     if (allOptions.empty() && factionThemeID != 1)
         allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, 1);
+    // Some shapes ship options in a single theme only (the round rooms' filters 65-68 exist for theme 3 alone);
+    // without this the room had no floor, walls or ceiling at all.
+    if (allOptions.empty())
+        allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, 0);
 
     std::sort(allOptions.begin(), allOptions.end(), [](RoomComponentOptionEntry const* a, RoomComponentOptionEntry const* b) { return a->ID < b->ID; });
 
@@ -441,8 +448,8 @@ void HouseInteriorMap::SpawnRoomMeshObjectsFromList(std::vector<Housing::Room co
         PhasingHandler::InitDbPhaseShift(housingRoom->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
         housingRoom->SetHouseGUID(houseGuid);
         housingRoom->SetHouseRoomID(room->RoomEntryId);
-        // Sniff: entry hall 1, stairwell halves 2 (HouseRoom flags BASE_ROOM / HAS_STAIRS)
-        housingRoom->SetFlags(roomData->Flags & (HOUSING_ROOM_FLAG_BASE_ROOM | HOUSING_ROOM_FLAG_HAS_STAIRS));
+        // Sniff: the HouseRoom flags minus UNLOCKED_BY_DEFAULT - entry hall 5 -> 1, stairwell 6 -> 2, round room 8 -> 8
+        housingRoom->SetFlags(roomData->Flags & ~HOUSING_ROOM_FLAG_UNLOCKED_BY_DEFAULT);
         housingRoom->SetFloorIndex(room->FloorIndex);
         housingRoom->SetMirroredPosition(roomPos, roomRot, 1.0f);
 
@@ -1394,8 +1401,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         // Spawn rooms + decor onto the map (before player enters)
         if (!_roomsSpawned)
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = preloadHousing->GetNeighborhoodFaction();
             SpawnRoomMeshObjects(preloadHousing, faction);
             SpawnInteriorDecor(preloadHousing);
             _roomsSpawned = true;
@@ -1494,8 +1500,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             room->GridX, room->GridY, room->Orientation, room->Mirrored);
                     }
 
-                    int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                        ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+                    int32 faction = housing->GetNeighborhoodFaction();
                     SpawnRoomMeshObjects(housing, faction);
                     _roomsSpawned = true;
                 }

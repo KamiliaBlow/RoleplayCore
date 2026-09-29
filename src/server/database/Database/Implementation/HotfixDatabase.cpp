@@ -44,6 +44,9 @@ void HotfixDatabaseConnection::DoPrepareStatements()
     PrepareStatement(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT ID, BoundingBoxMinX, BoundingBoxMinY, BoundingBoxMinZ, BoundingBoxMaxX, BoundingBoxMaxY, "
         "BoundingBoxMaxZ, Height FROM room_wmo_data WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_WMO_DATA, "SELECT MAX(ID) + 1 FROM room_wmo_data", CONNECTION_SYNCH);
+    PrepareStatement(HOTFIX_SEL_ROOM_GRID_LINE, "SELECT OffsetX, OffsetY, OffsetZ, ID, SizeX, SizeY, RoomWmoDataID FROM room_grid_line"
+        " WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
+    PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_GRID_LINE, "SELECT MAX(ID) + 1 FROM room_grid_line", CONNECTION_SYNCH);
     PrepareStatement(HOTFIX_SEL_ROOM_COMPONENT_TEXTURE, "SELECT Name, ID, Type, FileDataID, Flags, UiOrder, RoomComponentID"
         " FROM room_component_texture WHERE (`VerifiedBuild` > 0) = ?", CONNECTION_SYNCH);
     PREPARE_MAX_ID_STMT(HOTFIX_SEL_ROOM_COMPONENT_TEXTURE, "SELECT MAX(ID) + 1 FROM room_component_texture", CONNECTION_SYNCH);

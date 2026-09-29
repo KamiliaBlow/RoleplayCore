@@ -939,7 +939,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 h ? h->GetNeighborhoodGuid().ToString() : "null",
                 h ? h->GetHouseGuid().ToString() : "null");
 
-            if (h && _neighborhood->GetPlotInfo(h->GetPlotIndex()))
+            // The plot must be this house's own: an occupied plot of the same number belongs to someone else when
+            // the house stands in another neighborhood on this world map, and must not pull the house over here.
+            Neighborhood::PlotInfo const* plotInfo = h ? _neighborhood->GetPlotInfo(h->GetPlotIndex()) : nullptr;
+            if (plotInfo && plotInfo->OwnerGuid == h->GetOwnerGuid())
             {
                 housing = const_cast<Housing*>(h);
                 TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: Fixed neighborhood GUID mismatch for player {} (stored={}, canonical={})",
@@ -1073,6 +1076,20 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     {
         TC_LOG_ERROR("housing", "HousingMap::AddPlayerToMap: Player {} has NO housing in this neighborhood (no house will spawn)",
             player->GetGUID().ToString());
+    }
+
+    // Point the session's Housing/4 mirror at THIS neighborhood and key Housing/3 to the account's house here before
+    // Map::AddPlayerToMap builds the self CREATE bundle. Retail re-creates the mirror of the map's own neighborhood
+    // on every neighborhood-map entry (12.1.0.69933: an Alliance character on the Horde map 2736 gets
+    // Housing/Neighborhood MapID 2); keeping the login neighborhood's mirror drew the other faction's pins.
+    if (WorldSession* session = player->GetSession())
+    {
+        HousingNeighborhoodMirrorEntity& mirrorEntity = session->GetHousingNeighborhoodMirrorEntity();
+        if (mirrorEntity.GetGUID() != _neighborhood->GetGuid())
+            mirrorEntity.ResetGuid(_neighborhood->GetGuid());
+        _neighborhood->RebuildMirrorDataFor(player);
+        if (housing)
+            housing->SyncUpdateFields();
     }
 
     if (!Map::AddPlayerToMap(player, initPlayer))
@@ -2531,6 +2548,12 @@ MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, 
     else
         LoadGrid(pos.GetPositionX(), pos.GetPositionY());
 
+    // HousingFixtureData.Size is the piece's own ExteriorComponent.Size, not the house size (retail 12.1.0.69933:
+    // base 142 -> 2, door 1380 -> 1, medium Night Elf pieces 570/573 -> 3). A fixed 2 made the client read every
+    // medium or large house as small after a relog.
+    if (ExteriorComponentEntry const* component = sExteriorComponentStore.LookupEntry(exteriorComponentID))
+        houseSize = component->Size;
+
     MeshObject* mesh = MeshObject::CreateMeshObject(this, pos, rot, scale, fileDataID, isWMO,
         attachParent, attachFlags, worldPos);
     if (!mesh)
@@ -2966,7 +2989,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     MeshObject* mesh = SpawnHouseMeshObject(plotIndex, comp->ModelFileDataID, /*isWMO*/ true,
         pos, rot, 1.0f,
         houseGuid, static_cast<int32>(extCompID), houseExteriorWmoDataID,
-        comp->Type, /*houseSize*/ 2, effectiveHookID,
+        comp->Type, comp->Size, effectiveHookID,
         parentGuid, attachFlags, worldPos);
 
     if (!mesh)

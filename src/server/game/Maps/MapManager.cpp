@@ -252,6 +252,26 @@ void MapManager::PreloadHousingMaps()
     TC_LOG_INFO("server.loading", ">> Pre-loaded {} housing neighborhood maps in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
+HousingMap* MapManager::FindOrCreateHousingMap(uint32 mapId, uint32 neighborhoodId)
+{
+    std::scoped_lock lock(_mapsLock);
+    if (Map* map = FindMap_i(mapId, neighborhoodId))
+        return dynamic_cast<HousingMap*>(map);
+
+    MapEntry const* mapEntry = sMapStore.LookupEntry(mapId);
+    if (!mapEntry || mapEntry->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
+        return nullptr;
+
+    HousingMap* map = CreateHousing(mapId, neighborhoodId, neighborhoodId);
+
+    Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId() }];
+    ptr.reset(map);
+    map->SetWeakPtr(ptr);
+
+    sScriptMgr->OnCreateMap(map);
+    return map;
+}
+
 HouseInteriorMap* MapManager::CreateHouseInterior(uint32 mapId, uint32 instanceId, Player* creator, ObjectGuid houseOwner)
 {
     // When `houseOwner` is empty the creator is entering their own interior;

@@ -147,8 +147,13 @@ public:
     Player* GetOwner() const { return _owner; }
     // Character that bought the house (row key, retail CosmeticOwner).
     ObjectGuid GetOwnerGuid() const { return _ownerGuid; }
+    // House settings owner change: the house, its rows and its plot move to another character of the account.
+    HousingResult ChangeOwner(ObjectGuid newOwnerGuid);
     ObjectGuid GetHouseGuid() const { return _houseGuid; }
     ObjectGuid GetNeighborhoodGuid() const { return _neighborhoodGuid; }
+    // NEIGHBORHOOD_FACTION_* of the neighborhood the house stands in; its rooms and exterior follow it, not the
+    // faction of whoever is looking or editing. The owner's team only when the neighborhood is unknown.
+    int32 GetNeighborhoodFaction() const;
     void SetNeighborhoodGuid(ObjectGuid guid) { _neighborhoodGuid = guid; }
     ObjectGuid GetPlotGuid() const;
     uint8 GetPlotIndex() const { return _plotIndex; }
@@ -361,6 +366,10 @@ public:
     // House size (HousingFixtureSize enum)
     void SetHouseSize(uint8 size);
     uint8 GetHouseSize() const { return _houseSize; }
+    // Size the player picked in the exterior editor: a style without it (the Small-only item facades) builds the house
+    // smaller, switching back to a style that has it restores it. Not stored: after a relog it is the current size.
+    uint8 GetPreferredHouseSize() const { return _preferredHouseSize ? _preferredHouseSize : _houseSize; }
+    void SetPreferredHouseSize(uint8 size) { _preferredHouseSize = size; }
 
     // House type (HouseExteriorWmoData ID)
     void SetHouseType(uint32 typeId);
@@ -434,6 +443,7 @@ private:
     bool _exteriorLocked = false;
     bool _isInInterior = false;
     uint8 _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
+    uint8 _preferredHouseSize = HOUSING_FIXTURE_SIZE_NONE;
     uint32 _houseType = 0;
     uint32 _createTime = 0;
     std::string _houseName;

@@ -19,6 +19,7 @@
 #include "HousingNeighborhoodMirrorEntity.h"
 #include "BattlenetAccountMgr.h"
 #include "DatabaseEnv.h"
+#include "HousingMap.h"
 #include "HousingPackets.h"
 #include "GameTime.h"
 #include "Log.h"
@@ -1115,6 +1116,18 @@ void Neighborhood::UpdatePlotHousePosition(ObjectGuid ownerGuid, Optional<Positi
     }
 }
 
+void Neighborhood::UpdatePlotHouseType(ObjectGuid ownerGuid, uint32 houseType)
+{
+    for (PlotInfo& plot : _plots)
+    {
+        if (plot.IsOccupied() && plot.OwnerGuid == ownerGuid)
+        {
+            plot.HouseType = houseType;
+            return;
+        }
+    }
+}
+
 void Neighborhood::UpdatePlotSettingsFlags(ObjectGuid ownerGuid, uint32 settingsFlags)
 {
     for (PlotInfo& plot : _plots)
@@ -1201,6 +1214,99 @@ uint32 Neighborhood::GetOccupiedPlotCount() const
     return count;
 }
 
+bool Neighborhood::TransferPlot(ObjectGuid oldOwnerGuid, ObjectGuid newOwnerGuid, CharacterDatabaseTransaction trans)
+{
+    auto findMember = [this](ObjectGuid guid)
+    {
+        return std::find_if(_members.begin(), _members.end(), [guid](Member const& member) { return member.PlayerGuid == guid; });
+    };
+
+    auto oldItr = findMember(oldOwnerGuid);
+    if (oldItr == _members.end() || oldItr->PlotIndex == INVALID_PLOT_INDEX)
+        return false;
+
+    auto newItr = findMember(newOwnerGuid);
+    if (newItr != _members.end() && newItr->PlotIndex != INVALID_PLOT_INDEX)
+        return false;
+
+    uint8 const plotIndex = oldItr->PlotIndex;
+    ObjectGuid const houseGuid = oldItr->HouseGuid;
+    uint32 const joinTime = oldItr->JoinTime;
+    bool const oldIsResident = oldItr->Role == NEIGHBORHOOD_ROLE_RESIDENT;
+
+    if (oldIsResident && newItr == _members.end())
+    {
+        oldItr->PlayerGuid = newOwnerGuid;
+
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLAYER);
+        stmt->setUInt64(0, newOwnerGuid.GetCounter());
+        stmt->setUInt64(1, _guid.GetCounter());
+        stmt->setUInt64(2, oldOwnerGuid.GetCounter());
+        trans->Append(stmt);
+    }
+    else
+    {
+        if (newItr != _members.end())
+        {
+            newItr->PlotIndex = plotIndex;
+            newItr->HouseGuid = houseGuid;
+
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLOT);
+            stmt->setUInt8(0, plotIndex);
+            stmt->setUInt64(1, _guid.GetCounter());
+            stmt->setUInt64(2, newOwnerGuid.GetCounter());
+            trans->Append(stmt);
+        }
+        else
+        {
+            Member newMember;
+            newMember.PlayerGuid = newOwnerGuid;
+            newMember.HouseGuid = houseGuid;
+            newMember.Role = NEIGHBORHOOD_ROLE_RESIDENT;
+            newMember.JoinTime = joinTime;
+            newMember.PlotIndex = plotIndex;
+
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_NEIGHBORHOOD_MEMBER);
+            stmt->setUInt64(0, _guid.GetCounter());
+            stmt->setUInt64(1, newOwnerGuid.GetCounter());
+            stmt->setUInt8(2, newMember.Role);
+            stmt->setUInt32(3, newMember.JoinTime);
+            stmt->setUInt8(4, newMember.PlotIndex);
+            trans->Append(stmt);
+
+            _members.push_back(newMember);
+        }
+
+        // push_back may have moved the members
+        oldItr = findMember(oldOwnerGuid);
+        if (oldIsResident)
+        {
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_MEMBER);
+            stmt->setUInt64(0, _guid.GetCounter());
+            stmt->setUInt64(1, oldOwnerGuid.GetCounter());
+            trans->Append(stmt);
+            _members.erase(oldItr);
+        }
+        else
+        {
+            oldItr->PlotIndex = INVALID_PLOT_INDEX;
+            oldItr->HouseGuid.Clear();
+
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLOT);
+            stmt->setUInt8(0, INVALID_PLOT_INDEX);
+            stmt->setUInt64(1, _guid.GetCounter());
+            stmt->setUInt64(2, oldOwnerGuid.GetCounter());
+            trans->Append(stmt);
+        }
+    }
+
+    _plots[plotIndex].OwnerGuid = newOwnerGuid;
+
+    TC_LOG_DEBUG("housing", "Neighborhood::TransferPlot: plot {} of neighborhood '{}' moved from {} to {}",
+        plotIndex, _name, oldOwnerGuid.ToString(), newOwnerGuid.ToString());
+    return true;
+}
+
 void Neighborhood::SetPlotAreaTriggerGuid(uint8 plotIndex, ObjectGuid atGuid)
 {
     if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
@@ -1255,7 +1361,7 @@ void Neighborhood::BuildRosterResponse(WorldPackets::Neighborhood::NeighborhoodG
 {
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.GroupNeighborhoodGuid = GetGuid();
-    response.GroupOwnerGuid = GetOwnerGuid();
+    response.GroupOwnerGuid = GetClientOwnerGuid();
     response.NeighborhoodName = GetName();
     response.Members.reserve(_members.size());
     for (Member const& member : _members)
@@ -1312,7 +1418,7 @@ void Neighborhood::RebuildMirrorDataFor(Player* player) const
 
     // Name + Owner
     mirrorEntity.SetName(_name);
-    mirrorEntity.SetOwnerGUID(_ownerGuid);
+    mirrorEntity.SetOwnerGUID(GetClientOwnerGuid());
 
     // Houses — rebuild from plots. Add ALL 55 entries so Houses[i] = PlotIndex i.
     // The client uses the array index as the plot identifier; skipping empty slots
@@ -1359,9 +1465,11 @@ void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
 
 void Neighborhood::RefreshMirrorDataForOnlineMembers() const
 {
+    // The mirror is the neighborhood the player stands in (the map pins come from it): a member elsewhere keeps theirs.
     for (auto const& member : _members)
         if (Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid))
-            RefreshMirrorDataForPlayer(player);
+            if (HousingMap const* housingMap = dynamic_cast<HousingMap const*>(player->GetMap()); housingMap && housingMap->GetNeighborhood() == this)
+                RefreshMirrorDataForPlayer(player);
 }
 
 // --- Plot Reservation System ---

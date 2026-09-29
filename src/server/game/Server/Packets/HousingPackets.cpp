@@ -379,16 +379,16 @@ void HousingSvcsUpdateHouseSettings::Read()
 {
     _worldPacket >> HouseGuid;
     _worldPacket >> OptionalInit(PlotSettingsID);
-    _worldPacket >> OptionalInit(VisitorPermissionGuid);
+    _worldPacket >> OptionalInit(NewOwnerGuid);
 
     if (PlotSettingsID)
         _worldPacket >> *PlotSettingsID;
 
-    if (VisitorPermissionGuid)
-        _worldPacket >> *VisitorPermissionGuid;
+    if (NewOwnerGuid)
+        _worldPacket >> *NewOwnerGuid;
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS HouseGuid: {} HasPlotSettings: {} HasVisitorPermission: {}",
-        HouseGuid.ToString(), PlotSettingsID.has_value(), VisitorPermissionGuid.has_value());
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_SVCS_UPDATE_HOUSE_SETTINGS HouseGuid: {} HasPlotSettings: {} NewOwner: {}",
+        HouseGuid.ToString(), PlotSettingsID.has_value(), NewOwnerGuid ? NewOwnerGuid->ToString() : "none");
 }
 
 void HousingSvcsPlayerViewHousesByPlayer::Read()
@@ -874,11 +874,11 @@ WorldPacket const* HousingRoomRemoveResponse::Write()
 {
     // IDA case 5439490: PackedGUID + PackedGUID + uint8(Result)
     _worldPacket << RoomGuid;
-    _worldPacket << SecondGuid;
+    _worldPacket << PlayerGuid;
     _worldPacket << uint8(Result);
 
-    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_ROOM_REMOVE_RESPONSE RoomGuid: {} SecondGuid: {} Result: {}",
-        RoomGuid.ToString(), SecondGuid.ToString(), Result);
+    TC_LOG_DEBUG("network.opcode", "SMSG_HOUSING_ROOM_REMOVE_RESPONSE RoomGuid: {} PlayerGuid: {} Result: {}",
+        RoomGuid.ToString(), PlayerGuid.ToString(), Result);
 
     return &_worldPacket;
 }
@@ -2029,9 +2029,6 @@ void NeighborhoodEvictPlot::Read()
 
     TC_LOG_DEBUG("network.opcode", "CMSG_NEIGHBORHOOD_EVICT_PLOT PlotIndex: {} NeighborhoodGuid: {}", PlotIndex, NeighborhoodGuid.ToString());
 }
-
-
-
 
 // ============================================================
 // Neighborhood Charter SMSG Responses (0x5Bxxxx)

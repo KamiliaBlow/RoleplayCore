@@ -4347,6 +4347,15 @@ bool IsInterruptFlagIgnoredForSpell(SpellAuraInterruptFlags flag, Unit const* un
                     return true;
             }
             break;
+        case SpellAuraInterruptFlags::EnterWorld:
+            // A stored teleport return point exists to take the player back across maps, so it must survive the
+            // far teleport it was stored for; EnterWorld drops it at login only. Retail 12.1.0.69933: the
+            // "Teleport Home" aura 1233637 stays through map changes and C_Housing.ReturnAfterVisitingHouse
+            // (spell 1270311) needs it.
+            if (Player const* player = unit->ToPlayer())
+                if (!player->GetSession()->PlayerLoading() && auraSpellInfo->HasAura(SPELL_AURA_STORE_TELEPORT_RETURN_POINT))
+                    return true;
+            break;
         default:
             break;
     }

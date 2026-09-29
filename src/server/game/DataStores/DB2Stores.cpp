@@ -40,6 +40,7 @@
 
 DB2Storage<AchievementEntry>                    sAchievementStore("Achievement.db2", &AchievementLoadInfo::Instance);
 DB2Storage<RoomWmoDataEntry>                    sRoomWmoDataStore("RoomWmoData.db2", &RoomWmoDataLoadInfo::Instance);
+DB2Storage<RoomGridLineEntry>                   sRoomGridLineStore("RoomGridLine.db2", &RoomGridLineLoadInfo::Instance);
 DB2Storage<RoomComponentTextureEntry>           sRoomComponentTextureStore("RoomComponentTexture.db2", &RoomComponentTextureLoadInfo::Instance);
 DB2Storage<RoomComponentEntry>                  sRoomComponentStore("RoomComponent.db2", &RoomComponentLoadInfo::Instance);
 DB2Storage<RoomComponentOptionTextureEntry>     sRoomComponentOptionTextureStore("RoomComponentOptionTexture.db2", &RoomComponentOptionTextureLoadInfo::Instance);
@@ -1164,6 +1165,7 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
     LOAD_DB2(sRoomComponentOptionStore);
     LOAD_DB2(sRoomComponentOptionTextureStore);
     LOAD_DB2(sRoomComponentTextureStore);
+    LOAD_DB2(sRoomGridLineStore);
     LOAD_DB2(sRoomWmoDataStore);
     LOAD_DB2(sScenarioStore);
     LOAD_DB2(sScenarioStepStore);

@@ -44,6 +44,8 @@ public:
     void RemovePlayerFromMap(Player* player, bool remove) override;
 
     ObjectGuid GetOwnerGuid() const { return _owner; }
+    // The house moved to another character of the account (house settings owner change)
+    void SetOwnerGuid(ObjectGuid owner) { _owner = owner; }
     float GetOriginX() const { return _originX; }
     float GetOriginY() const { return _originY; }
     float GetOriginZ() const { return _originZ; }

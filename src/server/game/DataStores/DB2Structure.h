@@ -48,6 +48,16 @@ struct AchievementEntry
     int32 LegacyAfterTimeEvent;                                     // category changes clientside to Legacy after this TimeEvent is passed
 };
 
+// One rectangle of a room's floor footprint on the layout grid; round and cross-shaped rooms have several
+struct RoomGridLineEntry
+{
+    DBCPosition3D Offset;                    // Meta field 0: FT_FLOAT[3], centre relative to the room pivot
+    uint32 ID;                               // Meta field 1: IndexField
+    float SizeX;
+    float SizeY;
+    uint32 RoomWmoDataID;                    // Meta field 4: ParentIndexField
+};
+
 struct RoomWmoDataEntry
 {
     uint32 ID;

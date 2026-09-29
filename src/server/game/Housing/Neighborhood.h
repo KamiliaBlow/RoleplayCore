@@ -129,6 +129,10 @@ public:
     std::string const& GetName() const { return _name; }
     uint32 GetNeighborhoodMapID() const { return _neighborhoodMapID; }
     ObjectGuid GetOwnerGuid() const { return _ownerGuid; }
+    /// The owner the client is told about: it derives NeighborhoodOwnerType from this GUID (12.1.0.69933, 0x2A46B0 and
+    /// the house finder entry reader 0x2108150): empty = public, a HighGuid::Guild = guild, anything else = charter.
+    /// A guild neighborhood therefore names its guild, while _ownerGuid keeps the founding character.
+    ObjectGuid GetClientOwnerGuid() const { return _guildId ? ObjectGuid::Create<HighGuid::Guild>(_guildId) : _ownerGuid; }
     int32 GetFactionRestriction() const { return _factionRestriction; }
     void SetFactionRestriction(int32 faction) { _factionRestriction = faction; }
     bool IsPublic() const { return _isPublic; }
@@ -170,7 +174,11 @@ public:
     void UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, ObjectGuid ownerBnetGuid);
     void UpdatePlotSettingsFlags(ObjectGuid ownerGuid, uint32 settingsFlags);
     void UpdatePlotHousePosition(ObjectGuid ownerGuid, Optional<Position> const& housePosition);
+    void UpdatePlotHouseType(ObjectGuid ownerGuid, uint32 houseType);
     HousingResult MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex);
+    // The house went to another character of the account (house settings owner change): the plot follows it. A resident
+    // membership moves with it; a manager or owner keeps the role without the plot.
+    bool TransferPlot(ObjectGuid oldOwnerGuid, ObjectGuid newOwnerGuid, CharacterDatabaseTransaction trans);
     void SetPlotAreaTriggerGuid(uint8 plotIndex, ObjectGuid atGuid);
     // m2/A5: free the plot owned by `ownerGuid` on house delete / kiosk reset so
     // it becomes vacant (IsOccupied()==false) and re-purchasable, and clear the
