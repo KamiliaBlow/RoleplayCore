@@ -440,42 +440,6 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
         data << uint64(gameObject->GetPackedLocalRotation());          // Rotation
     }
 
-    if (flags.Room)
-    {
-        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
-        data << meshObj->GetRoomHouseGUID();
-    }
-
-    if (flags.Decor)
-    {
-        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
-        data << meshObj->GetDecorRoomEntityGUID();
-    }
-
-    if (flags.MeshObject)
-    {
-        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
-        data << meshObj->GetAttachParentGUID();
-        // Use the stored local-space position (offset from parent), NOT GetPositionX/Y/Z()
-        // which returns the parent's world position (set by Relocate for grid placement).
-        // The client uses this to position the child mesh relative to its parent entity.
-        Position const& localPos = meshObj->GetLocalPosition();
-        data << TaggedPosition<Position::XYZ>(localPos.GetPositionX(), localPos.GetPositionY(), localPos.GetPositionZ());
-        QuaternionData const& rot = meshObj->GetLocalRotation();
-        data << rot.x << rot.y << rot.z << rot.w;
-        data << meshObj->GetLocalScale();
-        data << meshObj->GetAttachmentFlags();
-    }
-
-    if (!PauseTimes.empty())
-        data.append(PauseTimes.data(), PauseTimes.size());
-
-    if (flags.MovementTransport)
-    {
-        WorldObject const* self = static_cast<WorldObject const*>(this);
-        data << self->m_movementInfo.transport;
-    }
-
     if (flags.GameObject)
     {
         GameObject const* gameObject = static_cast<GameObject const*>(this);
@@ -670,20 +634,32 @@ void BaseEntity::BuildMovementUpdate(ByteBuffer& data, CreateObjectBits flags, P
         data.FlushBits();
     }
 
-    //if (flags.Room)
-    //    data << ObjectGuid(HouseGUID);
+    if (flags.Room)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetRoomHouseGUID();
+    }
 
-    //if (flags.Decor)
-    //    data << ObjectGuid(RoomGUID);
+    if (flags.Decor)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetDecorRoomEntityGUID();
+    }
 
-    //if (flags.MeshObject)
-    //{
-    //    data << ObjectGuid(AttachParentGUID);
-    //    data << TaggedPosition<Position::XYZ>(PositionLocalSpace);
-    //    data << QuaternionData(RotationLocalSpace);
-    //    data << float(ScaleLocalSpace);
-    //    data << uint8(AttachmentFlags);
-    //}
+    if (flags.MeshObject)
+    {
+        MeshObject const* meshObj = static_cast<MeshObject const*>(this);
+        data << meshObj->GetAttachParentGUID();
+        // Use the stored local-space position (offset from parent), NOT GetPositionX/Y/Z()
+        // which returns the parent's world position (set by Relocate for grid placement).
+        // The client uses this to position the child mesh relative to its parent entity.
+        Position const& localPos = meshObj->GetLocalPosition();
+        data << TaggedPosition<Position::XYZ>(localPos.GetPositionX(), localPos.GetPositionY(), localPos.GetPositionZ());
+        QuaternionData const& rot = meshObj->GetLocalRotation();
+        data << rot.x << rot.y << rot.z << rot.w;
+        data << meshObj->GetLocalScale();
+        data << meshObj->GetAttachmentFlags();
+    }
 
     if (!PauseTimes.empty())
         data.append(PauseTimes.data(), PauseTimes.size());

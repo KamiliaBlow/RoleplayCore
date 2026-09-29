@@ -3396,13 +3396,6 @@ void SpellMgr::LoadSpellInfoCorrections()
 {
     uint32 oldMSTime = getMSTime();
 
-    ApplySpellFix({ 361584 }, [](SpellInfo* spellInfo)
-    {
-        for (SpellEffectInfo& effect : const_cast<std::vector<SpellEffectInfo>&>(spellInfo->GetEffects()))
-            if (effect.IsAura(SPELL_AURA_AREA_TRIGGER))
-                effect.Effect = SPELL_EFFECT_NONE;
-    });
-
     // Some spells have no amplitude set
     {
         ApplySpellFix({
