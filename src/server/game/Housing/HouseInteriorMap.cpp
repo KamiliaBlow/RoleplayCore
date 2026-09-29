@@ -1404,8 +1404,9 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         // Spawn rooms + decor onto the map (before player enters)
         if (!_roomsSpawned)
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            // Theme follows the house's neighborhood faction: a cross-faction account
+            // sibling entering the interior must get the house's own room meshes.
+            int32 faction = preloadHousing->GetHouseFactionRestriction();
             SpawnRoomMeshObjects(preloadHousing, faction);
             SpawnInteriorDecor(preloadHousing);
             _roomsSpawned = true;
@@ -1504,8 +1505,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             room->GridX, room->GridY, room->Orientation, room->Mirrored);
                     }
 
-                    int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                        ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+                    int32 faction = housing->GetHouseFactionRestriction();
                     SpawnRoomMeshObjects(housing, faction);
                     _roomsSpawned = true;
                 }

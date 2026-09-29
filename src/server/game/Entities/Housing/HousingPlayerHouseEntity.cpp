@@ -69,11 +69,17 @@ std::string HousingPlayerHouseEntity::GetNameForLocaleIdx(LocaleConstant /*local
 
 void HousingPlayerHouseEntity::BuildUpdate(UpdateDataMapType& data_map)
 {
+    // Same rule as the neighborhood mirror: never tick-emit VALUES for a guid the client
+    // does not hold (mid re-key window, or after a CMSG_OBJECT_UPDATE_FAILED) - the client
+    // rejects those instead of rescuing them, which used to leave the interior budget at
+    // 0/0 and the editor gated for a cross-faction account sibling. Creation is owned by
+    // BuildHousingAccountEntitiesUpdate / the SyncUpdateFields re-key push.
+    Player* owner = _session->GetPlayer();
+    if (!owner || !owner->HaveAtClient(this))
+        return;
+
     BuildUpdateChangesMask();
-
-    if (Player* owner = _session->GetPlayer())
-        BuildFieldsUpdate(owner, data_map);
-
+    BuildFieldsUpdate(owner, data_map);
     ClearUpdateMask(false);
 }
 

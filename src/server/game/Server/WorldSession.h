@@ -25,6 +25,7 @@
 #include "ChatPackets.h"
 #include "DatabaseEnvFwd.h"
 #include "Duration.h"
+#include "GameTime.h"
 #include "IteratorPair.h"
 #include "LockedQueue.h"
 #include "ObjectGuid.h"
@@ -1289,17 +1290,35 @@ class TC_GAME_API WorldSession
         bool HasHousingNeighborhoodMirrorEntity() const { return _housingNeighborhoodMirrorEntity != nullptr; }
         HousingPlayerHouseEntity& GetHousingPlayerHouseEntity() const { return *_housingPlayerHouseEntity; }
         HousingNeighborhoodMirrorEntity& GetHousingNeighborhoodMirrorEntity() const { return *_housingNeighborhoodMirrorEntity; }
+        ObjectGuid GetHousingMirrorClientGuid() const { return _housingMirrorClientGuid; }
+        void SetHousingMirrorClientGuid(ObjectGuid guid) { _housingMirrorClientGuid = guid; }
+        // Map-transfer window tick suppression for the Housing/4 mirror: the client destroys
+        // its session entities during loading screens, and a map-tick VALUES arriving in that
+        // window makes it RESURRECT the mirror (CMSG_OBJECT_UPDATE_RESCUED) - a state transition
+        // that wipes its neighborhood singleton and leaves the map pins stripped of ownership
+        // and name prefixes (WPP-verified pattern). While suppressed, only the explicit
+        // destroy+CREATE swap (deferred past the load) touches the mirror on the wire.
+        void SuppressHousingMirrorTickUpdates(uint32 ms) { _housingMirrorTickSuppressUntilMS = GameTime::GetGameTimeMS() + ms; }
+        bool IsHousingMirrorTickSuppressed() const { return GameTime::GetGameTimeMS() < _housingMirrorTickSuppressUntilMS; }
+        // The client tears its housing session entities down on loading screens and FAILEDs
+        // updates sent in that window (CMSG_OBJECT_UPDATE_FAILED). HandleObjectUpdateFailedOpcode
+        // re-pushes the lost entity after a short deferral; the counter caps the retry loop for
+        // a persistently refusing client and is reset on every neighborhood-map entry.
+        void ResetHousingSessionEntityRescues() { _housingSessionEntityRescues = 0; }
+        bool CanRescueHousingSessionEntity() const { return _housingSessionEntityRescues < 5; }
+        void CountHousingSessionEntityRescue() { ++_housingSessionEntityRescues; }
         // Appends the Account (FHousingStorage_C) and HousingPlayerHouseEntity blocks for `player`:
         // a values update when the client already holds the entity, a CREATE otherwise.
         void BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player);
         // Re-primes the neighborhood map state on every map entry: re-sends the roster (the
         // client's HousingNeighborhoodState singleton is only filled by the roster response and
         // is not re-requested on mid-session re-entry), feeds the JamCliNeighborhoodName
-        // DataCache, re-pushes the Housing/4 mirror (VALUES when the client holds it, CREATE
-        // otherwise) and pre-pushes plot-owner names for the NameCache. Without this the
-        // map pins lose their name prefix and ownership state after leaving and re-opening
-        // the neighborhood map.
-        void SendNeighborhoodMapRefresh();
+        // DataCache, re-pushes the Housing/4 mirror (wholesale CREATE when forceCreate - the
+        // client's map-icon cache including pin ownership only rebuilds on CREATE - or when
+        // the client does not hold the guid; VALUES otherwise) and pre-pushes plot-owner
+        // names for the NameCache. Without this the map pins lose their name prefix and
+        // ownership state after leaving and re-opening the neighborhood map.
+        void SendNeighborhoodMapRefresh(bool forceCreate = false);
         // SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE with the player's pending charter (charter item use).
         void SendNeighborhoodCharterOpenUI();
         Player* GetPlayer() const { return _player; }
@@ -2510,6 +2529,15 @@ class TC_GAME_API WorldSession
         std::unique_ptr<Battlenet::Account> _battlenetAccount;
         std::unique_ptr<HousingPlayerHouseEntity> _housingPlayerHouseEntity;
         std::unique_ptr<HousingNeighborhoodMirrorEntity> _housingNeighborhoodMirrorEntity;
+        // The Housing/4 guid the client actually holds a mirror entity under. The entity's
+        // own guid is re-pointed on faction-neighborhood switches; m_clientGUIDs cannot be
+        // trusted for the held/not-held decision because SendInitialPacketsAfterAddToMap
+        // optimistically inserts the current guid on every map entry, and a duplicate CREATE
+        // for a held guid resets the client's neighborhood state. Updated when a CREATE is
+        // sent (login bundle priming or SendNeighborhoodMapRefresh) and cleared on destroy.
+        ObjectGuid _housingMirrorClientGuid;
+        uint32 _housingMirrorTickSuppressUntilMS = 0;
+        uint8 _housingSessionEntityRescues = 0;
         uint8 m_accountExpansion;
         uint8 m_expansion;
         std::string _os;

@@ -20360,6 +20360,23 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     // houses to indices 0,1,2 instead of their real PlotIndex values (e.g. 7,9,47,51).
     if (GetSession() && !_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
     {
+        // Choose the house the login bundle should advertise: when the character logs in
+        // standing on a housing map, the account's house in THAT map's neighborhood (the
+        // client binds its housing context to the login WORLD_SERVER_INFO + the mirrored
+        // Housing/4 guid; shipping the own-faction house while standing on the other
+        // faction's map is what pins the client to the wrong neighborhood). Everywhere
+        // else the own-character house stays the default.
+        Housing* primeHousing = _housings[0].get();
+        // NOTE: use the saved-position local `mapId`, not GetMapId() - the Position field
+        // is not yet relocated to the login coordinates at this point, so GetMapId() still
+        // answered 0 here and the own-faction house was primed even when logging in
+        // standing on the other faction's housing map.
+        if (Map* loginMap = sMapMgr->FindMap(mapId, 0))
+            if (HousingMap* loginHousingMap = dynamic_cast<HousingMap*>(loginMap))
+                if (Neighborhood* loginNeighborhood = loginHousingMap->GetNeighborhood())
+                    if (Housing* mapHousing = GetHousingForNeighborhood(loginNeighborhood->GetGuid()))
+                        primeHousing = mapHousing;
+
         // Priming step (analysis-agent diagnosis 2026-04-23T09:50Z):
         // HousingMap::AddPlayerToMap line ~671 already calls UpdatePlotHouseInfo
         // to patch the shared Neighborhood's plot data with the current session's
@@ -20373,17 +20390,17 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         // Fix: call UpdatePlotHouseInfo up front, before the mirror reads
         // plot.HouseGuid. Non-shared-state safe because it only writes to
         // OUR plot, and the write is idempotent (same value on repeat).
-        if (Neighborhood* nh = sNeighborhoodMgr.GetNeighborhood(_housings[0]->GetNeighborhoodGuid()))
+        if (Neighborhood* nh = sNeighborhoodMgr.GetNeighborhood(primeHousing->GetNeighborhoodGuid()))
         {
             ObjectGuid bnetGuid = GetSession() ? GetSession()->GetBattlenetAccountGUID() : ObjectGuid::Empty;
-            nh->UpdatePlotHouseInfo(_housings[0]->GetPlotIndex(),
-                                    _housings[0]->GetHouseGuid(),
+            nh->UpdatePlotHouseInfo(primeHousing->GetPlotIndex(),
+                                    primeHousing->GetHouseGuid(),
                                     bnetGuid);
-            TC_LOG_INFO("housing", "Player::LoadFromDB PRIMING: UpdatePlotHouseInfo plot={} HouseGuid={} BnetGuid={} (before mirror read)",
-                _housings[0]->GetPlotIndex(), _housings[0]->GetHouseGuid().ToString(), bnetGuid.ToString());
+            TC_LOG_ERROR("housing", "Player::LoadFromDB PRIMING: UpdatePlotHouseInfo plot={} HouseGuid={} BnetGuid={} (before mirror read)",
+                primeHousing->GetPlotIndex(), primeHousing->GetHouseGuid().ToString(), bnetGuid.ToString());
         }
 
-        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(_housings[0]->GetNeighborhoodGuid());
+        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(primeHousing->GetNeighborhoodGuid());
         if (neighborhood)
         {
             // --- Housing/4: NeighborhoodMirrorEntity ---
@@ -20392,6 +20409,10 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
             // WorldSession creates it with battlenetAccountId as placeholder; fix it here.
             HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
             mirrorEntity.ResetGuid(neighborhood->GetGuid());
+            // The login CREATE bundle ships the mirror under this guid: record it as the
+            // held one so SendNeighborhoodMapRefresh picks VALUES (never a duplicate CREATE)
+            // until a neighborhood switch destroys and re-creates the entity.
+            GetSession()->SetHousingMirrorClientGuid(mirrorEntity.GetGUID());
             mirrorEntity.SetName(neighborhood->GetName());
             mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
 
@@ -20457,10 +20478,16 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
                 MAX_NEIGHBORHOOD_PLOTS, neighborhood->GetName());
 
             // --- Housing/3: HousingPlayerHouseEntity ---
-            Housing* housing = _housings[0].get();
+            Housing* housing = primeHousing;
             if (housing && !housing->GetHouseGuid().IsEmpty())
             {
                 HousingPlayerHouseEntity& houseEntity = GetSession()->GetHousingPlayerHouseEntity();
+                // Re-key to the primed house: the per-house SyncUpdateFields calls during
+                // LoadFromDB leave the entity keyed to whichever house loaded LAST (an
+                // account sibling's), which would ship a CREATE whose guid and fields
+                // describe different houses. At login nothing is stale client-side yet.
+                if (houseEntity.GetGUID() != housing->GetHouseGuid())
+                    houseEntity.SetGuid(housing->GetHouseGuid());
                 houseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
                 // EntityGUID = HouseGuid (self-reference). Matches what
                 // Housing::SyncUpdateFields does on every post-login re-push
@@ -26557,6 +26584,22 @@ bool Player::HaveAtClient(BaseEntity const* u) const
     return u == this || m_clientGUIDs.find(u->GetGUID()) != m_clientGUIDs.end();
 }
 
+void Player::SendDestroyObjectGuid(ObjectGuid guid)
+{
+    if (guid.IsEmpty())
+        return;
+
+    // Destroy a session-entity copy the client holds under a guid the server has
+    // since re-keyed (see the Housing/3 and Housing/4 re-point flows). The packet
+    // must be built from the raw guid: the owning entity's GetGUID() already
+    // answers with the NEW value at the call sites that need this.
+    UpdateData updateData(GetMapId());
+    updateData.AddDestroyObject(guid);
+    WorldPacket packet;
+    if (updateData.BuildPacket(&packet))
+        SendDirectMessage(&packet);
+}
+
 bool Player::IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects) const
 {
     if (Unit::IsNeverVisibleFor(seer, allowServersideObjects))
@@ -27121,7 +27164,45 @@ void Player::SendInitialPacketsBeforeAddToMap()
     // worldServerInfo.RestrictedAccountMaxMoney; /// @todo
     worldServerInfo.DifficultyID = GetMap()->GetDifficultyID();
     // worldServerInfo.XRealmPvpAlert;  /// @todo
-    if (Housing* housing = GetHousing())
+    // The housing fields must describe the map being ENTERED, not the login character's own
+    // house. The client binds its housing context to this packet: the neighborhood singleton
+    // the map pins and the editor validate against, and the guid it will accept a Housing/4
+    // mirror CREATE for (WPP-verified: a mirror for a neighborhood other than this packet's
+    // is rejected with CMSG_OBJECT_UPDATE_FAILED). A cross-faction account sibling entering
+    // the other faction's map with own-faction fields here stays pinned to the wrong
+    // neighborhood: wrong-faction pins, empty plot-name prefixes, house refusing to follow
+    // the cursor, 0/0 interior budget. GetHousing() cannot be used directly - its map branch
+    // requires IsInWorld(), which is false while this pre-add bundle is built (login and
+    // every far teleport; MovementHandler sets the new map before calling in).
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
+    {
+        Neighborhood* neighborhood = housingMap->GetNeighborhood();
+        if (Housing* mapHousing = neighborhood ? GetHousingForNeighborhood(neighborhood->GetGuid()) : nullptr)
+        {
+            worldServerInfo.HouseGUID = mapHousing->GetHouseGuid();
+            worldServerInfo.HouseOwnerAccountGUID = GetSession()->GetBattlenetAccountGUID();
+            worldServerInfo.HouseCosmeticOwnerGUID = GetSession()->GetBattlenetAccountGUID();
+            worldServerInfo.NeighborhoodGUID = mapHousing->GetNeighborhoodGuid();
+        }
+        else if (neighborhood)
+        {
+            // On a neighborhood map without an account house there (visitor): carry THIS
+            // map's neighborhood only - never mix an own-house GUID with a foreign
+            // neighborhood GUID.
+            worldServerInfo.NeighborhoodGUID = neighborhood->GetGuid();
+        }
+    }
+    else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(GetMap()))
+    {
+        if (Housing* interiorHousing = GetHousingByOwner(interiorMap->GetOwnerGuid()))
+        {
+            worldServerInfo.HouseGUID = interiorHousing->GetHouseGuid();
+            worldServerInfo.HouseOwnerAccountGUID = GetSession()->GetBattlenetAccountGUID();
+            worldServerInfo.HouseCosmeticOwnerGUID = GetSession()->GetBattlenetAccountGUID();
+            worldServerInfo.NeighborhoodGUID = interiorHousing->GetNeighborhoodGuid();
+        }
+    }
+    else if (Housing* housing = GetHousing())
     {
         worldServerInfo.HouseGUID = housing->GetHouseGuid();
         worldServerInfo.HouseOwnerAccountGUID = GetSession()->GetBattlenetAccountGUID();
@@ -27334,10 +27415,13 @@ void Player::SendInitialPacketsAfterAddToMap()
     GetSceneMgr().TriggerDelayedScenes();
 }
 
-void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
+void Player::RefreshHousingMapSessionState()
 {
     if (!GetSession())
         return;
+
+    // A map entry is a fresh start for the session-entity self-heal budget.
+    GetSession()->ResetHousingSessionEntityRescues();
 
     // Housing state setup at neighborhood map entry. Called on every neighborhood
     // map entry from HousingMap::AddPlayerToMap (login included); the login burst
@@ -27388,9 +27472,14 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
             // refusing to follow the cursor, spawn ghosts stuck at the player).
             if (mirrorEntity.GetGUID() != neighborhood->GetGuid())
             {
+                // A bare ResetGuid re-keys the server side only and leaves the stale entity
+                // alive at the client, which then keeps TWO Housing/4 entities and stays
+                // bound to the login neighborhood. The deferred wire step below destroys
+                // the client-held copy (tracked) before the CREATE re-installs the singleton.
+                ObjectGuid const oldMirrorGuid = mirrorEntity.GetGUID();
                 mirrorEntity.ResetGuid(neighborhood->GetGuid());
-                TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - re-pointed Housing/4 mirror entity to neighborhood '{}'",
-                    GetGUID().ToString(), GetMapId(), neighborhood->GetName());
+                TC_LOG_ERROR("housing", "Player {} entered neighborhood map {} - re-pointed Housing/4 mirror entity to neighborhood '{}' (was {})",
+                    GetGUID().ToString(), GetMapId(), neighborhood->GetName(), oldMirrorGuid.ToString());
             }
 
             mirrorEntity.SetName(neighborhood->GetName());
@@ -27438,7 +27527,7 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
                 housing->PopulateCatalogStorageEntries();
             }
 
-            TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - state set on session entities. Neighborhood='{}' {}, Members={}, Plots={}, HasHouse={}",
+            TC_LOG_ERROR("housing", "Player {} entered neighborhood map {} - state set on session entities. Neighborhood='{}' {}, Members={}, Plots={}, HasHouse={}",
                 GetGUID().ToString(), GetMapId(), neighborhood->GetName(), neighborhood->GetGuid().ToString(),
                 neighborhood->GetMembers().size(), neighborhood->GetOccupiedPlotCount(), housing ? "yes" : "no");
 
@@ -27446,24 +27535,83 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
             // never re-runs the client's map-icon build ? after leaving and re-opening the
             // neighborhood map the pins lost their name prefix and ownership state (everything
             // worked right after a relog because the login bundle is a fresh CREATE). Re-prime
-            // the map state explicitly: mirror CREATE + neighborhood name + plot-owner names.
+            // the map state explicitly: mirror CREATE + neighborhood name + roster.
             //
-            // Mid-session the client is still inside the map load when this runs and DROPS
-            // housing SMSGs sent during the load: the neighborhood singleton then stays
-            // empty (probe-verified: GetNeighborhoodName()="", all plot entries plotID=0),
-            // which also degenerates the house-type list to the account collection. Defer
-            // the wire refresh past the load; the login burst needs no deferral.
-            if (deferMapRefresh)
+            // The wire step is deferred past the client's map load in ALL cases and DEBOUNCED:
+            // a map entry runs RefreshHousingMapSessionState several times (SendInitialPackets
+            // twice + AddPlayerToMap), and two full swaps landing in the same instant (a CREATE
+            // immediately followed by a duplicate CREATE + roster re-feed) leave the client's
+            // neighborhood cache stripped of ownership - exactly the re-entry breakage where a
+            // first visit works but returning from the other faction's map shows bare pins.
+            // The deferred step reads LIVE state (mirror guid + tracker) instead of captures,
+            // so one pending event always performs the latest swap.
+            if (!m_housingMapRefreshQueued)
             {
+                m_housingMapRefreshQueued = true;
+                // Suppress map-tick mirror VALUES through the transfer window: a tick VALUES
+                // landing while the client tears its entities down behind the loading screen
+                // makes it RESURRECT the mirror (RESCUED), wiping its neighborhood singleton -
+                // the observed breakage after leaving a house interior. The deferred swap below
+                // is the only mirror traffic until the window closes.
+                GetSession()->SuppressHousingMirrorTickUpdates(4000);
                 ObjectGuid const playerGuid = GetGUID();
                 m_Events.AddEventAtOffset([playerGuid]()
                 {
-                    if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
-                        player->GetSession()->SendNeighborhoodMapRefresh();
+                    Player* player = ObjectAccessor::FindPlayer(playerGuid);
+                    if (!player || !player->GetSession() || !player->GetSession()->HasHousingNeighborhoodMirrorEntity())
+                        return;
+                    player->m_housingMapRefreshQueued = false;
+
+                    // Only act while the player still stands on the housing map this mirror
+                    // belongs to; leaving (or a newer re-point) hands the swap to a later event.
+                    HousingMap* currentHousingMap = dynamic_cast<HousingMap*>(player->GetMap());
+                    Neighborhood* currentNeighborhood = currentHousingMap ? currentHousingMap->GetNeighborhood() : nullptr;
+                    if (!currentNeighborhood)
+                        return;
+
+                    HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
+                    if (mirrorEntity.GetGUID() != currentNeighborhood->GetGuid())
+                        return;
+
+                    // Destroy whatever copy the client actually holds under a different guid;
+                    // the tracker is the authority here (m_clientGUIDs is optimistically seeded
+                    // by every map entry).
+                    ObjectGuid const heldGuid = player->GetSession()->GetHousingMirrorClientGuid();
+                    if (!heldGuid.IsEmpty() && heldGuid != mirrorEntity.GetGUID())
+                    {
+                        player->SendDestroyObjectGuid(heldGuid);
+                        player->ForgetClientGuid(heldGuid);
+                        player->GetSession()->SetHousingMirrorClientGuid(ObjectGuid::Empty);
+                        TC_LOG_ERROR("housing", "Housing/4 swap for player {}: destroyed stale neighborhood mirror {} at client",
+                            playerGuid.ToString(), heldGuid.ToString());
+                    }
+
+                    // Wholesale CREATE on every housing-map entry: the client's map-icon
+                    // cache (pin ownership) only rebuilds on CREATE, and a login-bundle
+                    // CREATE processed during the loading screen does not count. The
+                    // refresh re-feeds the singleton (name + roster) after the CREATE.
+                    player->GetSession()->SendNeighborhoodMapRefresh(/*forceCreate=*/true);
+
+                    // Housing/3 must follow the map's house as well: re-key it here (destroys
+                    // the client's stale copy, pushes a CREATE with the budgets) once the
+                    // client is past the map load; a FAILED here is picked up by the rescue
+                    // in HandleObjectUpdateFailedOpcode.
+                    if (Housing* mapHousing = player->GetHousingForNeighborhood(currentNeighborhood->GetGuid()))
+                        mapHousing->SyncUpdateFields();
+
+                    // Belt and braces for the singleton: if the client processes the mirror
+                    // CREATE asynchronously and runs its singleton reset AFTER the roster that
+                    // followed it, the roster data is lost. A single delayed re-feed (name +
+                    // roster, VALUES-only) closes that race.
+                    player->m_Events.AddEventAtOffset([playerGuid]()
+                    {
+                        Player* refeed = ObjectAccessor::FindPlayer(playerGuid);
+                        if (refeed && refeed->GetSession() && refeed->IsInWorld())
+                            if (dynamic_cast<HousingMap*>(refeed->GetMap()))
+                                refeed->GetSession()->SendNeighborhoodMapRefresh();
+                    }, Milliseconds(600));
                 }, Milliseconds(2000));
             }
-            else
-                GetSession()->SendNeighborhoodMapRefresh();
         }
     }
 }

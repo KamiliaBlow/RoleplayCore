@@ -33,8 +33,10 @@
 #include "RealmList.h"
 #include "StringConvert.h"
 #include "StringFormat.h"
+#include "UpdateData.h"
 #include "Util.h"
 #include "World.h"
+#include "WorldPacket.h"
 #include "WorldSession.h"
 #include <cmath>
 #include <cstring>
@@ -467,9 +469,12 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
 
     // Fixup: if house exists but catalog is empty, populate with starter decor.
     // This handles houses created before the catalog-population fix was added.
+    // The set follows the HOUSE's neighborhood faction, not the loading player's team:
+    // an account sibling of the opposing faction must not refill the catalog with
+    // their own faction's starter items.
     if (_catalog.empty() && !_houseGuid.IsEmpty() && _owner)
     {
-        auto starterDecorWithQty = sHousingMgr.GetStarterDecorWithQuantities(_owner->GetTeam());
+        auto starterDecorWithQty = sHousingMgr.GetStarterDecorWithQuantities(GetHouseFactionTeam());
         if (!starterDecorWithQty.empty())
         {
             for (auto const& [decorId, qty] : starterDecorWithQty)
@@ -2087,6 +2092,23 @@ ObjectGuid Housing::MakeHouseGuid(uint32 neighborhoodMapId, uint32 bnetAccountId
     return ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 3, /*arg1*/ neighborhoodMapId, /*arg2*/ 7, uint64(bnetAccountId));
 }
 
+int32 Housing::GetHouseFactionRestriction() const
+{
+    if (Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
+    {
+        int32 restriction = neighborhood->GetFactionRestriction();
+        if (restriction == NEIGHBORHOOD_FACTION_ALLIANCE || restriction == NEIGHBORHOOD_FACTION_HORDE)
+            return restriction;
+    }
+
+    return (_owner && _owner->GetTeamId() == TEAM_ALLIANCE) ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+}
+
+uint32 Housing::GetHouseFactionTeam() const
+{
+    return GetHouseFactionRestriction() == NEIGHBORHOOD_FACTION_ALLIANCE ? uint32(ALLIANCE) : uint32(HORDE);
+}
+
 std::string Housing::SerializeComponentStyles(Room const& room)
 {
     // "componentId:themeId:textureId,..." - 0 where the slot keeps the surface default
@@ -3430,9 +3452,18 @@ void Housing::SyncUpdateFields()
 
     // FHousingPlayerHouse_C belongs on the Housing/3 entity, NOT the BNetAccount entity.
     HousingPlayerHouseEntity& houseEntity = _owner->GetSession()->GetHousingPlayerHouseEntity();
-    // The session's house entity is this character's house (retail: the Horde character gets its Horde house GUID)
-    if (houseEntity.GetGUID() != _houseGuid)
+    // The session's house entity is this character's house (retail: the Horde character gets its
+    // Horde house GUID). A re-key changes the guid server-side only: the client retains session
+    // entities across map switches, so its copy under the old guid must be destroyed and a CREATE
+    // pushed for the new one. Leaving the stale copy alive accumulates ghost Housing/3 entities
+    // and the client cannot bind the current house (interior budget reads 0/0, the editor gates
+    // owner-only actions).
+    ObjectGuid staleEntityGuid;
+    if (!_houseGuid.IsEmpty() && houseEntity.GetGUID() != _houseGuid)
+    {
+        staleEntityGuid = houseEntity.GetGUID();
         houseEntity.SetGuid(_houseGuid);
+    }
     houseEntity.SetBnetAccount(_owner->GetSession()->GetBattlenetAccountGUID());
     houseEntity.SetEntityGUID(_houseGuid);
     // HouseType and HouseSize are NOT part of this fragment (IDA-verified).
@@ -3447,6 +3478,25 @@ void Housing::SyncUpdateFields()
         GetMaxRoomBudget(),
         GetMaxFixtureBudget()
     );
+
+    // At login (owner not in world yet) nothing can be stale at the client - the login CREATE
+    // bundle ships the re-keyed entity as-is. Push the swap only for mid-session re-keys.
+    if (!staleEntityGuid.IsEmpty() && _owner->IsInWorld())
+    {
+        _owner->SendDestroyObjectGuid(staleEntityGuid);
+        _owner->ForgetClientGuid(staleEntityGuid);
+
+        UpdateData updateData(_owner->GetMapId());
+        WorldPacket packet;
+        _owner->GetSession()->BuildHousingAccountEntitiesUpdate(&updateData, _owner);
+        if (updateData.BuildPacket(&packet))
+            _owner->SendDirectMessage(&packet);
+        _owner->GetSession()->GetBattlenetAccount().ClearUpdateMask(true);
+        houseEntity.ClearUpdateMask(true);
+
+        TC_LOG_ERROR("housing", "Housing::SyncUpdateFields: re-keyed Housing/3 {} -> {} for player {} (stale copy destroyed, CREATE pushed)",
+            staleEntityGuid.ToString(), _houseGuid.ToString(), _owner->GetGUID().ToString());
+    }
 
     TC_LOG_DEBUG("housing", "Housing::SyncUpdateFields: EntityGUID={} BnetAccount={} PlotIndex={} Level={} Favor={} Budgets=[{},{},{},{}]",
         _houseGuid.ToString(), _owner->GetSession()->GetBattlenetAccountGUID().ToString(),

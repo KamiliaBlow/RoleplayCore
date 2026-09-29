@@ -1096,7 +1096,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     // the login neighborhood's entity state, and the client keeps validating exterior
     // placement and map pins against the login neighborhood.
     if (!player->IsLoading())
-        player->RefreshHousingMapSessionState(/*deferMapRefresh=*/true);
+        player->RefreshHousingMapSessionState();
 
     // Force immediate visibility update so all MeshObjects (house pieces, decor) get
     // CREATE_OBJECT sent to the player NOW, not deferred to the next map tick.

@@ -150,6 +150,14 @@ public:
     ObjectGuid GetHouseGuid() const { return _houseGuid; }
     ObjectGuid GetNeighborhoodGuid() const { return _neighborhoodGuid; }
     void SetNeighborhoodGuid(ObjectGuid guid) { _neighborhoodGuid = guid; }
+    // Faction the house's own visuals (interior room themes, starter decor catalog) must
+    // follow: the owning neighborhood's restriction, NOT the editing player's team - an
+    // account sibling of the opposing faction editing this house must see the house's
+    // faction. Falls back to the current owner's team when the neighborhood is missing
+    // or unrestricted.
+    int32 GetHouseFactionRestriction() const;
+    // Same resolution expressed as a Team value (ALLIANCE/HORDE), for the starter-decor helpers.
+    uint32 GetHouseFactionTeam() const;
     ObjectGuid GetPlotGuid() const;
     uint8 GetPlotIndex() const { return _plotIndex; }
     void SetPlotIndex(uint8 plotIndex) { _plotIndex = plotIndex; }

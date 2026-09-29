@@ -314,11 +314,11 @@ namespace
         if (!interiorMap)
             return;
 
-        // Use player's team for faction theme, matching HouseInteriorMap::AddPlayerToMap pattern.
-        // NeighborhoodMapData::FactionRestriction is a bitmask (3 = both factions) and doesn't
-        // map to the enum values expected by GetFactionDefaultThemeID().
-        int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-            ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+        // The room theme follows the HOUSE's neighborhood faction restriction, not the editing
+        // player's team: an account sibling of the opposing faction must see the house's own
+        // visuals. GetHouseFactionRestriction() normalizes the restriction and only falls back
+        // to the player's team for missing/unrestricted neighborhoods.
+        int32 faction = housing->GetHouseFactionRestriction();
 
         interiorMap->DespawnAllRoomMeshObjects();
         interiorMap->SpawnRoomMeshObjects(housing, faction);
@@ -2913,8 +2913,7 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
 
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(GetPlayer()->GetMap()))
         {
-            int32 faction = (GetPlayer()->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
 
             // Spawn only the NEW room(s) (SpawnRoomMeshObjects skips rooms already on the map), then open the
             // wall it was attached to on the other side.
@@ -3043,8 +3042,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
                 interiorMap->DespawnRoomEntities(pairedRoomGuid);
 
             // The neighbours' walls on the removed room's side close again
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
 
             // Standing in the room that went away: retail teleports the player back to the entry hall
@@ -3105,8 +3103,7 @@ void WorldSession::HandleHousingRoomRotate(WorldPackets::Housing::HousingRoomRot
                     interiorMap->UpdateRoomPlacement(*partner);
             }
 
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
         }
     }
@@ -3216,8 +3213,7 @@ void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::Hou
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
             auto const& rooms = housing->GetRoomsMap();
             auto roomItr = rooms.find(housingRoomSetComponentTheme.RoomGuid);
             if (roomItr != rooms.end())
@@ -3330,8 +3326,7 @@ void WorldSession::HandleHousingRoomSetDoorType(WorldPackets::Housing::HousingRo
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
         }
     }
@@ -3382,8 +3377,7 @@ void WorldSession::HandleHousingRoomSetCeilingType(WorldPackets::Housing::Housin
     {
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int32 faction = (player->GetTeamId() == TEAM_ALLIANCE)
-                ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+            int32 faction = housing->GetHouseFactionRestriction();
             auto const& rooms = housing->GetRoomsMap();
             auto roomItr = rooms.find(housingRoomSetCeilingType.RoomGuid);
             if (roomItr != rooms.end())
@@ -4397,6 +4391,10 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     }
     // Wholesale re-push; retail uses CREATE for this (sniff-verified).
     mirrorEntity.SendCreateToPlayer(player);
+    // The client now holds the mirror under its current guid: keep the session
+    // tracker in sync so later refreshes send VALUES instead of a duplicate CREATE.
+    SetHousingMirrorClientGuid(mirrorEntity.GetGUID());
+    player->LearnClientGuid(mirrorEntity.GetGUID());
 
     TC_LOG_INFO("housing", "  MIRROR: update sent to player {}", player->GetName());
 }
@@ -5626,7 +5624,7 @@ void WorldSession::RespawnHousingAfterBlueprintImport(Player* player, Housing* h
     // processed between map updates, so touching another map here is safe.
     ObjectGuid const ownerGuid = player->GetGUID();
     ObjectGuid const neighborhoodGuid = housing->GetNeighborhoodGuid();
-    int32 const faction = player->GetTeamId() == TEAM_ALLIANCE ? NEIGHBORHOOD_FACTION_ALLIANCE : NEIGHBORHOOD_FACTION_HORDE;
+    int32 const faction = housing->GetHouseFactionRestriction();
 
     sMapMgr->DoForAllMaps([&](Map* map)
     {

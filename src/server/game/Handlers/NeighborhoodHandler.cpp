@@ -2198,8 +2198,67 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
     neighborhood->BuildRosterResponse(response);
 
-    // Pre-send neighborhood name response to populate JamCliNeighborhoodName DataCache.
-    // The roster UI resolves the neighborhood name via GroupNeighborhoodGuid cache lookup.
+    // Re-point and wholesale-repush the Housing/4 mirror ONLY when the requested
+    // neighborhood can be the client's active one. The Housing/4 CREATE handler resets
+    // the client's neighborhood singleton, so the mirror push must precede the singleton
+    // feeders below (name response, roster) - anything fed before the CREATE gets wiped.
+    // Requesting a roster for a neighborhood whose map the player is NOT on (the dashboard
+    // asking for the own-faction neighborhood while visiting the other faction's map) must
+    // NOT flip the mirror away from the map's layout; answer with data only.
+    bool mirrorMatchesMap = true;
+    if (HousingMap* playerHousingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+    {
+        Neighborhood* mapNeighborhood = playerHousingMap->GetNeighborhood();
+        mirrorMatchesMap = mapNeighborhood && mapNeighborhood->GetGuid() == neighborhood->GetGuid();
+    }
+
+    if (mirrorMatchesMap)
+    {
+        HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
+
+        // The entity GUID is the neighborhood identity the client keys on (arg1 = the
+        // NeighborhoodMap record whose plot layout it draws). Requesting a roster for a
+        // different neighborhood than the one currently mirrored must re-point it.
+        if (mirrorEntity.GetGUID() != neighborhood->GetGuid())
+            mirrorEntity.ResetGuid(neighborhood->GetGuid());
+
+        mirrorEntity.SetName(neighborhood->GetName());
+        mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
+
+        mirrorEntity.ClearHouses();
+        for (auto const& plot : neighborhood->GetPlots())
+        {
+            if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+            else
+                mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+        }
+
+        mirrorEntity.ClearManagers();
+        for (auto const& member : neighborhood->GetMembers())
+        {
+            if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+            {
+                ObjectGuid bnetGuid;
+                if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                    bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
+                mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+            }
+        }
+        // Wholesale re-push (ClearHouses + 55 AddHouse + ClearManagers + AddManagers).
+        // Retail emits CREATE_OBJECT here (sniff-verified). The client's map-icon
+        // refresh path only fires on CREATE.
+        mirrorEntity.SendCreateToPlayer(player);
+        // The client now holds the mirror under its current guid: keep the session
+        // tracker in sync so later refreshes send VALUES instead of a duplicate CREATE.
+        SetHousingMirrorClientGuid(mirrorEntity.GetGUID());
+        player->LearnClientGuid(mirrorEntity.GetGUID());
+    }
+
+    // Singleton feeders go AFTER the mirror push (see the wipe note above): the name
+    // response fills the JamCliNeighborhoodName DataCache the roster UI and pin labels
+    // resolve through, the roster fills the HousingNeighborhoodState singleton the pin
+    // ownership classification and plot-name prefixes format from.
     {
         WorldPackets::Housing::QueryNeighborhoodNameResponse nameResp;
         nameResp.NeighborhoodGuid = neighborhood->GetGuid();
@@ -2210,44 +2269,6 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
 
     WorldPacket const* rosterPkt = response.Write();
     SendPacket(rosterPkt);
-
-    // Populate the Housing/4 entity with this neighborhood's mirror data so the
-    // client's internal house list stays in sync for plot resolution.
-    HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
-
-    // The entity GUID is the neighborhood identity the client keys on (arg1 = the
-    // NeighborhoodMap record whose plot layout it draws). Requesting a roster for a
-    // different neighborhood than the one currently mirrored must re-point it.
-    if (mirrorEntity.GetGUID() != neighborhood->GetGuid())
-        mirrorEntity.ResetGuid(neighborhood->GetGuid());
-
-    mirrorEntity.SetName(neighborhood->GetName());
-    mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
-
-    mirrorEntity.ClearHouses();
-    for (auto const& plot : neighborhood->GetPlots())
-    {
-        if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
-            mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
-        else
-            mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
-    }
-
-    mirrorEntity.ClearManagers();
-    for (auto const& member : neighborhood->GetMembers())
-    {
-        if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
-        {
-            ObjectGuid bnetGuid;
-            if (Player* mgr = ObjectAccessor::FindPlayer(member.PlayerGuid))
-                bnetGuid = mgr->GetSession()->GetBattlenetAccountGUID();
-            mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
-        }
-    }
-    // Wholesale re-push (ClearHouses + 55 AddHouse + ClearManagers + AddManagers).
-    // Retail emits CREATE_OBJECT here (sniff-verified). The client's map-icon
-    // refresh path only fires on CREATE.
-    mirrorEntity.SendCreateToPlayer(player);
 
     // Pre-push player names for all plot owners so the client can format
     // plot names via HOUSING_HOUSE_NAME_FORMAT without waiting for async name queries.
@@ -2280,7 +2301,7 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
         rosterPkt->size(), HexDumpPacket(rosterPkt, 256));
 }
 
-void WorldSession::SendNeighborhoodMapRefresh()
+void WorldSession::SendNeighborhoodMapRefresh(bool forceCreate /*= false*/)
 {
     Player* player = GetPlayer();
     if (!player || !HasHousingNeighborhoodMirrorEntity())
@@ -2304,10 +2325,33 @@ void WorldSession::SendNeighborhoodMapRefresh()
     // which is exactly the lost-pins state. VALUES when held, CREATE when not (the same gate
     // BuildHousingAccountEntitiesUpdate uses for the Account/Housing/3 pair).
     neighborhood->RebuildMirrorDataFor(player);
-    if (player->HaveAtClient(&mirrorEntity))
+    // Decide VALUES vs CREATE from the tracked client-held guid, not HaveAtClient:
+    // SendInitialPacketsAfterAddToMap optimistically inserts the current mirror guid into
+    // m_clientGUIDs on every map entry, so after a mid-session re-point that set claims the
+    // client holds an entity it does not - a VALUES update for it is silently dropped.
+    // forceCreate (map entries) sends the wholesale CREATE even for a held guid: the
+    // client's map-icon cache - pin ownership included - only rebuilds on CREATE, and the
+    // fields were rebuilt from scratch right above, so the CREATE is self-consistent. The
+    // name/roster feeders below re-fill the singleton the CREATE resets. The tracker is
+    // updated exactly when a CREATE leaves the wire.
+    if (!forceCreate && mirrorEntity.GetGUID() == GetHousingMirrorClientGuid())
         mirrorEntity.SendUpdateToPlayer(player);
     else
+    {
+        // A duplicate CREATE for a guid the client already holds resets/ignores its dynamic
+        // Houses array - strip pin ownership. Destroy the held copy first so the forced
+        // create lands on a clean slot (the entry swap destroys foreign guids itself).
+        if (forceCreate && mirrorEntity.GetGUID() == GetHousingMirrorClientGuid() && !GetHousingMirrorClientGuid().IsEmpty())
+        {
+            player->SendDestroyObjectGuid(GetHousingMirrorClientGuid());
+            SetHousingMirrorClientGuid(ObjectGuid::Empty);
+            TC_LOG_ERROR("housing", "SendNeighborhoodMapRefresh: destroyed held mirror copy {} before forced CREATE for player {}",
+                mirrorEntity.GetGUID().ToString(), player->GetGUID().ToString());
+        }
         mirrorEntity.SendCreateToPlayer(player);
+        SetHousingMirrorClientGuid(mirrorEntity.GetGUID());
+        player->LearnClientGuid(mirrorEntity.GetGUID());
+    }
 
     // Keep the JamCliNeighborhoodName DataCache fed ? the map pin label resolves the
     // neighborhood name from it, and a missing entry drops the name prefix entirely.

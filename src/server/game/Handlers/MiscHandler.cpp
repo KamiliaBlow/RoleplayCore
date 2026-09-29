@@ -60,6 +60,11 @@
 #include "WhoListStorage.h"
 #include "WhoPackets.h"
 #include "World.h"
+#include "WorldPacket.h"
+#include "UpdateData.h"
+#include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include <cstdarg>
 #include <zlib.h>
 
@@ -1143,6 +1148,61 @@ void WorldSession::HandleObjectUpdateFailedOpcode(WorldPackets::Misc::ObjectUpda
 
     // Pretend we've never seen this object
     _player->m_clientGUIDs.erase(objectUpdateFailed.ObjectGUID);
+
+    // Housing session entities (Housing/4 mirror, Housing/3 house, BNetAccount) are NOT
+    // map-scoped: the client keeps them across map switches, but tears them down on loading
+    // screens, so any update sent into that window comes back as a FAILED (WPP-verified:
+    // mirror/house/bnet all reported failed right after map transfers and logins). Without
+    // the entities the client cannot bind the neighborhood (pins, editor validation) nor
+    // the current house (interior budget). Self-heal: re-push the lost entity past the load
+    // window, retry-capped so a persistently refusing client cannot loop us.
+    ObjectGuid const& failedGuid = objectUpdateFailed.ObjectGUID;
+    bool failedMirror = HasHousingNeighborhoodMirrorEntity() && GetHousingNeighborhoodMirrorEntity().GetGUID() == failedGuid;
+    bool failedHouseEntity = HasHousingPlayerHouseEntity() && GetHousingPlayerHouseEntity().GetGUID() == failedGuid;
+    bool failedBnetAccount = failedGuid == GetBattlenetAccount().GetGUID();
+
+    if ((failedMirror || failedHouseEntity || failedBnetAccount) && CanRescueHousingSessionEntity())
+    {
+        CountHousingSessionEntityRescue();
+
+        if (failedMirror)
+        {
+            // The tracker must not keep claiming the client holds the failed guid, or the
+            // next refresh would send a (dropped) VALUES instead of a CREATE.
+            if (GetHousingMirrorClientGuid() == failedGuid)
+                SetHousingMirrorClientGuid(ObjectGuid::Empty);
+        }
+
+        ObjectGuid const playerGuid = _player->GetGUID();
+        uint32 const mapId = _player->GetMapId();
+        _player->m_Events.AddEventAtOffset([playerGuid, mapId, failedMirror]()
+        {
+            Player* player = ObjectAccessor::FindPlayer(playerGuid);
+            if (!player || !player->GetSession() || player->GetMapId() != mapId)
+                return;
+
+            if (failedMirror)
+            {
+                // Re-priming packet set: mirror CREATE (+ name + roster + owner names).
+                player->GetSession()->SendNeighborhoodMapRefresh();
+            }
+            else
+            {
+                // Housing/3 and/or BNetAccount: the combined account-entities push CREATEs
+                // whatever the client no longer holds (m_clientGUIDs was erased above).
+                UpdateData updateData(mapId);
+                WorldPacket packet;
+                player->GetSession()->BuildHousingAccountEntitiesUpdate(&updateData, player);
+                if (updateData.BuildPacket(&packet))
+                    player->SendDirectMessage(&packet);
+                player->GetSession()->GetBattlenetAccount().ClearUpdateMask(true);
+                player->GetSession()->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+            }
+
+            TC_LOG_ERROR("housing", "Rescued housing session entity for player {} after OBJECT_UPDATE_FAILED (mirror={})",
+                playerGuid.ToString(), failedMirror);
+        }, Milliseconds(1500));
+    }
 }
 
 void WorldSession::HandleObjectUpdateRescuedOpcode(WorldPackets::Misc::ObjectUpdateRescued& objectUpdateRescued)
@@ -1152,6 +1212,31 @@ void WorldSession::HandleObjectUpdateRescuedOpcode(WorldPackets::Misc::ObjectUpd
     // Client received values update after destroying object
     // re-register object in m_clientGUIDs to send DestroyObject on next visibility update
     _player->m_clientGUIDs.insert(objectUpdateRescued.ObjectGUID);
+
+    // A resurrected Housing/4 mirror means the client rebuilt the entity from a VALUES
+    // update - the same reset its CREATE handler performs - which wipes the neighborhood
+    // singleton the roster fills (pin ownership classification, plot-name prefixes).
+    // Re-feed the singleton (name + roster + owner names) past the resurrection, with the
+    // same retry cap as the FAILED rescue.
+    if (HasHousingNeighborhoodMirrorEntity()
+        && GetHousingNeighborhoodMirrorEntity().GetGUID() == objectUpdateRescued.ObjectGUID
+        && CanRescueHousingSessionEntity())
+    {
+        CountHousingSessionEntityRescue();
+
+        ObjectGuid const playerGuid = _player->GetGUID();
+        uint32 const mapId = _player->GetMapId();
+        _player->m_Events.AddEventAtOffset([playerGuid, mapId]()
+        {
+            Player* player = ObjectAccessor::FindPlayer(playerGuid);
+            if (!player || !player->GetSession() || player->GetMapId() != mapId)
+                return;
+
+            player->GetSession()->SendNeighborhoodMapRefresh();
+            TC_LOG_ERROR("housing", "Re-fed neighborhood singleton for player {} after mirror resurrection",
+                playerGuid.ToString());
+        }, Milliseconds(1000));
+    }
 }
 
 void WorldSession::HandleSaveCUFProfiles(WorldPackets::Misc::SaveCUFProfiles& packet)
