@@ -64,6 +64,7 @@ enum HunterSpells
     SPELL_HUNTER_BINDING_SHOT_STUN                  = 117526,
     SPELL_HUNTER_BINDING_SHOT_VISUAL                = 117614,
     SPELL_HUNTER_BINDING_SHOT_VISUAL_ARROW          = 118306,
+    SPELL_HUNTER_BLACK_ARROW_PERIODIC_DAMAGE        = 468572,
     SPELL_HUNTER_BULLETSTORM                        = 389020,
     SPELL_HUNTER_CONCUSSIVE_SHOT                    = 5116,
     SPELL_HUNTER_DISRUPTIVE_ROUNDS_ENERGIZE         = 459976,
@@ -98,10 +99,8 @@ enum HunterSpells
     SPELL_HUNTER_MASTERS_CALL_TRIGGERED             = 62305,
     SPELL_HUNTER_MISDIRECTION                       = 34477,
     SPELL_HUNTER_MISDIRECTION_PROC                  = 35079,
-    SPELL_HUNTER_MULTI_SHOT_FOCUS                   = 213363,
     SPELL_HUNTER_NO_HARD_FEELINGS_TALENT            = 459546,
     SPELL_HUNTER_NO_HARD_FEELINGS_AURA              = 459547,
-    SPELL_HUNTER_PET_LAST_STAND_TRIGGERED           = 53479,
     SPELL_HUNTER_PET_HEART_OF_THE_PHOENIX_TRIGGERED = 54114,
     SPELL_HUNTER_PET_HEART_OF_THE_PHOENIX_DEBUFF    = 55711,
     SPELL_HUNTER_POSTHASTE_INCREASE_SPEED           = 118922,
@@ -380,6 +379,25 @@ struct at_hun_binding_shot : AreaTriggerAI
 
 private:
     TaskScheduler _scheduler;
+};
+
+// 466930 - Black Arrow
+class spell_hun_black_arrow : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_HUNTER_BLACK_ARROW_PERIODIC_DAMAGE });
+    }
+
+    void HandleHitTarget(SpellEffIndex /*effIndex*/) const
+    {
+        GetCaster()->CastSpell(GetHitUnit(), SPELL_HUNTER_BLACK_ARROW_PERIODIC_DAMAGE, TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_hun_black_arrow::HandleHitTarget, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
 };
 
 // 389019 - Bulletstorm
@@ -704,28 +722,6 @@ class spell_hun_kindling_flare : public SpellScript
     }
 };
 
-// 53478 - Last Stand Pet
-class spell_hun_last_stand_pet : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_HUNTER_PET_LAST_STAND_TRIGGERED });
-    }
-
-    void HandleDummy(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
-        args.AddSpellBP0(caster->CountPctFromMaxHealth(30));
-        caster->CastSpell(caster, SPELL_HUNTER_PET_LAST_STAND_TRIGGERED, args);
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_hun_last_stand_pet::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
 // 378016 - Latent Poison
 class spell_hun_latent_poison_damage : public SpellScript
 {
@@ -993,8 +989,8 @@ class spell_hun_misdirection : public AuraScript
 
     void Register() override
     {
-        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_misdirection::OnRemove, EFFECT_1, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
-        OnEffectProc += AuraEffectProcFn(spell_hun_misdirection::HandleProc, EFFECT_1, SPELL_AURA_DUMMY);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_hun_misdirection::OnRemove, EFFECT_2, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectProc += AuraEffectProcFn(spell_hun_misdirection::HandleProc, EFFECT_2, SPELL_AURA_DUMMY);
     }
 };
 
@@ -1041,32 +1037,6 @@ class spell_hun_no_hard_feelings : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_hun_no_hard_feelings::HandleHitTarget, EFFECT_0, SPELL_EFFECT_REDIRECT_THREAT);
-    }
-};
-
-// 2643 - Multi-Shot
-class spell_hun_multi_shot : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_HUNTER_MULTI_SHOT_FOCUS });
-    }
-
-    bool Load() override
-    {
-        return GetCaster()->GetTypeId() == TYPEID_PLAYER;
-    }
-
-    void HandleOnHit()
-    {
-        // We need to check hunter's spec because it doesn't generate focus on other specs than MM
-        if (GetCaster()->ToPlayer()->GetPrimarySpecialization() == ChrSpecialization::HunterMarksmanship)
-            GetCaster()->CastSpell(GetCaster(), SPELL_HUNTER_MULTI_SHOT_FOCUS, true);
-    }
-
-    void Register() override
-    {
-        OnHit += SpellHitFn(spell_hun_multi_shot::HandleOnHit);
     }
 };
 
@@ -2856,6 +2826,7 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_aspect_of_the_turtle);
     RegisterSpellScript(spell_hun_binding_shot);
     RegisterAreaTriggerAI(at_hun_binding_shot);
+    RegisterSpellScript(spell_hun_black_arrow);
     RegisterSpellScript(spell_hun_bulletstorm);
     RegisterSpellScript(spell_hun_bullseye);
     RegisterSpellScript(spell_hun_cobra_sting);
@@ -2870,7 +2841,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_hunting_party);
     RegisterAreaTriggerAI(areatrigger_hun_implosive_trap);
     RegisterSpellScript(spell_hun_kindling_flare);
-    RegisterSpellScript(spell_hun_last_stand_pet);
     RegisterSpellScript(spell_hun_latent_poison_damage);
     RegisterSpellScript(spell_hun_latent_poison_trigger);
     RegisterSpellScript(spell_hun_latent_poison_injectors_damage);
@@ -2881,7 +2851,6 @@ void AddSC_hunter_spell_scripts()
     RegisterSpellScript(spell_hun_masters_call);
     RegisterSpellScript(spell_hun_misdirection);
     RegisterSpellScript(spell_hun_misdirection_proc);
-    RegisterSpellScript(spell_hun_multi_shot);
     RegisterSpellScript(spell_hun_no_hard_feelings);
     RegisterSpellScript(spell_hun_penetrating_shots);
     RegisterSpellScript(spell_hun_pet_heart_of_the_phoenix);
