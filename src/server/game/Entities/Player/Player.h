@@ -1310,7 +1310,6 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         void SendInitialPacketsBeforeAddToMap();
         void SendInitialPacketsAfterAddToMap();
-        void RefreshHousingMapSessionState(bool deferMapRefresh = false);
         void SendSupercededSpell(uint32 oldSpell, uint32 newSpell) const;
         void SendTransferAborted(uint32 mapid, TransferAbortReason reason, uint8 arg = 0, int32 mapDifficultyXConditionID = 0) const;
 

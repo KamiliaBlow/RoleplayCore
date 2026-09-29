@@ -99,11 +99,7 @@ namespace
     //     where that plot's HouseGuid matches the house object being edited
     //     (defeats the _housings[0] cross-neighborhood fallback).
     // Any other case (visitor on a host plot, off-plot, untracked) is rejected.
-    // Non-const housing reference: when the caller resolved the wrong account house
-    // (Player::GetHousing fallbacks), the plot comparison below would fail even though the
-    // plot IS one of the account's houses. Re-resolve from the plot's owner and hand the
-    // correct Housing back so the caller continues with it.
-    bool PlayerCanEditHousing(Player* player, Housing*& housing)
+    bool PlayerCanEditHousing(Player* player, Housing const* housing)
     {
         if (!player || !housing)
             return false;
@@ -132,26 +128,8 @@ namespace
             if (!plotInfo)
                 return false;
 
-            if (plotInfo->OwnerGuid == housing->GetOwnerGuid()
-                && plotInfo->HouseGuid == housing->GetHouseGuid())
-                return true;
-
-            // The plot belongs to another one of the account's houses (a sibling character of
-            // another faction bought it): re-resolve and compare against that house.
-            if (Housing* accountHousing = player->GetHousingByOwner(plotInfo->OwnerGuid);
-                accountHousing && accountHousing != housing)
-            {
-                if (plotInfo->HouseGuid == accountHousing->GetHouseGuid())
-                {
-                    TC_LOG_INFO("housing", "PlayerCanEditHousing: re-resolved housing {} -> {} for player {} on plot {}",
-                        housing->GetHouseGuid().ToString(), accountHousing->GetHouseGuid().ToString(),
-                        player->GetGUID().ToString(), plotIndex);
-                    housing = accountHousing;
-                    return true;
-                }
-            }
-
-            return false;
+            return plotInfo->OwnerGuid == housing->GetOwnerGuid()
+                && plotInfo->HouseGuid == housing->GetHouseGuid();
         }
 
         return false;
@@ -2517,22 +2495,23 @@ void WorldSession::HandleHousingFixtureSetHouseSize(WorldPackets::Housing::Housi
         return;
     }
 
-    // Item-unlock facades (barn/treehouse skins) ship Base/Roof components in Small size only.
-    // Accepting a size the style does not cover left the exterior stuck on Small meshes while
-    // the persisted size said otherwise: after a relog the client showed "Small" with empty
-    // styles, and re-selecting the real size answered "already that size". Retail carries a
-    // result code exactly for this mismatch.
-    uint32 const styleId = housing->GetHouseType();
-    if (styleId
-        && (!sHousingMgr.GetDefaultFixtureForType(HOUSING_FIXTURE_TYPE_BASE, styleId, requestedSize)
-            || !sHousingMgr.GetDefaultFixtureForType(HOUSING_FIXTURE_TYPE_ROOF, styleId, requestedSize)))
+    // HouseLevelRewardInfo: medium exterior fixtures unlock at house level 8, large ones at 12.
+    if ((requestedSize == HOUSING_FIXTURE_SIZE_MEDIUM && housing->GetLevel() < 8) ||
+        (requestedSize == HOUSING_FIXTURE_SIZE_LARGE && housing->GetLevel() < 12))
     {
         WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
-        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_TYPE_SIZE_MISMATCH);
+        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_SIZE_NOT_AVAILABLE);
         SendPacket(response.Write());
+        return;
+    }
 
-        TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_SIZE HouseGuid: {}, Size: {} REJECTED (style {} has no components at that size)",
-            housingFixtureSetHouseSize.HouseGuid.ToString(), requestedSize, styleId);
+    // HouseLevelRewardInfo: medium exterior fixtures unlock at house level 8, large ones at 12.
+    if ((requestedSize == HOUSING_FIXTURE_SIZE_MEDIUM && housing->GetLevel() < 8) ||
+        (requestedSize == HOUSING_FIXTURE_SIZE_LARGE && housing->GetLevel() < 12))
+    {
+        WorldPackets::Housing::HousingFixtureSetHouseSizeResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_EXTERIOR_SIZE_NOT_AVAILABLE);
+        SendPacket(response.Write());
         return;
     }
 
@@ -2631,29 +2610,6 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
     }
 
     // Persist the new house type
-    // Item-unlock facades only ship components in specific sizes (barn/treehouse skins: Small
-    // only). Applying such a style to a bigger house shrinks the house to the largest size the
-    // style fully covers, before the type switch populates its starter fixtures.
-    {
-        uint8 supportedSize = 0;
-        for (uint8 size = HOUSING_FIXTURE_SIZE_LARGE; size >= HOUSING_FIXTURE_SIZE_SMALL; --size)
-        {
-            if (sHousingMgr.GetDefaultFixtureForType(HOUSING_FIXTURE_TYPE_BASE, wmoDataID, size)
-                && sHousingMgr.GetDefaultFixtureForType(HOUSING_FIXTURE_TYPE_ROOF, wmoDataID, size))
-            {
-                supportedSize = size;
-                break;
-            }
-        }
-
-        if (supportedSize && supportedSize != housing->GetHouseSize())
-        {
-            TC_LOG_INFO("housing", "CMSG_HOUSING_FIXTURE_SET_HOUSE_TYPE: style {} only exists at size {}, shrinking house {} from {}",
-                wmoDataID, supportedSize, housing->GetHouseGuid().ToString(), housing->GetHouseSize());
-            housing->SetHouseSize(supportedSize);
-        }
-    }
-
     housing->SetHouseType(wmoDataID);
 
     // Respawn house MeshObjects with updated type (yard decor stays: it hangs off the plot room, which survives)
@@ -4694,17 +4650,10 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     }
     else if (Housing* housing = player->GetHousing())
     {
-        // Not on any tracked plot ? fall back to player's own house data.
-        // The neighborhood GUID must be the one for the map the player is ON: the client
-        // decodes the NeighborhoodMap record from it to draw the zone map's plot layout and
-        // to validate exterior drag/placement. Reporting the login neighborhood's GUID here
-        // made a cross-faction account owner see their own faction's layout and plot
-        // coordinates while standing on the other faction's map.
+        // Not on any tracked plot ? fall back to player's own house data
         response.House.HouseGUID = housing->GetHouseGuid();
         response.House.OwnerGUID = housing->GetOwnerGuid();
-        response.House.NeighborhoodGUID = housingMap && housingMap->GetNeighborhood()
-            ? housingMap->GetNeighborhood()->GetGuid()
-            : housing->GetNeighborhoodGuid();
+        response.House.NeighborhoodGUID = housing->GetNeighborhoodGuid();
         response.House.PlotIndex = housing->GetPlotIndex();
         response.House.HouseSettingFlags = housing->GetSettingsFlags();
     }

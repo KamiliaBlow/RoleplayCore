@@ -474,7 +474,6 @@ class TC_GAME_API Spell
         void EffectLearnHouseExteriorComponent();
         void EffectLearnHouseTheme();
         void EffectLearnHouseRoomComponentTexture();
-        void EffectLearnHouseType();
         void EffectSetNeighborhoodInitiative();
 
         //NEW

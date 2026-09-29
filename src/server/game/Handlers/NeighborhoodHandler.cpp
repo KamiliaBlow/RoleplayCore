@@ -2214,13 +2214,6 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     // Populate the Housing/4 entity with this neighborhood's mirror data so the
     // client's internal house list stays in sync for plot resolution.
     HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
-
-    // The entity GUID is the neighborhood identity the client keys on (arg1 = the
-    // NeighborhoodMap record whose plot layout it draws). Requesting a roster for a
-    // different neighborhood than the one currently mirrored must re-point it.
-    if (mirrorEntity.GetGUID() != neighborhood->GetGuid())
-        mirrorEntity.ResetGuid(neighborhood->GetGuid());
-
     mirrorEntity.SetName(neighborhood->GetName());
     mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
 
@@ -2293,22 +2286,6 @@ void WorldSession::SendNeighborhoodMapRefresh()
     if (!neighborhood)
         return;
 
-    // NOTE: this MUST precede the name response and the roster below. The client's
-    // Housing/4 CREATE handler resets its neighborhood singleton fields (the same
-    // reset that clears a held entity's dynamic Houses array), so anything that feeds
-    // the singleton sent before the (re)creation gets wiped. Login works because its
-    // Housing/4 CREATE (self bundle) precedes this refresh entirely.
-    // Re-push the Housing/4 mirror with freshly rebuilt fields. The client retains session
-    // entities across map switches, so a blind CREATE here is a duplicate for a held GUID ?
-    // the documented client behavior for that is resetting/ignoring the dynamic Houses array,
-    // which is exactly the lost-pins state. VALUES when held, CREATE when not (the same gate
-    // BuildHousingAccountEntitiesUpdate uses for the Account/Housing/3 pair).
-    neighborhood->RebuildMirrorDataFor(player);
-    if (player->HaveAtClient(&mirrorEntity))
-        mirrorEntity.SendUpdateToPlayer(player);
-    else
-        mirrorEntity.SendCreateToPlayer(player);
-
     // Keep the JamCliNeighborhoodName DataCache fed ? the map pin label resolves the
     // neighborhood name from it, and a missing entry drops the name prefix entirely.
     {
@@ -2324,16 +2301,23 @@ void WorldSession::SendNeighborhoodMapRefresh()
     // ONLY filled by the roster response. After a relog the client requests it itself, but
     // on a mid-session map re-entry it does not re-ask while its singleton starts empty ?
     // the pins then render bare plot numbers ("  49") with no ownership detected.
-    // The roster is required to render the host neighborhood map at all: the client's
-    // TLS identity, plot layout and pin names all derive from it, member or not (a
-    // cross-faction account owner is not a member of the host neighborhood but still
-    // needs its state to interact with their own account's house there).
+    if (neighborhood->GetMember(player->GetGUID()))
     {
         WorldPackets::Neighborhood::NeighborhoodGetRosterResponse rosterResponse;
         neighborhood->BuildRosterResponse(rosterResponse);
         SendPacket(rosterResponse.Write());
     }
 
+    // Re-push the Housing/4 mirror with freshly rebuilt fields. The client retains session
+    // entities across map switches, so a blind CREATE here is a duplicate for a held GUID ?
+    // the documented client behavior for that is resetting/ignoring the dynamic Houses array,
+    // which is exactly the lost-pins state. VALUES when held, CREATE when not (the same gate
+    // BuildHousingAccountEntitiesUpdate uses for the Account/Housing/3 pair).
+    neighborhood->RebuildMirrorDataFor(player);
+    if (player->HaveAtClient(&mirrorEntity))
+        mirrorEntity.SendUpdateToPlayer(player);
+    else
+        mirrorEntity.SendCreateToPlayer(player);
 
     // Pre-push plot-owner names so ownership icons resolve without async name queries.
     {

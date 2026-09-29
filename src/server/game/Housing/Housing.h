@@ -305,9 +305,6 @@ public:
     // Re-resolves Base/Roof root fixtures stored at the old size to the same style at newSize
     // (hook fixtures follow their root). Call after _houseSize changes.
     void RemapFixturesForHouseSize(uint8 newSize);
-    // Re-mirrors the live exterior (type/fixtures/position) onto the owning plot's PlotInfo;
-    // the mirror is only loaded from the DB at server startup otherwise.
-    void RefreshNeighborhoodMirror();
     HousingResult RemoveFixture(uint32 componentID, uint32* outHookID = nullptr);
     std::vector<Fixture const*> GetFixtures() const;
     std::unordered_map<uint32, uint32> GetFixtureOverrideMap() const;

@@ -976,17 +976,6 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         // edit mode with HOUSING_RESULT_ACTION_LOCKED_BY_COMBAT (error 1 = first non-success code).
         player->UpdateHousingMapId(housing->GetHouseGuid(), static_cast<int32>(GetId()));
 
-        // The map preload (SpawnPlotGameObjects) ran before this player's Housing was registered
-        // and spawned from the Neighborhood's startup-time DB mirror. Exterior edits made since
-        // server start (size/style/fixture changes) persist only to the DB, so the preloaded
-        // house can be stale. Re-mirror the live data and rebuild the plot exterior from it.
-        _neighborhood->RefreshPlotExteriorMirror(housing);
-        if (_houseGameObjects.count(plotIdx))
-        {
-            DespawnHouseForPlot(plotIdx);
-            TC_LOG_INFO("housing", "HousingMap::AddPlayerToMap: rebuilt stale preloaded exterior for plot {} from live housing data", plotIdx);
-        }
-
         // Spawn house GO if not already present (handles offline → online transition)
         bool alreadySpawned = _houseGameObjects.find(plotIdx) != _houseGameObjects.end();
         TC_LOG_DEBUG("housing", "HousingMap::AddPlayerToMap: House GO for plot {}: alreadySpawned={} _houseGameObjects.size={}",
@@ -1088,15 +1077,6 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     if (!Map::AddPlayerToMap(player, initPlayer))
         return false;
-
-    // Re-prime the session housing entities on every neighborhood-map entry, not just
-    // login: the Housing/4 mirror GUID is the client's neighborhood identity, and the
-    // Housing/3 entity must carry the house owned on THIS map (its budgets included).
-    // Without this, a character teleporting into the other faction's neighborhood keeps
-    // the login neighborhood's entity state, and the client keeps validating exterior
-    // placement and map pins against the login neighborhood.
-    if (!player->IsLoading())
-        player->RefreshHousingMapSessionState(/*deferMapRefresh=*/true);
 
     // Force immediate visibility update so all MeshObjects (house pieces, decor) get
     // CREATE_OBJECT sent to the player NOW, not deferred to the next map tick.
@@ -2986,7 +2966,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     MeshObject* mesh = SpawnHouseMeshObject(plotIndex, comp->ModelFileDataID, /*isWMO*/ true,
         pos, rot, 1.0f,
         houseGuid, static_cast<int32>(extCompID), houseExteriorWmoDataID,
-        comp->Type, comp->Size, effectiveHookID,
+        comp->Type, /*houseSize*/ 2, effectiveHookID,
         parentGuid, attachFlags, worldPos);
 
     if (!mesh)
@@ -3372,37 +3352,6 @@ MeshObject* HousingMap::SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint3
                 {
                     parentMesh = mesh;
                     break;
-                }
-            }
-        }
-    }
-
-    if (!parentMesh)
-    {
-        // The client can offer hooks of a different root variant than the one currently spawned
-        // (its panel state drifts after size/style toggles — e.g. hook 14833 belongs to the
-        // default roof 1467 while the spawned roof is another style). Fall back to any root
-        // mesh of the same fixture type: hooks anchor to the type's root, whichever variant
-        // is actually up.
-        ExteriorComponentEntry const* hookParentComp = sExteriorComponentStore.LookupEntry(hookEntry->ExteriorComponentID);
-        if (hookParentComp)
-        {
-            auto typeItr = _meshObjects.find(plotIndex);
-            if (typeItr != _meshObjects.end())
-            {
-                for (ObjectGuid const& guid : typeItr->second)
-                {
-                    if (MeshObject* mesh = GetMeshObject(guid))
-                    {
-                        if (mesh->GetExteriorComponentType() == hookParentComp->Type
-                            && mesh->GetExteriorComponentHookID() == -1)
-                        {
-                            parentMesh = mesh;
-                            TC_LOG_INFO("housing", "HousingMap::SpawnFixtureAtHook: hook {} parent comp {} not spawned — anchored to same-type root comp {}",
-                                hookID, hookEntry->ExteriorComponentID, mesh->GetExteriorComponentID());
-                            break;
-                        }
-                    }
                 }
             }
         }

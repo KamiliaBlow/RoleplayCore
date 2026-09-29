@@ -212,16 +212,6 @@ std::vector<RoomComponentOptionEntry const*> HouseInteriorMap::SelectComponentOp
     if (allOptions.empty() && factionThemeID != 1)
         allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, 1);
 
-    // Special rooms (e.g. the round Day/Evening rooms, HouseRoom 223/233) ship component
-    // options in a single fixed theme (theme 3) regardless of the interior's theme. Sweep the
-    // remaining base themes before giving up, or the room places as an empty identity with no
-    // floor/ceiling/wall meshes.
-    if (allOptions.empty())
-    {
-        for (int32 theme = 1; theme <= 5 && allOptions.empty(); ++theme)
-            allOptions = sHousingMgr.FindAllRoomComponentOptions(comp.MeshStyleFilterID, theme);
-    }
-
     std::sort(allOptions.begin(), allOptions.end(), [](RoomComponentOptionEntry const* a, RoomComponentOptionEntry const* b) { return a->ID < b->ID; });
 
     // One slot, one look (retail 12.1.0.69933). RoomComponentOption.RoomComponentID is the variant of a slot

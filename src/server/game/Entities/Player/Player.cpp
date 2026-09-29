@@ -19898,17 +19898,6 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     _LoadMonthlyQuestStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_MONTHLY_QUEST_STATUS));
     _LoadRandomBGStatus(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_RANDOM_BG));
 
-    // Housing tutorial suppression: the client offers the housing tutorial until the whole
-    // tutorial chain is flagged completed (it never asks the server — see the offer in
-    // C_QuestLog checks). With Housing.TutorialsEnabled = 0 the tutorial cannot run, so
-    // mark every chain quest rewarded here, before the login quest state reaches the
-    // client. Persisted with the character, canonical quest storage.
-    if (!sWorld->getBoolConfig(CONFIG_HOUSING_TUTORIALS_ENABLED))
-        for (uint32 questId : HOUSING_TUTORIAL_QUESTS)
-            if (sObjectMgr->GetQuestTemplate(questId))
-                if (GetQuestStatus(questId) == QUEST_STATUS_NONE)
-                    SetRewardedQuest(questId);
-
     // after spell and quest load
     InitTalentForLevel();
     LearnDefaultSkills();
@@ -27319,29 +27308,7 @@ void Player::SendInitialPacketsAfterAddToMap()
     // before the client's first CMSG_NEIGHBORHOOD_INITIATIVE_SERVICE_STATUS_CHECK.
     sInitiativeManager.SendRewardsAvailable(this);
 
-    RefreshHousingMapSessionState();
-
-    UpdateItemLevelAreaBasedScaling();
-
-    if (!GetPlayerSharingQuest().IsEmpty())
-    {
-        if (Quest const* quest = sObjectMgr->GetQuestTemplate(GetSharedQuestID()))
-            PlayerTalkClass->SendQuestGiverQuestDetails(quest, GetGUID(), true, false);
-        else
-            ClearQuestSharingInfo();
-    }
-
-    GetSceneMgr().TriggerDelayedScenes();
-}
-
-void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
-{
-    if (!GetSession())
-        return;
-
-    // Housing state setup at neighborhood map entry. Called on every neighborhood
-    // map entry from HousingMap::AddPlayerToMap (login included); the login burst
-    // kept the call from SendInitialPacketsAfterAddToMap.
+    // Housing state setup at neighborhood map entry.
     //
     // PROVEN RETAIL BEHAVIOUR (sniff analysis across 3 retail 66838 captures:
     // floorplan_editor_rotation, wall_floor_ceiling_customize,
@@ -27366,8 +27333,8 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
     //
     // Remaining work: keep the session-entity state populated so the Player
     // CREATE bundle serialises correct UpdateField values. Set fields only;
-    // the map refresh at the end is the one exception (see below).
-        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
+    // no SendDirectMessage/SendCreateToPlayer calls in this block.
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
     {
         Neighborhood* neighborhood = housingMap->GetNeighborhood();
         if (neighborhood)
@@ -27378,21 +27345,6 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
             // Idempotent when LoadFromDB already populated ? matches no dirty
             // bits, no wire change.
             HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
-
-            // The mirror entity's GUID IS the neighborhood identity the client keys on: its
-            // arg1 field is the NeighborhoodMap.db2 record whose 55 plot coordinates the
-            // zone map draws and against which drag/placement is validated. The GUID is
-            // assigned at login from the login neighborhood; entering a different faction's
-            // neighborhood map must re-point it, or the client keeps drawing and validating
-            // against the login neighborhood's layout (pins of the wrong faction, house
-            // refusing to follow the cursor, spawn ghosts stuck at the player).
-            if (mirrorEntity.GetGUID() != neighborhood->GetGuid())
-            {
-                mirrorEntity.ResetGuid(neighborhood->GetGuid());
-                TC_LOG_INFO("housing", "Player {} entered neighborhood map {} - re-pointed Housing/4 mirror entity to neighborhood '{}'",
-                    GetGUID().ToString(), GetMapId(), neighborhood->GetName());
-            }
-
             mirrorEntity.SetName(neighborhood->GetName());
             mirrorEntity.SetOwnerGUID(neighborhood->GetOwnerGuid());
             mirrorEntity.ClearHouses();
@@ -27447,25 +27399,21 @@ void Player::RefreshHousingMapSessionState(bool deferMapRefresh /*= false*/)
             // neighborhood map the pins lost their name prefix and ownership state (everything
             // worked right after a relog because the login bundle is a fresh CREATE). Re-prime
             // the map state explicitly: mirror CREATE + neighborhood name + plot-owner names.
-            //
-            // Mid-session the client is still inside the map load when this runs and DROPS
-            // housing SMSGs sent during the load: the neighborhood singleton then stays
-            // empty (probe-verified: GetNeighborhoodName()="", all plot entries plotID=0),
-            // which also degenerates the house-type list to the account collection. Defer
-            // the wire refresh past the load; the login burst needs no deferral.
-            if (deferMapRefresh)
-            {
-                ObjectGuid const playerGuid = GetGUID();
-                m_Events.AddEventAtOffset([playerGuid]()
-                {
-                    if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
-                        player->GetSession()->SendNeighborhoodMapRefresh();
-                }, Milliseconds(2000));
-            }
-            else
-                GetSession()->SendNeighborhoodMapRefresh();
+            GetSession()->SendNeighborhoodMapRefresh();
         }
     }
+
+    UpdateItemLevelAreaBasedScaling();
+
+    if (!GetPlayerSharingQuest().IsEmpty())
+    {
+        if (Quest const* quest = sObjectMgr->GetQuestTemplate(GetSharedQuestID()))
+            PlayerTalkClass->SendQuestGiverQuestDetails(quest, GetGUID(), true, false);
+        else
+            ClearQuestSharingInfo();
+    }
+
+    GetSceneMgr().TriggerDelayedScenes();
 }
 
 void Player::SendUpdateToOutOfRangeGroupMembers()
