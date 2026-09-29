@@ -50,15 +50,6 @@ std::string HousingNeighborhoodMirrorEntity::GetNameForLocaleIdx(LocaleConstant 
 
 void HousingNeighborhoodMirrorEntity::BuildUpdate(UpdateDataMapType& data_map)
 {
-    // Suppress the map-tick VALUES while the client demonstrably does not hold this guid
-    // (mid-swap window after a re-point, or after a CMSG_OBJECT_UPDATE_FAILED), and for the
-    // map-transfer window: the client destroys session entities behind loading screens, and a
-    // tick VALUES in that gap makes it RESURRECT the mirror - a wipe of its neighborhood
-    // singleton that strips pin ownership and name prefixes. The deferred destroy+CREATE swap
-    // owns the wire during the window.
-    if (_session->GetHousingMirrorClientGuid() != GetGUID() || _session->IsHousingMirrorTickSuppressed())
-        return;
-
     BuildUpdateChangesMask();
 
     if (Player* owner = _session->GetPlayer())

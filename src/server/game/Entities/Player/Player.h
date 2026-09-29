@@ -1310,11 +1310,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         void SendInitialPacketsBeforeAddToMap();
         void SendInitialPacketsAfterAddToMap();
-        void RefreshHousingMapSessionState();
-        // Debounce for the deferred housing-map wire swap in RefreshHousingMapSessionState:
-        // several refresh calls per map entry must collapse into ONE destroy+CREATE+roster
-        // set - a same-instant duplicate CREATE strips the client's neighborhood cache.
-        bool m_housingMapRefreshQueued = false;
+        void RefreshHousingMapSessionState(bool deferMapRefresh = false);
         void SendSupercededSpell(uint32 oldSpell, uint32 newSpell) const;
         void SendTransferAborted(uint32 mapid, TransferAbortReason reason, uint8 arg = 0, int32 mapDifficultyXConditionID = 0) const;
 
@@ -2903,15 +2899,6 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         GuidUnorderedSet m_visibleTransports;
 
         bool HaveAtClient(BaseEntity const* u) const;
-
-        // Non-map-scoped session entities (Housing/3 house, Housing/4 neighborhood
-        // mirror) are retained by the client across map switches. When such an
-        // entity is re-keyed mid-session the client keeps its copy under the OLD
-        // guid unless we destroy it explicitly, and HaveAtClient keeps answering
-        // for a guid the client no longer holds (and vice versa).
-        void SendDestroyObjectGuid(ObjectGuid guid);
-        void ForgetClientGuid(ObjectGuid guid) { m_clientGUIDs.erase(guid); }
-        void LearnClientGuid(ObjectGuid guid) { m_clientGUIDs.insert(guid); }
 
         bool IsNeverVisibleFor(WorldObject const* seer, bool allowServersideObjects) const override;
 

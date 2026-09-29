@@ -1381,29 +1381,7 @@ void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
     // CREATE matches retail behaviour for a wholesale Houses/Managers replace
     // — incremental UPDATE_OBJECT also works but the client's map-icon refresh
     // path only re-runs on CREATE.
-    HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
-    mirrorEntity.SendCreateToPlayer(player);
-    // The client now holds the mirror under its current guid: keep the session
-    // tracker in sync so later refreshes send VALUES instead of a duplicate CREATE.
-    player->GetSession()->SetHousingMirrorClientGuid(mirrorEntity.GetGUID());
-    player->LearnClientGuid(mirrorEntity.GetGUID());
-
-    // The Housing/4 CREATE handler resets the client's neighborhood singleton, wiping
-    // whatever the roster filled it with (pin ownership classification, plot-name
-    // prefixes). Re-feed it AFTER the create: neighborhood name first (JamCliNeighborhood
-    // DataCache), then the roster (HousingNeighborhoodState singleton).
-    {
-        WorldPackets::Housing::QueryNeighborhoodNameResponse nameResp;
-        nameResp.NeighborhoodGuid = GetGuid();
-        nameResp.Result = true;
-        nameResp.NeighborhoodName = GetName();
-        player->SendDirectMessage(nameResp.Write());
-    }
-    {
-        WorldPackets::Neighborhood::NeighborhoodGetRosterResponse rosterResponse;
-        BuildRosterResponse(rosterResponse);
-        player->SendDirectMessage(rosterResponse.Write());
-    }
+    player->GetSession()->GetHousingNeighborhoodMirrorEntity().SendCreateToPlayer(player);
 }
 
 void Neighborhood::RefreshMirrorDataForOnlineMembers() const
