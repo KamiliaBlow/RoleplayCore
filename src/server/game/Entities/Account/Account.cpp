@@ -103,8 +103,17 @@ void Account::SendUpdateToPlayer(Player* player)
 
 void Account::SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue)
 {
+    auto setter = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor);
+    // Remove before re-inserting so identical values still mark the entry changed: the client
+    // ingests storage entries only through updates after its housing state initializes (the
+    // login CREATE is processed too early), so the editor-entry storage refresh must reach it
+    // even when nothing actually changed.
+    RemoveMapUpdateFieldValue(setter, decorGuid);
+
     auto ref = m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor, decorGuid);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
+    // 0 = in storage, 1 = placed. The client's decor budget readout sums the weight of non-zero-status entries.
+    SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::PlacementStatus), houseGuid.IsEmpty() ? uint8(0) : uint8(1));
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
     SetUpdateFieldValue(ref.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
 }

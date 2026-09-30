@@ -488,9 +488,9 @@ void HousingGetPlayerPermissions::Read()
 
 void HousingSvcsGetPotentialHouseOwners::Read()
 {
-    _worldPacket >> NeighborhoodGuid;
+    _worldPacket >> HouseGuid;
 
-    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS NeighborhoodGuid: {}", NeighborhoodGuid.ToString());
+    TC_LOG_DEBUG("network.opcode", "CMSG_HOUSING_SVCS_GET_POTENTIAL_HOUSE_OWNERS HouseGuid: {}", HouseGuid.ToString());
 }
 
 // Retired 2026-05-12: HousingSystemGetHouseInfoAlt / HousingSystemHouseSnapshot /

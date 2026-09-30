@@ -379,6 +379,9 @@ enum NeighborhoodFactionRestriction : int32
 // was ever meant to do.
 constexpr char const* HOUSING_MODES_UNLOCKED_CVAR = "0 64";
 
+// Rewarding all four quests (in the chain's own order) ends the housing tutorial.
+constexpr uint32 HOUSING_TUTORIAL_QUEST_CHAIN[] = { 93057, 91863, 91968, 91969 };
+
 // HouseSettingFlags enum - 11 values (bitmask), verified against client binary
 // Two groups: HouseAccess (bits 0-4) for interior, PlotAccess (bits 5-9) for exterior
 enum HouseSettingFlags : uint32
@@ -825,6 +828,10 @@ static constexpr uint32 MAX_NEIGHBORHOOD_PLOTS          = 55;
 static constexpr uint32 MAX_NEIGHBORHOOD_MANAGERS       = 5;
 static constexpr uint32 MAX_PENDING_INVITES             = 20;
 static constexpr uint8  INVALID_PLOT_INDEX              = 255;
+// Retail spawns the same "Cornerstone" GO on every plot; the plot is identified by the GO's
+// FJamHousingCornerstone_C fragment, not by its entry. Per-plot NeighborhoodPlot.CornerstoneGameObjectID
+// rows remain the position/rotation anchor.
+static constexpr uint32 HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY = 457142;
 static constexpr uint32 HOUSING_MAX_NAME_LENGTH         = 64;
 static constexpr uint64 HOUSE_MOVE_COST_COPPER          = 500ULL * 10000ULL;       // 500g move cost
 static constexpr uint32 MAX_HOUSE_LEVEL                 = 12;   // HouseLevelData.db2 levels 1-12

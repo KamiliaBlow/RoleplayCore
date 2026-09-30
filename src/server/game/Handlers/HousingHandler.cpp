@@ -155,8 +155,12 @@ namespace
         ObjectGuid neighborhoodGuid = housing->GetNeighborhoodGuid();
         uint8 plotIndex = INVALID_PLOT_INDEX;
 
+        // Neighborhood membership is keyed by the owner character, so a sibling character of the
+        // account selling the house has no member row - the housing's own plot index is primary.
         Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGuid);
-        if (neighborhood)
+        if (housing->GetPlotIndex() != INVALID_PLOT_INDEX)
+            plotIndex = housing->GetPlotIndex();
+        else if (neighborhood)
             if (Neighborhood::Member const* member = neighborhood->GetMember(player->GetGUID()))
                 plotIndex = member->PlotIndex;
 
@@ -174,13 +178,18 @@ namespace
         }
 
         if (neighborhood)
-        {
             // EvictPlayer sends the remaining members the new roster.
             neighborhood->EvictPlayer(player->GetGUID());
-            neighborhood->RefreshMirrorDataForOnlineMembers();
-        }
 
         player->DeleteHousing(neighborhoodGuid);
+
+        // Rebuild the neighborhood mirror only after the plot is freed. The seller can be a
+        // character with no member row in this neighborhood, so refresh their copy explicitly.
+        if (neighborhood)
+        {
+            neighborhood->RefreshMirrorDataForPlayer(player);
+            neighborhood->RefreshMirrorDataForOnlineMembers();
+        }
 
         if (!houseGuid.IsEmpty())
         {
@@ -2300,9 +2309,10 @@ void WorldSession::HandleHousingFixtureCreateFixture(WorldPackets::Housing::Hous
                 housingMap->DespawnSingleMeshObject(plotIndex, oldMesh->GetGUID());
             }
 
-            // Spawn new fixture mesh
+            // Spawn new fixture mesh; the client's HookEntityGuid names the mesh owning the socket.
             MeshObject* newMesh = housingMap->SpawnFixtureAtHook(plotIndex, hookID, componentID,
-                housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player);
+                housing->GetHouseGuid(), static_cast<int32>(housing->GetHouseType()), player,
+                housingFixtureCreateFixture.HookEntityGuid);
             if (newMesh)
                 newFixtureGuid = newMesh->GetFixtureGuid();
 
@@ -2651,27 +2661,34 @@ void WorldSession::HandleHousingFixtureSetHouseType(WorldPackets::Housing::Housi
     // Persist the new house type
     housing->SetHouseType(wmoDataID);
 
-    // Respawn house MeshObjects with updated type (yard decor stays: it hangs off the plot room, which survives)
-    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
-    {
-        uint8 plotIndex = housing->GetPlotIndex();
-        auto fixtureOverrides = housing->GetFixtureOverrideMap();
-        auto rootOverrides = housing->GetRootComponentOverrides();
-        // A house the owner moved stays where they put it, as HousingMap::SpawnPlotGameObjects spawns it.
-        Position const housePos = housing->GetHousePosition();
-        housingMap->DespawnHouseForPlot(plotIndex);
-        housingMap->SpawnHouseForPlot(plotIndex, housing->HasCustomPosition() ? &housePos : nullptr,
-            static_cast<int32>(housing->GetCoreExteriorComponentID()),
-            static_cast<int32>(wmoDataID),
-            fixtureOverrides.empty() ? nullptr : &fixtureOverrides,
-            rootOverrides.empty() ? nullptr : &rootOverrides);
-    }
+    // Respawn house MeshObjects with updated type (yard decor stays: it hangs off the plot room, which survives).
+    //
+    // Wire order matters: the client builds its fixture point frames from mesh CREATE events,
+    // gated on the state SET_HOUSE_TYPE_RESPONSE sets. Respawning before the response made the
+    // sockets of the new meshes vanish until the editor was reopened.
+    HousingMap* typeChangeMap = dynamic_cast<HousingMap*>(player->GetMap());
+    if (typeChangeMap)
+        typeChangeMap->DespawnHouseForPlot(housing->GetPlotIndex());
 
     // Sniff-verified packet order: SMSG response ? UPDATE_OBJECT (~228B)
     WorldPackets::Housing::HousingFixtureSetHouseTypeResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.HouseExteriorTypeID = wmoDataID;
     SendPacket(response.Write());
+
+    if (typeChangeMap)
+    {
+        uint8 plotIndex = housing->GetPlotIndex();
+        auto fixtureOverrides = housing->GetFixtureOverrideMap();
+        auto rootOverrides = housing->GetRootComponentOverrides();
+        // A house the owner moved stays where they put it, as HousingMap::SpawnPlotGameObjects spawns it.
+        Position const housePos = housing->GetHousePosition();
+        typeChangeMap->SpawnHouseForPlot(plotIndex, housing->HasCustomPosition() ? &housePos : nullptr,
+            static_cast<int32>(housing->GetCoreExteriorComponentID()),
+            static_cast<int32>(wmoDataID),
+            fixtureOverrides.empty() ? nullptr : &fixtureOverrides,
+            rootOverrides.empty() ? nullptr : &rootOverrides);
+    }
 
     // No SMSG_ACCOUNT_HOUSE_TYPE_COLLECTION_UPDATE here: retail sends none after any of 6 sniffed type changes.
 
@@ -3579,7 +3596,118 @@ void WorldSession::HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housin
         plotIndex, uint32(result));
 }
 
-void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::HousingSvcsRelinquishHouse const& /*housingSvcsRelinquishHouse*/)
+// CurrentHouse -> Empty + HOUSE_STATUS 0, the same flip the interior-exit path uses: the client
+// derives "at your house" (and the housing controls panel) from this field's update changes.
+void WorldSession::ClearHousingHouseContext(ObjectGuid houseGuid)
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    player->SetCurrentHouse(ObjectGuid::Empty);
+
+    WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
+    statusResponse.HouseGuid = houseGuid;
+    statusResponse.AccountGuid = GetBattlenetAccountGUID();
+    statusResponse.OwnerPlayerGuid = player->GetGUID();
+    statusResponse.Status = 0;
+    SendPacket(statusResponse.Write());
+
+    // Push the field change immediately - the client reacts on the UPDATE_OBJECT.
+    player->BuildUpdateChangesMask();
+    UpdateData updateData(player->GetMapId());
+    WorldPacket updatePacket;
+    player->BuildValuesUpdateBlockForPlayer(&updateData, player);
+    updateData.BuildPacket(&updatePacket);
+    player->SendDirectMessage(&updatePacket);
+    player->ClearUpdateMask(false);
+}
+
+// Closes the active housing editor (decor / room layout / exterior fixture), replaying the wire
+// sequence of that mode's normal exit path. The client keeps the editor UI open until the
+// EditorMode update field goes to 0 - a house teardown alone never closes it.
+void WorldSession::ForceExitHousingEditorModes(ObjectGuid houseGuid)
+{
+    Player* player = GetPlayer();
+    if (!player || !player->m_playerHouseInfoComponentData.has_value())
+        return;
+
+    uint8 const context = *player->m_playerHouseInfoComponentData->EditorMode;
+    if (context == uint8(HOUSE_EDITING_CONTEXT_NONE))
+        return;
+
+    TC_LOG_INFO("housing", "ForceExitHousingEditorModes: Player {} leaves editing context {} (house {})",
+        player->GetGUID().ToString(), context, houseGuid.ToString());
+
+    switch (context)
+    {
+        case uint8(HOUSE_EDITING_CONTEXT_DECOR):
+        {
+            // Empty AllowedEditor = exit.
+            WorldPackets::Housing::HousingDecorSetEditModeResponse response;
+            response.HouseGuid = houseGuid;
+            response.BNetAccountGuid = GetBattlenetAccountGUID();
+            response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+            SendPacket(response.Write());
+            break;
+        }
+        case uint8(HOUSE_EDITING_CONTEXT_ROOM):
+        {
+            WorldPackets::Housing::HousingRoomSetLayoutEditModeResponse response;
+            response.PlayerGuid = player->GetGUID();
+            response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+            response.Active = false;
+            SendPacket(response.Write());
+            break;
+        }
+        case uint8(HOUSE_EDITING_CONTEXT_FIXTURE):
+        {
+            // The fixture editor roots the player; unroot on exit like its CMSG exit path.
+            player->RemoveUnitMovementFlag(MOVEMENTFLAG_ROOT);
+            player->RemoveUnitMovementFlag(MOVEMENTFLAG_DISABLE_GRAVITY);
+
+            WorldPackets::Movement::MoveSetCompoundState compoundState;
+            compoundState.MoverGUID = player->GetGUID();
+            compoundState.StateChanges.emplace_back(SMSG_MOVE_UNROOT, player->m_movementCounter++);
+            compoundState.StateChanges.emplace_back(SMSG_MOVE_ENABLE_GRAVITY, player->m_movementCounter++);
+            SendPacket(compoundState.Write());
+
+            // Empty EditorPlayerGuid = exit.
+            WorldPackets::Housing::HousingFixtureSetEditModeResponse response;
+            response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
+            SendPacket(response.Write());
+            break;
+        }
+        default:
+            break;
+    }
+
+    for (uint32 auraSpell : { SPELL_HOUSING_EDIT_MODE_AURA, SPELL_HOUSING_ROOM_EDIT_MODE_AURA })
+        if (sSpellMgr->GetSpellInfo(auraSpell, DIFFICULTY_NONE))
+            player->RemoveAurasDueToSpell(auraSpell);
+
+    player->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
+    player->RemoveUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
+    player->ReplaceAllSilencedSchoolMask(SpellSchoolMask(0));
+
+    // EditorMode -> 0, pushed immediately - this is what closes the client's editor UI.
+    player->SetHousingEditorModeUpdateField(uint8(HOUSE_EDITING_CONTEXT_NONE));
+    player->BuildUpdateChangesMask();
+    {
+        UpdateData updateData(player->GetMapId());
+        WorldPacket updatePacket;
+        player->BuildValuesUpdateBlockForPlayer(&updateData, player);
+        updateData.BuildPacket(&updatePacket);
+        player->SendDirectMessage(&updatePacket);
+    }
+    player->ClearUpdateMask(false);
+
+    // A stale tick VALUES_UPDATE on the Account entity gets rejected by the client.
+    GetBattlenetAccount().ClearUpdateMask(true);
+    GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+}
+
+void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::HousingSvcsRelinquishHouse const& housingSvcsRelinquishHouse)
 {
     Player* player = GetPlayer();
     if (!player)
@@ -3602,6 +3730,29 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
         return;
     }
 
+    // Do not destroy a different house of the account than the one the client named.
+    if (!housingSvcsRelinquishHouse.HouseGuid.IsEmpty() && housingSvcsRelinquishHouse.HouseGuid != housing->GetHouseGuid())
+    {
+        WorldPackets::Housing::HousingSvcsRelinquishHouseResponse response;
+        response.Result = static_cast<uint8>(HOUSING_RESULT_HOUSE_NOT_FOUND);
+        SendPacket(response.Write());
+
+        TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_RELINQUISH_HOUSE: Player {} sent HouseGuid {} but session holds {} - rejected",
+            player->GetGUID().ToString(), housingSvcsRelinquishHouse.HouseGuid.ToString(), housing->GetHouseGuid().ToString());
+        return;
+    }
+
+    ForceExitHousingEditorModes(housing->GetHouseGuid());
+
+    // Refund the plot fee the purchase charged; computed while the housing still knows its plot.
+    ObjectGuid const neighborhoodGuid = housing->GetNeighborhoodGuid();
+    uint8 const plotIndex = housing->GetPlotIndex();
+    uint64 plotRefund = 0;
+    if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(neighborhoodGuid))
+        for (NeighborhoodPlotData const* plot : sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
+            if (plot->PlotIndex == plotIndex)
+                plotRefund = plot->Cost;
+
     // Full teardown: despawn the structure, free the plot, drop membership, delete the
     // rows, notify roster and guild. Shared with CMSG_HOUSING_RESET_KIOSK_MODE, which
     // destroys a house by the same definition and used to do none of it (H-08).
@@ -3610,11 +3761,21 @@ void WorldSession::HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::Housi
     WorldPackets::Housing::HousingSvcsRelinquishHouseResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.HouseGuid = houseGuid;
+    response.NeighborhoodGuid = neighborhoodGuid;
     SendPacket(response.Write());
+
+    if (plotRefund > 0 && !houseGuid.IsEmpty())
+    {
+        player->ModifyMoney(static_cast<int64>(plotRefund));
+        TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_RELINQUISH_HOUSE: Player {} refunded {} copper for plot {} in neighborhood {}",
+            player->GetGUID().ToString(), plotRefund, plotIndex, neighborhoodGuid.ToString());
+    }
 
     // Request client to reload housing data
     WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
     SendPacket(reloadData.Write());
+
+    ClearHousingHouseContext(houseGuid);
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_SVCS_RELINQUISH_HOUSE: Player {} relinquished house {}",
         player->GetGUID().ToString(), houseGuid.ToString());
@@ -4226,28 +4387,21 @@ void WorldSession::HandleHousingSvcsRejectNeighborhoodOwnership(WorldPackets::Ho
         player->GetGUID().ToString(), housingSvcsRejectNeighborhoodOwnership.NeighborhoodGuid.ToString(), uint32(result));
 }
 
-void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housing::HousingSvcsGetPotentialHouseOwners const& /*housingSvcsGetPotentialHouseOwners*/)
+void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housing::HousingSvcsGetPotentialHouseOwners const& housingSvcsGetPotentialHouseOwners)
 {
     Player* player = GetPlayer();
     if (!player)
         return;
 
-    // The neighborhood of the house decides which factions may own it
-    Housing* housing = player->GetHousing();
+    // Resolve the house for the faction/guild error context only - the CMSG carries its
+    // HouseGuid (empty once relinquished). Retail replies with the account's characters even
+    // without a house; an empty reply makes the client's owner dropdown re-request it in a
+    // loop until the script stack overflows.
+    Housing* housing = player->GetHousingByHouseGuid(housingSvcsGetPotentialHouseOwners.HouseGuid);
     if (!housing)
-    {
-        WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse response;
-        SendPacket(response.Write()); // empty array ? no Result byte in wire format
-        return;
-    }
+        housing = player->GetHousing();
 
-    Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid());
-    if (!neighborhood)
-    {
-        WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse response;
-        SendPacket(response.Write()); // empty array
-        return;
-    }
+    Neighborhood* neighborhood = housing ? sNeighborhoodMgr.GetNeighborhood(housing->GetNeighborhoodGuid()) : nullptr;
 
     // The house belongs to the account: the owner list is the account's characters (retail 12.1.0.69933 sniff 14-43-07,
     // JamPotentialCosmeticHouseOwner: 16 characters over several realms, class as ClassID). The client selects the one
@@ -4273,7 +4427,7 @@ void WorldSession::HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housin
             WorldPackets::Housing::HousingSvcsGetPotentialHouseOwnersResponse::PotentialOwnerData& ownerData = response.PotentialOwners.emplace_back();
             ownerData.PlayerGuid = guid;
             ownerData.ClassID = character->Class;
-            ownerData.Error = GetHouseOwnerError(player, *housing, *neighborhood, *character);
+            ownerData.Error = (housing && neighborhood) ? GetHouseOwnerError(player, *housing, *neighborhood, *character) : HOUSE_OWNER_ERROR_NONE;
             ownerData.CharacterName = character->Name + realmSuffix;
         } while (result->NextRow());
     }
@@ -4816,6 +4970,9 @@ void WorldSession::HandleHousingResetKioskMode(WorldPackets::Housing::HousingRes
     // drop membership, delete the rows. This used to call DeleteHousing() alone,
     // which left the ten MeshObjects and the door GO standing on a plot the server
     // now considered vacant and re-purchasable.
+    // Close any active editor first, while the house GUID is still valid.
+    if (Housing* kioskHousing = player->GetHousing())
+        ForceExitHousingEditorModes(kioskHousing->GetHouseGuid());
     ObjectGuid destroyedHouseGuid = DestroyPlayerHousing(player);
 
     WorldPackets::Housing::HousingResetKioskModeResponse response;
@@ -4827,6 +4984,9 @@ void WorldSession::HandleHousingResetKioskMode(WorldPackets::Housing::HousingRes
     {
         WorldPackets::Housing::HousingSvcRequestPlayerReloadData reloadData;
         SendPacket(reloadData.Write());
+
+        // Same reason as the relinquish path: hide the controls panel of the gone house.
+        ClearHousingHouseContext(destroyedHouseGuid);
     }
 
     TC_LOG_INFO("housing", "CMSG_HOUSING_RESET_KIOSK_MODE processed for player {}",

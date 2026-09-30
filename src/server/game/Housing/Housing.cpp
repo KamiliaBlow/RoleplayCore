@@ -2188,8 +2188,11 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
     if (boxes.empty())
         return true;
 
-    // Neighbouring walls stand on (almost) the same line.
-    constexpr float TOLERANCE = 0.5f;
+    // Neighbouring walls stand on (almost) the same line - "almost" being up to a few yards:
+    // RoomGridLine rects include wall thickness and are not aligned to the door plane, so
+    // legitimate door-adjacent placements overlap by up to ~4yd. Positions snap to the integer
+    // cell grid, where a real overlap is >= ~11yd.
+    constexpr float TOLERANCE = 5.0f;
     for (Room const* other : rooms)
     {
         if (!other || other->Guid == ignoreRoom || other->FloorIndex != floorIndex)

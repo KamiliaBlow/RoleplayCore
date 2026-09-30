@@ -247,7 +247,8 @@ void HousingMgr::LoadHouseRoomData()
         data.Field_002 = entry->Field_002;
         data.RoomWmoDataID = entry->RoomWmoDataID;
         data.UiTextureAtlasElementID = entry->UiTextureAtlasElementID;
-        data.WeightCost = entry->WeightCost > 0 ? entry->WeightCost : 1;
+        // 0 is legal (the base room is free; the client's budget math charges 0 as well).
+        data.WeightCost = entry->WeightCost >= 0 ? entry->WeightCost : 1;
     }
 
     TC_LOG_DEBUG("housing", "HousingMgr::LoadHouseRoomData: Loaded {} HouseRoom entries", uint32(_houseRoomStore.size()));
@@ -449,6 +450,32 @@ void HousingMgr::LoadNeighborhoodPlotData()
         }
     }
 
+    // The shared cornerstone entry itself: normally provided by GameObjects.db2 (official
+    // "Cornerstone" row) or gameobject_template. If the server data has neither, register it
+    // so SpawnPlotGameObjects can still create the GO with the retail interaction data.
+    if (!sObjectMgr->GetGameObjectTemplate(HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY))
+    {
+        GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY];
+        got.entry = HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY;
+        got.type = 48; // GAMEOBJECT_TYPE_UI_LINK
+        got.displayId = 110660;
+        got.name = "Cornerstone";
+        got.IconName = "buy";
+        got.size = 1.0f;
+        memset(got.raw.data, 0, sizeof(got.raw.data));
+        got.raw.data[0] = 4;       // UILinkType = CornerstoneInteraction
+        got.raw.data[2] = 1;       // GiganticAOI
+        got.raw.data[4] = 10;      // radius
+        got.raw.data[7] = 70;      // PlayerInteractionType = CornerstoneInteraction
+        got.raw.data[8] = 1266097; // spell = [DNT] Trigger Convo for Unowned Plot
+        got.ContentTuningId = 0;
+        got.RequiredLevel = 0;
+        got.ScriptId = 0;
+        got.InitializeQueryData();
+        ++dynamicAdded;
+        ++missingCornerstone;
+    }
+
     if (dynamicAdded > 0)
     {
         TC_LOG_ERROR("housing", "HousingMgr::LoadNeighborhoodPlotData: {} cornerstone + {} plot marker GO templates were MISSING from gameobject_template and GameObjects.db2. "
@@ -626,7 +653,7 @@ NeighborhoodPlotData const* HousingMgr::GetPlotByCornerstoneEntry(uint32 neighbo
     return nullptr;
 }
 
-int32 HousingMgr::ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const
+int32 HousingMgr::ResolvePlotIndex(WorldObject const* searcher, ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const
 {
     if (!neighborhood)
     {
@@ -644,6 +671,20 @@ int32 HousingMgr::ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood cons
         return -1;
     }
 
+    // Preferred: the PlotIndex carried in the GO's FJamHousingCornerstone_C fragment (all plots
+    // share one Cornerstone GO entry, so the entry no longer identifies the plot).
+    if (GameObject const* cornerstone = searcher ? ObjectAccessor::GetGameObject(*searcher, cornerstoneGuid) : nullptr)
+    {
+        int32 const fragmentPlot = cornerstone->GetHousingCornerstonePlotIndex();
+        if (fragmentPlot >= 0)
+        {
+            TC_LOG_DEBUG("housing", "HousingMgr::ResolvePlotIndex: Resolved GUID {} via cornerstone fragment -> PlotIndex {}",
+                cornerstoneGuid.ToString(), fragmentPlot);
+            return fragmentPlot;
+        }
+    }
+
+    // Fallback: legacy per-plot GO entries (NeighborhoodPlot.CornerstoneGameObjectID).
     uint32 goEntry = cornerstoneGuid.GetEntry();
     if (!goEntry)
     {
@@ -656,7 +697,7 @@ int32 HousingMgr::ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood cons
     NeighborhoodPlotData const* plotData = GetPlotByCornerstoneEntry(neighborhoodMapId, goEntry);
     if (!plotData)
     {
-        TC_LOG_ERROR("housing", "HousingMgr::ResolvePlotIndex: No plot found for goEntry={} in neighborhoodMapId={} (GUID: {})",
+        TC_LOG_DEBUG("housing", "HousingMgr::ResolvePlotIndex: No plot found for goEntry={} in neighborhoodMapId={} (GUID: {})",
             goEntry, neighborhoodMapId, cornerstoneGuid.ToString());
         return -1;
     }
@@ -750,10 +791,10 @@ uint32 HousingMgr::GetDecorWeightCost(uint32 decorEntryId) const
 
 uint32 HousingMgr::GetRoomWeightCost(uint32 roomEntryId) const
 {
-    // HouseRoom.WeightCost; the upper half of a stairwell is free (Housing::GetRoomWeightCost).
+    // The upper half of a stairwell is free through Housing::GetRoomWeightCost's stairwell rule.
     HouseRoomData const* roomData = GetHouseRoomData(roomEntryId);
     if (roomData)
-        return static_cast<uint32>(std::max<int32>(roomData->WeightCost, 1));
+        return static_cast<uint32>(std::max<int32>(roomData->WeightCost, 0));
 
     return 1;
 }

@@ -1228,7 +1228,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
     uint8 resolvedPlotIndex = static_cast<uint8>(_lastClientPlotIndex);
 
     // Also resolve via DB2 for logging/validation
-    int32 db2Resolved = sHousingMgr.ResolvePlotIndex(neighborhoodBuyHouse.CornerstoneGuid, neighborhood);
+    int32 db2Resolved = sHousingMgr.ResolvePlotIndex(player, neighborhoodBuyHouse.CornerstoneGuid, neighborhood);
 
     TC_LOG_INFO("housing", "HandleNeighborhoodBuyHouse: Using client PlotIndex={} (DB2 resolved={}), CornerstoneGuid={}, HouseGuid={}",
         resolvedPlotIndex, db2Resolved, neighborhoodBuyHouse.CornerstoneGuid.ToString(), neighborhoodBuyHouse.HouseGuid.ToString());
@@ -1385,56 +1385,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         // Buying a house is precisely when the housing tutorial should START, so suppressing every tutorial at
         // that moment was backwards. The client tracks its own progress via CMSG_TUTORIAL.
 
-        // Also inject FrameTutorialAccount CVars into GLOBAL_CONFIG_CACHE.
-        // The client's housing UI checks closedInfoFramesAccountWide bit 38
-        // (HousingModesUnlocked) separately from the 256-bit server tutorial flags.
-        {
-            AccountData const* configCache = GetAccountData(GLOBAL_CONFIG_CACHE);
-            std::string configData = configCache ? configCache->Data : "";
-            bool modified = false;
-
-            auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
-            {
-                std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
-                size_t pos = configData.find(setPrefix);
-                if (pos != std::string::npos)
-                {
-                    size_t valStart = pos + setPrefix.size();
-                    size_t valEnd = configData.find('"', valStart);
-                    if (valEnd != std::string::npos)
-                    {
-                        std::string oldVal = configData.substr(valStart, valEnd - valStart);
-                        if (oldVal != value)
-                        {
-                            configData.replace(valStart, valEnd - valStart, value);
-                            modified = true;
-                        }
-                    }
-                }
-                else
-                {
-                    if (!configData.empty() && configData.back() != '\n')
-                        configData += '\n';
-                    configData += "SET ";
-                    configData += cvarName;
-                    configData += " \"";
-                    configData += value;
-                    configData += "\"\n";
-                    modified = true;
-                }
-            };
-
-            // Editor modes only - see HOUSING_MODES_UNLOCKED_CVAR. housingTutorialsEnabled stays untouched.
-            ensureCVar("closedInfoFramesAccountWide", HOUSING_MODES_UNLOCKED_CVAR);
-            // Repair the persisted "0" written by the old code - see the login site for why.
-            ensureCVar("housingTutorialsEnabled", "1");
-
-            if (modified)
-            {
-                SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
-                SendAccountDataTimes(player->GetGUID(), GLOBAL_CACHE_MASK);
-            }
-        }
+        player->UpdateHousingTutorialCVars();
 
         // Retail sequence: FirstTimeDecorAcquisition ? BuyHouseResponse ? LevelFavor updates
 
@@ -1711,7 +1662,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     // the cached _lastClientPlotIndex if the cornerstone resolve misses (covers
     // the OPEN_CORNERSTONE_UI ? MOVE_HOUSE flow where the GO no longer exists
     // on the destination plot, e.g. just-bought plots).
-    int32 resolvedTarget = sHousingMgr.ResolvePlotIndex(neighborhoodMoveHouse.CornerstoneGuid, neighborhood);
+    int32 resolvedTarget = sHousingMgr.ResolvePlotIndex(player, neighborhoodMoveHouse.CornerstoneGuid, neighborhood);
     uint8 targetPlotIndex = (resolvedTarget >= 0)
         ? static_cast<uint8>(resolvedTarget)
         : static_cast<uint8>(_lastClientPlotIndex);
@@ -1940,7 +1891,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     _lastCornerstoneGuid = neighborhoodOpenCornerstoneUI.NeighborhoodGuid;
 
     // Also resolve via cornerstone GO entry for cost lookup (uses our DB2 internal index)
-    int32 resolved = sHousingMgr.ResolvePlotIndex(neighborhoodOpenCornerstoneUI.NeighborhoodGuid, neighborhood);
+    int32 resolved = sHousingMgr.ResolvePlotIndex(player, neighborhoodOpenCornerstoneUI.NeighborhoodGuid, neighborhood);
 
     TC_LOG_INFO("housing", "HandleNeighborhoodOpenCornerstoneUI: Client PlotIndex={}, DB2 resolved={}, CornerstoneGuid={}",
         plotIndex, resolved, neighborhoodOpenCornerstoneUI.NeighborhoodGuid.ToString());
@@ -2387,7 +2338,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
     // which may differ from our DB2 PlotIndex values
     uint32 plotIndex = neighborhoodEvictPlot.PlotIndex;
 
-    int32 db2Resolved = sHousingMgr.ResolvePlotIndex(neighborhoodEvictPlot.NeighborhoodGuid, neighborhood);
+    int32 db2Resolved = sHousingMgr.ResolvePlotIndex(player, neighborhoodEvictPlot.NeighborhoodGuid, neighborhood);
     TC_LOG_INFO("housing", "HandleNeighborhoodEvictPlot: Using client PlotIndex={} (DB2 resolved={})",
         plotIndex, db2Resolved);
 

@@ -157,8 +157,11 @@ public:
     MeshObject* FindMeshObjectByHookID(uint8 plotIndex, int32 hookID);
     void DespawnSingleMeshObject(uint8 plotIndex, ObjectGuid meshGuid);
     // Spawn a single fixture component at a hook and send CREATE to a specific player.
+    // `parentHint` is the mesh the client named as the hook's owner (CMSG HookEntityGuid); variant
+    // re-keys of the parent mesh invalidate the DB2 parent-component lookup, so the hint wins.
     MeshObject* SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint32 componentID,
-        ObjectGuid houseGuid, int32 houseExteriorWmoDataID, Player* target);
+        ObjectGuid houseGuid, int32 houseExteriorWmoDataID, Player* target,
+        ObjectGuid parentHint = ObjectGuid::Empty);
 
     // Room entity management (provides Geobox for client OutsidePlotBounds check)
     void SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,

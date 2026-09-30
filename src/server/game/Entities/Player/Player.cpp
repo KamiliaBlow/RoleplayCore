@@ -16519,6 +16519,10 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
     // make full db save
     SaveToDB(false);
 
+    if (std::find(std::begin(HOUSING_TUTORIAL_QUEST_CHAIN), std::end(HOUSING_TUTORIAL_QUEST_CHAIN), quest_id)
+        != std::end(HOUSING_TUTORIAL_QUEST_CHAIN))
+        UpdateHousingTutorialCVars();
+
     if (quest->HasFlag(QUEST_FLAGS_FLAGS_PVP))
     {
         pvpInfo.IsHostile = pvpInfo.IsInHostileArea || HasPvPForcingQuest();
@@ -20175,72 +20179,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     // and reports each step through CMSG_TUTORIAL (WorldSession::HandleTutorialFlag), so letting it drive them is
     // both correct and self-repairing.
     if (GetSession())
-    {
-        // The 256-bit server tutorial flags (above) are separate from the client's
-        // FrameTutorialAccount UI flags. The client stores those in the CVar bitfield
-        // "closedInfoFramesAccountWide" within the GLOBAL_CONFIG_CACHE account data.
-        // Without setting bit 38 (HousingModesUnlocked), the housing editor UI keeps
-        // expert/cleanup/layout modes locked with "Tutorial Mode" error.
-        AccountData const* configCache = GetSession()->GetAccountData(GLOBAL_CONFIG_CACHE);
-        std::string configData = configCache ? configCache->Data : "";
-        bool configModified = false;
-
-        // Helper lambda: set or replace a CVar value in the config string
-        auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
-        {
-            std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
-            size_t pos = configData.find(setPrefix);
-            if (pos != std::string::npos)
-            {
-                // Replace existing value
-                size_t valStart = pos + setPrefix.size();
-                size_t valEnd = configData.find('"', valStart);
-                if (valEnd != std::string::npos)
-                {
-                    std::string oldVal = configData.substr(valStart, valEnd - valStart);
-                    if (oldVal != value)
-                    {
-                        configData.replace(valStart, valEnd - valStart, value);
-                        configModified = true;
-                    }
-                }
-            }
-            else
-            {
-                // Append new CVar
-                if (!configData.empty() && configData.back() != '\n')
-                    configData += '\n';
-                configData += "SET ";
-                configData += cvarName;
-                configData += " \"";
-                configData += value;
-                configData += "\"\n";
-                configModified = true;
-            }
-        };
-
-        // Unlock the housing editor modes and NOTHING else - see HOUSING_MODES_UNLOCKED_CVAR.
-        // housingTutorialsEnabled is deliberately left alone so the client runs the housing tutorial
-        // normally; forcing it to 0 here is what skipped the tutorial and dropped a first-time buyer
-        // straight into the House Finder.
-        ensureCVar("closedInfoFramesAccountWide", HOUSING_MODES_UNLOCKED_CVAR);
-        // Actively restore the client default rather than merely stopping writing it: accounts that
-        // logged in under the old code still carry a persisted housingTutorialsEnabled="0" in their
-        // GLOBAL_CONFIG_CACHE, and leaving it alone would keep the tutorial suppressed forever for
-        // exactly the characters that hit the bug. This repairs our own past write; it is not a gate.
-        ensureCVar("housingTutorialsEnabled", "1");
-
-        if (configModified)
-        {
-            GetSession()->SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
-            // Re-send account data timestamps so the client detects the newer timestamp
-            // and re-fetches GLOBAL_CONFIG_CACHE. Without this, the client uses the stale
-            // data it fetched during auth (before LoadFromDB modified it).
-            GetSession()->SendAccountDataTimes(GetGUID(), GLOBAL_CACHE_MASK);
-            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Injected housing tutorial CVars into GLOBAL_CONFIG_CACHE for account {}",
-                GetSession()->GetAccountId());
-        }
-    }
+        UpdateHousingTutorialCVars();
 
     // Always register PlayerHouseInfoComponent_C fragment on the Player entity.
     // The client requires this fragment to resolve housing data from the Player descriptor;
@@ -33225,8 +33164,93 @@ void Player::DeleteHousing(ObjectGuid neighborhoodGuid)
         [&neighborhoodGuid](std::unique_ptr<Housing> const& h) { return h && h->GetNeighborhoodGuid() == neighborhoodGuid; });
     if (it != _housings.end())
     {
+        ObjectGuid const houseGuid = (*it)->GetHouseGuid();
+
+        // Drop the matching PlayerHouseInfoComponentData::Houses entry, or the client keeps
+        // rendering the sold house as owned until relog.
+        if (m_playerHouseInfoComponentData.has_value())
+        {
+            auto const& houses = m_playerHouseInfoComponentData->Houses;
+            for (std::size_t i = 0; i < houses.size(); ++i)
+            {
+                if (houses[i].HouseGUID == houseGuid || houses[i].NeighborhoodGUID == neighborhoodGuid)
+                {
+                    RemoveDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses), i);
+                    break;
+                }
+            }
+        }
+
         (*it)->Delete();
         _housings.erase(it);
+    }
+}
+
+bool Player::HousingTutorialChainComplete() const
+{
+    return std::ranges::all_of(HOUSING_TUTORIAL_QUEST_CHAIN, [this](uint32 questId)
+    {
+        return IsQuestRewarded(questId);
+    });
+}
+
+void Player::UpdateHousingTutorialCVars()
+{
+    if (!GetSession())
+        return;
+
+    bool const tutorialEnabled = sWorld->getBoolConfig(CONFIG_HOUSING_TUTORIALS_ENABLED) && !HousingTutorialChainComplete();
+
+    AccountData const* configCache = GetSession()->GetAccountData(GLOBAL_CONFIG_CACHE);
+    std::string configData = configCache ? configCache->Data : "";
+    bool configModified = false;
+
+    // Helper lambda: set or replace a CVar value in the config string
+    auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
+    {
+        std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
+        size_t pos = configData.find(setPrefix);
+        if (pos != std::string::npos)
+        {
+            // Replace existing value
+            size_t valStart = pos + setPrefix.size();
+            size_t valEnd = configData.find('"', valStart);
+            if (valEnd != std::string::npos)
+            {
+                std::string oldVal = configData.substr(valStart, valEnd - valStart);
+                if (oldVal != value)
+                {
+                    configData.replace(valStart, valEnd - valStart, value);
+                    configModified = true;
+                }
+            }
+        }
+        else
+        {
+            // Append new CVar
+            if (!configData.empty() && configData.back() != '\n')
+                configData += '\n';
+            configData += "SET ";
+            configData += cvarName;
+            configData += " \"";
+            configData += value;
+            configData += "\"\n";
+            configModified = true;
+        }
+    };
+
+    ensureCVar("closedInfoFramesAccountWide", HOUSING_MODES_UNLOCKED_CVAR);
+    ensureCVar("housingTutorialsEnabled", tutorialEnabled ? "1" : "0");
+
+    if (configModified)
+    {
+        GetSession()->SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
+        // Re-send the timestamps so the client re-fetches GLOBAL_CONFIG_CACHE instead of
+        // keeping the copy it fetched during auth.
+        GetSession()->SendAccountDataTimes(GetGUID(), GLOBAL_CACHE_MASK);
+        TC_LOG_DEBUG("housing", "Player::UpdateHousingTutorialCVars: Account {} housingTutorialsEnabled={}",
+            GetSession()->GetAccountId(), tutorialEnabled ? "1" : "0");
     }
 }
 

@@ -30,6 +30,7 @@
 #include <vector>
 
 class Neighborhood;
+class WorldObject;
 struct ExteriorComponentEntry;
 struct ExteriorComponentExitPointEntry;
 struct ExteriorComponentHookEntry;
@@ -287,11 +288,12 @@ public:
     // Find a plot by its cornerstone GO entry within a specific neighborhood map
     NeighborhoodPlotData const* GetPlotByCornerstoneEntry(uint32 neighborhoodMapId, uint32 cornerstoneGoEntry) const;
 
-    // Resolve the canonical DB2 PlotIndex from a client-supplied GUID.
-    // The client sends the cornerstone GO GUID as "NeighborhoodGuid" in many CMSGs.
-    // We extract the GO entry from that GUID and look up the DB2 plot data.
+    // Resolve the canonical DB2 PlotIndex from a client-supplied cornerstone GO GUID (the client
+    // sends it as "NeighborhoodGuid" in many CMSGs). Prefers the PlotIndex in the GO's
+    // FJamHousingCornerstone_C fragment, falling back to the legacy per-plot GO entries.
+    // `searcher` locates the GO on its map; may be null.
     // Returns the DB2 PlotIndex, or -1 if resolution failed (caller should use clientPlotIndex as fallback).
-    int32 ResolvePlotIndex(ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const;
+    int32 ResolvePlotIndex(WorldObject const* searcher, ObjectGuid cornerstoneGuid, Neighborhood const* neighborhood) const;
 
     // Get the NeighborhoodMapData for a world MapID (returns nullptr if not a neighborhood)
     NeighborhoodMapData const* GetNeighborhoodMapDataForWorldMap(uint32 mapId) const;

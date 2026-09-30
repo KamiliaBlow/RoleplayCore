@@ -3164,6 +3164,13 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         // per-AT FHousingPlotAreaTrigger_C fragment that were deleted in 12.0.5.
         void SetCurrentHouse(ObjectGuid houseGuid);
 
+        // The housing tutorial runs while Housing.TutorialsEnabled is set and the character has
+        // not rewarded the whole HOUSING_TUTORIAL_QUEST_CHAIN.
+        bool HousingTutorialChainComplete() const;
+        // Updates closedInfoFramesAccountWide and housingTutorialsEnabled in GLOBAL_CONFIG_CACHE
+        // and re-sends the account data timestamps.
+        void UpdateHousingTutorialCVars();
+
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
         void SetAdvancedCombatLogging(bool enabled) { _advancedCombatLoggingEnabled = enabled; }
 

@@ -739,7 +739,8 @@ namespace WorldPackets::Housing
 
         void Read() override;
 
-        ObjectGuid NeighborhoodGuid;
+        // The house the settings screen is opened for; empty after it was relinquished.
+        ObjectGuid HouseGuid;
     };
 
     class HousingSvcsGetHouseFinderInfo final : public ClientPacket
