@@ -941,12 +941,10 @@ static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_3   = 1266699;
 
 // WorldState IDs — continuous counters sent throughout the entire housing session.
 // 12.1.0.69933 retail sends counters 1-3 as individual SMSG_UPDATE_WORLD_STATE packets every ~5 s
-// (+1333 each); counters 4-5 came from older sniffs and are no longer sent.
+// (+1333 each).
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_2    = 13437;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
-static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_4    = 16035;
-static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_5    = 16711;
 
 // WS[30906]: Toggled 1 when inside a house interior (MapID=2783), 0 when leaving.
 static constexpr uint32 WORLDSTATE_HOUSING_INTERIOR     = 30906;
@@ -972,38 +970,6 @@ static constexpr uint32 HOUSING_COSMETIC_PHASE_DELAY_MS = 10000;
 
 // Room grid spacing for interior maps (sniff-verified: ~24 yards between room centers)
 static constexpr float HOUSING_ROOM_GRID_SPACING = 24.0f;
-
-// ------------------------------------------------------------------
-// Horde House Interior Mesh Data (from retail sniff, HouseExteriorWmoDataID=87)
-// ------------------------------------------------------------------
-// Attachment hierarchy:
-//   Root: House GO (spawned at plot position, e.g. entry 582075)
-//     └── Building shell WMO (FileDataID 6322976, attached to house GO)
-//           ├── Interior room WMOs (6426xxx, attached to building shell)
-//           └── Exterior fixture M2s (attached to building shell)
-//
-// The client uses the house GO as the root anchor. MeshObjects carry
-// FHousingFixture_C fragment data (ExteriorComponentID, HouseExteriorWmoDataID)
-// that the client uses to resolve which art assets to render.
-
-// Main building shell WMO (approx bounding box: ±35x30x126)
-static constexpr int32 HORDE_HOUSE_BUILDING_SHELL_FDI = 6322976;
-
-// Interior room WMOs — each approximately 24x24 unit rooms arranged on a 24-unit grid
-// Vertical floor height: 7.0 units between stacked rooms
-static constexpr int32 HORDE_HOUSE_INTERIOR_ROOM_FDIS[] = {
-    6426613,    // Main room / wall section (also used as corner)
-    6426431,    // Small room variant
-    6426641,    // Small room variant
-    6426647,    // Small room variant
-    6426665,    // Large room corner
-    6426605,    // Room ceiling
-    6426671,    // Room wall with door opening
-    6426452,    // Small room with specific configuration
-    6426672     // Room section variant
-};
-static constexpr uint32 HORDE_HOUSE_INTERIOR_ROOM_COUNT = sizeof(HORDE_HOUSE_INTERIOR_ROOM_FDIS) / sizeof(HORDE_HOUSE_INTERIOR_ROOM_FDIS[0]);
-static constexpr float  HORDE_HOUSE_FLOOR_HEIGHT = 7.0f;  // Vertical spacing between stacked rooms
 
 // HouseExteriorWmoDataID for Horde theme (from sniff)
 static constexpr int32 HORDE_HOUSE_EXTERIOR_WMO_DATA_ID = 87;
@@ -1109,12 +1075,6 @@ static constexpr uint32 HOUSING_BLUEPRINTS_MAX_PER_BNET_ACCOUNT         = 50;
 static constexpr uint32 HOUSING_BLUEPRINTS_MAX_BACKUPS_PER_BNET_ACCOUNT = 10;
 static constexpr uint32 HOUSING_BLUEPRINT_NAME_MIN_CHARACTERS           = 3;
 static constexpr uint32 HOUSING_BLUEPRINT_NAME_MAX_CHARACTERS           = 50;
-
-// Pet beds (12.1): decor items with their own placement budget. Caps come from client
-// config globals housingMaxPetBedsInterior@0x127F60 / housingMaxPetBedsExterior@0x127FD0
-// [BIN symbols]. Default caps are placeholders until a value capture/DB confirms. [INF]
-static constexpr uint32 HOUSING_MAX_PET_BEDS_INTERIOR = 6;
-static constexpr uint32 HOUSING_MAX_PET_BEDS_EXTERIOR = 6;
 
 // The three post-tutorial auras (slots 8, 9, 50) are re-sent whenever the player enters either
 // housing map, so the sequence lives in one place instead of being carried by both map classes.

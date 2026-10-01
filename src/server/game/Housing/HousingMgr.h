@@ -269,8 +269,7 @@ public:
     std::vector<HouseLevelRewardInfoData const*> GetRewardsForLevel(uint32 houseLevelId) const;
 
     // Neighborhood plot lookups
-    uint32 GetPlotStoreSize() const { return uint32(_neighborhoodPlotStore.size()); }
-    std::vector<NeighborhoodPlotData const*> GetPlotsForMap(uint32 neighborhoodMapId) const;
+    std::vector<NeighborhoodPlotData const*> const& GetPlotsForMap(uint32 neighborhoodMapId) const;
     /// Where a house nobody moved stands: the plot's centre, turned like the plot room.
     Position GetDefaultHousePosition(NeighborhoodPlotData const& plot) const;
     /// Where a housing teleport lands on a plot: TeleportPosition, facing CornerstoneRotation.Z (12.1.0.69933 sniff).
@@ -352,9 +351,6 @@ public:
     // Get the entry hall room entry ID (interior base room, sniff-verified: Room 46)
     // Room 18 = exterior plot geobox (SpawnRoomForPlot), Room 46 = interior entry hall
     uint32 GetEntryHallRoomEntryId() const { return _entryHallRoomEntryId; }
-
-    // Room grid spacing for interior layout (~24 yards between room centers)
-    float GetRoomGridSpacing() const { return _roomGridSpacing; }
 
     // RoomComponentTexture lookup: given a RoomComponentOption ID, find the texture ID
     // Returns the first matched RoomComponentTexture ID, or 0 if no link exists in DB2.
@@ -492,8 +488,6 @@ private:
     void BuildRoomComponentOptionIndex();
     void BuildExteriorComponentIndexes();
     void BuildRoomComponentTextureIndex();
-    void DumpExteriorComponentDiagnostics();
-    void DumpRoomComponentTextureDiagnostics();
     void EnsureDoorGameObjectTemplates();
 
     // Base room entry ID — exterior geobox (from DB2 IsBaseRoom flag scan, fallback 18)
@@ -502,9 +496,6 @@ private:
     // Entry hall room entry ID — interior base room (second BASE_ROOM in DB2, fallback to _baseRoomEntryId)
     // Sniff-verified: Room 46 is the entry corridor with door connecting to the visual room
     uint32 _entryHallRoomEntryId = 0;
-
-    // Room grid spacing (~24 yards between room centers)
-    float _roomGridSpacing = HOUSING_ROOM_GRID_SPACING;
 
     // RoomComponentTexture indexes
     // RoomComponentOptionID → RoomComponentTextureID (from RoomComponentOptionTexture join)

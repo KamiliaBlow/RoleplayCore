@@ -46,19 +46,6 @@ void HousingPlayerHouseEntity::ClearUpdateMask(bool remove)
 
 void HousingPlayerHouseEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const
 {
-    // Diagnostic: dump the field values at CREATE time so post-deploy sniff
-    // verification can be cross-checked without decoding hex by hand. Only
-    // logs when this specific entity (Housing/3) emits a CREATE.
-    UF::HousingPlayerHouseData const& d = *m_housingPlayerHouseData;
-    TC_LOG_INFO("housing",
-        "HousingPlayerHouseEntity::BuildCreate guid={} -> target={} "
-        "Bnet={} Plot={} Level={} Favor={} Budgets[I={} E={} R={} F={}] EntityGUID={}",
-        GetGUID().ToString(), target ? target->GetGUID().ToString() : "<null>",
-        d.BnetAccount->ToString(), int32(d.PlotIndex), uint32(d.Level), uint64(d.Favor),
-        uint32(d.InteriorDecorPlacementBudget), uint32(d.ExteriorDecorPlacementBudget),
-        uint32(d.RoomPlacementBudget), uint32(d.ExteriorFixtureBudget),
-        d.EntityGUID->ToString());
-
     BaseEntity::BuildCreateUpdateBlockForPlayer(data, target);
 }
 

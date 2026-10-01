@@ -144,33 +144,6 @@ void NeighborhoodMgr::LoadFromDB()
     } while (result->NextRow());
 
     TC_LOG_INFO("server.loading", ">> Loaded {} neighborhoods in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
-
-    // Debug dump all neighborhoods and their plot states
-    for (auto const& [guid, neighborhood] : _neighborhoods)
-    {
-        TC_LOG_INFO("housing", "NEIGHBORHOOD_DUMP: guid={} name='{}' mapId={} faction={} public={} "
-            "members={} occupiedPlots={} owner={}",
-            guid.ToString(), neighborhood->GetName(), neighborhood->GetNeighborhoodMapID(),
-            neighborhood->GetFactionRestriction(), neighborhood->IsPublic(),
-            neighborhood->GetMemberCount(), neighborhood->GetOccupiedPlotCount(),
-            neighborhood->GetOwnerGuid().ToString());
-
-        for (auto const& member : neighborhood->GetMembers())
-        {
-            TC_LOG_INFO("housing", "  MEMBER: player={} role={} plotIndex={} houseGuid={}",
-                member.PlayerGuid.ToString(), member.Role, member.PlotIndex, member.HouseGuid.ToString());
-        }
-
-        for (uint8 i = 0; i < MAX_NEIGHBORHOOD_PLOTS; ++i)
-        {
-            auto const& plot = neighborhood->GetPlots()[i];
-            if (plot.IsOccupied())
-            {
-                TC_LOG_INFO("housing", "  PLOT[{}]: owner={} house={} bnet={}",
-                    i, plot.OwnerGuid.ToString(), plot.HouseGuid.ToString(), plot.OwnerBnetGuid.ToString());
-            }
-        }
-    }
 }
 
 Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::string const& name, uint32 neighborhoodMapID, int32 factionRestriction, bool isPublic /*= false*/, uint32 guildId /*= 0*/)
@@ -178,8 +151,6 @@ Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::str
     // One charter neighborhood per character; a guild neighborhood belongs to its guild, one per guild.
     if (guildId ? GetNeighborhoodByGuildId(guildId) != nullptr : _ownerToNeighborhood.contains(ownerGuid))
     {
-        TC_LOG_DEBUG("housing", "NeighborhoodMgr::CreateNeighborhood: Owner {} already has a neighborhood",
-            ownerGuid.ToString());
         return nullptr;
     }
 
@@ -246,9 +217,6 @@ Neighborhood* NeighborhoodMgr::CreateNeighborhood(ObjectGuid ownerGuid, std::str
     _neighborhoods[neighborhoodGuid] = std::move(neighborhood);
     _neighborhoodsByCounter[neighborhoodGuid.GetCounter()] = result;
 
-    TC_LOG_DEBUG("housing", "NeighborhoodMgr::CreateNeighborhood: Created neighborhood '{}' (guid: {}) for owner {}",
-        name, neighborhoodGuid.ToString(), ownerGuid.ToString());
-
     return result;
 }
 
@@ -273,8 +241,6 @@ void NeighborhoodMgr::DeleteNeighborhood(ObjectGuid neighborhoodGuid)
     auto it = _neighborhoods.find(neighborhoodGuid);
     if (it == _neighborhoods.end())
     {
-        TC_LOG_DEBUG("housing", "NeighborhoodMgr::DeleteNeighborhood: Neighborhood {} not found",
-            neighborhoodGuid.ToString());
         return;
     }
 
@@ -291,8 +257,6 @@ void NeighborhoodMgr::DeleteNeighborhood(ObjectGuid neighborhoodGuid)
     _neighborhoodsByCounter.erase(it->first.GetCounter());
     _neighborhoods.erase(it);
 
-    TC_LOG_DEBUG("housing", "NeighborhoodMgr::DeleteNeighborhood: Deleted neighborhood {}",
-        neighborhoodGuid.ToString());
 }
 
 Neighborhood* NeighborhoodMgr::GetNeighborhood(ObjectGuid neighborhoodGuid)
@@ -327,8 +291,6 @@ Neighborhood* NeighborhoodMgr::ResolveNeighborhood(ObjectGuid guid, Player* play
         {
             if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
             {
-                TC_LOG_DEBUG("housing", "NeighborhoodMgr::ResolveNeighborhood: Resolved client GUID {} to neighborhood '{}' via housing map fallback",
-                    guid.ToString(), neighborhood->GetName());
                 return neighborhood;
             }
         }
@@ -962,8 +924,6 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
         Neighborhood* newNeighborhood = CreateNeighborhood(systemOwner, name, targetMapId, faction, /*isPublic*/ true);
         if (newNeighborhood)
         {
-            TC_LOG_INFO("housing", "CheckAndExpandNeighborhoods: Created new {} neighborhood '{}' (all existing at 50%+ capacity)",
-                faction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde", name);
         }
     }
 }

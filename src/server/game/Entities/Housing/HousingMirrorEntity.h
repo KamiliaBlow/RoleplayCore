@@ -76,8 +76,6 @@ protected:
     bool AddToObjectUpdate() override;
     void RemoveFromObjectUpdate() override;
 
-private:
-    Map* _map;
 };
 
 #endif // TRINITYCORE_HOUSING_MIRROR_ENTITY_H

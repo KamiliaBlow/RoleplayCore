@@ -20,7 +20,7 @@
 #include "StringFormat.h"
 #include "UpdateData.h"
 
-HousingMirrorEntity::HousingMirrorEntity(Map* map, ObjectGuid guid) : _map(map)
+HousingMirrorEntity::HousingMirrorEntity(Map* /*map*/, ObjectGuid guid)
 {
     _Create(guid);
 

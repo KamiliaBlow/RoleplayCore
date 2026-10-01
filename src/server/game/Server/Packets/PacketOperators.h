@@ -555,10 +555,6 @@ namespace WorldPackets
     template <typename T>
     inline constexpr IgnoredReaderWriter<T> Ignored;
 
-    // Merge 2026-09-01 (ADV e004d7a4bf): removed a byte-for-byte duplicate of the
-    // BoundedSizeReaderWriter/BoundedSize block above — both branches independently added the
-    // same DoS-hardening fix at different insertion points in this file, and since the two hunks
-    // didn't overlap textually the merge kept both. Definition retained once, higher up.
 }
 
 #endif // TRINITYCORE_PACKET_OPERATORS_H

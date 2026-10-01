@@ -276,6 +276,4 @@ void WorldSession::SendMirrorVars()
     variables.Variables = vars;
     SendPacket(variables.Write());
 
-    TC_LOG_INFO("housing", "<<< SMSG_MIRROR_VARS sent: housingServiceEnabled=1, MaxExpansionLevel={}, AccountExpansion={}",
-        sWorld->getIntConfig(CONFIG_EXPANSION), GetAccountExpansion());
 }

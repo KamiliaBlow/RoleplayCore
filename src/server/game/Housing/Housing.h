@@ -27,8 +27,8 @@
 #include "QuaternionData.h"
 #include <array>
 #include <atomic>
-#include <map>
 #include <cmath>
+#include <map>
 #include <string>
 #include <unordered_map>
 #include <vector>

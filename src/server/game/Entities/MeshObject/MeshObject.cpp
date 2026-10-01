@@ -129,10 +129,6 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
     _attachParentGUID = attachParent;
     _positionLocalSpace = pos;
 
-    TC_LOG_ERROR("housing", "MeshObject::Create: guid={} fileDataID={} COB: HasEntityPos={} Stationary={} MeshObj={} attachParent={}",
-        GetGUID().ToString(), fileDataID,
-        bool(m_updateFlag.HasEntityPosition), bool(m_updateFlag.Stationary), bool(m_updateFlag.MeshObject),
-        attachParent.ToString());
     _rotationLocalSpace = rotation;
     _scaleLocalSpace = scale;
     _attachmentFlags = attachFlags;
@@ -440,12 +436,6 @@ void MeshObject::InitHousingRoomComponentData(ObjectGuid roomGuid,
     m_entityFragments.Add(WowCS::EntityFragment::FHousingRoomComponentMesh_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingRoomComponentMeshData));
 
-    TC_LOG_ERROR("housing", "MeshObject::InitHousingRoomComponentData: guid={} roomGuid={} "
-        "compOptionID={} compID={} compType={} themeID={} "
-        "geobox=({:.2f},{:.2f},{:.2f})→({:.2f},{:.2f},{:.2f})",
-        GetGUID().ToString(), roomGuid.ToString(),
-        roomComponentOptionID, roomComponentID, roomComponentType, houseThemeID,
-        geoboxMinX, geoboxMinY, geoboxMinZ, geoboxMaxX, geoboxMaxY, geoboxMaxZ);
 }
 
 void MeshObject::UpdateRoomComponentVisuals(int32 roomComponentOptionID, int32 houseThemeID,
@@ -506,7 +496,6 @@ void MeshObject::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* targe
     CreateObjectBits flags = m_updateFlag;
 
     ByteBuffer& buf = data->GetBuffer();
-    std::size_t startPos = buf.wpos();
     buf << uint8(updateType);
     buf << GetGUID();
     buf << uint8(m_objectTypeId);
@@ -531,20 +520,6 @@ void MeshObject::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* targe
 
     buf.put<uint32>(sizePos, buf.wpos() - sizePos - 4);
     data->AddUpdateBlock();
-    std::size_t endPos = buf.wpos();
-
-    // Hex dump the FULL CREATE block for the first few interior MeshObjects
-    if (m_housingRoomComponentMeshData.has_value() && (endPos - startPos) > 0)
-    {
-        ByteBuffer const& buf = data->GetBuffer();
-        std::string hex;
-        std::size_t dumpLen = std::min(endPos - startPos, std::size_t(200));
-        for (std::size_t i = startPos; i < startPos + dumpLen; ++i)
-            hex += Trinity::StringFormat("{:02x} ", buf[i]);
-        TC_LOG_ERROR("housing", "MeshObject::BuildCreate guid={} compID={} FULL_HEX[{} bytes]: {}",
-            GetGUID().ToString(), int32(m_housingRoomComponentMeshData->RoomComponentID),
-            endPos - startPos, hex);
-    }
 }
 
 void MeshObject::BuildValuesCreate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const

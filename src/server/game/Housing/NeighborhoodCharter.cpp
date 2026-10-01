@@ -45,9 +45,6 @@ bool NeighborhoodCharter::LoadFromDB(PreparedQueryResult charter, PreparedQueryR
     _isGuild            = fields[5].GetBool();
     _createTime         = fields[6].GetUInt32();
 
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::LoadFromDB: Loaded charter {} '{}' by {}",
-        _id, _name, _creatorGuid.ToString());
-
     // Load signatures
     _signatures.clear();
 
@@ -64,9 +61,6 @@ bool NeighborhoodCharter::LoadFromDB(PreparedQueryResult charter, PreparedQueryR
             _signatures.push_back(signerGuid);
         } while (signatures->NextRow());
     }
-
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::LoadFromDB: Loaded {} signatures for charter {}",
-        _signatures.size(), _id);
 
     return true;
 }
@@ -100,8 +94,6 @@ void NeighborhoodCharter::SaveToDB(CharacterDatabaseTransaction trans)
         trans->Append(stmt);
     }
 
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::SaveToDB: Saved charter {} '{}' with {} signatures",
-        _id, _name, _signatures.size());
 }
 
 /*static*/ void NeighborhoodCharter::DeleteFromDB(uint64 id, CharacterDatabaseTransaction trans)
@@ -116,7 +108,6 @@ void NeighborhoodCharter::SaveToDB(CharacterDatabaseTransaction trans)
     stmt->setUInt64(0, id);
     trans->Append(stmt);
 
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::DeleteFromDB: Deleted charter {}", id);
 }
 
 bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
@@ -124,16 +115,12 @@ bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
     // Cannot sign your own charter
     if (signerGuid == _creatorGuid)
     {
-        TC_LOG_DEBUG("housing", "NeighborhoodCharter::AddSignature: Player {} cannot sign their own charter {}",
-            signerGuid.ToString(), _id);
         return false;
     }
 
     // Cannot sign twice
     if (HasSigned(signerGuid))
     {
-        TC_LOG_DEBUG("housing", "NeighborhoodCharter::AddSignature: Player {} has already signed charter {}",
-            signerGuid.ToString(), _id);
         return false;
     }
 
@@ -148,9 +135,6 @@ bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
     stmt->setUInt32(index++, static_cast<uint32>(GameTime::GetGameTime()));
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
-
-    TC_LOG_DEBUG("housing", "NeighborhoodCharter::AddSignature: Player {} signed charter {} ({} signatures)",
-        signerGuid.ToString(), _id, _signatures.size());
 
     return true;
 }

@@ -214,7 +214,6 @@ void PlaceBlueprintDecor(Player* player, Housing* housing, HousingBlueprintDecor
         if (fromPool)
             instances.push_back(std::move(pooled));
         ++result.SkippedDecor;
-        TC_LOG_DEBUG("housing", "HousingBlueprintMgr: decor {} not placed ({})", decor.DecorEntryId, uint32(placeResult));
         return;
     }
 
@@ -996,9 +995,6 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
     housing->RecalculateBudgets();
     housing->SyncUpdateFields();
 
-    TC_LOG_INFO("housing", "HousingBlueprintMgr::ApplyLayout: player {} imported blueprint {} ({}) type {} into house {}: {} decor placed, {} skipped, {} removed",
-        player->GetGUID().ToString(), blueprint.Id, blueprint.Uuid, uint32(blueprint.Type), housing->GetHouseGuid().ToString(),
-        result.PlacedDecor, result.SkippedDecor, uint32(result.RemovedDecor.size()));
     return HOUSING_RESULT_SUCCESS;
 }
 

@@ -154,7 +154,6 @@ public:
 
     // Auto-start initiatives for neighborhoods that don't have one
     void CheckAndStartInitiatives();
-    // Retired 2026-05-11: SendInitiativeUpdateStatus / SendInitiativePointsUpdate /
     // SendInitiativeMilestoneUpdate (speculative SMSGs the retail client drops).
 
 private:

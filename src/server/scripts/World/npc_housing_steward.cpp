@@ -130,9 +130,6 @@ struct npc_housing_steward : public CreatureAI
                     player->GetGUID().ToString());
                 return true;
             }
-
-            TC_LOG_INFO("housing", "npc_housing_steward: Player {} received the Neighborhood Charter from steward {}",
-                player->GetGUID().ToString(), me->GetEntry());
         }
 
         return true;

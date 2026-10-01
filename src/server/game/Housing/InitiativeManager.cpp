@@ -46,7 +46,6 @@ InitiativeManager& InitiativeManager::Instance()
 
 void InitiativeManager::Initialize()
 {
-    TC_LOG_INFO("housing", "InitiativeManager: Initializing...");
 
     BuildDB2IndexMaps();
     LoadFromDB();
@@ -58,13 +57,6 @@ void InitiativeManager::Initialize()
     // Build reverse index from CriteriaID -> initiative tasks for O(1) matching
     BuildCriteriaIndex();
 
-    TC_LOG_INFO("housing", "InitiativeManager: Initialized with {} initiative definitions, {} active instances across all neighborhoods",
-        uint32(sNeighborhoodInitiativeStore.GetNumRows()), [this]() -> uint32 {
-            uint32 count = 0;
-            for (auto const& [guid, list] : _activeInitiatives)
-                count += static_cast<uint32>(list.size());
-            return count;
-        }());
 }
 
 void InitiativeManager::BuildDB2IndexMaps()
@@ -79,8 +71,6 @@ void InitiativeManager::BuildDB2IndexMaps()
         InitiativeTaskEntry const* taskEntry = sInitiativeTaskStore.LookupEntry(xTask->InitiativeTaskID);
         if (!taskEntry)
         {
-            TC_LOG_DEBUG("housing", "InitiativeManager::BuildDB2IndexMaps: InitiativeXTask references unknown TaskID {}",
-                xTask->InitiativeTaskID);
             continue;
         }
 
@@ -153,8 +143,6 @@ void InitiativeManager::BuildDB2IndexMaps()
         _cyclePriorities[priority->InitiativeCycleID].emplace_back(priority->ID, priority->Weight);
     }
 
-    TC_LOG_DEBUG("housing", "InitiativeManager::BuildDB2IndexMaps: {} initiatives with tasks, {} cycles with milestones, {} initiative->cycle mappings, {} cycle priorities",
-        uint32(_initiativeTasks.size()), uint32(_cycleMilestones.size()), uint32(_initiativeActiveCycle.size()), uint32(_cyclePriorities.size()));
 }
 
 void InitiativeManager::LoadFromDB()
@@ -165,7 +153,6 @@ void InitiativeManager::LoadFromDB()
     QueryResult result = CharacterDatabase.Query("SELECT id, neighborhoodGuid, initiativeId, startTime, progress, completed FROM neighborhood_initiatives");
     if (!result)
     {
-        TC_LOG_DEBUG("housing", "InitiativeManager::LoadFromDB: No active initiatives found");
         return;
     }
 
@@ -280,17 +267,12 @@ void InitiativeManager::LoadFromDB()
             }
         }
 
-        TC_LOG_DEBUG("housing", "InitiativeManager::LoadFromDB: Loaded initiative {} (DB2 ID {}) for neighborhood {} - progress={:.2f} completed={} contributors={}",
-            initiative->DbId, initiative->InitiativeID, initiative->NeighborhoodGuid,
-            initiative->Progress, initiative->Completed, uint32(initiative->PlayerContributions.size()));
-
         uint64 nhGuid = initiative->NeighborhoodGuid;
         _activeInitiatives[nhGuid].push_back(std::move(initiative));
         ++count;
 
     } while (result->NextRow());
 
-    TC_LOG_INFO("housing", "InitiativeManager::LoadFromDB: Loaded {} active initiatives", count);
 }
 
 void InitiativeManager::Update(uint32 diff)
@@ -316,8 +298,6 @@ void InitiativeManager::Update(uint32 diff)
 
             if (entry->Duration > 0 && now > initiative->StartTime + static_cast<uint32>(entry->Duration))
             {
-                TC_LOG_DEBUG("housing", "InitiativeManager::Update: Initiative {} in neighborhood {} expired",
-                    initiative->InitiativeID, initiative->NeighborhoodGuid);
                 initiative->Completed = true;
                 PersistInitiative(*initiative);
                 // Speculative SendInitiativeUpdateStatus(FAILED) retired 2026-05-11 —
@@ -360,7 +340,6 @@ ActiveInitiative* InitiativeManager::StartInitiative(uint64 neighborhoodGuid, ui
     NeighborhoodInitiativeEntry const* entry = sNeighborhoodInitiativeStore.LookupEntry(initiativeID);
     if (!entry)
     {
-        TC_LOG_DEBUG("housing", "InitiativeManager::StartInitiative: Initiative DB2 ID {} not found", initiativeID);
         return nullptr;
     }
 
@@ -369,8 +348,6 @@ ActiveInitiative* InitiativeManager::StartInitiative(uint64 neighborhoodGuid, ui
     {
         if (initiative->InitiativeID == initiativeID && !initiative->Completed)
         {
-            TC_LOG_DEBUG("housing", "InitiativeManager::StartInitiative: Initiative {} already active in neighborhood {}",
-                initiativeID, neighborhoodGuid);
             return initiative.get();
         }
     }
@@ -410,9 +387,6 @@ ActiveInitiative* InitiativeManager::StartInitiative(uint64 neighborhoodGuid, ui
     stmt->setFloat(index++, 0.0f);
     stmt->setUInt8(index++, 0);
     CharacterDatabase.Execute(stmt);
-
-    TC_LOG_INFO("housing", "InitiativeManager::StartInitiative: Started initiative '{}' (ID {}) for neighborhood {} with {} tasks",
-        entry->Name[DEFAULT_LOCALE], initiativeID, neighborhoodGuid, uint32(tasks.size()));
 
     ActiveInitiative* ptr = initiative.get();
     _activeInitiatives[neighborhoodGuid].push_back(std::move(initiative));
@@ -491,8 +465,6 @@ void InitiativeManager::CompleteInitiative(uint64 neighborhoodGuid, uint32 initi
             // Rebuild criteria index since this initiative's tasks are no longer active
             BuildCriteriaIndex();
 
-            TC_LOG_INFO("housing", "InitiativeManager::CompleteInitiative: Initiative {} completed in neighborhood {}",
-                initiativeID, neighborhoodGuid);
             return;
         }
     }
@@ -516,16 +488,12 @@ void InitiativeManager::UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initi
 
     if (!initiative)
     {
-        TC_LOG_DEBUG("housing", "InitiativeManager::UpdateTaskProgress: No active initiative {} in neighborhood {}",
-            initiativeID, neighborhoodGuid);
         return;
     }
 
     auto taskItr = initiative->TaskProgress.find(taskID);
     if (taskItr == initiative->TaskProgress.end())
     {
-        TC_LOG_DEBUG("housing", "InitiativeManager::UpdateTaskProgress: Task {} not found in initiative {}",
-            taskID, initiativeID);
         return;
     }
 
@@ -596,10 +564,6 @@ void InitiativeManager::UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initi
     // Persist individual task progress to DB
     PersistSingleTaskProgress(initiative->DbId, taskID, taskProgress.Progress, static_cast<uint8>(taskProgress.Status));
 
-    TC_LOG_DEBUG("housing", "InitiativeManager::UpdateTaskProgress: Task {} in initiative {} progress: {}/{} (+{} contribution points, contributor: {})",
-        taskID, initiativeID, taskProgress.Progress, targetCount, award,
-        contributor ? contributor->GetGUID().ToString() : "none");
-
     // Check if task completed
     if (taskProgress.Progress >= targetCount)
     {
@@ -611,8 +575,6 @@ void InitiativeManager::UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initi
         if (neighborhood)
             BroadcastTaskComplete(neighborhood, initiativeID, taskID);
 
-        TC_LOG_INFO("housing", "InitiativeManager::UpdateTaskProgress: Task {} completed in initiative {} (neighborhood {})",
-            taskID, initiativeID, neighborhoodGuid);
     }
 
     // Overall initiative progress is the accumulated contribution pool, not the fraction of tasks
@@ -683,8 +645,6 @@ void InitiativeManager::ClearTaskCriteria(uint64 neighborhoodGuid, uint32 initia
     if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(neighborhoodGuid))
         BroadcastClearTaskCriteriaProgress(neighborhood, CollectTaskCriteriaIDs(initiativeID, taskID));
 
-    TC_LOG_DEBUG("housing", "InitiativeManager::ClearTaskCriteria: Cleared task {} in initiative {} (neighborhood {})",
-        taskID, initiativeID, neighborhoodGuid);
 }
 
 void InitiativeManager::BuildCriteriaIndex()
@@ -715,8 +675,6 @@ void InitiativeManager::BuildCriteriaIndex()
                 if (!tree)
                 {
                     ++missingTreeCount;
-                    TC_LOG_DEBUG("housing", "InitiativeManager::BuildCriteriaIndex: CriteriaTree {} not found for task {} (initiative {})",
-                        task.CriteriaTreeID, task.TaskID, initiative->InitiativeID);
                     continue;
                 }
 
@@ -736,8 +694,6 @@ void InitiativeManager::BuildCriteriaIndex()
         }
     }
 
-    TC_LOG_INFO("housing", "InitiativeManager::BuildCriteriaIndex: Built {} criteria->task links ({} missing trees)",
-        linkCount, missingTreeCount);
 }
 
 void InitiativeManager::OnCriteriaProgress(Player* player, uint32 criteriaId)
@@ -784,8 +740,6 @@ void InitiativeManager::OnCriteriaProgress(Player* player, uint32 criteriaId)
             // Credit 1 unit of progress to the community task
             UpdateTaskProgress(nhLowGuid, link.InitiativeID, link.TaskID, 1, player);
 
-            TC_LOG_DEBUG("housing", "InitiativeManager::OnCriteriaProgress: Player {} ({}) contributed to task {} via criteria {} (initiative {}, neighborhood {})",
-                player->GetName(), player->GetGUID().ToString(), link.TaskID, criteriaId, link.InitiativeID, nhLowGuid);
         }
     }
 }
@@ -860,8 +814,6 @@ bool InitiativeManager::ClaimMilestoneReward(uint64 neighborhoodGuid, uint32 ini
             }
         }
 
-        TC_LOG_INFO("housing", "InitiativeManager::ClaimMilestoneReward: Player {} claimed milestone {} reward for initiative {} in neighborhood {}",
-            player->GetGUID().ToString(), milestoneIndex, initiativeID, neighborhoodGuid);
         return true;
     }
     return false;
@@ -876,7 +828,6 @@ void InitiativeManager::SendInitiativeServiceStatus(WorldSession* session, bool 
     WorldPackets::Housing::InitiativeServiceStatus packet;
     packet.ServiceEnabled = enabled;
     session->SendPacket(packet.Write());
-    TC_LOG_DEBUG("housing", "InitiativeManager: Sent InitiativeServiceStatus (enabled={})", enabled);
 }
 
 void InitiativeManager::SendRewardsAvailable(Player* player) const
@@ -1000,8 +951,6 @@ void InitiativeManager::SendPlayerInitiativeInfo(WorldSession* session, ObjectGu
     }
 
     session->SendPacket(result.Write());
-    TC_LOG_DEBUG("housing", "InitiativeManager: Sent GetPlayerInitiativeInfoResult Flags=0x{:02X} InitID={} Tasks={} for neighborhood {}",
-        result.Flags, result.CurrentInitiativeID, uint32(result.Tasks.size()), neighborhoodLowGuid);
 }
 
 void InitiativeManager::SendActivityLog(WorldSession* session, ObjectGuid const& neighborhoodGuid, uint64 neighborhoodLowGuid) const
@@ -1058,8 +1007,6 @@ void InitiativeManager::SendActivityLog(WorldSession* session, ObjectGuid const&
     }
 
     session->SendPacket(result.Write());
-    TC_LOG_DEBUG("housing", "InitiativeManager: Sent GetInitiativeActivityLogResult with {} entries for neighborhood {}",
-        uint32(result.CompletedTasks.size()), neighborhoodLowGuid);
 }
 
 void InitiativeManager::SendInitiativeRewardsResult(WorldSession* session, uint32 resultCode) const
@@ -1067,7 +1014,6 @@ void InitiativeManager::SendInitiativeRewardsResult(WorldSession* session, uint3
     WorldPackets::Housing::GetInitiativeRewardsResult result;
     result.Result = resultCode;
     session->SendPacket(result.Write());
-    TC_LOG_DEBUG("housing", "InitiativeManager: Sent GetInitiativeRewardsResult (result={})", resultCode);
 }
 
 // ============================================================
@@ -1093,8 +1039,6 @@ void InitiativeManager::BroadcastTaskComplete(Neighborhood* neighborhood, uint32
         }
     }
 
-    TC_LOG_DEBUG("housing", "InitiativeManager: Broadcast InitiativeTaskComplete (initiative={}, task={}) to neighborhood '{}'",
-        initiativeID, taskID, neighborhood->GetName());
 }
 
 void InitiativeManager::BroadcastInitiativeComplete(Neighborhood* neighborhood, uint32 initiativeID) const
@@ -1115,8 +1059,6 @@ void InitiativeManager::BroadcastInitiativeComplete(Neighborhood* neighborhood, 
         }
     }
 
-    TC_LOG_DEBUG("housing", "InitiativeManager: Broadcast InitiativeComplete (initiative={}) to neighborhood '{}'",
-        initiativeID, neighborhood->GetName());
 }
 
 void InitiativeManager::BroadcastRewardAvailable(Neighborhood* neighborhood, uint32 initiativeID, uint32 milestoneIndex) const
@@ -1144,8 +1086,6 @@ void InitiativeManager::BroadcastRewardAvailable(Neighborhood* neighborhood, uin
         }
     }
 
-    TC_LOG_DEBUG("housing", "InitiativeManager: Broadcast InitiativeRewardAvailable (initiative={}, milestone={}) to neighborhood '{}'",
-        initiativeID, milestoneIndex, neighborhood->GetName());
 }
 
 std::vector<uint64> InitiativeManager::CollectTaskCriteriaIDs(uint32 initiativeID, uint32 taskID) const
@@ -1200,8 +1140,6 @@ void InitiativeManager::BroadcastClearTaskCriteriaProgress(Neighborhood* neighbo
         }
     }
 
-    TC_LOG_DEBUG("housing", "InitiativeManager: Broadcast ClearInitiativeTaskCriteriaProgress ({} criteria) to neighborhood '{}'",
-        uint32(criteriaIDs.size()), neighborhood->GetName());
 }
 
 // ============================================================
@@ -1222,15 +1160,11 @@ void InitiativeManager::CheckAndStartInitiatives()
 
             if (_initiativeTasks.find(init->InitiativeID) == _initiativeTasks.end())
             {
-                TC_LOG_INFO("housing", "InitiativeManager: Removing task-less initiative (DB2 ID {}) from neighborhood {}",
-                    init->InitiativeID, init->NeighborhoodGuid);
                 return true;
             }
 
             if (GetActiveCycleForInitiative(init->InitiativeID) == 0)
             {
-                TC_LOG_INFO("housing", "InitiativeManager: Removing cycle-less initiative (DB2 ID {}) from neighborhood {}",
-                    init->InitiativeID, init->NeighborhoodGuid);
                 return true;
             }
 
@@ -1418,8 +1352,6 @@ void InitiativeManager::GrantMilestoneRewards(Player* player, uint32 milestoneID
                 for (int32 i = 0; i < reward->DecorQuantity; ++i)
                     housing->AddToCatalog(static_cast<uint32>(reward->DecorID));
 
-                TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {}x decor {} to player {}",
-                    reward->DecorQuantity, reward->DecorID, player->GetGUID().ToString());
             }
         }
 
@@ -1429,8 +1361,6 @@ void InitiativeManager::GrantMilestoneRewards(Player* player, uint32 milestoneID
             if (Housing* housing = player->GetHousing())
             {
                 housing->AddFavor(static_cast<uint64>(reward->Favor), HOUSING_FAVOR_SOURCE_INITIATIVE_CHEST);
-                TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {} favor to player {}",
-                    reward->Favor, player->GetGUID().ToString());
             }
         }
 
@@ -1438,8 +1368,6 @@ void InitiativeManager::GrantMilestoneRewards(Player* player, uint32 milestoneID
         if (reward->Money > 0)
         {
             player->ModifyMoney(reward->Money);
-            TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Granted {} copper to player {}",
-                reward->Money, player->GetGUID().ToString());
         }
 
         // Reward quest if set — turns it in (XP + item bundle) even if not in the player's log.
@@ -1451,8 +1379,6 @@ void InitiativeManager::GrantMilestoneRewards(Player* player, uint32 milestoneID
                 if (!player->GetQuestRewardStatus(reward->RewardQuestID))
                 {
                     player->RewardQuest(quest, LootItemType::Item, 0, nullptr, false);
-                    TC_LOG_DEBUG("housing", "InitiativeManager::GrantMilestoneRewards: Rewarded quest {} for player {}",
-                        reward->RewardQuestID, player->GetGUID().ToString());
                 }
             }
         }
@@ -1638,8 +1564,6 @@ void InitiativeManager::CheckMilestones(ActiveInitiative& initiative, Neighborho
             if (neighborhood)
                 BroadcastRewardAvailable(neighborhood, initiative.InitiativeID, milestone.MilestoneOrderIndex);
 
-            TC_LOG_INFO("housing", "InitiativeManager: Milestone {} reached for initiative {} (progress={:.2f}, required={:.2f})",
-                milestone.MilestoneOrderIndex, initiative.InitiativeID, initiative.Progress, milestone.RequiredContributionAmount);
         }
     }
 }
@@ -1699,7 +1623,6 @@ uint32 InitiativeManager::CalculateMaxPoints(uint32 initiativeID) const
     return maxPoints;
 }
 
-// Retired 2026-05-11: SendInitiativeUpdateStatus, SendInitiativePointsUpdate,
 // SendInitiativeMilestoneUpdate — all bound to speculative 0xF1000018..0xF100001C
 // opcodes that the retail client silently drops. Per 2026-05-11 sniff verification
 // (verify_opcodes_out.md), the same state changes are conveyed by the real
