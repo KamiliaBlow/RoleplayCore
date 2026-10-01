@@ -1193,9 +1193,16 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
 
         player->UpdateHousingTutorialCVars();
 
-        // Retail sequence: FirstTimeDecorAcquisition ? BuyHouseResponse ? LevelFavor updates
+        // Retail purchase sequence: (FirstTimeDecorAcquisition xN) ? BuyHouseResponse ? LevelFavor.
+        // We deliberately skip the FirstTime packets — see 1b below for why.
 
-        // 1a. Populate the server-side decor catalog with starter items (so edit mode works)
+        // 1a. Populate the server-side decor catalog with starter items (so edit mode works).
+        // SourceType MUST be DEFERRED: the client counts its HouseDecor.StartingQuantity as
+        // "remaining redeemable" (Blizzard_HousingCatalogUtil.GetEntryNumStored) and only a
+        // storage entry flagged like a materialized auto-award retires that credit. Retail
+        // storage rows for starter decor carry SourceType 3 (dump 69933 2026-10-01, decor
+        // 15454 [73]); rows with SourceType 0 left the credit alive and showed phantom
+        // chest entries that could never be placed (REDEEM_DEFERRED answered 27 forever).
         Housing* housing = player->GetHousing();
         if (housing)
         {
@@ -1203,21 +1210,23 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             for (auto const& [decorId, qty] : starterDecorWithQty)
             {
                 for (int32 i = 0; i < qty; ++i)
-                    housing->AddToCatalog(decorId);
+                    housing->AddToCatalog(decorId, DECOR_SOURCE_DEFERRED);
             }
             // 1a2. Auto-place starter decor in the visual room (sniff-verified: retail pre-places items).
             // The "Welcome Home" quest requires the player to remove 3 of these items.
             housing->PlaceStarterDecor();
         }
 
-        // 1b. Send FirstTimeDecorAcquisition notifications (sniff: 7-8 unique decor IDs)
-        std::vector<uint32> starterDecorIds = sHousingMgr.GetStarterDecorIds(player->GetTeam());
-        for (uint32 decorId : starterDecorIds)
-        {
-            WorldPackets::Housing::HousingFirstTimeDecorAcquisition decorAcq;
-            decorAcq.DecorEntryID = decorId;
-            SendPacket(decorAcq.Write());
-        }
+        // 1b. NO FirstTimeDecorAcquisition here. In the retail 12.1.0.69933 purchase capture the
+        // starter set arrives as 14 of those packets (1700x4, 2549x4, 81x2, 10952x2, 8906x2) and
+        // NOTHING else — because the retail client credits each packet as a lazily-instantiated
+        // "redeemable" (Blizzard_HousingCatalogUtil.GetEntryNumStored = totalNumStored +
+        // remainingRedeemable), later materialized by CMSG_HOUSING_DECOR_REDEEM_DEFERRED_DECOR.
+        // Our model is instance-based instead: the copies already exist as FHousingStorage_C
+        // entries built by 1a. Sending the notifications on top double-counts every unit in the
+        // chest UI (15454 showed x2 against one DB row), and the phantom "redeemable" then makes
+        // the client REDEEM it — which our handler grants as a brand-new catalog copy: a x2 dupe
+        // of the whole starter set. Pick ONE model; this server picked instances.
         // 2. Build buy response with HouseInfo
         WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
         response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);

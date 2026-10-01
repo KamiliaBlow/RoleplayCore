@@ -715,54 +715,29 @@ uint32 HousingMgr::GetRoomWeightCost(uint32 roomEntryId) const
     return 1;
 }
 
-std::vector<uint32> HousingMgr::GetStarterDecorIds(uint32 teamId) const
+std::vector<std::pair<uint32, int32>> HousingMgr::GetStarterDecorWithQuantities(uint32 /*teamId*/) const
 {
-    // Sniff 12.0.1 verified: Alliance and Horde receive different starter decor sets.
-    // HouseDecor.Flags encodes faction availability:
-    //   bit 0 (0x1) = Alliance, bit 1 (0x2) = Horde, 0 or 0x3 = both factions
-    // Sniff-observed sets (unique IDs only, 7-8 per faction):
-    //   Alliance: 389, 726, 1994, 1435, 9144
-    //   Horde:    1700, 81, 10952, 2549, 8910
-    // FirstTimeDecorAcquisition sends one packet per UNIQUE decor ID.
-    // StartingQuantity determines catalog count, NOT notification count.
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_ALLIANCE = 0x1;
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_HORDE    = 0x2;
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_MASK     = 0x3;
-
-    int32 factionBit = (teamId == ALLIANCE) ? HOUSE_DECOR_FLAG_FACTION_ALLIANCE : HOUSE_DECOR_FLAG_FACTION_HORDE;
-
-    std::vector<uint32> result;
-    for (auto const& [id, decor] : _houseDecorStore)
-    {
-        if (decor.StartingQuantity <= 0)
-            continue;
-
-        int32 decorFaction = decor.Flags & HOUSE_DECOR_FLAG_FACTION_MASK;
-        // Include decor if: no faction restriction (0 or both bits set), or matches player's faction
-        if (decorFaction == 0 || decorFaction == HOUSE_DECOR_FLAG_FACTION_MASK || (decorFaction & factionBit))
-            result.push_back(id);  // One entry per unique decor ID
-    }
-    return result;
-}
-
-std::vector<std::pair<uint32, int32>> HousingMgr::GetStarterDecorWithQuantities(uint32 teamId) const
-{
-    // Returns {DecorID, StartingQuantity} pairs for populating the catalog
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_ALLIANCE = 0x1;
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_HORDE    = 0x2;
-    static constexpr int32 HOUSE_DECOR_FLAG_FACTION_MASK     = 0x3;
-
-    int32 factionBit = (teamId == ALLIANCE) ? HOUSE_DECOR_FLAG_FACTION_ALLIANCE : HOUSE_DECOR_FLAG_FACTION_HORDE;
-
+    // Returns {DecorID, StartingQuantity} pairs for the purchase grant. NO faction filter:
+    //
+    // 1. The client credits HouseDecor.StartingQuantity as "remaining redeemable" for every
+    //    SQ > 0 row regardless of the player's faction — proven by decor 9144/10952 (Flags 34,
+    //    doors) showing as an unretirable phantom "1" on an ALLIANCE character whose catalog
+    //    had no row for them: the previous faction filter left those credits unretired forever.
+    //    The only thing that retires a credit is a SourceType 3 storage entry, i.e. granting
+    //    the copy. Every SQ row must therefore be granted to everyone.
+    // 2. Retail keeps no faction split of the collection either: the Horde account of the
+    //    2026-09-26 retail capture owned the "Alliance" starter decor (389, 726, 1994, 1435)
+    //    alongside both front doors (9144, 10952). Sets that looked faction-specific in
+    //    12.0.1 sniffs are server-side curation Blizzard no longer expresses through these
+    //    flags in 69933 (most SQ rows are Flags 3 = both factions).
+    // teamId is kept in the signature so call sites read naturally; it selects nothing.
     std::vector<std::pair<uint32, int32>> result;
     for (auto const& [id, decor] : _houseDecorStore)
     {
         if (decor.StartingQuantity <= 0)
             continue;
 
-        int32 decorFaction = decor.Flags & HOUSE_DECOR_FLAG_FACTION_MASK;
-        if (decorFaction == 0 || decorFaction == HOUSE_DECOR_FLAG_FACTION_MASK || (decorFaction & factionBit))
-            result.push_back({ id, decor.StartingQuantity });
+        result.push_back({ id, decor.StartingQuantity });
     }
     return result;
 }

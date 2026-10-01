@@ -7076,10 +7076,11 @@ void Spell::EffectCollectHousingDecor()
         return;
     }
 
-    // Notify client of the new decor acquisition
-    WorldPackets::Housing::HousingFirstTimeDecorAcquisition decorAcq;
-    decorAcq.DecorEntryID = decorEntryId;
-    player->SendDirectMessage(decorAcq.Write());
+    // NO HousingFirstTimeDecorAcquisition here: the client credits that packet as a
+    // "redeemable" copy on top of the FHousingStorage_C instance entries (see the
+    // house-purchase note in NeighborhoodHandler), which double-counts the chest and
+    // later drives a REDEEM that our handler would grant as a duplicate catalog copy.
+    // The spell's copy is delivered as a storage instance below / by the next populate.
 
     // If the Account entity's FHousingStorage_C has already been populated (player opened
     // edit mode), add the new catalog entry directly and send a VALUES_UPDATE so the client's

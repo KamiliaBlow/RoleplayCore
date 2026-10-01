@@ -392,10 +392,9 @@ public:
     uint32 GetDefaultVisualRoomEntry() const;
 
     // Starter decor (items granted on first house purchase)
-    // Returns starter decor IDs filtered by faction (teamId: ALLIANCE=469, HORDE=67)
-    // Sniff-verified: Alliance and Horde receive different starter decor sets
-    std::vector<uint32> GetStarterDecorIds(uint32 teamId) const;
-    // Returns {DecorID, StartingQuantity} pairs for populating the catalog on purchase
+    // Returns {DecorID, StartingQuantity} pairs — every SQ > 0 row, no faction filter:
+    // the client credits SQ as redeemable regardless of faction, and only a granted
+    // SourceType 3 entry retires that credit (see impl for the retail evidence).
     std::vector<std::pair<uint32, int32>> GetStarterDecorWithQuantities(uint32 teamId) const;
 
     // Access control — checks if visitor can access a plot/house based on owner's settings

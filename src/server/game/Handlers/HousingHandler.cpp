@@ -1603,77 +1603,32 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
         return;
     }
 
-    // Add the deferred decor to the player's catalog/storage (SourceType=3 = deferred)
-    HousingResult result = housing->AddToCatalog(decorEntryId, DECOR_SOURCE_DEFERRED);
-    if (result != HOUSING_RESULT_SUCCESS)
+    // REDEEM_DEFERRED_DECOR grants NO new copies on this server. The storage model is the
+    // FHousingStorage_C instance map backed by the catalog table; the client sends this
+    // opcode as a confirmation poll after every successful placement (dump 2026-10-01
+    // 23:11: PLACE 8917 -> REDEEM 8917, repeatedly), so the previous AddToCatalog() +
+    // GenerateDecorGuid() handler minted one extra DB copy per placement AND planted a
+    // Decor-map entry outside the synthetic band the populator re-emits — the client's
+    // chest climbed 4 -> 6 with only 4 placeable and 2 failing DECOR_NOT_FOUND_IN_STORAGE.
+    // Retail answers with an existing instance GUID; we answer with the lowest unplaced
+    // synthetic GUID (already in the client's map from populate) or an error when the
+    // stock is exhausted. The subsequent PLACE of that GUID consumes the catalog copy.
+    HousingResult mintResult = HOUSING_RESULT_SUCCESS;
+    ObjectGuid decorGuid = housing->MintStorageDecorInstance(decorEntryId, mintResult);
+    if (mintResult != HOUSING_RESULT_SUCCESS)
     {
         WorldPackets::Housing::HousingRedeemDeferredDecorResponse response;
-        response.Result = static_cast<uint8>(result);
+        response.Result = static_cast<uint8>(mintResult);
         response.SequenceIndex = sequenceIndex;
         SendPacket(response.Write());
         return;
     }
 
-    // instanceIndex is still needed below to choose INSERT vs UPDATE on the catalog row.
-    uint32 instanceIndex = 0;
-    for (auto const* entry : housing->GetCatalogEntries())
-    {
-        if (entry->DecorEntryId == decorEntryId)
-        {
-            instanceIndex = entry->Count - 1; // Count was just incremented by AddToCatalog
-            break;
-        }
-    }
-
-    // H-15: the counter used to be computed as
-    //   playerGuidCounter * 100000 + decorEntryId * 100 + instanceIndex
-    // which allots each player a 100,000-wide band and each decor entry a 100-wide
-    // slot inside it. Neither bound holds - decorEntryId * 100 leaves the band once
-    // the entry id passes 999, and the starter tables already use 1700, 2549, 8910
-    // and 9144, so redeeming entry 8910 landed nearly nine bands into another
-    // character's range. Mint from the same global generator every other decor path
-    // uses instead; the banded arithmetic had no property worth preserving.
-    ObjectGuid decorGuid = housing->GenerateDecorGuid(decorEntryId);
-
-    // Push the new decor entry to the Account entity's FHousingStorage_C fragment.
-    // Sniff: SourceType=3 marks it as redeemed from deferred queue. HouseGUID=empty (not yet placed).
-    Battlenet::Account& account = GetBattlenetAccount();
-    account.SetHousingDecorStorageEntry(decorGuid, ObjectGuid::Empty, 3);
-
-    // Sniff-verified packet order:
-    // 1. SMSG_HOUSING_REDEEM_DEFERRED_DECOR_RESPONSE (DecorGuid + Status=0 + SequenceIndex)
-    // 2. SMSG_UPDATE_OBJECT (BNetAccount entity with new Decor entry, ChangeType=1, SourceType=3)
     WorldPackets::Housing::HousingRedeemDeferredDecorResponse response;
     response.DecorGuid = decorGuid;
     response.Result = 0;
     response.SequenceIndex = sequenceIndex;
     SendPacket(response.Write());
-
-    // Push Account entity update to deliver the FHousingStorage_C change to the client
-    account.SendUpdateToPlayer(player);
-
-    // Persist the new catalog entry to DB (crash safety)
-    if (instanceIndex == 0)
-    {
-        // First copy of this decor ? INSERT new row
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_CATALOG);
-        uint8 idx = 0;
-        stmt->setUInt64(idx++, player->GetGUID().GetCounter());
-        stmt->setUInt32(idx++, decorEntryId);
-        stmt->setUInt32(idx++, 1);
-        stmt->setUInt8(idx++, DECOR_SOURCE_DEFERRED);
-        stmt->setString(idx++, std::string{});
-        CharacterDatabase.Execute(stmt);
-    }
-    else
-    {
-        // Additional copy ? UPDATE existing row count
-        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
-        stmt->setUInt32(0, instanceIndex + 1);
-        stmt->setUInt64(1, player->GetGUID().GetCounter());
-        stmt->setUInt32(2, decorEntryId);
-        CharacterDatabase.Execute(stmt);
-    }
 }
 
 // ============================================================

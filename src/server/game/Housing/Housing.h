@@ -320,6 +320,11 @@ public:
     HousingResult AddToCatalog(uint32 decorEntryId, uint8 sourceType = DECOR_SOURCE_STANDARD, std::string sourceValue = {});
     HousingResult RemoveFromCatalog(uint32 decorEntryId);
     HousingResult DestroyAllCopies(uint32 decorEntryId);
+    // Resolves an unplaced catalog copy to its synthetic storage GUID (the same band
+    // PopulateOwnStorageEntries emits) WITHOUT touching the catalog or the DB.
+    // REDEEM_DEFERRED_DECOR grants no new copies: the client polls it after every
+    // placement, so minting here duplicated each acquisition.
+    ObjectGuid MintStorageDecorInstance(uint32 decorEntryId, HousingResult& result);
     std::vector<CatalogEntry const*> GetCatalogEntries() const;
 
     // House level and favor

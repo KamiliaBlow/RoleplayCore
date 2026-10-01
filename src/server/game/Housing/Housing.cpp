@@ -489,6 +489,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 CatalogEntry& entry = _catalog[decorId];
                 entry.DecorEntryId = decorId;
                 entry.Count = qty;
+                entry.SourceType = DECOR_SOURCE_DEFERRED; // starter copies retire the client's StartingQuantity credit (see purchase handler)
             }
             TC_LOG_INFO("housing", "Housing::LoadFromDB: Catalog was empty for house {} — auto-populated {} starter decor types for player {}",
                 _houseGuid.ToString(), uint32(starterDecorWithQty.size()), _ownerGuid.ToString());
@@ -2925,36 +2926,15 @@ HousingResult Housing::AddToCatalog(uint32 decorEntryId, uint8 sourceType, std::
     if (firstTimeAcquired)
         _owner->UpdateCriteria(CriteriaType::CollectUniqueDecor, decorEntryId);
 
-    // SMSG_HOUSING_DECOR_ADD_TO_HOUSE_CHEST_RESPONSE (0x510008): retail emits this on EVERY
-    // decor acquisition, carrying the GUID of the freshly minted decor instance.
-    //
-    // Capture-verified against the 12.0.7 (68275/68453) sniffs:
-    //   "garrison and hall of class table quest.pkt" — SMSG_HOUSING_FIRST_TIME_DECOR_ACQUISITION
-    //   (decorID 0x1E8E) is immediately followed by 0x510008 whose PackedGUID decodes to
-    //   HighGuid::Housing with arg2 == 0x1E8E, i.e. the same decor entry.
-    //   "garrisonlevel2upgrade.pkt" — two more 0x510008 with NO preceding FIRST_TIME packet
-    //   (re-acquisition of already-known decor), which is why this lives here, at the
-    //   acquisition choke point, and not next to the first-time notification.
-    // Negative control: "housing12.0.7.pkt" carries 10 SMSG_HOUSING_DECOR_REMOVE_RESPONSE and
-    //   zero 0x510008, so this packet is NOT the decor-removal / return-to-storage response.
-    // Wire: uint8(0x80 = success) + uint32(count=1) + PackedGUID — all three captures parse to
-    //   exactly the packet length with no trailing bytes.
-    // GUID scheme matches PopulateCatalogStorageEntries()/EffectCollectHousingDecor():
-    //   subType=1, arg1=realm, arg2=decorEntryId, counter=ownerBase + entry*100 + instanceIndex.
-    if (_owner && _owner->GetSession())
-    {
-        uint64 uniqueId = _ownerGuid.GetCounter() * 100000 + uint64(decorEntryId) * 100
-            + (entry.Count > 0 ? entry.Count - 1 : 0);
-
-        WorldPackets::Housing::HousingDecorAddToHouseChestResponse chestResponse;
-        chestResponse.Success = true;
-        chestResponse.DecorGuids.push_back(ObjectGuid::Create<HighGuid::Housing>(
-            /*subType*/ 1,
-            /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
-            /*arg2*/ decorEntryId,
-            uniqueId));
-        _owner->SendDirectMessage(chestResponse.Write());
-    }
+    // Storage truth travels ONLY through the FHousingStorage_C fragment on the BNetAccount entity
+    // (PopulateOwnStorageEntries, pulled by REQUEST_STORAGE / edit mode). SMSG_HOUSING_DECOR_ADD_TO_
+    // HOUSE_CHEST_RESPONSE (0x510008) must NOT be sent here: the client credits it as a redeemable
+    // copy ON TOP of the fragment entries, double-counting every acquisition (decor 15454 showed x2
+    // in the chest while the DB held one row; placing the phantom copy failed with
+    // ERR_HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE). Full retail 12.1.0.69933 captures (house
+    // purchase, edit mode, place/remove, redeem deferred decor — 2026-09-26 / 2026-10-01 dumps)
+    // contain zero 0x510008 packets; the 12.0.7 (68275/68453) adjacency evidence predates that
+    // contract and no longer applies.
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -2975,6 +2955,49 @@ HousingResult Housing::RemoveFromCatalog(uint32 decorEntryId)
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
+}
+
+ObjectGuid Housing::MintStorageDecorInstance(uint32 decorEntryId, HousingResult& result)
+{
+    result = HOUSING_RESULT_SUCCESS;
+
+    if (_houseGuid.IsEmpty())
+    {
+        result = HOUSING_RESULT_HOUSE_NOT_FOUND;
+        return ObjectGuid::Empty;
+    }
+
+    uint32 placedOfType = 0;
+    for (auto const& [guid, decor] : _placedDecor)
+        if (decor.DecorEntryId == decorEntryId)
+            ++placedOfType;
+
+    auto itr = _catalog.find(decorEntryId);
+    if (itr == _catalog.end() || itr->second.Count <= placedOfType)
+    {
+        result = HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
+        return ObjectGuid::Empty;
+    }
+
+    // Same synthetic band PopulateOwnStorageEntries emits: ownerCounter*100000 +
+    // entryId*100 + i. Returning a GUID from a different generator (the old
+    // GenerateDecorGuid path) planted an entry the populator never re-emits, so the
+    // client's Decor map accumulated it forever next to the synthetic copies.
+    uint64 const catalogGuidBase = _ownerGuid.GetCounter() * 100000;
+    for (uint32 i = 0; i < itr->second.Count; ++i)
+    {
+        ObjectGuid candidate = ObjectGuid::Create<HighGuid::Housing>(
+            /*subType*/ 1,
+            /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+            /*arg2*/ decorEntryId,
+            catalogGuidBase + uint64(decorEntryId) * 100 + i);
+        if (!_placedDecor.contains(candidate))
+            return candidate;
+    }
+
+    // Unreachable when Count > placedOfType, kept as a safe fallback.
+    result = HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
+    return ObjectGuid::Empty;
 }
 
 HousingResult Housing::DestroyAllCopies(uint32 decorEntryId)
@@ -3308,34 +3331,39 @@ void Housing::PopulateOwnStorageEntries()
         account.SetHousingDecorDyeSlots(decorGuid, decor.DyeSlots);
     }
 
-    // 2. Catalog (unplaced/available) entries → HouseGUID=Empty, SourceType=0
+    // 2. Catalog (unplaced/available) entries → HouseGUID=Empty, entry's SourceType
     // Sniff-verified: items in storage have HouseGUID=Empty, placed items have non-empty HouseGUID.
-    // Catalog Count includes placed instances, so subtract them to get the storage-only count.
-    std::unordered_map<uint32, uint32> placedCountByEntry;
-    for (auto const& [decorGuid, decor] : _placedDecor)
-        placedCountByEntry[decor.DecorEntryId]++;
-
+    // Catalog Count IS the free stock: PlaceDecor/PlaceDecorWithGuid already decrement it and
+    // RemoveDecor re-increments, so subtracting placed instances here double-subtracted and
+    // hid starter decor that PlaceStarterDecor had placed (389/726/9144 sat in the DB and the
+    // chest but had zero emittable instances and could not be selected). Emit exactly Count
+    // entries, skipping synthetic GUIDs currently occupied by placed instances of this entry
+    // (a client-side PLACE consumes the synthetic it picked, so the occupied ones must not
+    // be re-emitted as free).
     uint64 catalogGuidBase = _ownerGuid.GetCounter() * 100000;
     uint32 totalStorageItems = 0;
     for (auto const& [entryId, entry] : _catalog)
     {
         uint32 placedOfType = 0;
-        auto pIt = placedCountByEntry.find(entryId);
-        if (pIt != placedCountByEntry.end())
-            placedOfType = pIt->second;
+        for (auto const& [decorGuid, decor] : _placedDecor)
+            if (decor.DecorEntryId == entryId)
+                ++placedOfType;
 
-        uint32 storageCount = entry.Count > placedOfType ? entry.Count - placedOfType : 0;
-        for (uint32 i = 0; i < storageCount; ++i)
+        uint32 emitted = 0;
+        for (uint32 i = 0; emitted < entry.Count && i < entry.Count + placedOfType; ++i)
         {
-            uint64 uniqueId = catalogGuidBase + entryId * 100 + i;
+            uint64 uniqueId = catalogGuidBase + uint64(entryId) * 100 + i;
             ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
                 /*subType*/ 1,
                 /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
                 /*arg2*/ entryId,
                 uniqueId);
+            if (_placedDecor.contains(catalogDecorGuid))
+                continue;
             account.SetHousingDecorStorageEntry(catalogDecorGuid, ObjectGuid::Empty, entry.SourceType, entry.SourceValue);
+            ++emitted;
         }
-        totalStorageItems += storageCount;
+        totalStorageItems += emitted;
     }
 
     _storagePopulated = true;
