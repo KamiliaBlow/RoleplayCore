@@ -1574,7 +1574,9 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                         UpdateData storageUpdate(p->GetMapId());
                         WorldPacket storagePacket;
 
-                        session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p);
+                        // Retail re-adds FHousingPlayerHouse_C (plot enter) and re-CREATEs the
+                        // BNetAccount entity (storage request) with full data — both entities as CREATE
+                        session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p, /*accountAsCreate=*/true);
 
                         // Decor and HousingRoomEntity CREATEs are sent by the map visibility
                         // system (AddToMap in SpawnRoomMeshObjects/SpawnInteriorDecor).

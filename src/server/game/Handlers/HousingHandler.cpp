@@ -899,8 +899,9 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
             // Player VALUES_UPDATE (EditorMode=1 + UNIT_FLAG_PACIFIED + UNIT_FLAG2_NO_ACTIONS)
             player->BuildValuesUpdateBlockForPlayer(&updateData, player);
 
-            // Account (Decor map just populated above) + HousingPlayerHouseEntity (budgets).
-            BuildHousingAccountEntitiesUpdate(&updateData, player);
+            // Account as full CREATE (retail re-issues CreateObject1 for the BNetAccount
+            // entity on editor open so the client re-ingests the Decor map) + HousingPlayerHouseEntity (budgets).
+            BuildHousingAccountEntitiesUpdate(&updateData, player, /*accountAsCreate=*/true);
 
             // Include CREATE for ALL decor MeshObjects in this same UPDATE_OBJECT packet.
             // The client correlates MeshObject FHousingDecor_C.DecorGUID with Account
@@ -1228,6 +1229,13 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
                 interiorMap->SpawnSingleInteriorDecor(*newDecor, housing->GetHouseGuid());
         }
 
+        // Retail re-sends the FULL storage map with every placement (12.1.0.69933: the
+        // place-time UPDATE_OBJECT re-issues the whole FHousingStorage_C Decor map, not
+        // just the placed record). Re-populate all entries so the values update carries
+        // the complete map — sending only the placed record makes the client's spent
+        // budget readout show just that record's cost.
+        housing->ResetStoragePopulated();
+        housing->PopulateCatalogStorageEntries();
         GetBattlenetAccount().SendUpdateToPlayer(player);
     }
 }
@@ -1567,23 +1575,26 @@ bool WorldSession::CanSeeHousingPlayerHouseEntity() const
     return true;
 }
 
-void WorldSession::BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player)
+void WorldSession::BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player, bool accountAsCreate)
 {
     // Both entities are part of the player's own CREATE (Player::BuildCreateUpdateBlockForPlayer) and
-    // SendInitialPacketsAfterAddToMap marks them as at-client. A second CREATE for an entity the client
-    // already holds crashes it (ACCESS_VIOLATION, null read); a values update carries every change,
-    // including new FHousingStorage_C.Decor keys, once BuildUpdateChangesMask() has run.
-    auto build = [data, player](auto& entity)
+    // SendInitialPacketsAfterAddToMap marks them as at-client. The client ingests the FHousingStorage_C
+    // Decor map only from a full CREATE — retail re-issues CreateObject1 for the BNetAccount entity at
+    // every storage ingest point (12.1.0.69933: storage request response, editor open) even though the
+    // client already holds the entity. A values update carries every change including new Decor map keys
+    // once BuildUpdateChangesMask() has run, but after a relog the client's budget view ignores it.
+    auto build = [data, player, accountAsCreate](auto& entity)
     {
-        if (player->HaveAtClient(&entity))
+        if (accountAsCreate || !player->HaveAtClient(&entity))
         {
             entity.BuildUpdateChangesMask();
-            entity.BuildValuesUpdateBlockForPlayer(data, player);
+            entity.BuildCreateUpdateBlockForPlayer(data, player);
+            player->m_clientGUIDs.insert(entity.GetGUID());
         }
         else
         {
-            entity.BuildCreateUpdateBlockForPlayer(data, player);
-            player->m_clientGUIDs.insert(entity.GetGUID());
+            entity.BuildUpdateChangesMask();
+            entity.BuildValuesUpdateBlockForPlayer(data, player);
         }
     };
 
@@ -1628,17 +1639,19 @@ void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::Housi
     //    then send Account + HousingPlayerHouseEntity + decor MeshObjects in a SINGLE
     //    UPDATE_OBJECT. Decor MeshObjects are bundled so the client can correlate
     //    FHousingDecor_C.DecorGUID with FHousingStorage_C entries in one pass.
-    //    An entity the client already holds gets a values update: a second CREATE for it
-    //    crashes the client (ACCESS_VIOLATION, null read). New Decor map keys do reach the
-    //    client that way as long as BuildUpdateChangesMask() runs first.
+    //    The Account entity is re-sent as a full CREATE (retail-attested): the client
+    //    re-ingests the Decor map only from a CREATE, which is what makes the decor
+    //    budget display correct after a relog.
     housing->PopulateCatalogStorageEntries();
     housing->SyncUpdateFields();
     {
         UpdateData updateData(player->GetMapId());
         WorldPacket updatePacket;
 
-        // Account (FHousingStorage_C with Decor map) + HousingPlayerHouseEntity (budgets)
-        BuildHousingAccountEntitiesUpdate(&updateData, player);
+        // Account as full CREATE (retail: the storage request response carries a
+        // CreateObject1 of the BNetAccount entity with the full FHousingStorage_C map)
+        // + HousingPlayerHouseEntity (budgets)
+        BuildHousingAccountEntitiesUpdate(&updateData, player, /*accountAsCreate=*/true);
 
         // Bundle ALL decor MeshObject CREATEs
         uint32 meshCreateCount = 0;

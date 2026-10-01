@@ -1295,7 +1295,11 @@ class TC_GAME_API WorldSession
         HousingNeighborhoodMirrorEntity& GetHousingNeighborhoodMirrorEntity() const { return *_housingNeighborhoodMirrorEntity; }
         // Appends the Account (FHousingStorage_C) and HousingPlayerHouseEntity blocks for `player`:
         // a values update when the client already holds the entity, a CREATE otherwise.
-        void BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player);
+        // accountAsCreate forces a full CREATE even when the client already holds the entities:
+        // retail re-issues CreateObject1 for the BNetAccount entity on every storage ingest point
+        // (storage request response, editor open) — a values-only re-send of the Decor map is not
+        // re-ingested by the client, which left the budgets at 0 after a relog.
+        void BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player, bool accountAsCreate = false);
         // Re-primes the neighborhood map state on every map entry: re-sends the roster (the
         // client's HousingNeighborhoodState singleton is only filled by the roster response and
         // is not re-requested on mid-session re-entry), feeds the JamCliNeighborhoodName

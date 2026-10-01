@@ -20,6 +20,8 @@
 
 #include "BaseEntity.h"
 
+#include <optional>
+
 class WorldSession;
 
 namespace Battlenet
@@ -46,7 +48,10 @@ public:
     // Housing storage data (decor catalog) ? only FHousingStorage_C belongs on the BNetAccount entity.
     // FHousingPlayerHouse_C is on the Housing/3 entity (HousingPlayerHouseEntity).
     // FNeighborhoodMirrorData_C is on the Housing/4 entity (HousingNeighborhoodMirrorEntity).
-    void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType, std::string sourceValue = {});
+    // placementStatus: HousingDecorPlacementStatus. Empty houseGuid defaults to in-storage (0),
+    // non-empty to placed-in-house (1); pass HOUSING_DECOR_PLACED_PLOT explicitly for plot decor.
+    void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType,
+        std::string sourceValue = {}, std::optional<uint8> placementStatus = {});
     void RemoveHousingDecorStorageEntry(ObjectGuid decorGuid);
     // DyeColor.db2 IDs per DecorDyeSlot (0 = undyed); all zero drops the optional DyeSlots.
     void SetHousingDecorDyeSlots(ObjectGuid decorGuid, std::array<uint32, 3> const& dyeSlots);

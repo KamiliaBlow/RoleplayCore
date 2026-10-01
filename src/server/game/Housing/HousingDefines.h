@@ -244,6 +244,16 @@ enum DecorSourceType : uint8
     DECOR_SOURCE_DEFERRED       = 3, // Redeemed from deferred reward queue
 };
 
+// DecorStoragePersistedData.PlacementStatus (retail 12.1.0.69933: the same decor record is 1
+// while placed inside the house and 2 while placed on the plot; 0 = back in storage). The client
+// sums the interior placement budget from status 1 records and the exterior budget from status 2.
+enum HousingDecorPlacementStatus : uint8
+{
+    HOUSING_DECOR_IN_STORAGE    = 0,
+    HOUSING_DECOR_PLACED_HOUSE  = 1,
+    HOUSING_DECOR_PLACED_PLOT   = 2,
+};
+
 // HousingCatalogEntryType enum - 3 values
 enum HousingCatalogEntryType : uint8
 {

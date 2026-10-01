@@ -433,6 +433,25 @@ void HousingMap::SpawnPlotGameObjects()
             for (auto const& [pointId, optionId] : plotInfo->Fixtures)
                 fixtureOverrides[pointId] = optionId;
 
+            // Mirror the root component selections (Base/Roof style & color variants, stored
+            // as OptionId==0 rows keyed by their ExteriorComponentID) the same way
+            // Housing::GetRootComponentOverrides does for the online owner. Without this the
+            // house rebuilt at map load (owner still offline — e.g. right after a server
+            // restart) falls back to the DB2 default roof, resetting the player's roof color.
+            for (auto const& [pointId, optionId] : plotInfo->Fixtures)
+            {
+                if (optionId != 0)
+                    continue;
+                ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(pointId);
+                if (!comp)
+                    continue;
+                if (comp->Type != HOUSING_FIXTURE_TYPE_BASE && comp->Type != HOUSING_FIXTURE_TYPE_ROOF)
+                    continue;
+                if (comp->HouseExteriorWmoDataID != plotInfo->HouseType)
+                    continue;
+                rootOverrides[comp->Type] = pointId;
+            }
+
             // Pick the core fixture for the house. Prefer an override with OptionId==0
             // (player-selected base, same rule Housing::GetCoreExteriorComponentID uses);
             // fall back to DB2 IsDefault, then the first root entry.
@@ -1338,8 +1357,9 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 UpdateData storageUpdate(p->GetMapId());
                 WorldPacket storagePacket;
 
-                // Account (FHousingStorage_C with Decor map) + HousingPlayerHouseEntity (budgets)
-                session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p);
+                // Account as full CREATE (replays retail's storage-request response, a
+                // CreateObject1 of the BNetAccount entity) + HousingPlayerHouseEntity (budgets)
+                session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p, /*accountAsCreate=*/true);
 
                 // Bundle ALL decor MeshObject CREATEs so the client can correlate
                 // FHousingDecor_C.DecorGUID with FHousingStorage_C entries in one pass.
