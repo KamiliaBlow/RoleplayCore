@@ -56,6 +56,7 @@
 #include "World.h"
 #include "WorldStatePackets.h"
 #include <cmath>
+#include <limits>
 
 namespace
 {
@@ -138,16 +139,74 @@ namespace
             if (Neighborhood::Member const* member = neighborhood->GetMember(player->GetGUID()))
                 plotIndex = member->PlotIndex;
 
-        // Despawn map entities BEFORE the housing data goes away.
+        // Despawn map entities BEFORE the housing data goes away. Resolve the
+        // neighborhood's own HousingMap instance instead of the seller's current map:
+        // selling from INSIDE the house interior used to fail the HousingMap
+        // dynamic_cast and leave the whole exterior standing on a plot the server
+        // already considered vacant and re-purchasable.
+        ObjectGuid const ownerGuid = housing->GetOwnerGuid();
+        uint32 worldMapId = 0;
+        uint32 neighborhoodInstance = 0;
+        if (neighborhood)
+        {
+            worldMapId = sHousingMgr.GetWorldMapIdByNeighborhoodMapId(neighborhood->GetNeighborhoodMapID());
+            neighborhoodInstance = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+        }
+
         if (plotIndex != INVALID_PLOT_INDEX)
         {
-            if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+            HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
+            if (!housingMap && worldMapId)
+                housingMap = dynamic_cast<HousingMap*>(sMapMgr->FindMap(worldMapId, neighborhoodInstance));
+
+            if (housingMap)
             {
                 housingMap->DespawnAllDecorForPlot(plotIndex);
                 housingMap->DespawnAllMeshObjectsForPlot(plotIndex);
                 housingMap->DespawnRoomForPlot(plotIndex);
                 housingMap->DespawnHouseForPlot(plotIndex);
                 housingMap->SetPlotOwnershipState(plotIndex, false);
+            }
+        }
+
+        // Everyone still inside this house's interior - the seller, who may have sold
+        // from inside it, and any visitors - is standing in a house that no longer
+        // exists. Move them to the plot's cornerstone teleport point (NeighborhoodPlot
+        // TeleportPosition, the same target the eviction and the interior exit door
+        // use). The interior instance is keyed by the owner's GUID counter.
+        if (plotIndex != INVALID_PLOT_INDEX && worldMapId)
+        {
+            if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(
+                    sMapMgr->FindMap(HOUSE_INTERIOR_MAP_ID, ownerGuid.GetCounter())))
+            {
+                NeighborhoodPlotData const* exitPlot = nullptr;
+                for (NeighborhoodPlotData const* plotData : sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
+                    if (plotData->PlotIndex == static_cast<int32>(plotIndex))
+                        exitPlot = plotData;
+
+                if (exitPlot)
+                {
+                    // TeleportTo with an instance id requires the destination map
+                    // instance to exist (same pattern as the interior exit door).
+                    if (!sMapMgr->FindOrCreateHousingMap(worldMapId, neighborhoodInstance))
+                        TC_LOG_ERROR("housing", "DestroyPlayerHousing: cannot create neighborhood map {} instance {} "
+                            "to evacuate the interior of house {}", worldMapId, neighborhoodInstance, houseGuid.ToString());
+                    else
+                    {
+                        Map::PlayerList const& interiorPlayers = interiorMap->GetPlayers();
+                        std::vector<ObjectGuid> evacuees;
+                        for (MapReference const& ref : interiorPlayers)
+                            if (Player* occupant = ref.GetSource())
+                                evacuees.push_back(occupant->GetGUID());
+
+                        for (ObjectGuid const& occupantGuid : evacuees)
+                            if (Player* occupant = ObjectAccessor::FindConnectedPlayer(occupantGuid))
+                                occupant->TeleportTo(TeleportLocation{
+                                    .Location = WorldLocation(worldMapId, exitPlot->TeleportPosition[0], exitPlot->TeleportPosition[1],
+                                        exitPlot->TeleportPosition[2], exitPlot->TeleportFacing),
+                                    .InstanceId = neighborhoodInstance });
+                    }
+                }
             }
         }
 
@@ -4297,6 +4356,46 @@ void WorldSession::HandleHousingSvcsDeleteAllNeighborhoodInvites(WorldPackets::H
 // Housing Misc
 // ============================================================
 
+namespace
+{
+    // Approach-window helper: the client fires its CURRENT_HOUSE_INFO / HOUSE_STATUS /
+    // GET_PLAYER_PERMISSIONS triple when it gets NEAR a plot, before the plot area
+    // trigger registers the player (retail capture 2026-10-02 12:25: one triple per
+    // approached plot). Answering those requests with the player's own house caches
+    // data under the wrong HouseGUID, and the client's front-door gate then defaults to
+    // "allowed" - no ERR_HOUSING_ACTION_NOENTRY for a house closed to visitors.
+    // Returns the nearest occupied plot that is not the player's own within 100 yd,
+    // or -1 when none is close.
+    int8 GetNearestVisitedPlotIndex(Player* player, Neighborhood* neighborhood)
+    {
+        float const maxDistSq = 100.0f * 100.0f;
+        float bestDistSq = std::numeric_limits<float>::max();
+        int8 nearest = -1;
+        for (Neighborhood::PlotInfo const& plot : neighborhood->GetPlots())
+        {
+            if (!plot.IsOccupied() || player->GetHousingByOwner(plot.OwnerGuid))
+                continue;
+
+            NeighborhoodPlotData const* plotData = nullptr;
+            for (NeighborhoodPlotData const* candidate : sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
+                if (candidate->PlotIndex == plot.PlotIndex)
+                    plotData = candidate;
+            if (!plotData)
+                continue;
+
+            float dx = player->GetPositionX() - plotData->HousePosition[0];
+            float dy = player->GetPositionY() - plotData->HousePosition[1];
+            float distSq = dx * dx + dy * dy;
+            if (distSq <= maxDistSq && distSq < bestDistSq)
+            {
+                bestDistSq = distSq;
+                nearest = static_cast<int8>(plot.PlotIndex);
+            }
+        }
+        return nearest;
+    }
+}
+
 void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseStatus const& /*housingHouseStatus*/)
 {
     Player* player = GetPlayer();
@@ -4314,14 +4413,48 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
     Housing* ownHousing = player->GetHousing();
 
     // Check what plot the player is currently visiting via area trigger tracking.
-    // On the interior map (HouseInteriorMap), there's no HousingMap plot tracking ? use
-    // the player's own plot index directly since they're always inside their own house.
+    // (The interior map is handled above; visitors there are answered from the
+    // interior instance's own owner, not from the player's housing.)
+    // Inside an interior the answer is always about THAT interior's house - for a visitor too
+    // (retail 2026-09-27 01:54:37: HouseGUID = the interior's house, owner ACCOUNT guid filled
+    // from the plot, owner PLAYER guid empty). The old interior path derived the plot index
+    // from the player's OWN housing and then required a HousingMap, so a visitor inside
+    // someone's house fell through to its own house data - or an empty response when
+    // houseless - flipping the client's HouseEditorPlayerType and hiding the visitor UI
+    // right after stepping through the door.
+    if (isInterior)
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(interiorMap->GetOwnerGuid()))
+            {
+                bool found = false;
+                for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                    if (plot.OwnerGuid == interiorMap->GetOwnerGuid() && plot.IsOccupied())
+                    {
+                        response.HouseGuid = plot.HouseGuid;
+                        response.AccountGuid = plot.OwnerBnetGuid;
+                        response.OwnerPlayerGuid = ObjectGuid::Empty;
+                        response.Status = 0;
+                        if (Housing const* ownerHousing = player->GetHousingByOwner(plot.OwnerGuid))
+                            response.EditModeFlags = ownerHousing->GetEditModeStatusFlags();
+                        found = true;
+                        break;
+                    }
+                if (found)
+                    break;
+            }
+
+    if (!response.HouseGuid.IsEmpty())
+    {
+        SendPacket(response.Write());
+        return;
+    }
+
     HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
     int8 visitedPlot = -1;
     if (housingMap)
         visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
-    else if (isInterior && ownHousing)
-        visitedPlot = static_cast<int8>(ownHousing->GetPlotIndex());
+    if (visitedPlot < 0 && housingMap && housingMap->GetNeighborhood())
+        visitedPlot = GetNearestVisitedPlotIndex(player, housingMap->GetNeighborhood());
 
     if (visitedPlot >= 0 && housingMap && housingMap->GetNeighborhood())
     {
@@ -4378,55 +4511,96 @@ void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::Hous
     uint32 visitedSettingsFlags = HOUSE_SETTING_DEFAULT;
     bool isInteriorVisit = false;
 
-    if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+    // The request names a house: the client asks about the plot it is APPROACHING - the
+    // client-side triple CURRENT_HOUSE_INFO / HOUSE_STATUS / GET_PLAYER_PERMISSIONS fires on
+    // approach (retail capture 2026-10-02 12:25: one triple per plot, started well before any
+    // door), which is BEFORE the plot area trigger registers the player. Answering with the
+    // tracked plot (empty at that moment) or the player's own house caches the permissions
+    // under the WRONG HouseGUID and the client falls back to "allowed" at the front door -
+    // no ERR_HOUSING_ACTION_NOENTRY, the door use reaches the server. Honor the asked house.
+    if (ObjectGuid requestedHouseGuid = housingGetPlayerPermissions.HouseGuid.value_or(ObjectGuid::Empty);
+        !requestedHouseGuid.IsEmpty() && !player->GetHousingByHouseGuid(requestedHouseGuid))
     {
-        // The interior instance is per-house: GetOwnerGuid is the visited owner.
-        if (!interiorMap->IsHouseOwnerAccount(player))
+        for (Neighborhood const* nbh : sNeighborhoodMgr.GetAllNeighborhoods())
         {
-            visitedOwnerGuid = interiorMap->GetOwnerGuid();
-            isInteriorVisit = true;
-
-            if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
-                if (Housing const* ownerHousing = owner->GetHousing())
+            bool found = false;
+            for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                if (plot.HouseGuid == requestedHouseGuid)
                 {
-                    visitedSettingsFlags = ownerHousing->GetSettingsFlags();
-                    visitedHouseGuid = ownerHousing->GetHouseGuid();
+                    visitedOwnerGuid = plot.OwnerGuid;
+                    visitedHouseGuid = plot.HouseGuid;
+                    visitedSettingsFlags = plot.HouseSettingsFlags;
+                    found = true;
+                    break;
                 }
-            if (visitedHouseGuid.IsEmpty())
-                for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(visitedOwnerGuid))
-                {
-                    bool found = false;
-                    for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
-                        if (plot.OwnerGuid == visitedOwnerGuid)
-                        {
-                            visitedSettingsFlags = plot.HouseSettingsFlags;
-                            visitedHouseGuid = plot.HouseGuid;
-                            found = true;
-                            break;
-                        }
-                    if (found)
-                        break;
-                }
+            if (found)
+                break;
         }
+
+        // Live flags when the owner is online (the PlotInfo mirror covers an offline owner, H-11).
+        if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+            if (Housing const* ownerHousing = owner->GetHousing())
+                visitedSettingsFlags = ownerHousing->GetSettingsFlags();
+
+        // Asked from inside that house's interior: the house-entry bits gate a visitor there,
+        // not the plot bits (the interior IS the house).
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            if (!interiorMap->IsHouseOwnerAccount(player) && interiorMap->GetOwnerGuid() == visitedOwnerGuid)
+                isInteriorVisit = true;
     }
-    else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+
+    if (visitedOwnerGuid.IsEmpty())
     {
-        if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
-            int8 visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
-            if (visitedPlot >= 0)
+            // The interior instance is per-house: GetOwnerGuid is the visited owner.
+            if (!interiorMap->IsHouseOwnerAccount(player))
             {
-                Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(visitedPlot));
-                // A plot bought by another character of the account is still the player's own.
-                if (plotInfo && plotInfo->IsOccupied() && !player->GetHousingByOwner(plotInfo->OwnerGuid))
+                visitedOwnerGuid = interiorMap->GetOwnerGuid();
+                isInteriorVisit = true;
+
+                if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+                    if (Housing const* ownerHousing = owner->GetHousing())
+                    {
+                        visitedSettingsFlags = ownerHousing->GetSettingsFlags();
+                        visitedHouseGuid = ownerHousing->GetHouseGuid();
+                    }
+                if (visitedHouseGuid.IsEmpty())
+                    for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(visitedOwnerGuid))
+                    {
+                        bool found = false;
+                        for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                            if (plot.OwnerGuid == visitedOwnerGuid)
+                            {
+                                visitedSettingsFlags = plot.HouseSettingsFlags;
+                                visitedHouseGuid = plot.HouseGuid;
+                                found = true;
+                                break;
+                            }
+                        if (found)
+                            break;
+                    }
+            }
+        }
+        else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
+            if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+            {
+                int8 visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+                if (visitedPlot >= 0)
                 {
-                    visitedOwnerGuid = plotInfo->OwnerGuid;
-                    visitedHouseGuid = plotInfo->HouseGuid;
-                    // Live flags from the loaded housing; the PlotInfo mirror covers an
-                    // offline owner (H-11: checks must not depend on the owner being online).
-                    if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
-                        if (Housing const* ownerHousing = owner->GetHousing())
-                            visitedSettingsFlags = ownerHousing->GetSettingsFlags();
+                    Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(visitedPlot));
+                    // A plot bought by another character of the account is still the player's own.
+                    if (plotInfo && plotInfo->IsOccupied() && !player->GetHousingByOwner(plotInfo->OwnerGuid))
+                    {
+                        visitedOwnerGuid = plotInfo->OwnerGuid;
+                        visitedHouseGuid = plotInfo->HouseGuid;
+                        // Live flags from the loaded housing; the PlotInfo mirror covers an
+                        // offline owner (H-11: checks must not depend on the owner being online).
+                        if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+                            if (Housing const* ownerHousing = owner->GetHousing())
+                                visitedSettingsFlags = ownerHousing->GetSettingsFlags();
+                    }
                 }
             }
         }
@@ -4436,8 +4610,15 @@ void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::Hous
     {
         response.HouseGuid = visitedHouseGuid;
         response.ResultCode = 0;
+        // Blueprint grant rides with the visit grant for visitors whose owner enabled
+        // BlueprintExport for them (retail 0x1C, see HOUSING_PERMISSIONS_BLUEPRINT) - the
+        // client's blueprint button tests this byte, not HouseSettingFlags.
         response.PermissionFlags = sHousingMgr.CanVisitorAccessPlot(player, visitedOwnerGuid,
-            visitedSettingsFlags, isInteriorVisit) ? HOUSING_PERMISSIONS_VISITOR : 0x00;
+            visitedSettingsFlags, isInteriorVisit)
+            ? (HOUSING_PERMISSIONS_VISITOR
+                | (sHousingMgr.CanVisitorExportBlueprint(player, visitedOwnerGuid, visitedSettingsFlags)
+                    ? HOUSING_PERMISSIONS_BLUEPRINT : 0))
+            : 0x00;
         SendPacket(response.Write());
         return;
     }
@@ -4507,6 +4688,10 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
         if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
         {
             int8 currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+            if (currentPlot < 0)
+                // Approach window (see GetNearestVisitedPlotIndex): deliver the approached
+                // house so its flags are cached under the right HouseGUID.
+                currentPlot = GetNearestVisitedPlotIndex(player, neighborhood);
             if (currentPlot >= 0)
             {
                 Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(currentPlot));

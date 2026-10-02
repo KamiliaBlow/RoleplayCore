@@ -240,15 +240,18 @@ public:
                         "(owner {} flags 0x{:X})",
                         player->GetGUID().ToString(), plotIndex, plotInfo->OwnerGuid.ToString(),
                         settingsFlags);
-                    // Push a permissions refresh with flags 0 for this house: the client derives
-                    // HouseEditorPlayerType.None from it ("without even sufficient visiting
-                    // permissions") and shows its own ERR_HOUSING_ACTION_NOENTRY
-                    // ("This house is closed to visitors.") - no server text is sent.
-                    WorldPackets::Housing::HousingGetPlayerPermissionsResponse response;
-                    response.HouseGuid = plotInfo->HouseGuid;
-                    response.ResultCode = 0;
-                    response.PermissionFlags = 0;
-                    player->SendDirectMessage(response.Write());
+                    // Retail door refusal: capture 2026-10-02 12:29:12.885 (packet #14122), ~1.2 s
+                    // after the visitor's door report on a closed house (flags 0x20, permissions
+                    // 0x10): SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE with the exact bytes
+                    // 57 00 = FailureType 87 (PERMISSION_DENIED) + ErrorCode 0 - and nothing else,
+                    // no transfer. The client shows "This house is closed to visitors."
+                    // (ERR_HOUSING_ACTION_NOENTRY) off THIS packet. A permissions-response push
+                    // must not be used for this: an unrequested flags-0 response flips the
+                    // client's HouseEditorPlayerType to None and hides the visitor UI.
+                    WorldPackets::Housing::HousingSvcsNotifyPermissionsFailure failure;
+                    failure.FailureType = static_cast<uint8>(HOUSING_RESULT_PERMISSION_DENIED);
+                    failure.ErrorCode = 0;
+                    player->SendDirectMessage(failure.Write());
                     return true;
                 }
 

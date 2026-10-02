@@ -1554,10 +1554,6 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                 "roomMeshObjects entries={} decorGuidToObj entries={}",
                 uint32(_roomMeshObjects.size()), uint32(_decorGuidToObjGuid.size()));
 
-            // Toggle WS[30906]=1 to signal the client that the player is inside a house interior.
-            // Sent synchronously so the client knows it's an interior before deferred packets.
-            player->SendUpdateWorldState(WORLDSTATE_HOUSING_INTERIOR, 1);
-
             // Defer ALL housing context packets by 500ms. The client needs time to
             // process the initial UPDATE_OBJECT (entities, room MeshObjects) before
             // housing response packets can be processed. This mirrors the exterior
@@ -1578,9 +1574,12 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                     if (!p || !p->IsInWorld())
                         return;
 
+                    // The entering player's OWN housing - null for a houseless visitor, who
+                    // still needs the map-level interior context below (initiative, exit door).
+                    // Owner-bound steps are gated individually instead of returning here: the
+                    // old early return left a houseless visitor without the exit door at all.
                     Housing* housing = p->GetHousing();
-                    if (!housing)
-                        return;
+                    bool const ownerEntering = IsHouseOwnerAccount(p);
 
                     // ENTER_PLOT is sent AFTER the AT CREATE in step 8 below.
                     // The sequence is: AT CREATE → ENTER_PLOT → re-send Status+Perms.
@@ -1600,39 +1599,47 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                     // first stands inside their house (both packet-attested in the starter captures).
                     // Without this the chain is unenterable: no NPC ever offers it, so the player
                     // reaches the end of the visible questline and the editor never unlocks.
-                    GrantHousingTutorialProgress(p);
+                    // 0) "stand inside your house" credit is for the OWNER - a visitor must not
+                    // complete someone else's tutorial.
+                    if (ownerEntering)
+                        GrantHousingTutorialProgress(p);
 
-                    // 1) PostTutorialAuras (slots 8, 9, 50)
+                    // 1) PostTutorialAuras (slots 8, 9, 50) + 5) account storage: bound to the
+                    // entering player's own housing.
+                    if (housing)
+                    {
                     SendHousingPostTutorialAuras(p);
 
-                    // 5) Account CREATE + HousingPlayerHouseEntity + decor
-                    {
-                        housing->PopulateCatalogStorageEntries();
-                        housing->SyncUpdateFields();
+                        // 5) Account CREATE + HousingPlayerHouseEntity + decor
+                        {
+                            housing->PopulateCatalogStorageEntries();
+                            housing->SyncUpdateFields();
 
-                        WorldSession* session = p->GetSession();
-                        UpdateData storageUpdate(p->GetMapId());
-                        WorldPacket storagePacket;
+                            WorldSession* session = p->GetSession();
+                            UpdateData storageUpdate(p->GetMapId());
+                            WorldPacket storagePacket;
 
-                        // Retail re-adds FHousingPlayerHouse_C (plot enter) and re-CREATEs the
-                        // BNetAccount entity (storage request) with full data — both entities as CREATE
-                        session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p, /*accountAsCreate=*/true);
+                            // Retail re-adds FHousingPlayerHouse_C (plot enter) and re-CREATEs the
+                            // BNetAccount entity (storage request) with full data — both entities as CREATE
+                            session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p, /*accountAsCreate=*/true);
 
-                        // Decor and HousingRoomEntity CREATEs are sent by the map visibility
-                        // system (AddToMap in SpawnRoomMeshObjects/SpawnInteriorDecor).
-                        // Do NOT send manual CREATEs here — double-sending corrupts the
-                        // client's entity state and makes decor unselectable after relog.
+                            // Decor and HousingRoomEntity CREATEs are sent by the map visibility
+                            // system (AddToMap in SpawnRoomMeshObjects/SpawnInteriorDecor).
+                            // Do NOT send manual CREATEs here — double-sending corrupts the
+                            // client's entity state and makes decor unselectable after relog.
 
-                        storageUpdate.BuildPacket(&storagePacket);
-                        p->SendDirectMessage(&storagePacket);
+                            storageUpdate.BuildPacket(&storagePacket);
+                            p->SendDirectMessage(&storagePacket);
 
-                        session->GetBattlenetAccount().ClearUpdateMask(true);
-                        session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+                            session->GetBattlenetAccount().ClearUpdateMask(true);
+                            session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
+                        }
+
+                        // Map-level Housing/3 entity (objectType=18) is now included in
+                        // the initial UPDATE_OBJECT via Player::BuildCreateUpdateBlockForPlayer.
+                        // It must be in the initial batch for the client's type-18 render init.
+
                     }
-
-                    // Map-level Housing/3 entity (objectType=18) is now included in
-                    // the initial UPDATE_OBJECT via Player::BuildCreateUpdateBlockForPlayer.
-                    // It must be in the initial batch for the client's type-18 render init.
 
                     // 7) InitiativeServiceStatus
                     {
@@ -1870,6 +1877,12 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
             TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: NO HOUSING for player {} — "
                 "cannot spawn rooms/decor", player->GetGUID().ToString());
         }
+
+        // Toggle WS[30906]=1 to signal the client that the player is inside a house interior - for EVERYONE
+        // entering, not only players with their own housing: a houseless visitor's client needs it
+        // just the same (C_Housing.IsInsideHouse / interior UI state). Sent synchronously so the
+        // client knows it's an interior before deferred packets.
+        player->SendUpdateWorldState(WORLDSTATE_HOUSING_INTERIOR, 1);
 
         TC_LOG_ERROR("housing", "HouseInteriorMap: Player {} entered house interior (owner={}, map={}, instanceId={})",
             player->GetGUID().ToString(), _owner.ToString(), GetId(), GetInstanceId());

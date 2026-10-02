@@ -432,10 +432,18 @@ enum HousingDecorPlacementFlags : int32
     DECOR_PLACEMENT_STACKABLE   = 0x10
 };
 
-// SMSG_HOUSING_GET_PLAYER_PERMISSIONS_RESPONSE flags, retail 12.1.0.69933: 0xFE in all 5 responses for the player's
-// own house; 0x10 in 8 of the 16 for other houses (the rest 0x18 or 0, rules not yet known).
+// SMSG_HOUSING_GET_PLAYER_PERMISSIONS_RESPONSE flags, retail 12.1.0.69933: 0xFE for the player's
+// own house; 0x10 for a plain visitor of other houses. Observed extras: 0x18 and 0x1C. The 0x1C
+// case is identified (capture 2026-09-27 01:52:16): a house whose owner set EVERY access group to
+// Anyone (HouseSettingFlags 0x7FFF) answered 0x1C = VISITOR | 0x0C to a stranger, so bits 2 and 3
+// are grants the BlueprintExport settings unlock - the client's C_HousingBlueprint.GetExport/
+// GetImportAvailability read this byte, and the blueprint button's
+// HOUSING_CONTROLS_BLUEPRINT_UNAVAILABLE_PERMISSION tooltip is exactly the missing 0x0C.
+// 0x18 (bit 3 alone) is presumably a narrower export grant; which bit is export and which is
+// import was not separated by the captures, so an export-enabled visitor gets both.
 constexpr uint8 HOUSING_PERMISSIONS_OWNER   = 0xFE;
 constexpr uint8 HOUSING_PERMISSIONS_VISITOR = 0x10;
+constexpr uint8 HOUSING_PERMISSIONS_BLUEPRINT = 0x0C;
 
 // TrinityString entry for the plot-eviction warning (ID chosen to match the live DB).
 // Retail sends it as CHAT_MSG_RAID_BOSS_WHISPER with the sender set to the visitor

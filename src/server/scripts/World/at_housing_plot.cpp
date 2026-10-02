@@ -205,7 +205,14 @@ struct at_housing_plot : AreaTriggerAI
             {
                 WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
                 statusResponse.HouseGuid = ownerHousing->GetHouseGuid();
-                statusResponse.AccountGuid = player->GetSession()->GetBattlenetAccountGUID();
+                // The OWNER's battle.net account, not the viewer's: retail HouseStatus pairs the
+                // house GUID with its owner's BNetAccount (capture 2026-10-02 12:25, HouseOwner-
+                // AccountGUID low == HouseGUID low for every visited plot). Sending the viewer's
+                // own account here made the client treat a visited house as the viewer's - the
+                // front-door gate then skipped its visitor check, no ERR_HOUSING_ACTION_NOENTRY.
+                statusResponse.AccountGuid = plotInfo && !plotInfo->OwnerBnetGuid.IsEmpty()
+                    ? plotInfo->OwnerBnetGuid
+                    : player->GetSession()->GetBattlenetAccountGUID();
                 statusResponse.OwnerPlayerGuid = ownerGuid;
                 statusResponse.Status = 0;
                 statusResponse.EditModeFlags = isOwnPlot ? ownerHousing->GetEditModeStatusFlags() : 0;
@@ -214,7 +221,20 @@ struct at_housing_plot : AreaTriggerAI
                 WorldPackets::Housing::HousingGetPlayerPermissionsResponse permResponse;
                 permResponse.HouseGuid = ownerHousing->GetHouseGuid();
                 permResponse.ResultCode = 0;
-                permResponse.PermissionFlags = isOwnPlot ? HOUSING_PERMISSIONS_OWNER : HOUSING_PERMISSIONS_VISITOR;
+                if (isOwnPlot)
+                    permResponse.PermissionFlags = HOUSING_PERMISSIONS_OWNER;
+                else
+                {
+                    // Live settings when the owner is online (ownerHousing), PlotInfo mirror otherwise
+                    // (H-11). The blueprint grant rides along with the visit grant - see
+                    // HOUSING_PERMISSIONS_BLUEPRINT.
+                    uint32 visitorSettings = plotInfo ? plotInfo->HouseSettingsFlags : HOUSE_SETTING_DEFAULT;
+                    if (ownerHousing)
+                        visitorSettings = ownerHousing->GetSettingsFlags();
+                    permResponse.PermissionFlags = HOUSING_PERMISSIONS_VISITOR
+                        | (sHousingMgr.CanVisitorExportBlueprint(player, ownerGuid, visitorSettings)
+                            ? HOUSING_PERMISSIONS_BLUEPRINT : 0);
+                }
                 player->SendDirectMessage(permResponse.Write());
 
                 TC_LOG_DEBUG("housing", "at_housing_plot: Sent HouseStatus+Permissions for player {} (own={}, flags=0x{:X})",
