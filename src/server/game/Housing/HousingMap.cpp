@@ -17,55 +17,46 @@
 
 #include "HousingMap.h"
 #include "Account.h"
-#include "HousingMirrorEntity.h"
-#include "HousingNeighborhoodMirrorEntity.h"
-#include "HousingPlayerHouseEntity.h"
-#include "HousingRoomEntity.h"
-#include <algorithm>
-#include <atomic>
-#include <cmath>
-#include <limits>
-#include <set>
 #include "AreaTrigger.h"
-#include "EventProcessor.h"
+#include "Creature.h"
 #include "DB2Stores.h"
 #include "DB2Structure.h"
+#include "EventProcessor.h"
 #include "GameObject.h"
-#include "Creature.h"
-#include "TemporarySummon.h"
 #include "GridDefines.h"
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingMgr.h"
-#include "ScriptMgr.h"
+#include "HousingMirrorEntity.h"
+#include "HousingNeighborhoodMirrorEntity.h"
 #include "HousingPackets.h"
+#include "HousingPlayerHouseEntity.h"
+#include "HousingRoomEntity.h"
 #include "Log.h"
 #include "MeshObject.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
-#include "ObjectGridLoader.h"
 #include "ObjectGuid.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
 #include "Player.h"
-#include "QueryPackets.h"
-#include "RealmList.h"
 #include "SocialMgr.h"
 #include "Spell.h"
 #include "SpellAuraDefines.h"
 #include "SpellPackets.h"
+#include "TemporarySummon.h"
 #include "UpdateData.h"
 #include "World.h"
 #include "WorldSession.h"
-#include "WorldStateMgr.h"
 #include "WorldStatePackets.h"
+#include <algorithm>
+#include <cmath>
+#include <set>
 
 namespace
 {
-    // Local rotation of a component hung on an ExteriorComponentHook. DB2 stores the hook yaw clockwise: retail
-    // sends RotationLocalSpace yaw = -OffsetRot[2] (hook 2506: -90 in DB2, +90 in the sniff). With the DB2 sign a
-    // porch on a side wall faced into the house; front/back hooks (0/180) looked right either way.
+    // DB2 stores the hook yaw clockwise; the client expects its negation.
     QuaternionData GetHookLocalRotation(ExteriorComponentHookEntry const* hook)
     {
         static constexpr float DEG_TO_RAD = static_cast<float>(M_PI / 180.0);
@@ -83,9 +74,7 @@ namespace
         return rot;
     }
 
-
-    // Recurring event that sends the housing WorldState counters 13436/13437/13438 every ~5 s,
-    // +1333 per tick (12.1.0.69933 sniff 11-13-10).
+    // Recurring event that sends the housing WorldState counters every ~5 s, +1333 per tick.
     class HousingWorldStateCounterEvent : public BasicEvent
     {
     public:
@@ -100,28 +89,24 @@ namespace
         {
             Player* player = ObjectAccessor::FindPlayer(_playerGuid);
             if (!player || !player->IsInWorld())
-                return true; // delete event — player gone
+                return true;
 
-            // Send all five counter WorldState updates
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_1, _counter1);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_2, _counter2);
             player->SendUpdateWorldState(WORLDSTATE_HOUSING_COUNTER_3, _counter3);
-            // 16035/16711 are not sent by 12.1.0.69933 retail (sniff 11-13-10).
-
-            // Increment for next tick (different rates per sniff)
+            // Counters 4/5 are not sent by retail.
             _counter1 += HOUSING_WORLDSTATE_INCREMENT;
             _counter2 += HOUSING_WORLDSTATE_INCREMENT;
             _counter3 += HOUSING_WORLDSTATE_INCREMENT;
             _counter4 += HOUSING_WORLDSTATE_INCREMENT_2;
             _counter5 += HOUSING_WORLDSTATE_INCREMENT_2;
 
-            // Re-schedule self for next tick
             player->m_Events.AddEventAtOffset(
                 new HousingWorldStateCounterEvent(_playerGuid,
                     _counter1, _counter2, _counter3, _counter4, _counter5),
                 Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
 
-            return true; // delete this instance (new one scheduled)
+            return true;
         }
 
     private:
@@ -137,23 +122,17 @@ namespace
 HousingMap::HousingMap(uint32 id, time_t expiry, uint32 instanceId, Difficulty spawnMode, uint32 neighborhoodId)
     : Map(id, expiry, instanceId, spawnMode), _neighborhoodId(neighborhoodId), _neighborhood(nullptr)
 {
-    // Prevent the map from being unloaded — housing maps are persistent
-    // Map::CanUnload() returns false when m_unloadTimer == 0
+    // Keep the map loaded forever: Map::CanUnload() returns false when m_unloadTimer == 0.
     m_unloadTimer = 0;
     HousingMap::InitVisibilityDistance();
 
-    // Verify InstanceType is MAP_HOUSE_NEIGHBORHOOD (8).
-    // The client's "Airlock" system sets field_32=2 ONLY when InstanceType==8.
-    // Without this, IsInsidePlot() always returns false → OutsidePlotBounds on ALL decor placement.
+    // The client's "Airlock" system needs InstanceType==8 or every decor placement fails with OutsidePlotBounds.
     if (GetEntry()->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
     {
         TC_LOG_ERROR("housing", "CRITICAL: HousingMap {} '{}' has InstanceType={}, expected {} (MAP_HOUSE_NEIGHBORHOOD). "
             "Client will NOT allow decor placement — OutsidePlotBounds will always fire!",
             id, GetEntry()->MapName[sWorld->GetDefaultDbcLocale()],
             GetEntry()->InstanceType, MAP_HOUSE_NEIGHBORHOOD);
-    }
-    else
-    {
     }
 }
 
@@ -164,18 +143,7 @@ HousingMap::~HousingMap()
 
 void HousingMap::InitVisibilityDistance()
 {
-    // Audit 2026-04-21 measured ~20× over-emission vs retail when this map used
-    // MAX_VISIBILITY_DISTANCE (533y) — every player received CREATE_OBJECT for
-    // every decor / mesh / fixture on the map regardless of where they stood.
-    // Retail uses a bounded distance and relies on the client's entity registry
-    // already holding the persistent infra entities (plot ATs, cornerstone GOs,
-    // room identities) at any distance. We mirror that: the persistent ones are
-    // marked setActive(true) + SetFarVisible(true) at spawn time (see
-    // SpawnPlotGameObjects + HousingRoomEntity::Create), so their CREATEs always
-    // reach the player; everything else (decor, fixtures, component meshes)
-    // streams via grid visibility once the player is within 200y. 200y is wide
-    // enough that adjacent plots remain visible while keeping per-player update
-    // traffic bounded.
+    // Retail streams by bounded grid distance; persistent infra entities are marked far-visible at spawn time.
     m_VisibleDistance = 200.0f;
     m_VisibilityNotifyPeriod = sWorld->getIntConfig(CONFIG_VISIBILITY_NOTIFY_PERIOD_INSTANCE);
 }
@@ -210,12 +178,9 @@ void HousingMap::SpawnPlotGameObjects()
         float y = plot->CornerstonePosition[1];
         float z = plot->CornerstonePosition[2];
 
-        // Ensure the grid at this position is loaded so we can add GOs
         LoadGrid(x, y);
 
-        // Retail spawns the same "Cornerstone" GO on every plot; per-plot identity goes into
-        // the FJamHousingCornerstone_C fragment below. Ownership state via GOState:
-        // 0 (ACTIVE) = Owned/Claimed, 1 (READY) = ForSale sign.
+        // Retail spawns the same "Cornerstone" GO on every plot; GOState: 0 = owned, 1 = ForSale sign.
         Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(static_cast<uint8>(plot->PlotIndex));
         uint32 const goEntry = HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY;
         uint32 const anchorEntry = static_cast<uint32>(plot->CornerstoneGameObjectID);
@@ -228,15 +193,7 @@ void HousingMap::SpawnPlotGameObjects()
             continue;
         }
 
-        // Cornerstone transform. The per-plot DB2 rows (CornerstoneGameObjectID) are the position
-        // authority: a WowPacketParser decode of the 65940 housing sniffs shows the wire position
-        // AND quaternion equal GameObjects.db2[CornerstoneGameObjectID].Pos/.Rot exactly for 55/55
-        // plots on map 2735, while NeighborhoodPlot.CornerstonePosition/Rotation match 0/55 there
-        // (off by 1.5-18 yards, and rotation off by PI +/- 0.2..0.5 rad even where the position
-        // agrees) - i.e. that map's plot rows are simply wrong and no rotation offset can rescue
-        // them. Map 2736 is the opposite case: GameObjects.db2 has NO DisplayID-110660 rows for
-        // OwnerID 2736, and there the sniff shows wire_orientation == CornerstoneRotation.Z + PI
-        // for 48/55 plots (the 7 misses are plots whose position also drifted between builds).
+        // Cornerstone transform: prefer the GameObjects.db2 anchor row (NeighborhoodPlot rows are unreliable); fall back to CornerstoneRotation+PI.
         float rotZ;
         QuaternionData rot;
         if (GameObjectsEntry const* goData = sGameObjectsStore.LookupEntry(anchorEntry))
@@ -255,7 +212,6 @@ void HousingMap::SpawnPlotGameObjects()
             rot = QuaternionData::fromEulerAnglesZYX(rotZ, plot->CornerstoneRotation[1], plot->CornerstoneRotation[0]);
         }
 
-        // GOState 0 (ACTIVE) = Owned/Claimed cornerstone, GOState 1 (READY) = ForSale sign
         GOState plotState = isOwned ? GO_STATE_ACTIVE : GO_STATE_READY;
 
         Position pos(x, y, z, rotZ);
@@ -267,16 +223,13 @@ void HousingMap::SpawnPlotGameObjects()
             continue;
         }
 
-        // Retail sniff: all Cornerstone GOs have Flags=32 (GO_FLAG_NODESPAWN)
+        // All Cornerstone GOs carry GO_FLAG_NODESPAWN.
         go->SetFlag(GO_FLAG_NODESPAWN);
 
-        // Housing objects are dynamically spawned (no DB spawn record), so they have no
-        // phase_area association. Explicitly mark them as universally visible so they're
-        // seen by players regardless of what phases the player has from area-based phasing.
+        // Mark universally visible so area-based player phases cannot hide them.
         PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
-        // Populate the FJamHousingCornerstone_C entity fragment so the client
-        // knows this is a Cornerstone and can render the "For Sale" / owned UI
+        // The FJamHousingCornerstone_C fragment drives the "For Sale"/owned UI.
         go->InitHousingCornerstoneData(plot->Cost, static_cast<int32>(plot->PlotIndex));
 
         if (!AddToMap(go))
@@ -287,18 +240,12 @@ void HousingMap::SpawnPlotGameObjects()
             continue;
         }
 
-        // Always keep cornerstone GOs streamed to every player on the map regardless of
-        // distance — the house finder UI, OPEN_CORNERSTONE_UI, and the world-map icon
-        // resolver all rely on the GO being in the entity registry. Without this, dropping
-        // the map's visibility distance below MAX would hide cornerstones at far plots
-        // and break the finder/buy flow when players are anywhere except next to the GO.
+        // Keep cornerstone GOs streamed to every player (house finder, OPEN_CORNERSTONE_UI, world-map icon).
         go->setActive(true);
         go->SetFarVisible(true);
 
-        // Track the plot GO for later swap (purchase/eviction)
         _plotGameObjects[static_cast<uint8>(plot->PlotIndex)] = go->GetGUID();
 
-        // Plot AreaTrigger: owned plots only, see SpawnPlotAreaTrigger.
         if (isOwned)
         {
             SpawnPlotAreaTrigger(plot);
@@ -306,37 +253,20 @@ void HousingMap::SpawnPlotGameObjects()
         }
     }
 
-    // Blizzlike: the per-plot WorldState from NeighborhoodPlot.db2 is a BINARY occupancy flag
-    // that retail ships inside SMSG_INIT_WORLD_STATES (confirmed via sniff dump_12.0.1.66838_2026-04-15:
-    //   - interior map 2783: all 55 plot worldstates = 0 (nothing yet visible)
-    //   - exterior map 2735: occupied plots = 1, empty plots = 0
-    // The VALUE is not the owner-type enum — it's purely "is a house here?". Owner identity is
-    // carried in the plot AT (FHousingPlotAreaTrigger_C) and NeighborhoodMirrorData.Houses,
-    // both of which are populated elsewhere; the client correlates plot icon -> AT -> owner
-    // when you hover on the map.
-    //
-    // Setting the values through Map::SetWorldStateValue() at spawn time lands them in
-    // _worldStateValues, so the next SMSG_INIT_WORLD_STATES already carries them. This
-    // replaces the per-player SMSG_UPDATE_WORLD_STATE spam in SendPerPlayerPlotWorldStates()
-    // with the correct channel.
-    uint32 occupiedWs = 0;
-    uint32 emptyWs = 0;
+    // The per-plot WorldState is a BINARY occupancy flag shipped inside SMSG_INIT_WORLD_STATES;
+    // owner identity is carried by the plot AT and NeighborhoodMirrorData.Houses.
     for (NeighborhoodPlotData const* plot : plots)
     {
         uint8 plotIdx = static_cast<uint8>(plot->PlotIndex);
-        // NeighborhoodPlot.WorldState (set on every plot of the 12.1.0.69933 DB2)
         uint32 wsId = plot->WorldState;
         if (!wsId)
             continue;
         Neighborhood::PlotInfo const* pi = _neighborhood->GetPlotInfo(plotIdx);
         bool occupied = pi && pi->IsOccupied() && !pi->HouseGuid.IsEmpty();
         SetWorldStateValue(wsId, occupied ? 1 : 0, /*hidden*/ false);
-        if (occupied) ++occupiedWs; else ++emptyWs;
     }
 
     // Spawn house structure GOs for owned plots
-    uint32 houseCount = 0;
-    uint32 houseSuccessCount = 0;
     for (NeighborhoodPlotData const* plot : plots)
     {
         uint8 plotIdx = static_cast<uint8>(plot->PlotIndex);
@@ -344,11 +274,7 @@ void HousingMap::SpawnPlotGameObjects()
         if (!plotInfo || plotInfo->OwnerGuid.IsEmpty())
             continue;
 
-        // Spawn data comes from the DB via Neighborhood::LoadFromDB regardless of
-        // whether the plot's owner is currently online. The live `Housing*` is
-        // only used for fields that Housing computes at runtime (custom position,
-        // root-type overrides derived from fixture selection). When null, we fall
-        // back to PlotInfo fields mirrored from the DB.
+        // Spawn data comes from the DB regardless of owner online state; the live Housing* only adds runtime-computed fields.
         Housing* housing = GetHousingForPlayer(plotInfo->OwnerGuid);
 
         int32 exteriorComponentID = 0;
@@ -367,18 +293,11 @@ void HousingMap::SpawnPlotGameObjects()
         {
             houseExteriorWmoDataID = static_cast<int32>(plotInfo->HouseType);
 
-            // Apply the mirrored fixture overrides from PlotInfo.Fixtures. This
-            // mirrors character_housing_fixtures at Neighborhood::LoadFromDB so
-            // visitors see each neighbour's customised roof/doors/windows, not
-            // the raw default.
+            // Mirrored fixture overrides so visitors see each neighbour's customised roof/doors/windows.
             for (auto const& [pointId, optionId] : plotInfo->Fixtures)
                 fixtureOverrides[pointId] = optionId;
 
-            // Mirror the root component selections (Base/Roof style & color variants, stored
-            // as OptionId==0 rows keyed by their ExteriorComponentID) the same way
-            // Housing::GetRootComponentOverrides does for the online owner. Without this the
-            // house rebuilt at map load (owner still offline — e.g. right after a server
-            // restart) falls back to the DB2 default roof, resetting the player's roof color.
+            // Root component selections (OptionId==0), the offline-owner counterpart of Housing::GetRootComponentOverrides.
             for (auto const& [pointId, optionId] : plotInfo->Fixtures)
             {
                 if (optionId != 0)
@@ -393,9 +312,7 @@ void HousingMap::SpawnPlotGameObjects()
                 rootOverrides[comp->Type] = pointId;
             }
 
-            // Pick the core fixture for the house. Prefer an override with OptionId==0
-            // (player-selected base, same rule Housing::GetCoreExteriorComponentID uses);
-            // fall back to DB2 IsDefault, then the first root entry.
+            // Core fixture: an override with OptionId==0, else DB2 IsDefault, else the first root.
             for (auto const& [pointId, optionId] : plotInfo->Fixtures)
             {
                 if (optionId != 0)
@@ -464,15 +381,11 @@ void HousingMap::SpawnPlotGameObjects()
         {
             houseGo = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
         }
-        ++houseCount;
-        if (houseGo)
-            ++houseSuccessCount;
-        else
+        if (!houseGo)
             TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: FAILED to spawn house for plot {} owned by {}",
                 plotIdx, plotInfo->OwnerGuid.ToString());
 
-        // Spawn placed decor — live Housing path preferred (may include items
-        // placed but not yet saved). Otherwise iterate PlotInfo.Decor from DB.
+        // Spawn placed decor — live Housing path preferred; otherwise iterate PlotInfo.Decor from the DB.
         if (housing)
         {
             SpawnAllDecorForPlot(plotIdx, housing);
@@ -488,7 +401,6 @@ void HousingMap::SpawnPlotGameObjects()
             _decorSpawnedPlots.insert(plotIdx);
         }
     }
-
 }
 
 void HousingMap::LockPlotGrids()
@@ -502,17 +414,15 @@ void HousingMap::LockPlotGrids()
 
     for (NeighborhoodPlotData const* plot : plots)
     {
-        // Lock grid for cornerstone position
         GridCoord cornerstoneGrid = Trinity::ComputeGridCoord(plot->CornerstonePosition[0], plot->CornerstonePosition[1]);
         if (lockedGrids.insert({ cornerstoneGrid.x_coord, cornerstoneGrid.y_coord }).second)
             GridMarkNoUnload(cornerstoneGrid.x_coord, cornerstoneGrid.y_coord);
 
-        // Lock grid for house position (may be a different grid)
+        // The house position may sit in a different grid
         GridCoord houseGrid = Trinity::ComputeGridCoord(plot->HousePosition[0], plot->HousePosition[1]);
         if (lockedGrids.insert({ houseGrid.x_coord, houseGrid.y_coord }).second)
             GridMarkNoUnload(houseGrid.x_coord, houseGrid.y_coord);
     }
-
 }
 
 AreaTrigger* HousingMap::GetPlotAreaTrigger(uint8 plotIndex)
@@ -541,44 +451,24 @@ GameObject* HousingMap::GetPlotGameObject(uint8 plotIndex)
     return GetGameObject(itr->second);
 }
 
-// Spawn plot AreaTrigger (entry 37358) at the house position (plot center).
-// Sniff-verified: Box shape 35x30x94, DecalPropertiesId=621 (plot boundary visual),
-// SpellForVisuals=1282351, FHousingPlotAreaTrigger_C entity fragment with owner data.
-// The AT is required for the client to show the edit menu and plot boundary decal.
-//
-// OWNED PLOTS ONLY. Retail never creates this AreaTrigger for an unsold plot: across four
-// WowPacketParser-decoded housing sniffs (builds 65940 x2 and 11.2.7 x2, maps 2735 and 2736) there are
-// 55 CreateObject1 blocks for entry 37358 and HouseGUID is non-zero in 55 of 55 - none for an unsold
-// plot. The creation is caused by the purchase: CMSG_NEIGHBORHOOD_BUY_HOUSE -> worldstate 0->1 ->
-// cornerstone State 1->0 -> the AT appears -> HousingRoom appears. It is not a visibility artifact
-// either; the observed player was standing at the cornerstone, well inside the AT's 46 yd bounds.
-// SetPlotOwnershipState therefore spawns it on purchase and removes it when the plot is freed; the
-// map-load pass in SpawnPlotGameObjects only covers plots that were already owned.
-//
-// Spawning it unconditionally is what painted a 70x60 brown slab (DecalPropertiesId 621, half-extents
-// 35x30) across every empty plot. The 70x60 marker a player SHOULD see on an unsold plot is drawn by
-// the client itself from its own GameObjects.db2 row (PlotGameObjectID, DisplayID 113004, GeoBox
-// 70x60x0), gated on the plot worldstate - the server neither sends nor spawns it.
+// Spawn plot AreaTrigger (entry 37358) at the plot room: required for the edit menu and the plot boundary decal.
+// Owned plots only - no AT exists for an unsold plot (the unsold marker is drawn client-side from the plot worldstate).
 AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
 {
     uint8 plotIndex = static_cast<uint8>(plot->PlotIndex);
     if (AreaTrigger* existing = GetPlotAreaTrigger(plotIndex))
         return existing;
 
-    Neighborhood::PlotInfo const* plotInfo = _neighborhood ? _neighborhood->GetPlotInfo(plotIndex) : nullptr;
-
     float hx = plot->HousePosition[0];
     float hy = plot->HousePosition[1];
     float hz = plot->HousePosition[2];
 
-    // Compute facing toward cornerstone (DB2 HouseRotation is (0,0,0) for all plots)
+    // Compute facing toward the cornerstone
     float hFacing = plot->HouseRotation[2];
     if (plot->HouseRotation[0] == 0.0f && plot->HouseRotation[1] == 0.0f && plot->HouseRotation[2] == 0.0f)
         hFacing = std::atan2(plot->CornerstonePosition[1] - hy, plot->CornerstonePosition[0] - hx);
 
-    // Retail (16 plots across both 12.1.0.69933 sniffs): the AT sits on the plot room - the plot GameObject's
-    // position 31.5 yards up (centre of its 94-yard-tall box) with the room's yaw. Placed at the house position
-    // facing the cornerstone, its 70x60 box (and decal) was turned away from the plot.
+    // The AT sits 31.5 yards above the plot GameObject (centre of its 94-yard box).
     static constexpr float PLOT_AT_HEIGHT_OFFSET = 31.5f;
     Position roomFrame;
     if (GetPlotRoomFrame(plotIndex, roomFrame))
@@ -592,10 +482,7 @@ AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
     LoadGrid(hx, hy);
 
     Position atPos(hx, hy, hz, hFacing);
-    // Create with addToMap=false so we can set up ALL housing data (entity
-    // fragment, SpellForVisuals, SpellXSpellVisualID) BEFORE the CREATE_OBJECT
-    // packet is sent. The client needs FHousingPlotAreaTrigger_C and
-    // DecalPropertiesId=621 in the initial create to render the plot border decal.
+    // Create with addToMap=false so the housing visual fields are set before the CREATE goes out.
     AreaTrigger* plotAt = AreaTrigger::CreateStaticAreaTrigger({ .Id = 37358, .IsCustom = false }, this, atPos, -1, false);
     if (!plotAt)
     {
@@ -606,9 +493,7 @@ AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
 
     PhasingHandler::InitDbPhaseShift(plotAt->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
-    // 12.0.5: no per-AT housing fragment. Only set the AT's own visual fields
-    // (SpellForVisuals, PeriodModifier, ExtraScaleCurve). Plot ownership is
-    // now propagated via PlayerHouseInfoComponentData.CurrentHouse on the Player.
+    // No per-AT housing fragment: plot ownership travels via PlayerHouseInfoComponentData.CurrentHouse.
     plotAt->InitHousingPlotVisuals();
 
     if (!AddToMap(plotAt))
@@ -619,24 +504,13 @@ AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
         return nullptr;
     }
 
-    // Always keep plot ATs streamed regardless of player distance. The
-    // ENTER_PLOT / IsInsidePlot path looks up the AT in the client's
-    // entity registry; if the AT is not streamed, IsInsidePlot returns
-    // false and decor placement / plot ownership UI breaks. With the
-    // active flag + far visibility, the AT is in the registry for every
-    // player on the map, so we can safely drop the map's visibility
-    // distance below MAX without re-introducing the lookup-fail bug.
+    // Keep plot ATs streamed regardless of player distance (decor placement and the ownership UI need them).
     plotAt->setActive(true);
     plotAt->SetFarVisible(true);
 
     _plotAreaTriggers[plotIndex] = plotAt->GetGUID();
 
-    // Plot ATs reach clients through the login bundle, not the ordinary visibility
-    // stream (like the housing meshes): a bystander watching a plot purchase never
-    // received the AT create - capture 2026-10-02 16:30:05, the create went to the
-    // buyer only and the observer's map pin kept the "for sale" texture until a
-    // relog rebuilt the bundle. Push the create to every current viewer; the AT's
-    // removal path already destroys it for everyone holding it.
+    // Push the create to every current viewer; a bystander would otherwise keep the "for sale" pin until a relog.
     uint32 atReceivers = 0;
     for (MapReference const& ref : GetPlayers())
     {
@@ -654,9 +528,6 @@ AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
     }
 
     TC_LOG_ERROR("housing", "[PinSync] plot {} area trigger create -> {} viewers", plotIndex, atReceivers);
-
-    std::string ownerDesc = (plotInfo && !plotInfo->OwnerGuid.IsEmpty())
-        ? plotInfo->OwnerGuid.ToString() : std::string("none");
 
     return plotAt;
 }
@@ -683,9 +554,7 @@ void HousingMap::SetPlotGroundCleared(NeighborhoodPlotData const* plot, bool cle
     auto [itr, inserted] = _plotGroundSpawns.try_emplace(plotIndex);
     if (inserted)
     {
-        // Plot bounds = the plot room geobox, 70x60 around the plot GameObject (retail 12.1.0.69933: all 35
-        // GameObjects destroyed after a move lay within |x| <= 35, |y| <= 30 of the plot; the cornerstone just
-        // outside was kept).
+        // Plot bounds = the plot room geobox, 70x60 around the plot GameObject.
         static constexpr float PLOT_HALF_X = 35.0f;
         static constexpr float PLOT_HALF_Y = 30.0f;
         float yaw = 0.0f, unusedY = 0.0f, unusedX = 0.0f;
@@ -727,14 +596,7 @@ void HousingMap::SetPlotGroundCleared(NeighborhoodPlotData const* plot, bool cle
             if (!data || !IsGridLoaded(data->spawnPoint))
                 continue; // spawns with its grid
 
-            // Door GOs are not plot ground clutter. A house spawns its interactive door
-            // dynamically (SpawnExtCompTree -> _houseGameObjects, removed together with the
-            // house); world-DB door spawns on housing maps are stale leftovers from earlier
-            // revisions. Respawning them on sale resurrected an invisible, still-scripted
-            // go_housing_door floating in the air where the house used to be. Retail's
-            // purchase-time ground clear (44 despawns, capture 2026-09-27 01:54) contains
-            // no door entries either. Every door template carries the go_housing_door
-            // script id (EnsureDoorGameObjectTemplates binds it at startup).
+            // Door GOs are not plot ground clutter: respawning them resurrected an invisible scripted go_housing_door.
             if (uint32 const doorScriptId = sObjectMgr->GetScriptId("go_housing_door", false))
                 if (GameObjectTemplate const* goInfo = sObjectMgr->GetGameObjectTemplate(data->id))
                     if (goInfo->ScriptId == doorScriptId)
@@ -745,7 +607,6 @@ void HousingMap::SetPlotGroundCleared(NeighborhoodPlotData const* plot, bool cle
                 delete go;
         }
     }
-
 }
 
 bool HousingMap::GetPlotRoomFrame(uint8 plotIndex, Position& frame) const
@@ -770,7 +631,7 @@ bool HousingMap::GetPlotRoomFrame(uint8 plotIndex, Position& frame) const
 
 bool HousingMap::IsSpawnSuppressed(SpawnObjectType type, ObjectGuid::LowType spawnId) const
 {
-    return type == SPAWN_TYPE_GAMEOBJECT && _suppressedPlotSpawns.count(spawnId);
+    return type == SPAWN_TYPE_GAMEOBJECT && _suppressedPlotSpawns.contains(spawnId);
 }
 
 void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
@@ -778,18 +639,14 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
     if (!_neighborhood)
         return;
 
-    // Toggle GOState on the existing Cornerstone GO.
-    // GOState 0 (ACTIVE) = Owned/Claimed cornerstone, GOState 1 (READY) = ForSale sign
+    // GOState 0 = owned cornerstone, GOState 1 = ForSale sign
     GOState newState = owned ? GO_STATE_ACTIVE : GO_STATE_READY;
 
     auto itr = _plotGameObjects.find(plotIndex);
     if (itr != _plotGameObjects.end())
     {
         if (GameObject* go = GetGameObject(itr->second))
-        {
             go->SetGoState(newState);
-
-        }
         else
         {
             TC_LOG_ERROR("housing", "HousingMap::SetPlotOwnershipState: Plot {} GO guid {} not found on map in neighborhood '{}'",
@@ -802,14 +659,7 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
             plotIndex, _neighborhood->GetName());
     }
 
-    // 12.0.5: per-AT ownership fragment removed. Plot ownership is communicated
-    // via PlayerHouseInfoComponentData.CurrentHouse on each Player — updated by
-    // the enter/leave-plot code paths (see HousingMap::OnPlayerEnterPlotArea).
-
-    // Blizzlike: the worldstate value is a per-player OWNER TYPE enum, not a binary
-    // flag. Update the map-scoped default (0/1) so late joiners see reasonable INIT
-    // state, then send a personalized UPDATE to every player already on the map so
-    // the CURRENT state (owner relationship) renders the right icon.
+    // Plot ownership is communicated via PlayerHouseInfoComponentData.CurrentHouse on each Player.
     uint32 neighborhoodMapId = _neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> const& plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
 
@@ -826,24 +676,12 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
 
         SetPlotGroundCleared(plotData, owned);
 
-        // NeighborhoodPlot.WorldState (set on every plot of the 12.1.0.69933 DB2)
         uint32 wsId = plotData->WorldState;
-
-        // Blizzlike: the per-plot WorldState is a BINARY occupancy flag — 0 empty,
-        // 1 occupied. `Map::SetWorldStateValue` stores the value (so future joins
-        // get it in INIT_WORLD_STATES) AND broadcasts `SMSG_UPDATE_WORLD_STATE` to
-        // every player currently on the map. No per-player enum override.
         if (wsId)
         {
             SetWorldStateValue(wsId, owned ? 1 : 0, /*hidden*/ false);
 
-            // SetWorldStateValue's broadcast is filtered through the worldstate template's
-            // AreaIds: a bystander elsewhere in the neighborhood never received the plot's
-            // occupancy flip (capture 2026-10-02 16:30:05, ws 29730 0->1 reached only the
-            // buyer), so their world-map/minimap pins kept showing the plot as purchasable
-            // until a relog rebuilt INIT_WORLD_STATES. Retail ships every plot state to the
-            // whole map, so push the flip to every player explicitly (the duplicate packet
-            // for players the template filter already covered is idempotent).
+            // The broadcast is filtered through the worldstate template's AreaIds; push the flip to every player explicitly.
             WorldPackets::WorldState::UpdateWorldState plotOccupancy;
             plotOccupancy.VariableID = wsId;
             plotOccupancy.Value = owned ? 1 : 0;
@@ -876,9 +714,7 @@ Housing* HousingMap::GetHousingForPlayer(ObjectGuid playerGuid) const
 
 void HousingMap::LoadNeighborhoodData()
 {
-    // Resolve by the persisted counter. Rebuilding the GUID here is not possible any more: arg1 is the
-    // neighborhood's NeighborhoodMapID (see NeighborhoodMgr::GenerateNeighborhoodGuid), which this code does not
-    // know, and guessing it wrong silently yields nullptr.
+    // Resolve by the persisted counter: the GUID cannot be rebuilt here (arg1 is the NeighborhoodMapID).
     _neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(static_cast<uint64>(_neighborhoodId));
 
     if (!_neighborhood)
@@ -902,31 +738,19 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         return false;
     }
 
-    // Do NOT auto-add the player as a neighborhood member here.
-    // Membership is granted when the player buys a plot or is invited.
-    // Auto-adding causes the client to resolve neighborhoodOwnerType as
-    // Self instead of None, which prevents the "For Sale" Cornerstone UI.
+    // Do NOT auto-add the player as a neighborhood member: membership is granted on plot purchase or invite.
 
-    // Track player housing if they own a house in this neighborhood.
-    // First try exact GUID match, then fall back to checking all housings
-    // (handles legacy data where neighborhood GUID counter was from client's DB2 ID
-    // instead of the server's canonical counter).
-
+    // Track the player's housing: exact GUID match first, then fall back to checking all housings (legacy data).
     Housing* housing = player->GetHousingForNeighborhood(_neighborhood->GetGuid());
     if (!housing)
     {
-
-        // Fallback: check if any of the player's housings has a plot in this neighborhood
         for (Housing const* h : player->GetAllHousings())
         {
-
-            // The plot must be this house's own: an occupied plot of the same number belongs to someone else when
-            // the house stands in another neighborhood on this world map, and must not pull the house over here.
+            // The plot must be this house's own: an occupied plot of the same number may belong to someone else.
             Neighborhood::PlotInfo const* plotInfo = h ? _neighborhood->GetPlotInfo(h->GetPlotIndex()) : nullptr;
             if (plotInfo && plotInfo->OwnerGuid == h->GetOwnerGuid())
             {
                 housing = const_cast<Housing*>(h);
-                // Fix the stored GUID so future lookups work
                 housing->SetNeighborhoodGuid(_neighborhood->GetGuid());
                 break;
             }
@@ -935,33 +759,22 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     if (housing)
     {
-
-        // Keyed by the buying character: plots carry that GUID, and another character of the account may be here.
+        // Keyed by the buying character; another character of the account may be here.
         AddPlayerHousing(housing->GetOwnerGuid(), housing);
 
-        // Ensure the neighborhood PlotInfo has the HouseGuid (may be missing after server restart
-        // since LoadFromDB only populates it if character_housing row exists)
         uint8 plotIdx = housing->GetPlotIndex();
         ObjectGuid ownerBnetGuid = player->GetSession() ? player->GetSession()->GetBattlenetAccountGUID() : ObjectGuid::Empty;
         if (!housing->GetHouseGuid().IsEmpty())
-        {
             _neighborhood->UpdatePlotHouseInfo(plotIdx, housing->GetHouseGuid(), ownerBnetGuid);
 
-            // 12.0.5: per-AT ownership fragment removed. Ownership is propagated via
-            // PlayerHouseInfoComponentData.CurrentHouse on the Player at plot entry.
-        }
-
-        // Update PlayerMirrorHouse.MapID so the client knows this house is on the current map.
-        // Without this, MapID stays at 0 (set during login) and the client rejects
-        // edit mode with HOUSING_RESULT_ACTION_LOCKED_BY_COMBAT (error 1 = first non-success code).
+        // Point PlayerMirrorHouse.MapID at this map or the client rejects edit mode.
         player->UpdateHousingMapId(housing->GetHouseGuid(), static_cast<int32>(GetId()));
 
-        // Spawn house GO if not already present (handles offline → online transition)
+        // Spawn the house if not already present (offline -> online transition)
         bool alreadySpawned = _houseGameObjects.find(plotIdx) != _houseGameObjects.end();
 
         if (!alreadySpawned)
         {
-            // Read exterior data from Housing — no hardcoded fallbacks
             int32 exteriorComponentID = static_cast<int32>(housing->GetCoreExteriorComponentID());
             int32 houseExteriorWmoDataID = static_cast<int32>(housing->GetHouseType());
             if (!exteriorComponentID || !houseExteriorWmoDataID)
@@ -971,42 +784,33 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             }
             else
             {
+                auto fixtureOverrides = housing->GetFixtureOverrideMap();
+                FixtureOverrideMap const* overridesPtr = fixtureOverrides.empty() ? nullptr : &fixtureOverrides;
+                auto rootOverrides = housing->GetRootComponentOverrides();
+                RootOverrideMap const* rootOvrPtr = &rootOverrides;
 
-            auto fixtureOverrides = housing->GetFixtureOverrideMap();
-            FixtureOverrideMap const* overridesPtr = fixtureOverrides.empty() ? nullptr : &fixtureOverrides;
-            auto rootOverrides = housing->GetRootComponentOverrides();
-            RootOverrideMap const* rootOvrPtr = &rootOverrides;
-
-            GameObject* go = nullptr;
-            if (housing->HasCustomPosition())
-            {
-                Position customPos = housing->GetHousePosition();
-                go = SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
+                if (housing->HasCustomPosition())
+                {
+                    Position customPos = housing->GetHousePosition();
+                    SpawnHouseForPlot(plotIdx, &customPos, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
+                }
+                else
+                    SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
             }
-            else
-                go = SpawnHouseForPlot(plotIdx, nullptr, exteriorComponentID, houseExteriorWmoDataID, overridesPtr, rootOvrPtr);
-
-            } // else (valid exteriorComponentID && houseExteriorWmoDataID)
         }
         else
         {
-            // House GO was spawned during map init (before HouseGuid was available).
-            // Apply fixture data and spawn MeshObject if not yet done.
-            bool hasMeshObjects = _meshObjects.find(plotIdx) != _meshObjects.end() && !_meshObjects[plotIdx].empty();
+            // House GO was spawned during map init; apply fixture data and spawn the MeshObjects if not yet done.
+            auto meshItr = _meshObjects.find(plotIdx);
+            bool hasMeshObjects = meshItr != _meshObjects.end() && !meshItr->second.empty();
             if (!hasMeshObjects && !housing->GetHouseGuid().IsEmpty())
             {
-                // Get the house GO position for the MeshObject
                 if (GameObject* houseGo = GetHouseGameObject(plotIdx))
                 {
-                    // NOTE: Do NOT call InitHousingFixtureData on the GO.
-                    // In retail, only MeshObjects carry FHousingFixture_C — attaching it to a GO
-                    // causes a client crash at +0x64 (GO entity factory doesn't allocate a housing
-                    // fixture component, so the GUID resolver returns null and dereferences it).
-
+                    // Do NOT call InitHousingFixtureData on the GO — attaching it to a GO crashes the client.
                     Position pos = houseGo->GetPosition();
                     QuaternionData rot = houseGo->GetLocalRotation();
-                    int32 faction = _neighborhood ? _neighborhood->GetFactionRestriction()
-                        : NEIGHBORHOOD_FACTION_ALLIANCE;
+                    int32 faction = _neighborhood->GetFactionRestriction();
 
                     int32 lateExtCompID = static_cast<int32>(housing->GetCoreExteriorComponentID());
                     int32 lateWmoDataID = static_cast<int32>(housing->GetHouseType());
@@ -1020,26 +824,16 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                         housing->GetHouseGuid(), lateExtCompID, lateWmoDataID, faction,
                         lateFixturePtr, lateRootPtr);
 
-                    // Also spawn room entity + Geobox if not already present
                     if (_roomEntities.find(plotIdx) == _roomEntities.end())
                         SpawnRoomForPlot(plotIdx, pos, rot, housing->GetHouseGuid());
-
                 }
             }
         }
 
-        // Spawn decor GOs if not already spawned for this plot
         SpawnAllDecorForPlot(plotIdx, housing);
 
-        // The session HousingPlayerHouseEntity keeps EntityGUID=Empty as set
-        // in Player::LoadFromDB. Sniff-verified (dump_12.0.1.66838_2026-04-15
-        // _09-35-59 idx 9984): among 47 retail Housing/3 CREATE blocks, the
-        // one with EntityGUID=Empty is the owner's own-plot block. Proxy
-        // Housing/3 blocks for other plots use non-empty mirror-pattern GUIDs
-        // (most of which dangle — the client doesn't need them to resolve).
-        // The icon picker at sub_7FF624BB1880 classifies own vs friend vs
-        // stranger by comparing FHousingPlayerHouse_C.BnetAccount against the
-        // player's local BnetGuid, not via EntityGUID resolution.
+        // The session HousingPlayerHouseEntity keeps EntityGUID=Empty; the client's icon picker
+        // classifies own vs friend vs stranger by comparing BnetAccount against the local BnetGuid.
     }
     else
     {
@@ -1047,10 +841,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             player->GetGUID().ToString());
     }
 
-    // Point the session's Housing/4 mirror at THIS neighborhood and key Housing/3 to the account's house here before
-    // Map::AddPlayerToMap builds the self CREATE bundle. Retail re-creates the mirror of the map's own neighborhood
-    // on every neighborhood-map entry (12.1.0.69933: an Alliance character on the Horde map 2736 gets
-    // Housing/Neighborhood MapID 2); keeping the login neighborhood's mirror drew the other faction's pins.
+    // Point the session's Housing/4 mirror at THIS neighborhood before Map::AddPlayerToMap builds the self bundle.
     if (WorldSession* session = player->GetSession())
     {
         HousingNeighborhoodMirrorEntity& mirrorEntity = session->GetHousingNeighborhoodMirrorEntity();
@@ -1064,47 +855,11 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     if (!Map::AddPlayerToMap(player, initPlayer))
         return false;
 
-    // Force immediate visibility update so all MeshObjects (house pieces, decor) get
-    // CREATE_OBJECT sent to the player NOW, not deferred to the next map tick.
-    // Map::AddPlayerToMap calls UpdateObjectVisibility(false) which only sets
-    // NOTIFY_VISIBILITY_CHANGED — the actual grid visit is deferred until the next
-    // relocation processing tick. Without forcing here, the client won't have MeshObject
-    // entities when entering edit mode, causing an empty Placed Decor list.
+    // Force immediate visibility update so MeshObjects get their CREATE now, not on the next tick.
     player->UpdateVisibilityForPlayer();
 
-
-    // BLIZZLIKE: no unprompted housing SMSG emissions at login.
-    //
-    // Previously we emitted SMSG_HOUSING_GET_CURRENT_HOUSE_INFO_RESPONSE,
-    // SMSG_HOUSING_CATALOG_STATE_SYNC, SMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO_
-    // RESPONSE, SMSG_HOUSING_SVCS_UPDATE_HOUSES_LEVEL_FAVOR, and
-    // SMSG_INITIATIVE_SERVICE_STATUS here as "wake-ups" to prime the client.
-    // Retail 66838 sniff analysis across 3 independent captures
-    // (floorplan_editor_rotation 2026-04-10, wall_floor_ceiling_customize
-    // 2026-04-12, interrior_exterrior_advanced_editor 2026-04-15) shows
-    // ZERO unprompted housing-specific SMSGs in the post-LVW window. The
-    // client receives all housing state via the Player CREATE bundle's
-    // UpdateField data and asks for anything else via CMSGs. The existing
-    // reactive handlers (HandleHousingGetCurrentHouseInfo, HandleHousingSvcs
-    // GetPlayerHousesInfo, HandleHousingHouseStatus, etc.) will respond
-    // when queried.
-    //
-    // CATALOG_STATE_SYNC at login has been removed too — retail emits it at
-    // ~LVW+988 in the advanced_editor sniff, well after login, as a
-    // time-delayed server push. Not at map-entry time. If the client
-    // actively needs it before the delayed push, CMSG_HOUSING_DECOR_REQUEST_
-    // STORAGE also triggers catalog dispatch via HandleHousingDecorRequestStorage.
-
-    // ENTER_PLOT must be sent AFTER SMSG_UPDATE_OBJECT creates the AT on the client.
-    // UPDATE_OBJECT is flushed after AddPlayerToMap returns, so sending ENTER_PLOT
-    // here synchronously would reference an AT GUID the client doesn't know yet.
-    // Solution: schedule a deferred event that sends ENTER_PLOT after a short delay,
-    // giving the UPDATE_OBJECT time to flush to the client first.
-    // The at_housing_plot AT overlap script also sends ENTER_PLOT when the player
-    // physically enters the box, but on login the AT overlap check may not fire
-    // on the first tick (player already inside the AT when it was created).
-    // SetPlayerCurrentPlot is called here so the AT script's alreadyOnPlot guard
-    // prevents duplicate ENTER_PLOT sends if both paths fire.
+    // ENTER_PLOT must be sent after the AT's UPDATE_OBJECT is flushed; the deferred event gives it time.
+    // SetPlayerCurrentPlot here keeps the AT script's alreadyOnPlot guard from double-sending.
     if (housing)
     {
         uint8 plotIndex = housing->GetPlotIndex();
@@ -1113,8 +868,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
         ObjectGuid playerGuid = player->GetGUID();
         ObjectGuid houseGuid = housing->GetHouseGuid();
         ObjectGuid neighborhoodGuid = housing->GetNeighborhoodGuid();
-        uint8 deferredPlotIndex = plotIndex;
-        player->m_Events.AddEventAtOffset([playerGuid, deferredPlotIndex, houseGuid, neighborhoodGuid]()
+        player->m_Events.AddEventAtOffset([playerGuid, plotIndex, houseGuid, neighborhoodGuid]()
         {
             Player* p = ObjectAccessor::FindPlayer(playerGuid);
             if (!p || !p->IsInWorld())
@@ -1124,25 +878,20 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             if (!hMap)
                 return;
 
-            AreaTrigger* plotAt = hMap->GetPlotAreaTrigger(deferredPlotIndex);
+            AreaTrigger* plotAt = hMap->GetPlotAreaTrigger(plotIndex);
             if (!plotAt)
             {
                 TC_LOG_ERROR("housing", "HousingMap deferred ENTER_PLOT: No AT for plot {} player {}",
-                    deferredPlotIndex, playerGuid.ToString());
+                    plotIndex, playerGuid.ToString());
                 return;
             }
 
-            // Arriving is not being on the plot: leaving the house puts the owner at the plot's TeleportPosition,
-            // which can lie outside the plot AreaTrigger. Only an owner the trigger holds counts as on the plot -
-            // otherwise nothing ever clears CurrentHouse and the housing controls stay up anywhere in the
-            // neighborhood. The trigger has had its target updates by now; when it does hold the player,
-            // at_housing_plot has already announced the plot.
+            // Arriving is not being on the plot: leaving the house puts the owner at TeleportPosition, outside the AT.
             bool onPlot = plotAt->GetInsideUnits().contains(playerGuid);
-            if (!onPlot && hMap->GetPlayerCurrentPlot(playerGuid) == static_cast<int8>(deferredPlotIndex))
+            if (!onPlot && hMap->GetPlayerCurrentPlot(playerGuid) == static_cast<int8>(plotIndex))
                 hMap->ClearPlayerCurrentPlot(playerGuid);
 
-            // Retail pattern: send VALUES update on AT (with FHousingPlotAreaTrigger_C data)
-            // at the same timestamp as ENTER_PLOT, ensuring the client entity table has fresh data.
+            // Retail sends a VALUES update on the AT (or a CREATE when the client does not hold it) with ENTER_PLOT.
             {
                 UpdateData atUpdate(p->GetMapId());
                 if (p->HaveAtClient(plotAt))
@@ -1160,28 +909,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 }
             }
 
-            // REMOVED proactive SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT (0x5C0000)
-            // and SMSG_HOUSING_FIXTURE_CREATE_BASIC_HOUSE_RESPONSE (0x520001).
-            // Sniff set-diff of 3 retail login captures shows retail never
-            // emits either opcode at login / during the deferred-map-entry
-            // window; both are strictly reactive to specific user actions
-            // (AT overlap entry, fixture-editor click). Keeping the
-            // proactive sends here put the client's housing-state machine
-            // into pre-initialised state that suppressed the world-map
-            // icon-picker refresh. The at_housing_plot AT script still
-            // emits PLAYER_ENTER_PLOT (and HouseStatus+Permissions) on
-            // actual plot overlap, which matches retail.
-
-            // Re-CREATE ALL fixture MeshObjects for this plot AFTER the rebuild.
-            // The rebuild (triggered by CREATE_BASIC_HOUSE_RESPONSE above) sets the
-            // fixture manager's house GUID. The CREATE callback then compares each
-            // entity's HouseGUID against it — if they match, it registers the entity
-            // at its hook point. Without this re-CREATE, entities that were already
-            // sent during the initial map load are never re-processed.
-            // (Same pattern as the decor fix: re-CREATE after the system is ready.)
+            // Re-CREATE all fixture MeshObjects for this plot; entities sent during map load are never re-processed otherwise.
             {
                 auto const& meshMap = hMap->GetPlotMeshObjects();
-                auto meshItr = meshMap.find(deferredPlotIndex);
+                auto meshItr = meshMap.find(plotIndex);
                 if (meshItr != meshMap.end())
                 {
                     UpdateData fixtureUpdate(p->GetMapId());
@@ -1204,43 +935,19 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                         fixtureUpdate.BuildPacket(&fixturePacket);
                         p->SendDirectMessage(&fixturePacket);
                     }
-
                 }
             }
 
-            // Proactively populate FHousingStorage_C (decor list) and budget fields.
-            // At login, PopulateCatalogStorageEntries() is NOT called to avoid crashes when
-            // storage data appears in the initial Account entity CREATE.
-            //
-            // CRITICAL: Must send Account as CREATE (not VALUES_UPDATE). The initial login
-            // Account CREATE had an empty FHousingStorage_C.Decor MapUpdateField.
-            // A VALUES_UPDATE for a MapUpdateField that was empty at CREATE time does NOT
-            // properly convey new entries to the client — the client never processes them.
-            // Sending a second CREATE with all current data works because the client handles
-            // re-CREATE for an existing entity gracefully (replaces the old data).
-            //
-            // Also bundle ALL decor MeshObject CREATEs in the SAME UPDATE_OBJECT packet.
-            // The client correlates MeshObject FHousingDecor_C.DecorGUID with Account
-            // FHousingStorage_C entries to build the Placed Decor list. If they arrive in
-            // separate packets, the client may not retroactively associate them.
             if (Housing* housing = p->GetHousing())
             {
                 housing->PopulateCatalogStorageEntries();
                 housing->SyncUpdateFields();
 
-                // 12.0.5: write the player's own HouseGuid to PlayerHouseInfoComponent.CurrentHouse
-                // so the client's HOUSE_PLOT_ENTERED field-change callback fires from the same
-                // UPDATE_OBJECT bundle. Without this the AT enter event is the only path that
-                // sets it, but at login the player is already inside the AT box so OnUnitEnter
-                // doesn't trigger; the editor menu then never arms.
+                // Write the player's HouseGuid to CurrentHouse in the same bundle (the AT's OnUnitEnter never fires at login).
                 if (onPlot)
                     p->SetCurrentHouse(housing->GetHouseGuid());
 
-                // Push HouseStatus + Permissions so the client's permissions cache is populated
-                // for the player's own plot. Same reason as SetCurrentHouse above — at login
-                // OnUnitEnter doesn't fire, so the AT script's proactive push at
-                // at_housing_plot.cpp never runs and the permissions window won't open until
-                // the player walks out of the AT and back in.
+                // Same reason: the AT script's HouseStatus/Permissions push never runs at login.
                 if (onPlot)
                 {
                     WorldPackets::Housing::HousingHouseStatusResponse statusResponse;
@@ -1256,23 +963,11 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     permResponse.ResultCode = 0;
                     permResponse.PermissionFlags = HOUSING_PERMISSIONS_OWNER;
                     p->SendDirectMessage(permResponse.Write());
-
                 }
 
                 WorldSession* session = p->GetSession();
 
-                // Mimic the retail client's auto-sent CMSG_HOUSING_DECOR_REQUEST_STORAGE
-                // response sequence. Horde sniff (dump_12.0.1.65940_2026-02-19_10-51-32,
-                // pkt 8942 @ 17:53:30.294): client auto-emits the CMSG ~9s after login
-                // once it has processed the housing UPDATE_OBJECT bundle. Retail server
-                // responds with (1) 4-byte STORAGE_RSP ack, (2) Account + Housing/3 +
-                // decor meshes in ONE UPDATE_OBJECT, (3) PLAYER_HOUSES_INFO_RESPONSE.
-                //
-                // Empirically on our server the client does NOT auto-send the CMSG
-                // (the user's "click dashboard" workaround is what triggers this path
-                // via HandleHousingDecorRequestStorage). Emitting the full sequence
-                // server-side at the 500ms defer replays the same transport the client
-                // expects, without requiring the CMSG round-trip.
+                // Replay the retail response sequence of the client's auto-sent CMSG_HOUSING_DECOR_REQUEST_STORAGE.
                 WorldPackets::Housing::HousingDecorRequestStorageResponse storageAck;
                 storageAck.ResultCode = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
                 p->SendDirectMessage(storageAck.Write());
@@ -1280,13 +975,10 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 UpdateData storageUpdate(p->GetMapId());
                 WorldPacket storagePacket;
 
-                // Account as full CREATE (replays retail's storage-request response, a
-                // CreateObject1 of the BNetAccount entity) + HousingPlayerHouseEntity (budgets)
+                // Account as full CREATE (retail re-CREATEs the BNetAccount entity in its storage response)
                 session->BuildHousingAccountEntitiesUpdate(&storageUpdate, p, /*accountAsCreate=*/true);
 
-                // Bundle ALL decor MeshObject CREATEs so the client can correlate
-                // FHousingDecor_C.DecorGUID with FHousingStorage_C entries in one pass.
-                uint32 meshCreateCount = 0;
+                // Bundle ALL decor MeshObject CREATEs so the client correlates them with FHousingStorage_C in one pass.
                 for (auto const& [decorGuid, meshObjGuid] : hMap->GetDecorGuidMap())
                 {
                     MeshObject* meshObj = hMap->GetMeshObject(meshObjGuid);
@@ -1295,7 +987,6 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
                     meshObj->BuildCreateUpdateBlockForPlayer(&storageUpdate, p);
                     p->m_clientGUIDs.insert(meshObjGuid);
-                    ++meshCreateCount;
                 }
 
                 storageUpdate.BuildPacket(&storagePacket);
@@ -1304,38 +995,9 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                 session->GetBattlenetAccount().ClearUpdateMask(true);
                 session->GetHousingPlayerHouseEntity().ClearUpdateMask(true);
 
-                // Removed second PlayerHousesInfoResponse emission. The original
-                // rationale ("matching retail step 3 of CMSG_HOUSING_DECOR_REQUEST_STORAGE
-                // sequence") turns out to have been based on sniff analysis of our own
-                // TC server output, not real retail. Retail's pristine 66838 login
-                // sniffs (verified across 3 independent captures) show zero unprompted
-                // PlayerHousesInfo emissions. Per user's blizzlike guardrail this
-                // speculative re-emission is dropped.
-
-                // BLIZZLIKE: the 500 ms defer no longer emits housing
-                // response SMSGs. Retail 66838 sniff analysis across 3
-                // independent login captures shows ZERO unprompted housing
-                // emissions in the post-LVW window. Previous iterations
-                // emitted QueryNeighborhoodNameResponse + mirror VALUES_UPDATE
-                // + QueryPlayerNamesResponse as a speculative "roster-replay
-                // wake-up". All removed per user's blizzlike guardrail. The
-                // CMSG handlers emit the correct reactive responses when the
-                // client queries. The mirror state was populated synchronously
-                // in Player::LoadFromDB and rides in the Player CREATE bundle.
-
-                // Simulate the edit-mode ON → OFF transition on the Player
-                // entity (without actually entering edit mode). The user's
-                // manual toggle is the only known way to unblock cornerstone
-                // and door interactivity at login, and the single observable
-                // effect of that toggle on the Player is:
-                //   ON:  set UNIT_FLAG_PACIFIED / UNIT_FLAG2_NO_ACTIONS /
-                //        silenced-school → push VALUES_UPDATE
-                //   OFF: clear all three → push VALUES_UPDATE
-                // Replicating the pair at plot-enter pushes the same flag
-                // transition the client apparently needs to wire up housing
-                // GO clicks.
+                // Simulate the edit-mode ON -> OFF flag transition that unblocks cornerstone and door interactivity at login.
                 {
-                    // "ON" push: set the edit-mode-ish flags and flush.
+                    // "ON" push
                     p->SetUnitFlag(UNIT_FLAG_PACIFIED);
                     p->SetUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
                     p->ReplaceAllSilencedSchoolMask(SPELL_SCHOOL_MASK_ALL);
@@ -1352,7 +1014,7 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                         p->ClearUpdateMask(false);
                     }
 
-                    // "OFF" push: clear them and flush again.
+                    // "OFF" push
                     p->RemoveUnitFlag(UNIT_FLAG_PACIFIED);
                     p->RemoveUnitFlag2(UNIT_FLAG2_NO_ACTIONS);
                     p->ReplaceAllSilencedSchoolMask(SpellSchoolMask(0));
@@ -1370,39 +1032,14 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
                     }
                 }
             }
-
-            // Post-tutorial + neighborhood-map-entry auras are now emitted
-            // synchronously at the end of AddPlayerToMap (see below), immediately
-            // after the initial UPDATE_OBJECT bundle flushes. They must not ride
-            // on the 500 ms defer, which caused the 2 min "update gap" observed
-            // by the user where the map/icons settled only after the delayed
-            // burst.
-            // NOTE: SendPlotEnterSpellPackets is emitted by the plot AT's OnUnitEnter
-            // hook (at_housing_plot.cpp) when the player physically overlaps the plot
-            // AreaTrigger — the correct blizzlike trigger per the sniff (spells
-            // "In Plot"/1239847 and "Visiting Neighbor"/469226 are plot-overlap, not
-            // map-entry auras). The previous deferred emission here fired it on map
-            // entry regardless of whether the player's spawn position was inside a
-            // plot AT, which is wrong. Removed; AT hook remains the sole caller.
-
         }, Milliseconds(500));
     }
 
-    // Retail sniff dump_12.0.1.66838_2026-04-15_09-35-59 emits the post-tutorial
-    // aura trio and the 4-aura neighborhood-map-entry burst immediately after
-    // the big UPDATE_OBJECT at map entry, not after a multi-second delay.
-    // Emitting them synchronously here (instead of from the 500 ms deferred
-    // ENTER_PLOT callback) removes the ~2 min settle the user was seeing and
-    // fires the spell triples for visitors too (the deferred block was gated
-    // on the player having a house).
+    // Retail emits the post-tutorial aura trio and the map-entry aura burst synchronously at map entry.
     SendHousingPostTutorialAuras(player);
     SendNeighborhoodMapEntryAuras(player);
 
-    // Start the periodic housing WorldState counter timer.
-    // Sniff-verified: 5 counters sent as individual SMSG_UPDATE_WORLD_STATE packets.
-    // Counters 1-3 increment by ~1333, counters 4-5 by ~7233, every ~300ms.
-    // Seed with getMSTime()-based values (retail uses opaque server-tick values;
-    // the exact seed doesn't matter as long as the increment pattern is correct).
+    // Start the periodic WorldState counter timer; the exact seed doesn't matter as long as the increment pattern is right.
     {
         uint32 baseSeed = getMSTime();
         player->m_Events.AddEventAtOffset(
@@ -1412,33 +1049,19 @@ bool HousingMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
             Milliseconds(HOUSING_WORLDSTATE_INTERVAL_MS));
     }
 
-    // Send personalized per-plot WorldState values for this specific player.
-    // The init world states (sent during Map::AddPlayerToMap) use map-global defaults
-    // (STRANGER for occupied, NONE for unoccupied). This corrects them to SELF/FRIEND
-    // based on the player's relationship to each plot owner.
     SendPerPlayerPlotWorldStates(player);
-
-    // Comprehensive summary of all packets sent during map entry (for sniff comparison)
 
     return true;
 }
 
 void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
 {
-    // Remove plot auras before removing housing data. The house is registered under its buyer, which may be
-    // another character of the leaving player's account.
+    // Remove plot auras first; the house is registered under its buyer, possibly another character of the account.
     Housing const* leavingHousing = _neighborhood ? player->GetHousingForNeighborhood(_neighborhood->GetGuid()) : nullptr;
     if (Housing const* housing = leavingHousing ? GetHousingForPlayer(leavingHousing->GetOwnerGuid()) : nullptr)
-    {
-        // Remove all plot enter/presence auras (manual packets — spells not in DB2)
         SendPlotLeaveAuraRemoval(player);
-    }
 
-    // H-20: plot tracking is cleared for EVERY player leaving, not just those who own
-    // a house here. It used to sit inside the branch above, so a visitor's entry
-    // survived their visit and lived as long as the map instance - which, since
-    // housing maps never unload, means forever. It also fed a stale plot index to the
-    // go_housing_door fallback on a later visit.
+    // Cleared for EVERY player leaving: the map never unloads, so a visitor's stale entry would live forever.
     ClearPlayerCurrentPlot(player->GetGUID());
 
     if (leavingHousing)
@@ -1449,13 +1072,7 @@ void HousingMap::RemovePlayerFromMap(Player* player, bool remove)
 
 void SendHousingPostTutorialAuras(Player* player)
 {
-    // Sniff-verified: After QUEST_HOUSING_TUTORIAL_COMPLETE turn-in, three "post-tutorial" auras
-    // are applied at slots 8, 9, 50. These replace old tutorial-phase auras.
-    // These persist for the rest of the session. Since they don't exist in DB2, we send
-    // manual SMSG_AURA_UPDATE packets each time the player enters the housing map.
-    // Slot 8: spell 1285428 (NoCaster, ActiveFlags=1)
-    // Slot 9: spell 1285424 (NoCaster, ActiveFlags=1) — will be overwritten by plot enter aura
-    // Slot 50: spell 1266699 (NoCaster|Scalable, ActiveFlags=1, Points=1) — overwritten by plot enter
+    // After QUEST_HOUSING_TUTORIAL_COMPLETE, three persistent auras at slots 8, 9, 50 (not in DB2; manual SMSG_AURA_UPDATE).
     if (!player->GetQuestRewardStatus(QUEST_HOUSING_TUTORIAL_COMPLETE))
         return;
 
@@ -1605,20 +1222,8 @@ void SendHousingPostTutorialAuras(Player* player)
 
 void HousingMap::SendNeighborhoodMapEntryAuras(Player* player)
 {
-    // Blizzlike map-entry aura burst — decoded from
-    // dump_12.0.1.66838_2026-04-15_09-35-59.pkt idx 9988/9994/9997/10000
-    // and cross-checked against dump_12.0.1.66838_2026-04-10_08-45-23.pkt
-    // idx 15676/15682/15685/15688. Each entry is one AURA_UPDATE +
-    // SPELL_START + SPELL_GO triple. All four fields (Slot, Flags,
-    // ActiveFlags, Visual.SpellXSpellVisualID) are taken straight from the
-    // sniff. CastLevel 84 on retail; we use player->getLevel() as a bonus
-    // since the decoded value reflects whatever char captured the sniff.
-    //
-    // 431539 (Morning Star) and 1266699 (Sound Squisher) appeared in the
-    // same retail burst but are character/ambient auras pre-existing before
-    // map entry (first seen at idx 5762/5786, 127× + 8× before map entry).
-    // Core TC aura re-sync on map change already handles those; we emit
-    // only the four truly-new housing-specific auras here.
+    // Map-entry aura burst: one AURA_UPDATE + SPELL_START + SPELL_GO triple per entry.
+    // CastLevel uses the player's level; pre-existing character/ambient auras are left to the core aura resync.
 
     if (!player)
         return;
@@ -1694,24 +1299,10 @@ void HousingMap::SendNeighborhoodMapEntryAuras(Player* player)
 
 void HousingMap::SendPlotEnterSpellPackets(Player* player, uint8 plotIndex)
 {
-    // PLOT AT OVERLAP event — NOT map-entry. Wowhead:
-    //   1239847 = "[DNT] In Plot"           → applied when the player's unit
-    //                                         is inside a plot's AreaTrigger box
-    //   469226  = "[DNT] Visiting Neighbor" → applied when that plot is owned
-    //                                         by someone else
-    //   1266699 = "[DNT] Sound Squisher"    → audio mixer aura
-    //
-    // Invoked only from at_housing_plot.cpp's OnUnitEnter hook. The earlier
-    // 500 ms-deferred invocation inside HousingMap::AddPlayerToMap was moved
-    // out because it fired unconditionally on map entry regardless of whether
-    // the player was actually inside a plot AT — the retail triggers are
-    // strictly AT overlap, not map transition.
-    //
-    // Manual packets are required because these spell IDs don't exist in DB2
-    // (CastSpell() fails silently for DNT spells).
+    // Plot AT overlap spells (not map-entry), invoked from at_housing_plot's OnUnitEnter.
+    // Manual packets are required - these DNT spell IDs don't exist in DB2.
 
-    // 1. Spell 1239847 — plot enter tracking aura (slot 55)
-    // Sniff-verified: retail sends to slot 55, ActiveFlags=1 (NOT slot 50 which is tutorial aura)
+    // 1. Spell 1239847 — plot enter tracking aura (slot 55, NOT slot 50 which is the tutorial aura)
     {
         ObjectGuid castId = ObjectGuid::Create<HighGuid::Cast>(
             SPELL_CAST_SOURCE_NORMAL, player->GetMapId(), SPELL_HOUSING_PLOT_ENTER,
@@ -1758,13 +1349,9 @@ void HousingMap::SendPlotEnterSpellPackets(Player* player, uint8 plotIndex)
         player->SendDirectMessage(spellGo.Write());
     }
 
-    // 2. Set HasPlayers flag (Flags=1024) on the plot AreaTrigger.
-    // Sniff-verified: this UPDATE_OBJECT goes out between the first spell set (1239847)
-    // and the second (469226). It tells the client that players are inside this AT.
+    // 2. Set HasPlayers on the plot AreaTrigger, between the first and second spell sets.
     if (AreaTrigger* plotAt = GetPlotAreaTrigger(plotIndex))
-    {
         plotAt->SetAreaTriggerFlag(AreaTriggerFieldFlags::HasPlayers);
-    }
 
     // 3. Spell 469226 — plot presence aura (slot 56)
     {
@@ -1876,8 +1463,7 @@ void HousingMap::SendPlotEnterSpellPackets(Player* player, uint8 plotIndex)
 
 void HousingMap::SendPlotLeaveAuraRemoval(Player* player)
 {
-    // Remove all plot enter/presence auras (slots 50, 56, 9)
-    // Send aura removal packets (empty AuraData = HasAura=False)
+    // Remove the plot enter/presence auras (empty AuraData = HasAura=false)
     for (uint8 slot : { uint8(50), uint8(56), uint8(9) })
     {
         WorldPackets::Spells::AuraUpdate auraUpdate;
@@ -1901,18 +1487,16 @@ HousingPlotOwnerType HousingMap::GetPlotOwnerTypeForPlayer(Player const* player,
     if (!plotInfo || plotInfo->OwnerGuid.IsEmpty())
         return HOUSING_PLOT_OWNER_NONE;
 
-    // Check if the player owns this plot
     if (plotInfo->OwnerGuid == player->GetGUID())
         return HOUSING_PLOT_OWNER_SELF;
 
-    // Check if it's an alt on the same BNet account (same person, different character)
+    // Alt on the same BNet account (same person, different character)
     if (!plotInfo->OwnerBnetGuid.IsEmpty() && player->GetSession())
     {
         if (plotInfo->OwnerBnetGuid == player->GetSession()->GetBattlenetAccountGUID())
             return HOUSING_PLOT_OWNER_SELF;
     }
 
-    // Check character-level friendship
     if (PlayerSocial* social = player->GetSocial())
     {
         if (social->HasFriend(plotInfo->OwnerGuid))
@@ -1924,15 +1508,7 @@ HousingPlotOwnerType HousingMap::GetPlotOwnerTypeForPlayer(Player const* player,
 
 void HousingMap::SendPerPlayerPlotWorldStates(Player* player)
 {
-    // Blizzlike no-op: the per-plot occupancy worldstate is carried inside
-    // SMSG_INIT_WORLD_STATES (set by SpawnPlotGameObjects via SetWorldStateValue),
-    // and the regular-map icon + hover info come from the JamCliHouse[] array
-    // in SMSG_HOUSING_SVCS_GET_HOUSE_FINDER_NEIGHBORHOOD_RESPONSE plus the
-    // Housing/4 NeighborhoodMirrorData.Houses entries. No per-player
-    // SMSG_UPDATE_WORLD_STATE spam — retail doesn't do it, and sending enum
-    // values here was the regression that broke the icons.
-    //
-    // Retained as an extension hook for genuine per-player overrides.
+    // Blizzlike no-op: per-plot occupancy travels in SMSG_INIT_WORLD_STATES; retained as an extension hook.
     (void)player;
 }
 
@@ -1946,25 +1522,14 @@ void HousingMap::AddPlayerHousing(ObjectGuid playerGuid, Housing* housing)
     }
 
     _playerHousings[playerGuid] = housing;
-
 }
 
 void HousingMap::RemovePlayerHousing(ObjectGuid playerGuid)
 {
-    auto itr = _playerHousings.find(playerGuid);
-    if (itr != _playerHousings.end())
-    {
-        _playerHousings.erase(itr);
-
-    }
-    else
-    {
-    }
+    _playerHousings.erase(playerGuid);
 }
 
-// ============================================================
 // House Structure GO Management
-// ============================================================
 
 GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* customPos,
     int32 exteriorComponentID, int32 houseExteriorWmoDataID,
@@ -1994,9 +1559,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         return nullptr;
     }
 
-    // Ground-clamp a Z to the walkable surface. DB2 HousePosition.Z can sit well below the plot's ground (plot 46:
-    // 65.79 under a surface at 73.89), which buries the house; a client-sent position can too (while dragging, the
-    // client reported a height 7 yards under the ground it showed).
+    // Ground-clamp a Z to the walkable surface (DB2 Z and dragging-client Z can sit below ground).
     auto groundClamp = [this, plotIndex](Position& p)
     {
         LoadGrid(p.GetPositionX(), p.GetPositionY());
@@ -2009,19 +1572,14 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         }
     };
 
-    // House position: the plot's default spot (HousingMgr::GetDefaultHousePosition), or where the owner moved it.
-    Position housePosition = sHousingMgr.GetDefaultHousePosition(*targetPlot);
-    // Where the owner put the house the client already chose the height: retail keeps it verbatim (12.1.0.69933 sniff,
-    // root Entity PositionLocalSpace.Z == the Z of CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION). Snapping it to the terrain
-    // under the house centre sank houses on slopes, door and all. Only the DB2 default spot is put on the ground.
+    // Client-chosen positions keep their height verbatim (snapping sinks houses on slopes); only the DB2 default spot is clamped.
+    Position plotPos = sHousingMgr.GetDefaultHousePosition(*targetPlot);
+    Position housePosition = plotPos;
     if (customPos)
         housePosition = *customPos;
     else
         groundClamp(housePosition);
 
-    // Plot room (the plot geobox the house and yard decor hang off): retail places it exactly on the plot's
-    // PlotGameObjectID row of GameObjects.db2, turned half a revolution (every plot room of the 12.1.0.69933 sniffs).
-    Position plotPos = sHousingMgr.GetDefaultHousePosition(*targetPlot);
     LoadGrid(plotPos.GetPositionX(), plotPos.GetPositionY());
 
     float x = housePosition.GetPositionX();
@@ -2029,13 +1587,10 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
     float z = housePosition.GetPositionZ();
     float facing = housePosition.GetOrientation();
 
-    // Build rotation quaternion from the facing angle (yaw only for housing plots,
-    // since DB2 HouseRotation X/Y are always 0 and the computed facing is a pure yaw).
+    // Pure yaw: DB2 HouseRotation X/Y are always 0 and the computed facing is a yaw.
     QuaternionData rot = QuaternionData::fromEulerAnglesZYX(facing, 0.0f, 0.0f);
 
-    // Platform WMO (GO entry 574432) is loaded from the static gameobject table (sniff data).
-    // Do NOT dynamically spawn a second platform — it renders visibly on top of the static
-    // one and the static spawn already provides DynamicMapTree collision for ground-clamping.
+    // The platform WMO (GO entry 574432) is a static spawn; a dynamic second platform would render on top.
 
     Position pos(x, y, z, facing);
     Neighborhood::PlotInfo const* plotInfo = _neighborhood->GetPlotInfo(plotIndex);
@@ -2057,21 +1612,16 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
             "skipping MeshObject spawn (UpdatePlotHouseInfo not called?)", plotIndex);
     }
 
-    // Spawn all house MeshObjects (sniff-verified: 10 structural pieces for alliance, different for horde)
-    // Pieces have a parent-child hierarchy: base piece (0) and door piece (1) are roots,
-    // other pieces attach to them with local-space positions/rotations.
+    // Spawn house MeshObjects from the DB2 ExteriorComponent tree: base and door pieces are roots, others attach with local-space transforms.
     if (plotInfo && !plotInfo->HouseGuid.IsEmpty())
     {
-        int32 faction = _neighborhood ? _neighborhood->GetFactionRestriction()
-            : NEIGHBORHOOD_FACTION_ALLIANCE;
+        int32 faction = _neighborhood->GetFactionRestriction();
         TC_LOG_ERROR("housing", "HousingMap::SpawnHouseForPlot: Spawning MeshObjects for plot {} — "
             "HouseGuid={} faction={} ({})",
             plotIndex, plotInfo->HouseGuid.ToString(), faction,
             faction == NEIGHBORHOOD_FACTION_ALLIANCE ? "Alliance" : "Horde");
 
-        // Spawn room entity + component mesh with Geobox for this plot, at the plot position and BEFORE the
-        // house meshes, which attach to it. The client uses the MeshObject Geobox to validate decor placement
-        // and house moves (OutsidePlotBounds).
+        // Room entity + Geobox mesh first — the house meshes attach to it and the client validates against the Geobox.
         SpawnRoomForPlot(plotIndex, plotPos, QuaternionData::fromEulerAnglesZYX(plotPos.GetOrientation(), 0.0f, 0.0f),
             plotInfo->HouseGuid);
 
@@ -2082,13 +1632,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
         SpawnFullHouseMeshObjects(plotIndex, pos, rot, plotInfo->HouseGuid,
             exteriorComponentID, houseExteriorWmoDataID, faction, fixtureOverrides, rootOverrides);
 
-        // Group B Entity mirrors — FMirroredPositionData_C only (no tags),
-        // one per visible exterior fixture MeshObject (Base/Roof/Door/Window —
-        // ExteriorComponent Type 9/10/11/12). AttachParent = the piece's own
-        // MeshObject. Sniff idx 9984 shows 4 Group B mirrors per plot, one
-        // anchored to each fixture mesh. Without these per-piece anchors the
-        // client lacks spatial hooks for door-hover detection and expert-mode
-        // placement preview off non-root meshes.
+        // Group B Entity mirrors: one per visible exterior fixture MeshObject, AttachParent = the piece's own MeshObject.
         {
             std::vector<std::unique_ptr<HousingMirrorEntity>>& mirrors = _houseMeshMirrorEntities[plotIndex];
             mirrors.clear();
@@ -2109,9 +1653,7 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
                         continue;
                     UF::HousingFixtureData const& fd = *mesh->m_housingFixtureData;
                     uint8 const compType = uint8(fd.ExteriorComponentType);
-                    // Pair Group B mirrors with the visible fixture types only:
-                    // 9=Base, 10=Roof, 11=Door, 12=Window. Other component types
-                    // (decorative subpieces, hooks) don't get retail-side mirrors.
+                    // 9=Base, 10=Roof, 11=Door, 12=Window — other types don't get mirrors.
                     if (compType < 9 || compType > 12)
                         continue;
 
@@ -2130,63 +1672,32 @@ GameObject* HousingMap::SpawnHouseForPlot(uint8 plotIndex, Position const* custo
                 TC_LOG_WARN("housing", "HousingMap::SpawnHouseForPlot: no fixture MeshObjects found for plot {}; "
                     "Group B mirrors skipped (client spatial anchors off house meshes will be missing)", plotIndex);
             }
-            else
-            {
-            }
         }
     }
 
-    // Door GO spawning is now handled blizzlike inside SpawnExtCompTree:
-    // When a door-type MeshObject (ExteriorComponentType=11) with GameObjectID > 0 is
-    // spawned as part of the fixture tree, SpawnExtCompTree automatically creates the
-    // interactive GO at the door mesh's world position. This removes the dependency on
-    // fixtureOverrides for door spawning — the door GO spawns whenever its MeshObject
-    // spawns, regardless of whether the player has used the fixture editor.
-    //
-    // The door GO is stored in _houseGameObjects[plotIndex] by SpawnExtCompTree.
-    // Return it here for callers that need the pointer.
-    //
-    // The missing `return` here was causing C4715 warnings at every build AND a
-    // crash in HandleNeighborhoodBuyHouse (2026-04-23 14:23:30) — callers got
-    // whatever garbage sat in RAX, which sometimes looked like a non-null GameObject*
-    // pointer. `houseGo->GetGUID().ToString()` then dereferenced bad memory and
-    // SIGSEGV'd inside ObjectGuid::GetHigh via the fmt formatter.
+    // Door GO spawning happens inside SpawnExtCompTree (Type=11 with GameObjectID > 0).
     return GetHouseGameObject(plotIndex);
 }
 
 void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
     QuaternionData const& houseRot, ObjectGuid houseGuid)
 {
-    // The retail client requires a Room entity with an attached MeshObject that has a Geobox
-    // (axis-aligned bounding box) to define the plot's placement boundary. Without these,
-    // the client reports "OutsidePlotBounds" for ALL decor placement attempts.
-    //
-    // Sniff-verified structure (12.0.1 retail):
-    // 1. Room entity:      FHousingRoom_C fragment with HouseGUID, HouseRoomID=18, Flags=1
-    // 2. Room MeshObject:  FHousingRoomComponentMesh_C + Geobox attached to room at local (0,0,0)
-    //    Geobox bounds are identical for ALL factions/themes: (-35,-30,-1.01)→(35,30,125.01)
-    //
-    // In retail, the Room entity is a lightweight entity (type 18) without CGObject/FMeshObjectData_C.
-    // Our implementation uses MeshObjects for both, adding room data as extra entity fragments.
-    // The client processes fragments independently, so the extra fragments are harmless.
+    // The client needs a Room entity with a Geobox-carrying MeshObject to define the plot boundary.
+    // Geobox bounds are identical for all factions: (-35,-30,-1.01)->(35,30,125.01).
 
-    int32 HOUSE_ROOM_ID = static_cast<int32>(sHousingMgr.GetBaseRoomEntryId());
-    static constexpr int32 ROOM_FLAGS    = 1;     // BASE_ROOM
-    static constexpr int32 ROOM_COMPONENT_ID = 196; // Sniff-verified: same for alliance+horde
+    int32 const houseRoomId = static_cast<int32>(sHousingMgr.GetBaseRoomEntryId());
+    static constexpr int32 ROOM_FLAGS        = 1;     // BASE_ROOM
+    static constexpr int32 ROOM_COMPONENT_ID = 196;   // sniff-verified: same for alliance+horde
 
-    // Clean up any existing room entities for this plot
     // The plot room depends only on the plot: keep an existing one (see DespawnHouseForPlot).
     if (GetRoomIdentityEntity(plotIndex))
         return;
 
-    // --- DB2 lookups for room component data ---
-
-    // 1. HouseRoom → RoomWmoDataID
-    HouseRoomEntry const* houseRoomEntry = sHouseRoomStore.LookupEntry(HOUSE_ROOM_ID);
+    // 1. HouseRoom -> RoomWmoDataID
+    HouseRoomEntry const* houseRoomEntry = sHouseRoomStore.LookupEntry(houseRoomId);
     int32 roomWmoDataID = houseRoomEntry ? houseRoomEntry->RoomWmoDataID : 0;
 
-    // 2. RoomWmoData → Geobox bounds (bounding box for OutsidePlotBounds check)
-    //    Sniff fallback: (-35,-30,-1.01)→(35,30,125.01)
+    // 2. RoomWmoData -> Geobox bounds (sniff fallback: (-35,-30,-1.01)->(35,30,125.01))
     float geoMinX = -35.0f, geoMinY = -30.0f, geoMinZ = -1.01f;
     float geoMaxX =  35.0f, geoMaxY =  30.0f, geoMaxZ = 125.01f;
     RoomWmoDataEntry const* wmoData = roomWmoDataID ? sRoomWmoDataStore.LookupEntry(roomWmoDataID) : nullptr;
@@ -2206,8 +1717,7 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
             roomWmoDataID, plotIndex);
     }
 
-    // 3. RoomComponent → ModelFileDataID, Type
-    //    Sniff fallback: FileDataID=6322976, Type=2
+    // 3. RoomComponent -> ModelFileDataID, Type (sniff fallback: FileDataID=6322976, Type=2)
     int32 fileDataID = 6322976;
     uint8 roomComponentType = 2;
     RoomComponentEntry const* compEntry = sRoomComponentStore.LookupEntry(ROOM_COMPONENT_ID);
@@ -2218,16 +1728,12 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
         roomComponentType = compEntry->Type;
     }
 
-    // 4. RoomComponentOption → theme-specific cosmetic data (varies by faction/house style)
-    //    Alliance sniff: optionID=874, themeID=1 (Folk), field24=0, textureID=3
-    //    Horde sniff:    optionID=420, themeID=2 (Rugged), field24=0, textureID=40
-    //    These are cosmetic only (don't affect Geobox/bounds check).
+    // 4. RoomComponentOption: cosmetic only, does not affect the Geobox/bounds check.
     int32 roomComponentOptionID = 0;
     int32 houseThemeID = 0;
     int32 roomComponentTextureID = 0;
     int32 field24 = 0;
 
-    // Use faction-aware theme lookup via MeshStyleFilterID
     int32 factionThemeID = _neighborhood
         ? sHousingMgr.GetFactionDefaultThemeID(_neighborhood->GetFactionRestriction())
         : 1; // Folk (Alliance default)
@@ -2239,7 +1745,7 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
         houseThemeID = optEntry->HouseThemeID;
         field24 = static_cast<int32>(optEntry->SubType);
     }
-    // If no DB2 entry found, use sniff-verified alliance defaults
+    // Alliance defaults when no DB2 entry matches
     if (roomComponentOptionID == 0)
     {
         roomComponentOptionID = 874;
@@ -2256,29 +1762,14 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
         fileDataID, roomComponentType,
         roomComponentOptionID, houseThemeID, field24, roomComponentTextureID);
 
-    // --- Create entities (retail-matching blizzlike architecture) ---
-    //
-    // Retail idx 9984 (dump_12.0.1.66838_2026-04-15_09-35-59) architecture:
-    //   - Housing/2 identity entity (HighGuid::Housing subType=2, objType=18)
-    //     fragments: [FHousingRoom_C, FMirroredPositionData_C, Tag_HousingRoom]
-    //     carries HouseGUID, HouseRoomID=18, Flags, FloorIndex, Doors, MeshObjects
-    //   - Component MeshObject (HighGuid::MeshObject, objType=14)
-    //     fragments: [CGObject, FMeshObjectData_C, FHousingRoomComponentMesh_C,
-    //                 FMirroredPositionData_C, Tag_MeshObject]
-    //     MovementUpdate.TransportGuid = Housing/2 identity GUID
-    //     carries the Geobox (used by client for OutsidePlotBounds check)
-    //
-    // The previous dual-MeshObject architecture (a roomEntity MeshObject with
-    // FHousingRoom_C AND a componentMesh with FHousingRoomComponentMesh_C) put
-    // two entities at the plot position both claiming HouseRoomID=18. Client
-    // room registry accepted only the first, dropping the other's Geobox chain
-    // → OutsidePlotBounds + ownership categorization breakage (audit 2026-04-22).
+    // Retail architecture: a Housing/2 identity entity plus a component MeshObject attached to it that carries the Geobox.
+    // The identity is the single authoritative room — the mesh must not also carry FHousingRoom_C.
 
-    // 1. Housing/2 identity entity — the single authoritative room for this plot.
+    // 1. Housing/2 identity entity.
     ObjectGuid roomIdentityGuid = ObjectGuid::Create<HighGuid::Housing>(
         /*subType*/ 2,
         /*arg1*/ 0,
-        /*arg2*/ static_cast<uint32>(HOUSE_ROOM_ID),
+        /*arg2*/ static_cast<uint32>(houseRoomId),
         /*counter*/ static_cast<ObjectGuid::LowType>(plotIndex + 1));
 
     HousingRoomEntity* roomIdentity = new HousingRoomEntity();
@@ -2290,25 +1781,15 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
     }
 
     roomIdentity->SetHouseGUID(houseGuid);
-    roomIdentity->SetHouseRoomID(HOUSE_ROOM_ID);
+    roomIdentity->SetHouseRoomID(houseRoomId);
     roomIdentity->SetFlags(ROOM_FLAGS);
     roomIdentity->SetFloorIndex(0);
 
-    // CRITICAL (audit 2026-04-22 byte-for-byte retail comparison, idx 9984):
-    // When AttachParent is Empty, retail sets PositionLocalSpace = the room's
-    // WORLD position (not zero) and RotationLocalSpace = the house's facing
-    // quaternion. The client uses this as the root of the attach chain — any
-    // child entity (decor, mirrors) resolves its world pos as
-    //   worldPos = room.PositionLocalSpace + rotate(child.localPos, room.rot)
-    // If we set room.PositionLocalSpace=(0,0,0), every attached decor ends up
-    // near world origin (invisible) and the client's OutsidePlotBounds check
-    // fails for every placement because the player's world position is far
-    // from the "plot center" the client derives from the room chain.
+    // With AttachParent empty, PositionLocalSpace must be the room's WORLD position or all attached decor lands at the origin.
     roomIdentity->SetMirroredPosition(housePos, houseRot,
         /*scale*/ 1.0f, ObjectGuid::Empty, /*attachFlags*/ 3);
 
-    // 1b. Doors on the identity entity (not on the component mesh).
-    // Client's HousingRoomSystem DoorConnection handler reads this array.
+    // 1b. Doors on the identity entity (read by the client's HousingRoomSystem).
     if (std::vector<RoomDoorInfo> const* doors = sHousingMgr.GetRoomDoors(roomWmoDataID))
     {
         for (RoomDoorInfo const& door : *doors)
@@ -2325,11 +1806,7 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
             plotIndex, roomWmoDataID);
     }
 
-    // 2. Component MeshObject — attaches to Housing/2 identity. Carries the
-    // Geobox via FHousingRoomComponentMesh_C. Does NOT carry FHousingRoom_C
-    // (that's the identity's job). Retail-verified: component mesh fragment
-    // list is [CGObject, FMeshObjectData_C, FHousingRoomComponentMesh_C,
-    // FMirroredPositionData_C, Tag_MeshObject] — no FHousingRoom_C.
+    // 2. Component MeshObject — attaches to the identity and carries the Geobox.
     Position componentPos(0.0f, 0.0f, 0.0f, 0.0f);
     QuaternionData componentRot;
     componentRot.x = 0.0f;
@@ -2357,10 +1834,10 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
         geoMinX, geoMinY, geoMinZ,
         geoMaxX, geoMaxY, geoMaxZ);
 
-    // 3. Link: add component GUID to identity's MeshObjects array.
+    // 3. Link: add the component GUID to the identity's MeshObjects array.
     roomIdentity->AddMeshObject(componentMesh->GetGUID());
 
-    // 4. Add component to map. Identity was already AddToMap'd via its Create().
+    // 4. Add the component to the map (the identity was AddToMap'd via its Create()).
     if (!AddToMap(componentMesh))
     {
         TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: Failed to add room component mesh to map for plot {}", plotIndex);
@@ -2371,10 +1848,8 @@ void HousingMap::SpawnRoomForPlot(uint8 plotIndex, Position const& housePos,
 
     _roomIdentityGuids[plotIndex] = roomIdentityGuid;
     _roomComponentMeshes[plotIndex] = componentMesh->GetGUID();
-    // _roomEntities[plotIndex] is intentionally NOT populated — the MeshObject
-    // "room entity" no longer exists in the unified architecture. Callers that
-    // used _roomEntities should now prefer _roomIdentityGuids.
-    _roomEntities[plotIndex] = roomIdentityGuid; // keep the map populated with the identity so legacy callers still see something sensible
+    // Legacy _roomEntities tracking points at the identity GUID.
+    _roomEntities[plotIndex] = roomIdentityGuid;
 
     TC_LOG_ERROR("housing", "HousingMap::SpawnRoomForPlot: plot={} identity={} component={} "
         "at ({:.1f},{:.1f},{:.1f}) geobox=({:.2f},{:.2f},{:.2f})->({:.2f},{:.2f},{:.2f})",
@@ -2406,8 +1881,7 @@ void HousingMap::DespawnRoomForPlot(uint8 plotIndex)
         _roomIdentityGuids.erase(identItr);
     }
 
-    // Legacy _roomEntities tracking — now points at the same identity GUID,
-    // entity already removed above; just clear the map.
+    // Legacy _roomEntities tracking; entity already removed above.
     _roomEntities.erase(plotIndex);
 }
 
@@ -2418,16 +1892,13 @@ MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, 
     ObjectGuid attachParent /*= ObjectGuid::Empty*/, uint8 attachFlags /*= 0*/,
     Position const* worldPos /*= nullptr*/)
 {
-    // For child pieces, worldPos contains the parent's world position for grid placement.
-    // Use it for LoadGrid so the grid cell near the house is loaded (not the local-space origin).
+    // worldPos is the parent's world position, used for grid placement of child pieces.
     if (worldPos)
         LoadGrid(worldPos->GetPositionX(), worldPos->GetPositionY());
     else
         LoadGrid(pos.GetPositionX(), pos.GetPositionY());
 
-    // HousingFixtureData.Size is the piece's own ExteriorComponent.Size, not the house size (retail 12.1.0.69933:
-    // base 142 -> 2, door 1380 -> 1, medium Night Elf pieces 570/573 -> 3). A fixed 2 made the client read every
-    // medium or large house as small after a relog.
+    // HousingFixtureData.Size is the piece's own ExteriorComponent.Size, not the house size.
     if (ExteriorComponentEntry const* component = sExteriorComponentStore.LookupEntry(exteriorComponentID))
         houseSize = component->Size;
 
@@ -2440,20 +1911,11 @@ MeshObject* HousingMap::SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, 
         return nullptr;
     }
 
-    // Set up all entity fragments BEFORE AddToMap (create packet is sent during AddToMap)
-    // The base piece (componentType=9, no parent) gets Tag_HouseExteriorRoot (225).
-    // All other pieces (roof, door, chimney, windows) get Tag_HouseExteriorPiece (224).
-    // The client uses Tag_HouseExteriorRoot to identify the fixture GUID for edit mode.
+    // Set up all entity fragments BEFORE AddToMap; the base piece gets Tag_HouseExteriorRoot (225), others Tag_HouseExteriorPiece (224).
     bool isRoot = (exteriorComponentType == 9) && (attachParent.IsEmpty() || attachParent.GetHigh() == HighGuid::Housing
         || attachParent.GetHigh() == HighGuid::Entity);
 
-    // Generate a unique fixture GUID per fixture. The client uses FHousingFixture_C::Guid
-    // to identify individual fixtures — if all fixtures share the same GUID (houseGuid),
-    // Retail sniff-verified: the Guid field (field 5) = the MeshObject's own GUID,
-    // and AttachParentGUID (field 4) = the parent MeshObject's GUID (NOT Housing GUIDs).
-    // The client's fixture manager searches the frame tree using AttachParentGUID as the
-    // key (sub_7FF72697BE70). Frames are indexed by the parent MeshObject entity's GUID.
-    // Using Housing GUIDs here causes a key mismatch → fixture-hookpoint linking fails.
+    // Guid = the MeshObject's own GUID, AttachParentGUID = the parent MeshObject's GUID (not Housing GUIDs), or hookpoint linking fails.
     ObjectGuid fixtureGuid = mesh->GetGUID(); // self-reference: the MeshObject's own GUID
 
     ObjectGuid parentFixtureGuid;
@@ -2490,17 +1952,8 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     FixtureOverrideMap const* fixtureOverrides /*= nullptr*/,
     RootOverrideMap const* rootOverrides /*= nullptr*/)
 {
-    // === DATA-DRIVEN EXTERIOR SPAWNING ===
-    // Build the house from DB2 ExteriorComponent tree.
-    // A house consists of multiple independent root components (Base type=9, Roof type=10, etc.)
-    // all sharing the same HouseExteriorWmoDataID. Each root is spawned independently at the
-    // house position, and each has its own hook children (doors on base, chimney/windows on roof).
-    //
-    // Root selection per type:
-    //   1. Check rootOverrides (player's explicit choice for that type)
-    //   2. Use coreExtCompID for the core type
-    //   3. Fall back to DB2 default (Flags & 0x1 IsDefault)
-
+    // Build the house from the DB2 ExteriorComponent tree. Root selection per type:
+    // 1. rootOverrides, 2. the core component, 3. DB2 default (Flags & 0x1 IsDefault).
     uint32 coreExtCompID = static_cast<uint32>(exteriorComponentID);
     ExteriorComponentEntry const* coreComp = sExteriorComponentStore.LookupEntry(coreExtCompID);
 
@@ -2522,21 +1975,13 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
                     rootsByType[rc->Type].push_back(rootID);
             }
 
-            // Retail attaches every root piece to the house's exterior-root entity, which hangs off the plot room
-            // at the house's offset inside the plot; the client moves the house by moving that root and checks it
-            // against the plot geobox. Free-standing roots in world coordinates (x ~ 3000) failed that check
-            // ("cannot place outside the plot") and the roof, a root of its own, stayed behind in the preview.
-            // The base root takes the exterior-root role here; the other roots ride on it at (0,0,0).
+            // Every root attaches to the house's exterior-root entity; the base root takes that role, others ride at (0,0,0).
             std::vector<std::pair<uint8, uint32>> selectedRoots; // type, component
             for (auto const& [type, compIDs] : rootsByType)
             {
                 uint32 selectedCompID = 0;
 
-                // 1. Check player's root overrides for this type. A type without one falls through to the
-                // core component / DB2 default: skipping it dropped the roof (and every other root) whenever
-                // the stored selections did not cover all types, e.g. right after a style or type change.
-                // An override pointing at a different-size component (stale row the size remap could not
-                // resolve) is ignored, or the whole rebuild locks to the old size.
+                // 1. The player's root override for this type; ignore a different-size (stale) override or the rebuild locks to the old size.
                 if (rootOverrides)
                 {
                     auto ovrItr = rootOverrides->find(type);
@@ -2638,15 +2083,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
     }
 
     // === ALLIANCE EXTERIOR (Stucco Small) ===
-    // Two root pieces (base + roof) at the house position, children with local-space offsets.
-    //
-    // Structure:
-    //   Root 0 (base, 6648736) - ExteriorComponentID 141, type 9 (Base)
-    //     └── Child: Door (7450804), ExteriorComponentID 1380, type 11, hookID 2505
-    //   Root 1 (roof, 7420602) - ExteriorComponentID 1503, type 10 (Roof)
-    //     ├── Child: Chimney (7118952), hookID 14931
-    //     ├── Child: Window back-left (7450830), hookID 17202
-    //     └── Child: Window back-right (7450830), hookID 14929
+    // Root 0: base (comp 141) with door child (comp 1380, hook 2505); root 1: roof (comp 1503) with chimney + window children.
 
     // Spawn root piece 0: Base structure (uses the passed exteriorComponentID, default 141 = Stucco Base)
     MeshObject* basePiece = SpawnHouseMeshObject(plotIndex, 6648736, /*isWMO*/ true,
@@ -2662,8 +2099,7 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
         /*exteriorComponentType*/ 10, /*houseSize*/ 2, /*hookID*/ -1,
         ObjectGuid::Empty, /*attachFlags*/ 0);
 
-    // Child of base: Door mesh (retail sniff: ExteriorComponentID 1380, type 11, hookID 2505)
-    // Position and rotation from retail sniff — local space relative to base.
+    // Child of base: Door mesh (ExteriorComponentID 1380, type 11, hookID 2505); local space relative to base.
     if (basePiece)
     {
         ObjectGuid baseGuid = basePiece->GetGUID();
@@ -2705,31 +2141,14 @@ void HousingMap::SpawnFullHouseMeshObjects(uint8 plotIndex, Position const& hous
             /*exteriorComponentType*/ 14, /*houseSize*/ 2, /*hookID*/ 14929,
             roofGuid, /*attachFlags*/ 3, &housePos);
     }
-
-    uint32 meshCount = 0;
-    auto meshItr = _meshObjects.find(plotIndex);
-    if (meshItr != _meshObjects.end())
-        meshCount = static_cast<uint32>(meshItr->second.size());
-
 }
 
 void HousingMap::SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& housePos,
     QuaternionData const& houseRot, ObjectGuid houseGuid,
     int32 /*exteriorComponentID*/, int32 /*houseExteriorWmoDataID*/)
 {
-    // === HORDE EXTERIOR ===
-    // Sniff-verified: Horde starter house with HouseExteriorWmoDataID=87.
-    // Two root pieces at the house position, children with local-space offsets.
-    //
-    // Parent-child hierarchy:
-    //   Root 0 (main structure, 7118906) - ExteriorComponentID 3811, type 10
-    //     ├── Child: Door/entrance (7118912), hookID 17245, extCompID 976
-    //     ├── Child: Wall element (7460531), hookID -1, extCompID 2476
-    //     ├── Child: Wall variant (7118901), hookID -1, extCompID 1011
-    //     ├── Child: Roof piece A (7462686), hookID 17294, extCompID 2445
-    //     ├── Child: Structure detail (7118918), hookID 17286, extCompID 980
-    //     └── Child: Roof piece B (7462686), hookID 17285, extCompID 2445
-    //   Root 1 (base, 6648685) - ExteriorComponentID 1003, type 9
+    // === HORDE EXTERIOR (HouseExteriorWmoDataID=87) ===
+    // Root 0: main structure (comp 3811) with door/wall/roof children; root 1: base (comp 1003).
 
     int32 hordeWmoDataID = HORDE_HOUSE_EXTERIOR_WMO_DATA_ID; // 87
 
@@ -2800,12 +2219,6 @@ void HousingMap::SpawnHordeHouseMeshObjects(uint8 plotIndex, Position const& hou
             /*exteriorComponentType*/ 13, /*houseSize*/ 2, /*hookID*/ 17285,
             rootGuid, /*attachFlags*/ 3, &housePos);
     }
-
-    uint32 meshCount = 0;
-    auto meshItr = _meshObjects.find(plotIndex);
-    if (meshItr != _meshObjects.end())
-        meshCount = static_cast<uint32>(meshItr->second.size());
-
 }
 
 uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
@@ -2834,9 +2247,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     // Determine attach flags: root pieces (no parent) use 0, children use 3
     uint8 attachFlags = parentGuid.IsEmpty() ? 0 : 3;
 
-    // The hookIDOverride tells the client which hook point this component occupies.
-    // This must propagate at ALL depths (not just depth=0) because during initial house spawn
-    // via SpawnFullHouseMeshObjects, hooks are iterated at depth >= 1 with valid hookIDOverride.
+    // The hookIDOverride must propagate at all depths: initial house spawn iterates hooks at depth >= 1.
     int32 effectiveHookID = (hookIDOverride > 0) ? hookIDOverride : -1;
 
     MeshObject* mesh = SpawnHouseMeshObject(plotIndex, comp->ModelFileDataID, /*isWMO*/ true,
@@ -2856,14 +2267,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     uint32 count = 1;
     ObjectGuid meshGuid = mesh->GetGUID();
 
-    // Compute THIS mesh's cumulative world position by composing the immediate
-    // parent's world position with our local-space hook offset, rotated by the
-    // parent's cumulative orientation. At depth 0 we are the root: our local
-    // pos IS the world position (passed by SpawnFullHouseMeshObjects).
-    //
-    // This cumulative position is required so that a grand-child's door GO
-    // (e.g. house-root → DoorwayWall → door) lands on the visible mesh rather
-    // than offset by the wall's distance from the root.
+    // Cumulative world position: parent's world position composed with the local hook offset, rotated by the parent's cumulative yaw.
     Position thisMeshWorldPos;
     if (!worldPos)
     {
@@ -2871,7 +2275,6 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
     }
     else if (depth == 0)
     {
-        // Root attached to the plot room or to the base root: pos is local, worldPos is where it really is.
         thisMeshWorldPos = *worldPos;
     }
     else
@@ -2883,31 +2286,20 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
         float wx = parentWorldPos.GetPositionX() + pos.GetPositionX() * cf - pos.GetPositionY() * sf;
         float wy = parentWorldPos.GetPositionY() + pos.GetPositionX() * sf + pos.GetPositionY() * cf;
         float wz = parentWorldPos.GetPositionZ() + pos.GetPositionZ();
-        // Extract the Z-axis rotation contribution of the hook quaternion so
-        // that grand-children of this mesh apply the correct cumulative yaw.
-        // yaw = atan2(2*(w*z + x*y), 1 - 2*(y² + z²))
+        // Z-axis rotation contribution of the hook quaternion for the cumulative yaw.
         float thisZRot = std::atan2(
             2.0f * (rot.w * rot.z + rot.x * rot.y),
             1.0f - 2.0f * (rot.y * rot.y + rot.z * rot.z));
         thisMeshWorldPos.Relocate(wx, wy, wz, parentFacing + thisZRot);
     }
 
-    // --- Blizzlike: If this is a door component (Type=11), spawn the interactive GO ---
-    // Retail sniff: door MeshObjects have FHousingFixture_C.GameObjectGUID set to the
-    // door GO entry. A separate GameObject (type GOOBER) is spawned at the door mesh's
-    // world position for player click interaction. The GO's PositionLocalSpace=(0,0,0)
-    // relative to a parent entity at the door's world position.
+    // Door component (Type=11): spawn a separate interactive GO at the door mesh's world position.
     if (comp->Type == 11 && comp->GameObjectID > 0)
     {
         uint32 doorGoEntry = static_cast<uint32>(comp->GameObjectID);
         GameObjectTemplate const* doorTemplate = sObjectMgr->GetGameObjectTemplate(doorGoEntry);
         if (doorTemplate)
         {
-            // thisMeshWorldPos already carries the door mesh's cumulative world
-            // position through every parent hook transform. Earlier revisions
-            // computed this as `houseRoot + localPos`, which lost the offset of
-            // any intermediate parent (e.g. a DoorwayWall hosting the door) and
-            // left the clickable GO a few yards away from the visible mesh.
             float doorWorldX = thisMeshWorldPos.GetPositionX();
             float doorWorldY = thisMeshWorldPos.GetPositionY();
             float doorWorldZ = thisMeshWorldPos.GetPositionZ();
@@ -2915,9 +2307,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
             float cosFacing = std::cos(doorFacing);
             float sinFacing = std::sin(doorFacing);
 
-            // Retail attaches the door GO (through an Entity) to the door mesh at ExteriorComponent.EntryOffset
-            // in door-local space - comp 1380: (-3.0023, 0.0171, 2.0121) in both DB2 and the sniff. The
-            // ExteriorComponentExitPoint used before is where players are put outside, not the GO.
+            // The door GO attaches at ExteriorComponent.EntryOffset in door-local space (the ExitPoint is where players are put outside).
             doorWorldX += comp->Position[0] * cosFacing - comp->Position[1] * sinFacing;
             doorWorldY += comp->Position[0] * sinFacing + comp->Position[1] * cosFacing;
             doorWorldZ += comp->Position[2];
@@ -2925,10 +2315,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
             Position doorPos(doorWorldX, doorWorldY, doorWorldZ, doorFacing);
             QuaternionData doorRot = QuaternionData::fromEulerAnglesZYX(doorFacing, 0.0f, 0.0f);
 
-            // Remove any previously-tracked door GO for this plot before we store a
-            // new one — otherwise the old GUID reference is lost and the game object
-            // leaks on the map (visible as a phantom clickable box at the old door
-            // location after the entrance is moved).
+            // Drop the previously-tracked door GO first, or it leaks as a phantom clickable box.
             if (auto existingItr = _houseGameObjects.find(plotIndex); existingItr != _houseGameObjects.end())
             {
                 if (GameObject* oldGo = GetGameObject(existingItr->second))
@@ -2945,8 +2332,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
                 if (AddToMap(doorGo))
                 {
                     _houseGameObjects[plotIndex] = doorGo->GetGUID();
-                    // Door interaction lives entirely in go_housing_door::OnGossipHello, so a GO that
-                    // spawns without that AI is silently inert (click -> goober animation, no teleport).
+                    // Door interaction lives entirely in go_housing_door::OnGossipHello.
                 }
                 else
                 {
@@ -2965,17 +2351,12 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
         }
     }
 
-    // Children receive THIS mesh's cumulative world position as their parent
-    // transform so their local hook offsets compose correctly (was previously
-    // always the root's position, which broke grand-children like doors hosted
-    // by DoorwayWalls).
+    // Children receive this mesh's cumulative world position as their parent transform.
     Position const* childWorldPos = &thisMeshWorldPos;
 
-    // Recurse into hooks on this component
     auto const* hooks = sHousingMgr.GetHooksOnComponent(extCompID);
 
-    // Spawn child components at hooks from player fixture overrides.
-    // Door meshes with GameObjectID > 0 automatically spawn their interactive GO above.
+    // Spawn child components at hooks from the player's fixture overrides.
     if (hooks)
     {
         for (ExteriorComponentHookEntry const* hook : *hooks)
@@ -2994,9 +2375,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
             if (!childComp)
                 continue;
 
-            // Hook position/rotation are the local-space coordinates where the child
-            // mesh attaches on the parent. Use hook position directly as the child's
-            // PositionLocalSpace — the client handles the attachment via AttachParentGUID.
+            // Hook position/rotation are the local-space coordinates where the child mesh attaches.
             Position hookPos(hook->Position[0], hook->Position[1], hook->Position[2], 0.0f);
             QuaternionData const hookRot = GetHookLocalRotation(hook);
 
@@ -3008,10 +2387,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
         }
     }
 
-    // NOTE: ExteriorComponent.ParentComponentID links are color/dye variants of the same shape,
-    // NOT structural children. They share the same mesh with a different dye (Field_011).
-    // These are NOT spawned as additional meshes — the player's fixture selection determines
-    // which variant is used, handled via GetRootComponentOverrides() / fixture overrides.
+    // NOTE: ExteriorComponent.ParentComponentID links are color/dye variants, not structural children.
 
     return count;
 }
@@ -3066,13 +2442,7 @@ void HousingMap::SendPlotGeometryEntitiesToPlayer(uint8 plotIndex, Player* playe
     if (!player || !player->IsInWorld())
         return;
 
-    // The client validates decor placement and house moves against the plot geometry entities:
-    // the room identity (Housing/2) is the attach-chain root, the room component MeshObject carries
-    // the Geobox ("cannot place outside plot" check), the exterior root Entity is the draggable
-    // house anchor and the Group B mirrors carry the visible pieces. Ordinary grid visibility does
-    // NOT deliver any of them — the login bundle does, which is why everything worked after a relog
-    // but not after a mid-session plot purchase. Values-update what the client already holds,
-    // CREATE the rest (a duplicate CREATE for a held GUID crashes the client).
+    // The client validates placement/moves against these geometry entities, which grid visibility never delivers.
     UpdateData updateData(GetId());
     uint32 created = 0, updated = 0;
 
@@ -3080,8 +2450,7 @@ void HousingMap::SendPlotGeometryEntitiesToPlayer(uint8 plotIndex, Player* playe
     {
         if (!entity)
             return;
-        // NOTE: no IsInWorld check — Group B mirrors are deliberately never map-added and only
-        // reach the client through hand-built bundles (login, this helper).
+        // No IsInWorld check — Group B mirrors are never map-added and only reach the client via hand-built bundles.
         if (player->HaveAtClient(entity))
         {
             entity->BuildValuesUpdateBlockForPlayer(&updateData, player);
@@ -3134,13 +2503,7 @@ void HousingMap::DespawnAllMeshObjectsForPlot(uint8 plotIndex)
 
 void HousingMap::SendPlotGeometryEntitiesToMap(uint8 plotIndex)
 {
-    // MeshObjects and the housing entities do not stream through ordinary grid visibility
-    // (see SendPlotGeometryEntitiesToPlayer): a mid-session plot purchase or move delivered
-    // them only to the acting player, leaving everyone else standing on the map without the
-    // plot's geobox room mesh - their client never clipped the plot terrain (grass stayed
-    // standing inside the new house) until a relog rebuilt the initial bundle. Push the
-    // geometry to every current viewer; the per-player HaveAtClient gating inside makes
-    // this safe for players who already hold part of the set.
+    // Push the geometry to every viewer; HaveAtClient gating keeps it safe for players who already hold it.
     for (MapReference const& ref : GetPlayers())
         if (Player* viewer = ref.GetSource())
             SendPlotGeometryEntitiesToPlayer(plotIndex, viewer);
@@ -3204,9 +2567,7 @@ MeshObject* HousingMap::SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint3
         return nullptr;
     }
 
-    // Find the parent mesh that owns this hook. The client's hint (CMSG HookEntityGuid) wins:
-    // roof/facade variants re-key the parent mesh's ExteriorComponentID, while ExteriorComponentHook
-    // keeps referencing the base row, so the exact-ID scan below cannot be trusted alone.
+    // The client's parent hint wins: facade variants re-key the parent mesh's ExteriorComponentID.
     MeshObject* parentMesh = nullptr;
     auto meshItr = _meshObjects.find(plotIndex);
     if (meshItr != _meshObjects.end())
@@ -3248,9 +2609,7 @@ MeshObject* HousingMap::SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint3
     Position parentWorldPos(parentMesh->GetPositionX(), parentMesh->GetPositionY(),
         parentMesh->GetPositionZ(), parentMesh->GetOrientation());
 
-    // Spawn the component tree at this hook (may have sub-hooks/children).
-    // Pass hookID as the override so the top-level mesh gets ExteriorComponentHookID = hookID
-    // (the actual hook point where we're installing it, not the component's native HookID from DB2).
+    // Pass hookID as the override so the top-level mesh gets the actual hook point, not the component's native one.
     uint32 spawned = SpawnExtCompTree(plotIndex, componentID,
         hookPos, hookRot,
         houseGuid, houseExteriorWmoDataID,
@@ -3283,10 +2642,7 @@ MeshObject* HousingMap::SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint3
 
 void HousingMap::DespawnHouseForPlot(uint8 plotIndex)
 {
-    // Despawn the house MeshObjects, then the GO. The plot room (geobox) stays: it belongs to the plot, not to the
-    // house, and the house root and yard decor hang off it. Recreating it on every rebuild (move, type, style)
-    // made the client lose the root's parent - the next move came in world coordinates and was refused - and forced
-    // a despawn/respawn of all yard decor. Callers removing the house for good call DespawnRoomForPlot themselves.
+    // The plot room stays: it belongs to the plot, not the house, and the house root and yard decor hang off it.
     DespawnAllMeshObjectsForPlot(plotIndex);
 
     // The exterior root Entity stays (SpawnOrMoveHouseRootEntity moves it); the mesh mirrors go with the meshes.
@@ -3367,15 +2723,7 @@ void HousingMap::DespawnHouseRootEntity(uint8 plotIndex)
 
 ObjectGuid HousingMap::MakeHouseMirrorGuid(uint8 plotIndex, uint32 bnetAccountId, uint8 pieceIndex /*= 0*/) const
 {
-    // Deterministic convention: HighGuid::Entity, mapId=GetId() (neighborhood
-    // world map), entry=37361 (synthetic entry for housing mirrors — picked
-    // outside the range of creature/gameobject entries in use). Counter packs
-    // (bnetAccountId, plotIndex, pieceIndex) so each per-piece Group A mirror
-    // has a unique GUID and the mapping stays deterministic across runs.
-    // pieceIndex 0 is the Type-9 root mirror (canonical "house mirror GUID"
-    // referenced by FHousingPlayerHouse_C.EntityGUID); 1+ are Roof/Door/Window
-    // pieces. Same derivation is used by proxy emission for neighbour plots
-    // without needing the mirror object to exist.
+    // Deterministic convention: HighGuid::Entity, synthetic entry 37361, counter packs (bnetAccountId, plotIndex, pieceIndex).
     constexpr uint32 HOUSING_MIRROR_ENTRY = 37361;
     uint64 counter = (static_cast<uint64>(bnetAccountId) << 16)
                    | (static_cast<uint64>(plotIndex)     << 8)
@@ -3388,8 +2736,7 @@ HousingMirrorEntity* HousingMap::GetHouseMeshMirror(uint8 plotIndex) const
     auto itr = _houseMeshMirrorEntities.find(plotIndex);
     if (itr == _houseMeshMirrorEntities.end() || itr->second.empty())
         return nullptr;
-    // Returns the first (root-piece) Group B mirror for legacy callers that
-    // only need any anchor; per-piece access goes via _houseMeshMirrorEntities.
+    // Returns the first (root-piece) Group B mirror for legacy callers.
     return itr->second.front().get();
 }
 
@@ -3414,9 +2761,7 @@ std::vector<HousingMirrorEntity*> HousingMap::GetHouseMeshMirrors(uint8 plotInde
 
 ObjectGuid HousingMap::MakeHouseMeshMirrorGuid(uint8 plotIndex, uint32 bnetAccountId, uint8 pieceIndex /*= 0*/) const
 {
-    // Distinct synthetic entry from Group A (37361) so Group A/B guids never collide.
-    // Counter packs the (bnet, plot, piece) triple so each per-piece Group B
-    // mirror has a unique GUID across the realm: (bnetId << 16) | (plot << 8) | piece.
+    // Distinct synthetic entry from Group A (37361); counter packs (bnetId, plot, piece).
     constexpr uint32 HOUSING_MESH_MIRROR_ENTRY = 37362;
     uint64 counter = (static_cast<uint64>(bnetAccountId) << 16)
                    | (static_cast<uint64>(plotIndex)     << 8)
@@ -3469,18 +2814,7 @@ int8 HousingMap::GetPlotIndexForHouseGO(ObjectGuid goGuid) const
     return -1;
 }
 
-// ============================================================
 // Decor Management
-// ============================================================
-// Functional decor (HouseDecorData.GameObjectID > 0 AND gameobject_template
-// exists) spawns as a real interactive GameObject with FHousingDecor_C +
-// FMirroredPositionData_C fragments, retaining normal GO behavior (sit on
-// chairs, open chests, mail UI on mailboxes, etc.). Retail sniff-verified
-// fragment set: [CGObject, FHousingDecor_C, FMirroredPositionData_C, Tag_GameObject].
-//
-// Visual-only decor (ModelFileDataID-only) spawns as a MeshObject with
-// fragments [CGObject, FMeshObjectData_C, FHousingDecor_C, FMirroredPositionData_C,
-// Tag_MeshObject] — also retail-verified.
 
 bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid)
 {
@@ -3492,7 +2826,7 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
         return false;
     }
 
-    // Look up the room entity we attach to (the Housing/sub2 plot room).
+    // Look up the room entity we attach to.
     ObjectGuid roomEntityGuid = ObjectGuid::Empty;
     Position roomWorldPos;
     if (HousingRoomEntity* roomId = GetRoomIdentityEntity(plotIndex))
@@ -3508,29 +2842,22 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
 
     QuaternionData rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
 
-    // World → room-local (inverse room rotation). Matches MeshObject decor path.
+    // World → room-local.
     Position worldPos(worldX, worldY, worldZ);
     Position localPos = roomEntityGuid.IsEmpty() ? worldPos : HousingWorldToRoomLocal(roomWorldPos, worldPos);
-    // The client composes worldRot = roomRot ⊗ localRot, so the mirrored rotation must be in the room frame
-    // too — writing the world quaternion left every exterior decor rotated by the plot facing.
+    // The mirrored rotation must be in the room frame (worldRot = roomRot ⊗ localRot on the client).
     QuaternionData const localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
     float decorScale = decor.Scale > 0.01f ? decor.Scale : 1.0f;
     uint8 attachFlags = roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3);
 
     // ---------- Functional decor branch (real GameObject) ----------
-    // Retail: chairs, chests, mailboxes, chandeliers, fireplaces, etc. spawn as
-    // real GameObjects so the client treats them as interactive (sittable/
-    // openable/usable). We require both GameObjectID in DB2 AND a matching
-    // gameobject_template to fall into this path; missing templates fall back
-    // to visual-only MeshObject.
+    // Spawn as a real GameObject so the client treats it as interactive; requires a matching gameobject_template.
     if (decorData->GameObjectID > 0)
     {
         uint32 goEntry = static_cast<uint32>(decorData->GameObjectID);
         if (GameObjectTemplate const* goTemplate = sObjectMgr->GetGameObjectTemplate(goEntry))
         {
-            // Derive orientation from the quaternion for GO world rotation.
-            // GameObject::SetLocalRotation uses the packed quat for rendering;
-            // the orientation-from-quat is used for stationary direction.
+            // Orientation from the quaternion: the packed quat drives rendering, the yaw the stationary direction.
             float orientation = 2.0f * std::atan2(rot.z, rot.w);
             Position goWorldPos(worldX, worldY, worldZ, orientation);
 
@@ -3547,12 +2874,8 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
                 PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
                 go->SetObjectScale(decorScale);
 
-                // Keep template default flags — chairs need CHAIR type behavior, chests need
-                // CHEST interaction, mailboxes need MAILBOX UI. Don't override with door-style
-                // flags; the GO's normal on-use handler is what we want.
+                // Keep template default flags — chairs need CHAIR, chests CHEST, mailboxes MAILBOX behavior.
 
-                // Retail wire fragments: FHousingDecor_C + FMirroredPositionData_C.
-                // Order matches the sniff-verified fragment list.
                 go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                     roomEntityGuid, decor.SourceType, decor.SourceValue);
                 go->SetHousingDecorDyeSlots(decor.DyeSlots);
@@ -3574,17 +2897,13 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
                 return true;
             }
         }
-        else
-        {
-        }
     }
 
     // ---------- Visual-only branch (MeshObject) ----------
     int32 fileDataID = decorData->ModelFileDataID;
     if (fileDataID <= 0 && decorData->GameObjectID > 0)
     {
-        // Fallback: derive FileDataID from the GO template displayInfo when the
-        // DB2 entry's ModelFileDataID is 0 but GameObjectID points at a valid template.
+        // Fallback: derive FileDataID from the GO template displayInfo.
         if (GameObjectTemplate const* goTemplate = sObjectMgr->GetGameObjectTemplate(
                 static_cast<uint32>(decorData->GameObjectID)))
         {
@@ -3781,8 +3100,7 @@ void HousingMap::UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, 
     ObjectGuid spawnedPetGuid;
     if (!battlePetGuid.IsEmpty() && creatureId != 0)
     {
-        // Spawn the companion creature beside the decor. Retail walks it around the cage;
-        // a passive creature stands in place until pet AI is tuned.
+        // Spawn the companion creature beside the decor (passive until pet AI is tuned).
         if (CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(creatureId))
         {
             Position petPos = decorObj->GetPosition();
@@ -3811,9 +3129,7 @@ void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Posi
     if (itr == _decorGuidToGoGuid.end())
         return;
 
-    // Move the room-relative transform the client renders from (FMirroredPositionData_C) as well; relocating only
-    // the server-side world position left every re-sent CREATE (re-entry, relog) at the spawn-time spot.
-    // Decor attaches to the plot's room identity entity, the same one SpawnDecorItem measures from.
+    // Move the room-relative transform the client renders from (FMirroredPositionData_C) as well.
     HousingRoomEntity* roomId = GetRoomIdentityEntity(plotIndex);
     Position localPos = roomId ? HousingWorldToRoomLocal(roomId->GetPosition(), pos) : pos;
     QuaternionData const localRot = roomId ? HousingWorldRotationToRoomLocal(roomId->GetOrientation(), rot) : rot;

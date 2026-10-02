@@ -21,6 +21,8 @@
 #include "Housing.h"
 #include "Map.h"
 #include "ObjectGuid.h"
+#include <array>
+#include <unordered_map>
 #include <vector>
 
 class HousingRoomEntity;
@@ -29,10 +31,7 @@ class Player;
 struct RoomComponentData;
 struct RoomComponentOptionEntry;
 
-/// Map instance for a player's house interior (MAP_HOUSE_INTERIOR = 7, MapID 2783).
-/// Each player/account gets their own instance of this map. The interior is a
-/// WMO-based space with modular rooms that the player can customize.
-/// Similar pattern to GarrisonMap but for housing interiors.
+/// Map instance for a player's house interior (MapID 2783), one per player/account; similar to GarrisonMap.
 class TC_GAME_API HouseInteriorMap : public Map
 {
 public:
@@ -63,36 +62,28 @@ public:
     uint8 GetSourcePlotIndex() const { return _sourcePlotIndex; }
     void SetSourcePlotIndex(uint8 plotIndex) { _sourcePlotIndex = plotIndex; }
 
-    /// Spawn all room meshes for the owner's house layout.
-    /// Called once when the interior map is first populated.
-    /// @param factionRestriction  NEIGHBORHOOD_FACTION_ALLIANCE or NEIGHBORHOOD_FACTION_HORDE
+    /// Spawn all room meshes for the owner's house layout (factionRestriction: NEIGHBORHOOD_FACTION_*).
     void SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction);
 
-    /// Overload that takes raw rooms ? used when visiting an offline owner's
-    /// house where no live Housing object exists; data comes from
-    /// Neighborhood::PlotInfo.Rooms (which mirrors character_housing_rooms).
-    /// @param houseGuid  owner's HousingPlayerHouse GUID, set as the parent on
-    ///                   every HousingRoomEntity we spawn.
+    /// Overload taking raw rooms — for visits to an offline owner's house (data from Neighborhood::PlotInfo.Rooms);
+    /// houseGuid becomes the parent of every spawned HousingRoomEntity.
     void SpawnRoomMeshObjectsFromList(std::vector<Housing::Room const*> const& rooms, int32 factionRestriction, ObjectGuid houseGuid);
 
     /// Despawn all room meshes (e.g., when the interior is rebuilt).
     void DespawnAllRoomMeshObjects();
 
-    /// Update room component textures in-place (material/wallpaper change).
-    /// Sends UPDATE_OBJECT with changed texture fields ? no model change.
+    /// Update room component textures in-place (material/wallpaper change; no model change).
     void UpdateRoomComponentTextures(ObjectGuid roomGuid, Housing::Room const& room,
         std::vector<uint32> const* componentIDs, int32 textureID);
 
-    /// Rebuild some component slots of one room from its stored look (theme, ceiling shape), the way retail
-    /// answers a restyle: DESTROY of the slot's pieces, CREATE of the new ones.
+    /// Rebuild some component slots of one room from its stored look (DESTROY + CREATE of the slot's pieces).
     void RebuildRoomComponents(std::vector<Housing::Room const*> const& rooms, Housing::Room const& room,
         int32 factionRestriction, std::vector<uint32> const& componentIds);
 
     /// Despawn a single room's entities (MeshObjects + HousingRoomEntity).
     void DespawnRoomEntities(ObjectGuid roomGuid);
 
-    /// After a layout edit (room added/removed/turned, door style picked): rebuild the door slots whose
-    /// look changed and re-point every spawned room's door list.
+    /// After a layout edit: rebuild the door slots whose look changed and re-point every room's door list.
     void RefreshRoomDoors(std::vector<Housing::Room const*> const& rooms, int32 factionRestriction);
 
     /// Move/turn a spawned room entity to its stored placement (its meshes and decor follow on the client).
@@ -107,9 +98,7 @@ public:
     /// Spawn all placed decor for the owner's house on the interior map.
     void SpawnInteriorDecor(Housing* housing);
 
-    /// Overload for visits to offline owners ? iterates a raw decor vector
-    /// sourced from Neighborhood::PlotInfo.Decor (mirror of character_housing_decor)
-    /// with the owner's HouseGuid passed explicitly.
+    /// Overload for visits to offline owners (raw decor from Neighborhood::PlotInfo.Decor).
     void SpawnInteriorDecorFromList(std::vector<Housing::PlacedDecor> const& decor, ObjectGuid houseGuid);
 
     /// Spawn a single placed decor item immediately (called from PLACE handler).
@@ -119,37 +108,28 @@ public:
     void UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
     void UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
     void UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, uint32 creatureId, std::string const& petName, uint8 petBehavior);
-    // Restores FHousingDecor_C.PetInfo from the owner's battle pet journal at spawn time
-    // and spawns the companion creature beside the decor.
+    // Restores FHousingDecor_C.PetInfo from the owner's battle pet journal and spawns the companion creature.
     void ApplyDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid battlePetGuid,
         uint32 creatureId, std::string const& petName, uint8 petBehavior);
-
-private:
-    void RestoreDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid petGuid, uint8 petBehavior);
-
-public:
 
     /// Despawn a single decor item by its Housing decor GUID.
     void DespawnDecorItem(ObjectGuid decorGuid);
 
-    /// Get the interior decor GUID ? MeshObject GUID map (for edit mode CREATEs).
+    /// Get the interior decor GUID → MeshObject GUID map (for edit mode CREATEs).
     std::unordered_map<ObjectGuid, ObjectGuid> const& GetDecorGuidMap() const { return _decorGuidToObjGuid; }
 
-    /// Get the room GUID ? room MeshObject GUID vectors (for entity set synchronization).
+    /// Get the room GUID → room MeshObject GUID vectors (for entity set synchronization).
     std::unordered_map<ObjectGuid, std::vector<ObjectGuid>> const& GetRoomMeshObjects() const { return _roomMeshObjects; }
 
     /// Get HousingRoomEntity instances for inclusion in initial UPDATE_OBJECT
     std::vector<HousingRoomEntity*> const& GetRoomEntities() const { return _roomEntities; }
 
-    /// Send post-tutorial aura packets so the client knows the tutorial is complete
-    /// and unlocks all editor modes (expert, cleanup, layout, customize).
-
-    // Puts QUEST_HOUSING_TUTORIAL_COMPLETE in the log and credits the house-entered kill credit.
-    // That quest is AUTO_ACCEPT|AUTO_COMPLETE with no quest-giver NPC at either end, so nothing in
-    // the world can hand it out - without this the housing editor stays locked forever.
+    // Puts QUEST_HOUSING_TUTORIAL_COMPLETE in the log and credits the house-entered kill credit (AUTO_ACCEPT|AUTO_COMPLETE, no quest-giver NPC).
     void GrantHousingTutorialProgress(Player* player);
 
 private:
+    void RestoreDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid petGuid, uint8 petBehavior);
+
     /// A door slot that meets another room.
     struct DoorwayState
     {
@@ -189,10 +169,10 @@ private:
     /// GUIDs of all spawned room MeshObjects, indexed by room GUID
     std::unordered_map<ObjectGuid /*roomGuid*/, std::vector<ObjectGuid>> _roomMeshObjects;
 
-    /// Decor GUID ? visual object GUID (for despawning individual decor items)
+    /// Decor GUID → visual object GUID (for despawning individual decor items)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
 
-    /// Decor GUID ? companion battle pet creature GUID (CAN_ATTACH_PET decor)
+    /// Decor GUID → companion battle pet creature GUID (CAN_ATTACH_PET decor)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToPetSummon;
 
     /// Map-owned interior exit door GO (persists across owner leave/re-entry)

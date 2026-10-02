@@ -16,21 +16,26 @@
  */
 
 #include "Neighborhood.h"
-#include "HousingNeighborhoodMirrorEntity.h"
 #include "BattlenetAccountMgr.h"
 #include "DatabaseEnv.h"
-#include "HousingMap.h"
+#include "GameTime.h"
 #include "HousingMgr.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPackets.h"
+#include "Log.h"
 #include "Map.h"
 #include "MapManager.h"
-#include "HousingPackets.h"
-#include "GameTime.h"
-#include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "RealmList.h"
 #include "WorldSession.h"
 #include <algorithm>
+
+namespace
+{
+    constexpr uint32 RESERVATION_EXPIRY_SECONDS = 5 * MINUTE;
+    constexpr uint32 OWNERSHIP_TRANSFER_TIMEOUT = 5 * MINUTE;
+}
 
 Neighborhood::Neighborhood(ObjectGuid guid) : _guid(guid)
 {
@@ -45,12 +50,9 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
 
     Field* fields = neighborhood->Fetch();
 
-    //          0     1       2            3                    4         5
-    // SELECT guid, name, neighborhoodMapID, ownerGuid, factionRestriction, isPublic,
-    //          6          7
-    //        createTime, guildId FROM neighborhoods WHERE guid = ?
-
-    // _guid is already set in constructor
+    //          0     1       2            3                    4         5          6          7
+    // SELECT guid, name, neighborhoodMapID, ownerGuid, factionRestriction, isPublic, createTime, guildId
+    //        FROM neighborhoods WHERE guid = ?
     _name               = fields[1].GetString();
     _neighborhoodMapID  = fields[2].GetUInt32();
     {
@@ -60,9 +62,7 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
     _factionRestriction = fields[4].GetInt32();
     _isPublic           = fields[5].GetBool();
     _createTime         = fields[6].GetUInt32();
-    // M8: guild→neighborhood link (0 = not a guild neighborhood). Without this
-    // load GetNeighborhoodByGuildId always returned nullptr after a restart.
-    _guildId            = fields[7].GetUInt32();
+    _guildId            = fields[7].GetUInt32(); // 0 = not a guild neighborhood
 
     // Load members
     if (members)
@@ -71,8 +71,8 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
         {
             Field* memberFields = members->Fetch();
 
-            //          0              1     2          3          4           5          6              7         8           9            10
-            // SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId, c.account, ch.houseLevel, ch.favor, ch.houseName, ch.houseType, ch.settingsFlags
+            //          0              1     2          3          4           5          6              7         8           9            10           11    12    13    14
+            // SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId, c.account, ch.houseLevel, ch.favor, ch.houseName, ch.houseType, ch.settingsFlags, ch.posX, ch.posY, ch.posZ, ch.facing
             // FROM neighborhood_members nm LEFT JOIN character_housing ch ON nm.playerGuid = ch.guid
             //   LEFT JOIN characters c ON nm.playerGuid = c.guid
             // WHERE nm.neighborhoodGuid = ?
@@ -88,47 +88,41 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             // Build plot info from members that have plots assigned
             if (member.PlotIndex != INVALID_PLOT_INDEX && member.PlotIndex < MAX_NEIGHBORHOOD_PLOTS)
             {
-                _plots[member.PlotIndex].PlotIndex  = member.PlotIndex;
-                _plots[member.PlotIndex].OwnerGuid  = member.PlayerGuid;
+                PlotInfo& plot = _plots[member.PlotIndex];
+                plot.PlotIndex = member.PlotIndex;
+                plot.OwnerGuid = member.PlayerGuid;
 
-                // Resolve BNet account GUID from characters.account JOIN (column 5).
-                // The client requires non-zero HouseOwnerBnetAccountGUID on the plot AreaTrigger's
-                // FHousingPlotAreaTrigger_C fragment for IsInsidePlot() validation.
+                // Client requires a non-zero BNet account GUID for plot IsInsidePlot() validation.
                 uint32 gameAccountId = memberFields[5].GetUInt32();
                 if (gameAccountId != 0)
                 {
                     uint32 bnetAccountId = Battlenet::AccountMgr::GetIdByGameAccount(gameAccountId);
                     if (bnetAccountId != 0)
                     {
-                        _plots[member.PlotIndex].OwnerBnetGuid = ObjectGuid::Create<HighGuid::BNetAccount>(bnetAccountId);
-                        // HouseGuid counter MUST match HousingPlayerHouseEntity GUID (WorldSession.cpp),
-                        // which uses battlenetAccountId. Using ch.houseId (DB2 entry) was wrong.
-                        _plots[member.PlotIndex].HouseGuid = Housing::MakeHouseGuid(_neighborhoodMapID, bnetAccountId);
+                        plot.OwnerBnetGuid = ObjectGuid::Create<HighGuid::BNetAccount>(bnetAccountId);
+                        // Must match HousingPlayerHouseEntity's GUID, which uses the battlenetAccountId
+                        plot.HouseGuid = Housing::MakeHouseGuid(_neighborhoodMapID, bnetAccountId);
                     }
                 }
 
-                // Mirror ch.houseLevel / ch.favor / ch.houseName so the neighborhood-map
-                // hover tooltip can show real level + favor without a per-plot DB fetch.
-                // ch.* columns are NULL when the member has no character_housing row yet,
-                // in which case GetUInt*/GetString return 0/"" and we keep the defaults.
+                // NULL ch.* columns (no character_housing row yet) keep the defaults.
                 if (!memberFields[6].IsNull())
-                    _plots[member.PlotIndex].HouseLevel = std::max<uint8>(1, memberFields[6].GetUInt8());
+                    plot.HouseLevel = std::max<uint8>(1, memberFields[6].GetUInt8());
                 if (!memberFields[7].IsNull())
-                    _plots[member.PlotIndex].HouseFavor = memberFields[7].GetUInt64();
+                    plot.HouseFavor = memberFields[7].GetUInt64();
                 if (!memberFields[8].IsNull())
-                    _plots[member.PlotIndex].HouseName  = memberFields[8].GetString();
+                    plot.HouseName = memberFields[8].GetString();
                 if (!memberFields[9].IsNull())
-                    _plots[member.PlotIndex].HouseType  = memberFields[9].GetUInt32();
+                    plot.HouseType = memberFields[9].GetUInt32();
                 if (!memberFields[10].IsNull())
-                    _plots[member.PlotIndex].HouseSettingsFlags = memberFields[10].GetUInt32();
+                    plot.HouseSettingsFlags = memberFields[10].GetUInt32();
                 // All-zero coordinates mean "no custom position" (Housing::LoadFromDB does the same)
                 if (!memberFields[11].IsNull())
                 {
                     Position housePos(memberFields[11].GetFloat(), memberFields[12].GetFloat(), memberFields[13].GetFloat(), memberFields[14].GetFloat());
                     if (housePos.GetPositionX() != 0.0f || housePos.GetPositionY() != 0.0f || housePos.GetPositionZ() != 0.0f)
-                        _plots[member.PlotIndex].HousePosition = housePos;
+                        plot.HousePosition = housePos;
                 }
-
             }
         } while (members->NextRow());
     }
@@ -153,21 +147,7 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
         } while (invites->NextRow());
     }
 
-    // Resolve an owner's GUID to the matching plot index (for the JOIN-by-ownerGuid
-    // fixture/decor result sets below). Linear scan over _members — tiny constant
-    // given the plot cap per neighborhood, amortised by cache locality.
-    auto findPlotByOwner = [this](ObjectGuid ownerGuid) -> PlotInfo*
-    {
-        for (PlotInfo& p : _plots)
-            if (p.OwnerGuid == ownerGuid)
-                return &p;
-        return nullptr;
-    };
-
-    // Load fixture overrides for every occupied plot's owner. Drives exterior
-    // customisation (roof / doors / windows) in HousingMap::SpawnPlotGameObjects
-    // for plots whose owners aren't currently online.
-    uint32 fixtureCount = 0;
+    // Fixture overrides for occupied plots whose owners are offline.
     if (memberFixtures)
     {
         do
@@ -176,19 +156,14 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             //   0           1                 2
             // ownerGuid, fixturePointId, fixtureOptionId
             ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(f[0].GetUInt64());
-            PlotInfo* plot = findPlotByOwner(ownerGuid);
+            PlotInfo* plot = GetPlotByOwner(ownerGuid);
             if (!plot)
                 continue;
             plot->Fixtures[f[1].GetUInt32()] = f[2].GetUInt32();
-            ++fixtureCount;
         } while (memberFixtures->NextRow());
     }
 
-    // Load placed decor for every occupied plot's owner. SpawnPlotGameObjects
-    // only spawns exterior entries (RoomGuid.IsEmpty()); interior entries are
-    // also kept so visitors can see a neighbour's interior layout when they
-    // enter the owner's interior map.
-    uint32 decorCount = 0;
+    // Placed decor for occupied plots (exterior spawns at preload; interior serves visitors).
     if (memberDecor)
     {
         do
@@ -197,19 +172,12 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             //   0      1            2            3     4     5     6     7     8     9       10     11        12        13       14        15      16            17           18
             // id, ownerGuid, houseDecorId, posX, posY, posZ, rotX, rotY, rotZ, rotW, scale, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked, placementTime, sourceType, sourceValue
             ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(d[1].GetUInt64());
-            PlotInfo* plot = findPlotByOwner(ownerGuid);
+            PlotInfo* plot = GetPlotByOwner(ownerGuid);
             if (!plot)
                 continue;
 
             Housing::PlacedDecor decor;
-            // Bug repro 2026-04-26: previously hardcoded realmId=0 here while
-            // Housing::LoadFromDB (the per-player path) used the running realmId.
-            // The spawn flow consumes Neighborhood plot decor (this list), so
-            // every spawned decor MeshObject ended up with arg1=0; the client
-            // cached that flavour and bounced every subsequent CMSG_HOUSING_DECOR_MOVE
-            // with HOUSING_RESULT_DECOR_NOT_FOUND because Housing::_placedDecor
-            // keyed those GUIDs with arg1=current_realmId. Use the realmId here
-            // so both load paths produce identical keys.
+            // realmId must match Housing::LoadFromDB; the client keys decor GUIDs by it.
             decor.Guid          = ObjectGuidFactory::CreateHousing(/*subType*/ 1, /*realmId*/ sRealmList->GetCurrentRealmId().Realm, d[2].GetUInt32(), d[0].GetUInt64());
             decor.DecorEntryId  = d[2].GetUInt32();
             decor.PosX          = d[3].GetFloat();
@@ -230,23 +198,19 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             decor.SourceType    = d[17].GetUInt8();
             decor.SourceValue   = d[18].GetString();
             plot->Decor.push_back(std::move(decor));
-            ++decorCount;
         } while (memberDecor->NextRow());
     }
 
-    // Load interior room layout per owner so HouseInteriorMap can spawn
-    // neighbours' actual rooms (not the default base layout) when a visitor
-    // enters their house, regardless of the owner being online.
-    uint32 roomCount = 0;
+    // Interior room layout per owner, spawned for visitors entering their house.
     if (memberRooms)
     {
         do
         {
             Field* r = memberRooms->Fetch();
-            //   0         1       2              3           4      5      6             7            8         9          10             11              12               13              14          15        16             17           18            19             20
-            // ownerGuid, id, houseRoomId, slotIndex, gridX, gridY, floorIndex, orientation, mirrored, themeId, wallTextureId, floorTextureId, ceilingTextureId, colorOverride, doorTypeId, doorSlot, ceilingTypeId, ceilingSlot, wallThemeId, floorThemeId, ceilingThemeId
+            //   0         1       2              3           4      5      6             7            8         9          10             11              12               13              14          15        16             17           18            19             20            21          22
+            // ownerGuid, id, houseRoomId, slotIndex, gridX, gridY, floorIndex, orientation, mirrored, themeId, wallTextureId, floorTextureId, ceilingTextureId, colorOverride, doorTypeId, doorSlot, ceilingTypeId, ceilingSlot, wallThemeId, floorThemeId, ceilingThemeId, doorTypes, componentStyles
             ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(r[0].GetUInt64());
-            PlotInfo* plot = findPlotByOwner(ownerGuid);
+            PlotInfo* plot = GetPlotByOwner(ownerGuid);
             if (!plot)
                 continue;
 
@@ -274,7 +238,6 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             Housing::LoadDoorTypes(room, r[21].GetString());
             Housing::LoadComponentStyles(room, r[22].GetString());
             plot->Rooms.push_back(std::move(room));
-            ++roomCount;
         } while (memberRooms->NextRow());
     }
 
@@ -283,7 +246,6 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
 
 void Neighborhood::SaveToDB(CharacterDatabaseTransaction trans)
 {
-    // Update the main neighborhood row
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_NEIGHBORHOOD);
     uint8 index = 0;
     stmt->setUInt64(index++, _guid.GetCounter());
@@ -293,10 +255,10 @@ void Neighborhood::SaveToDB(CharacterDatabaseTransaction trans)
     stmt->setInt32(index++, _factionRestriction);
     stmt->setBool(index++, _isPublic);
     stmt->setUInt32(index++, _createTime);
-    stmt->setUInt32(index++, _guildId); // M8
+    stmt->setUInt32(index++, _guildId);
     trans->Append(stmt);
 
-    // Delete all members and re-insert
+    // Replace members
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_MEMBERS);
     stmt->setUInt64(0, _guid.GetCounter());
     trans->Append(stmt);
@@ -328,10 +290,9 @@ void Neighborhood::SaveToDB(CharacterDatabaseTransaction trans)
         stmt->setUInt32(index++, invite.InviteTime);
         trans->Append(stmt);
     }
-
 }
 
-/*static*/ void Neighborhood::DeleteFromDB(ObjectGuid::LowType guid, CharacterDatabaseTransaction trans)
+void Neighborhood::DeleteFromDB(ObjectGuid::LowType guid, CharacterDatabaseTransaction trans)
 {
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_INVITES);
     stmt->setUInt64(0, guid);
@@ -344,7 +305,6 @@ void Neighborhood::SaveToDB(CharacterDatabaseTransaction trans)
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD);
     stmt->setUInt64(0, guid);
     trans->Append(stmt);
-
 }
 
 void Neighborhood::SetName(std::string const& name)
@@ -366,7 +326,6 @@ void Neighborhood::SetPublic(bool isPublic)
     stmt->setBool(0, _isPublic);
     stmt->setUInt64(1, _guid.GetCounter());
     CharacterDatabase.Execute(stmt);
-
 }
 
 HousingResult Neighborhood::AddManager(ObjectGuid playerGuid)
@@ -401,25 +360,19 @@ HousingResult Neighborhood::AddManager(ObjectGuid playerGuid)
 
     if (managerCount >= MAX_NEIGHBORHOOD_MANAGERS)
     {
-        // m7: was PLOT_NOT_VACANT, which the client rendered as a spurious plot
-        // error. HousingResult (build 68275) has no dedicated "too many managers"
-        // value, so use PERMISSION_DENIED (the promotion is refused) until a
-        // retail sniff confirms the exact enum for the manager-cap condition.
+        // HousingResult has no "too many managers" value.
         return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
     targetMember->Role = NEIGHBORHOOD_ROLE_MANAGER;
 
-    // Persist role change to DB
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
     stmt->setUInt8(0, NEIGHBORHOOD_ROLE_MANAGER);
     stmt->setUInt64(1, _guid.GetCounter());
     stmt->setUInt64(2, playerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
-    // m4: roster broadcast happens in the handler layer
-    // (HandleNeighborhoodAddSecondaryOwner), which also refreshes mirror data.
-    // Broadcasting here too produced two deltas per promote.
+    // Roster broadcast and mirror refresh happen in the handler layer.
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -441,16 +394,13 @@ HousingResult Neighborhood::RemoveManager(ObjectGuid playerGuid)
 
             member.Role = NEIGHBORHOOD_ROLE_RESIDENT;
 
-            // Persist role change to DB
             CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
             stmt->setUInt8(0, NEIGHBORHOOD_ROLE_RESIDENT);
             stmt->setUInt64(1, _guid.GetCounter());
             stmt->setUInt64(2, playerGuid.GetCounter());
             CharacterDatabase.Execute(stmt);
 
-            // m4: roster broadcast happens in the handler layer
-            // (HandleNeighborhoodRemoveSecondaryOwner), which also refreshes
-            // mirror data. Broadcasting here too produced two deltas per demote.
+            // Roster broadcast and mirror refresh happen in the handler layer.
             return HOUSING_RESULT_SUCCESS;
         }
     }
@@ -522,12 +472,7 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
         }
     }
 
-    // M6: consume the invitee's auto-decline-neighborhood-invites flag. Setting
-    // PLAYER_FLAGS_EX_AUTO_DECLINE_NEIGHBORHOOD previously had no effect — the
-    // invite + notification were created regardless. If the invitee is online
-    // with the flag set, skip the invite entirely and tell the inviter it was
-    // auto-declined (their filter rejected it). Offline invitees fall through
-    // (the flag is only observable while online).
+    // Online invitees with the auto-decline flag are rejected without creating an invite.
     if (Player* invitee = ObjectAccessor::FindPlayer(inviteeGuid))
     {
         if (invitee->HasPlayerFlagEx(PLAYER_FLAGS_EX_AUTO_DECLINE_NEIGHBORHOOD))
@@ -543,7 +488,6 @@ HousingResult Neighborhood::InviteResident(ObjectGuid inviterGuid, ObjectGuid in
     invite.InviteTime   = static_cast<uint32>(GameTime::GetGameTime());
     _pendingInvites.push_back(invite);
 
-    // Persist to DB immediately
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_NEIGHBORHOOD_INVITE);
     uint8 index = 0;
@@ -691,7 +635,6 @@ HousingResult Neighborhood::DeclineInvitation(ObjectGuid playerGuid)
 
     _pendingInvites.erase(it);
 
-    // Remove from DB
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_INVITE);
     stmt->setUInt64(0, _guid.GetCounter());
@@ -699,11 +642,7 @@ HousingResult Neighborhood::DeclineInvitation(ObjectGuid playerGuid)
     trans->Append(stmt);
     CharacterDatabase.CommitTransaction(trans);
 
-    // M7: the invite was successfully erased — return SUCCESS. The response
-    // Result byte is a HousingResult enum (uint8) the client compares against
-    // Enum.HousingResult.Success(0); returning GENERIC_FAILURE here made the
-    // client render a successful decline as failed (sibling CancelInvitation
-    // already returns SUCCESS).
+    // A declined invite is not an error.
     return HOUSING_RESULT_SUCCESS;
 }
 
@@ -867,9 +806,8 @@ HousingResult Neighborhood::AcceptOwnershipTransfer(ObjectGuid acceptorGuid)
         return HOUSING_RESULT_PERMISSION_DENIED;
     }
 
-    // Check timeout (5 minutes)
     uint32 now = static_cast<uint32>(GameTime::GetGameTime());
-    if (now - _pendingTransfer->OfferTime > 300)
+    if (now - _pendingTransfer->OfferTime > OWNERSHIP_TRANSFER_TIMEOUT)
     {
         _pendingTransfer.reset();
         return HOUSING_RESULT_TIMEOUT_LIMIT;
@@ -944,8 +882,8 @@ HousingResult Neighborhood::PurchasePlot(ObjectGuid playerGuid, uint8 plotIndex)
     stmt->setUInt64(2, playerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
-    TC_LOG_ERROR("housing", "Neighborhood::PurchasePlot: Player {} purchased plot {} in neighborhood '{}' — _plots[{}].PlotIndex={}, _plots[{}].OwnerGuid={}",
-        playerGuid.ToString(), plotIndex, _name, plotIndex, _plots[plotIndex].PlotIndex, plotIndex, _plots[plotIndex].OwnerGuid.ToString());
+    TC_LOG_DEBUG("housing", "Player {} purchased plot {} in neighborhood '{}'",
+        playerGuid.ToString(), plotIndex, _name);
 
     return HOUSING_RESULT_SUCCESS;
 }
@@ -959,43 +897,24 @@ void Neighborhood::UpdatePlotHouseInfo(uint8 plotIndex, ObjectGuid houseGuid, Ob
 
     _plots[plotIndex].HouseGuid = houseGuid;
     _plots[plotIndex].OwnerBnetGuid = ownerBnetGuid;
-
 }
 
 void Neighborhood::UpdatePlotHousePosition(ObjectGuid ownerGuid, Optional<Position> const& housePosition)
 {
-    for (PlotInfo& plot : _plots)
-    {
-        if (plot.IsOccupied() && plot.OwnerGuid == ownerGuid)
-        {
-            plot.HousePosition = housePosition;
-            return;
-        }
-    }
+    if (PlotInfo* plot = GetPlotByOwner(ownerGuid))
+        plot->HousePosition = housePosition;
 }
 
 void Neighborhood::UpdatePlotHouseType(ObjectGuid ownerGuid, uint32 houseType)
 {
-    for (PlotInfo& plot : _plots)
-    {
-        if (plot.IsOccupied() && plot.OwnerGuid == ownerGuid)
-        {
-            plot.HouseType = houseType;
-            return;
-        }
-    }
+    if (PlotInfo* plot = GetPlotByOwner(ownerGuid))
+        plot->HouseType = houseType;
 }
 
 void Neighborhood::UpdatePlotSettingsFlags(ObjectGuid ownerGuid, uint32 settingsFlags)
 {
-    for (PlotInfo& plot : _plots)
-    {
-        if (plot.IsOccupied() && plot.OwnerGuid == ownerGuid)
-        {
-            plot.HouseSettingsFlags = settingsFlags;
-            return;
-        }
-    }
+    if (PlotInfo* plot = GetPlotByOwner(ownerGuid))
+        plot->HouseSettingsFlags = settingsFlags;
 }
 
 HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex)
@@ -1012,20 +931,13 @@ HousingResult Neighborhood::MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotI
     }
 
     // Find the source plot by owner (still needs linear scan by OwnerGuid)
-    uint8 oldPlotIndex = INVALID_PLOT_INDEX;
-    for (uint8 i = 0; i < MAX_NEIGHBORHOOD_PLOTS; ++i)
-    {
-        if (_plots[i].IsOccupied() && _plots[i].OwnerGuid == sourcePlotOwner)
-        {
-            oldPlotIndex = i;
-            break;
-        }
-    }
-
-    if (oldPlotIndex == INVALID_PLOT_INDEX)
+    PlotInfo* sourcePlot = GetPlotByOwner(sourcePlotOwner);
+    if (!sourcePlot)
     {
         return HOUSING_RESULT_PLOT_NOT_FOUND;
     }
+
+    uint8 oldPlotIndex = static_cast<uint8>(sourcePlot - _plots.data());
 
     // Move plot data: copy to new slot, clear old slot
     _plots[newPlotIndex] = _plots[oldPlotIndex];
@@ -1059,6 +971,14 @@ uint32 Neighborhood::GetOccupiedPlotCount() const
         if (plot.IsOccupied())
             ++count;
     return count;
+}
+
+Neighborhood::PlotInfo* Neighborhood::GetPlotByOwner(ObjectGuid ownerGuid)
+{
+    for (PlotInfo& plot : _plots)
+        if (plot.IsOccupied() && plot.OwnerGuid == ownerGuid)
+            return &plot;
+    return nullptr;
 }
 
 bool Neighborhood::TransferPlot(ObjectGuid oldOwnerGuid, ObjectGuid newOwnerGuid, CharacterDatabaseTransaction trans)
@@ -1258,16 +1178,14 @@ void Neighborhood::RebuildMirrorDataFor(Player* player) const
     if (!player || !player->GetSession())
         return;
 
-    // FNeighborhoodMirrorData_C belongs on the Housing/4 entity, NOT the BNetAccount entity.
+    // FNeighborhoodMirrorData_C belongs on the Housing/4 entity, not the BNetAccount entity.
     HousingNeighborhoodMirrorEntity& mirrorEntity = player->GetSession()->GetHousingNeighborhoodMirrorEntity();
 
     // Name + Owner
     mirrorEntity.SetName(_name);
     mirrorEntity.SetOwnerGUID(GetClientOwnerGuid());
 
-    // Houses — rebuild from plots. Add ALL 55 entries so Houses[i] = PlotIndex i.
-    // The client uses the array index as the plot identifier; skipping empty slots
-    // causes the client to show the wrong plots as occupied.
+    // Houses must be dense: Houses[i] = plot i, or the client misidentifies occupied plots.
     mirrorEntity.ClearHouses();
     for (auto const& plot : _plots)
     {
@@ -1298,25 +1216,13 @@ void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
 
     RebuildMirrorDataFor(player);
 
-    // Push the rebuilt fields to the client. Set/Add methods only flip dirty
-    // bits on the in-memory entity; without an explicit Send the client keeps
-    // the previous state and the in-world neighborhood map stays stale until
-    // an unrelated update arrives (e.g. opening the roster UI). Re-sending as
-    // CREATE matches retail behaviour for a wholesale Houses/Managers replace
-    // — incremental UPDATE_OBJECT also works but the client's map-icon refresh
-    // path only re-runs on CREATE.
+    // Setters only flip dirty bits; re-send wholesale so the client refreshes its map icons.
     player->GetSession()->GetHousingNeighborhoodMirrorEntity().SendCreateToPlayer(player);
 }
 
 void Neighborhood::RefreshMirrorDataForOnlineMembers() const
 {
-    // The mirror is the neighborhood the player stands in (the world-map pins come from
-    // it). The loop used to iterate _members only: a NON-member standing in the
-    // neighborhood - someone watching a plot being bought or sold - kept stale
-    // map/minimap pins until a relog, because the client's map-icon refresh only
-    // re-runs on the wholesale CREATE this push sends. Iterate the neighborhood's map
-    // instance instead: every current viewer, member or not. Members standing in other
-    // neighborhoods keep their own mirror and are not updated - as before.
+    // Refreshes every current viewer of the map instance, member or not.
     uint32 const worldMapId = sHousingMgr.GetWorldMapIdByNeighborhoodMapId(GetNeighborhoodMapID());
     if (!worldMapId)
         return;
@@ -1327,20 +1233,15 @@ void Neighborhood::RefreshMirrorDataForOnlineMembers() const
                 RefreshMirrorDataForPlayer(player);
 }
 
-// --- Plot Reservation System ---
-
 bool Neighborhood::ReservePlot(ObjectGuid playerGuid, uint8 plotIndex)
 {
     if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
         return false;
 
-    // Plot must be unoccupied
     if (_plots[plotIndex].IsOccupied())
         return false;
 
-    // Reservations expire after 5 minutes (retail behavior). Sweep stale entries
-    // before checking, so an old reservation never blocks a new player forever.
-    constexpr uint32 RESERVATION_EXPIRY_SECONDS = 5 * MINUTE;
+    // Sweep expired reservations first so a stale one never blocks a new player
     uint32 now = static_cast<uint32>(GameTime::GetGameTime());
     for (auto it = _plotReservations.begin(); it != _plotReservations.end(); )
     {
@@ -1354,7 +1255,6 @@ bool Neighborhood::ReservePlot(ObjectGuid playerGuid, uint8 plotIndex)
         }
     }
 
-    // Check if someone else already reserved this plot
     for (auto const& [guid, res] : _plotReservations)
     {
         if (res.PlotIndex == plotIndex && guid != playerGuid)
@@ -1396,11 +1296,9 @@ ObjectGuid Neighborhood::GetPlotReserverOther(uint8 plotIndex, ObjectGuid viewer
     if (plotIndex >= MAX_NEIGHBORHOOD_PLOTS)
         return ObjectGuid::Empty;
 
-    constexpr uint32 RESERVATION_EXPIRY_SECONDS = 5 * MINUTE;
     uint32 now = static_cast<uint32>(GameTime::GetGameTime());
 
-    // Sweep stale entries first so a long-expired reservation doesn't paint
-    // a plot as "reserved" forever in the cornerstone UI.
+    // Sweep expired reservations so stale holds don't paint plots as reserved.
     for (auto it = _plotReservations.begin(); it != _plotReservations.end(); )
     {
         if (now >= it->second.ReserveTime + RESERVATION_EXPIRY_SECONDS)

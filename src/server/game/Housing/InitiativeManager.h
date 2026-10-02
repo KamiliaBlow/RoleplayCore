@@ -18,6 +18,7 @@
 #ifndef TRINITYCORE_INITIATIVE_MANAGER_H
 #define TRINITYCORE_INITIATIVE_MANAGER_H
 
+#include "Common.h"
 #include "Define.h"
 #include "HousingDefines.h"
 #include "ObjectGuid.h"
@@ -121,9 +122,7 @@ public:
     void UpdateTaskProgress(uint64 neighborhoodGuid, uint32 initiativeID, uint32 taskID, uint32 progressDelta, Player* contributor);
     void ClearTaskCriteria(uint64 neighborhoodGuid, uint32 initiativeID, uint32 taskID);
 
-    // CriteriaTree-based task matching — called from CriteriaHandler when criteria progress fires
-    // Checks if the updated criteria is referenced by any active initiative task's CriteriaTree,
-    // and credits the community initiative accordingly.
+    // Called from CriteriaHandler; credits the owning neighborhood's task when one of its criteria fires.
     void OnCriteriaProgress(Player* player, uint32 criteriaId);
 
     // Reward queries and distribution
@@ -147,14 +146,11 @@ public:
     void BroadcastRewardAvailable(Neighborhood* neighborhood, uint32 initiativeID, uint32 milestoneIndex) const;
     // Login: SMSG_INITIATIVE_REWARD_AVAILABLE for the player's houses with an unclaimed reached milestone.
     void SendRewardsAvailable(Player* player) const;
-    // SMSG_CLEAR_INITIATIVE_TASK_CRITERIA_PROGRESS (0x420367) — tells the client to zero its
-    // cached progress for the given leaf CriteriaIDs. Sent whenever server-side task progress
-    // is reset to zero, otherwise the client keeps rendering the pre-reset bars.
+    // SMSG_CLEAR_INITIATIVE_TASK_CRITERIA_PROGRESS: zeroes the client's cached progress after a server-side reset.
     void BroadcastClearTaskCriteriaProgress(Neighborhood* neighborhood, std::vector<uint64> const& criteriaIDs) const;
 
     // Auto-start initiatives for neighborhoods that don't have one
     void CheckAndStartInitiatives();
-    // SendInitiativeMilestoneUpdate (speculative SMSGs the retail client drops).
 
 private:
     InitiativeManager() = default;
@@ -168,25 +164,18 @@ private:
     void CheckMilestones(ActiveInitiative& initiative, Neighborhood* neighborhood);
     void GrantMilestoneRewards(Player* player, uint32 milestoneID);
 
-    // How many criteria hits finish this task. This is the task's CriteriaTree root Amount — NOT
-    // InitiativeTask.ProgressContributionAmount, which is the contribution weight one completion is
-    // worth. Returns 1 when the tree carries no amount (a single criteria hit finishes the task).
+    // CriteriaTree root Amount: criteria hits needed to finish the task (1 when absent).
     static uint32 GetTaskTargetCount(InitiativeTaskEntry const* taskEntry);
 
-    // InitiativeTask.RepetitionContributionDampeningCurve evaluated at alreadyContributed. Returns a
-    // multiplier in (0, 1]; returns 1.0 (no dampening) when the task has no curve or the curve has no
-    // points, so a missing curve can never zero a contribution out.
+    // Dampening curve evaluated at alreadyContributed; 1.0 when absent so a missing curve never zeroes a contribution.
     static float GetRepetitionDampening(InitiativeTaskEntry const* taskEntry, float alreadyContributed);
 
-    // Pays House XP ("Favor") for an endeavor task contribution, capped per cycle by
-    // InitiativeCycle.HouseXPCap. Takes the player's before/after contribution totals so the cap can
-    // be applied without any extra persisted state.
+    // House XP for a task contribution, capped per cycle by InitiativeCycle.HouseXPCap.
     void GrantInitiativeTaskFavor(Player* player, uint32 initiativeID, uint32 contributionBefore, uint32 contributionAfter) const;
     uint32 SelectWeightedCycle(uint32 initiativeID) const;
     uint32 CalculateMaxPoints(uint32 initiativeID) const;
     void BuildCriteriaIndex();
-    // Leaf Criteria IDs reachable from a task's CriteriaTree (all tasks of an initiative when
-    // taskID == 0). These are exactly the IDs the client indexes its task progress cache by.
+    // Leaf CriteriaTree IDs the client indexes its task progress cache by (all tasks when taskID == 0).
     std::vector<uint64> CollectTaskCriteriaIDs(uint32 initiativeID, uint32 taskID) const;
 
     // Active initiatives: neighborhoodGuid -> list of active initiatives
@@ -213,7 +202,7 @@ private:
 
     // Update timer
     uint32 _updateTimer = 0;
-    static constexpr uint32 UPDATE_INTERVAL_MS = 60000; // Check every 60 seconds
+    static constexpr uint32 UPDATE_INTERVAL_MS = 60 * IN_MILLISECONDS;
 };
 
 #define sInitiativeManager InitiativeManager::Instance()

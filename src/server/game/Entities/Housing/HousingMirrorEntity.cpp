@@ -16,15 +16,12 @@
 */
 
 #include "HousingMirrorEntity.h"
-#include "Map.h"
 #include "StringFormat.h"
-#include "UpdateData.h"
 
 HousingMirrorEntity::HousingMirrorEntity(Map* /*map*/, ObjectGuid guid)
 {
     _Create(guid);
 
-    // Retail emits these with objectType = 18 (TYPEID_HOUSING_ENTITY).
     m_objectTypeId = TYPEID_HOUSING_ENTITY;
 
     m_entityFragments.Add(WowCS::EntityFragment::FMirroredPositionData_C, false,
@@ -46,11 +43,6 @@ void HousingMirrorEntity::InitPositionData(ObjectGuid attachParent,
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::ScaleLocalSpace), scale);
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachmentFlags), attachmentFlags);
 
-    // Retail (idx 9984 in dump_12.0.1.66838_2026-04-15_09-35-59) emits 4
-    // Group A mirrors per plot. The Type-9 (Base) root mirror carries both
-    // Tag_HouseExteriorPiece and Tag_HouseExteriorRoot; the other three
-    // (Roof / Door / Window) carry Tag_HouseExteriorPiece only. Group B
-    // per-piece mesh mirrors carry neither tag.
     switch (tagging)
     {
         case Tagging::PieceAndRoot:
@@ -78,7 +70,7 @@ std::string HousingMirrorEntity::GetNameForLocaleIdx(LocaleConstant /*locale*/) 
 
 void HousingMirrorEntity::BuildUpdate(UpdateDataMapType& /*data_map*/)
 {
-    // Mirror position is set once at spawn and does not change. No-op update.
+    // mirror position is set once at spawn and never changes
     ClearUpdateMask(false);
 }
 
@@ -94,7 +86,7 @@ UF::UpdateFieldFlag HousingMirrorEntity::GetUpdateFieldFlagsFor(Player const* /*
 
 bool HousingMirrorEntity::AddToObjectUpdate()
 {
-    // Mirror fields are static once set; it never asks the map to queue it.
+    // fields are static once set; the mirror is never queued for updates
     return false;
 }
 

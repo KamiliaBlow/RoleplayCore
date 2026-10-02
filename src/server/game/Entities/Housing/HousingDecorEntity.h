@@ -22,13 +22,7 @@
 #include "GridObject.h"
 #include "MapObject.h"
 
-// Lightweight decor entity matching retail Object Type 18 entities with FHousingDecor_C.
-// Used for interior door decor: a non-visual data entity that the clickable GO attaches to
-// via TransportGUID. Retail sniff fragment list: [FHousingDecor_C, FMirroredPositionData_C].
-// NO CGObject, NO FMeshObjectData_C, NO Tag_MeshObject — purely a data carrier.
-//
-// The GO (entry 575017/587318) attaches to this entity with PositionLocalSpace=(0,0,0)
-// and AttachmentFlags=7, making the GO appear at the decor entity's world position.
+// Non-visual data carrier for interior door decor; the clickable GO attaches to it via TransportGUID.
 class TC_GAME_API HousingDecorEntity final : public WorldObject, public GridObject<HousingDecorEntity>, public MapObject
 {
 public:
@@ -39,7 +33,6 @@ public:
 
     bool Create(ObjectGuid guid, Map* map, Position const& pos);
 
-    // Pure virtual overrides from WorldObject
     ObjectGuid GetCreatorGUID() const override { return ObjectGuid::Empty; }
     ObjectGuid GetOwnerGUID() const override { return ObjectGuid::Empty; }
     uint32 GetFaction() const override { return 0; }
@@ -50,14 +43,13 @@ public:
     std::string GetNameForLocaleIdx(LocaleConstant locale) const override;
     std::string GetDebugInfo() const override;
 
-    // Decor data setters — call before AddToMap
+    // must be called before AddToMap
     void SetDecorGUID(ObjectGuid decorGuid);
     void SetAttachParentGUID(ObjectGuid roomEntityGuid);
     void SetTargetGameObjectGUID(ObjectGuid goGuid);
     void SetFlags(uint8 flags);
     void SetPersistedData(ObjectGuid houseGuid, uint8 sourceType = 0, std::string sourceValue = {});
 
-    // Mirrored position data setters
     void SetMirroredPosition(Position const& pos, QuaternionData const& rot, float scale,
         ObjectGuid attachParent = ObjectGuid::Empty, uint8 attachFlags = 3);
 

@@ -21,8 +21,6 @@
 #include "DB2Stores.h"
 #include "DB2Structure.h"
 #include "GameObjectData.h"
-#include "Group.h"
-#include "Guild.h"
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "Log.h"
@@ -36,11 +34,11 @@
 #include "Random.h"
 #include "SharedDefines.h"
 #include "SocialMgr.h"
-#include <cmath>
 #include "StringFormat.h"
 #include "Timer.h"
 #include "World.h"
 #include <algorithm>
+#include <cmath>
 #include <unordered_set>
 
 namespace
@@ -83,11 +81,10 @@ void HousingMgr::Initialize()
     BuildRoomComponentTextureIndex();
     EnsureDoorGameObjectTemplates();
 
-    // Initialize global DB ID generators from MAX(id) in character_housing_rooms/decor.
-    // Must happen before any Housing objects are loaded to prevent cross-player ID collisions.
+    // Must run before any Housing objects are loaded to prevent cross-player ID collisions.
     Housing::InitializeDbIdGenerators();
 
-    // Scan for base room entry from DB2 data (look for IsBaseRoom flag)
+    // Base room entry: the first DB2 room with the BASE_ROOM flag (exterior geobox).
     for (auto const& [id, roomData] : _houseRoomStore)
     {
         if (roomData.IsBaseRoom())
@@ -103,9 +100,7 @@ void HousingMgr::Initialize()
             "falling back to entry 18");
     }
 
-    // Scan for interior entry hall room (second BASE_ROOM after exterior geobox).
-    // Retail has two base rooms: Room 18 (exterior geobox for SpawnRoomForPlot) and
-    // Room 46 (interior entry corridor connecting to the visual room via a door).
+    // Interior entry hall: the second DB2 BASE_ROOM (the first is the exterior geobox).
     for (auto const& [id, roomData] : _houseRoomStore)
     {
         if (roomData.IsBaseRoom() && id != _baseRoomEntryId)
@@ -162,7 +157,6 @@ void HousingMgr::LoadHouseDecorData()
         data.StartingQuantity = entry->StartingQuantity;
         data.UiModelSceneID = entry->UiModelSceneID;
     }
-
 }
 
 void HousingMgr::LoadHouseLevelData()
@@ -173,12 +167,6 @@ void HousingMgr::LoadHouseLevelData()
         data.ID = entry->ID;
         data.Level = entry->Level;
         data.QuestID = entry->QuestID;
-        // Budget values will be populated from HouseLevelRewardInfo DB2 (RewardType 38-41)
-        // after LoadHouseLevelRewardInfoData(). Initialize to 0 here; fallbacks applied later.
-        data.InteriorDecorPlacementBudget = 0;
-        data.ExteriorDecorPlacementBudget = 0;
-        data.RoomPlacementBudget = 0;
-        data.ExteriorFixtureBudget = 0;
     }
 
     // Fallback defaults if no DB2 data available
@@ -190,17 +178,12 @@ void HousingMgr::LoadHouseLevelData()
             data.ID = level;
             data.Level = static_cast<int32>(level);
             data.QuestID = 0;
-            data.InteriorDecorPlacementBudget = 0;
-            data.ExteriorDecorPlacementBudget = 0;
-            data.RoomPlacementBudget = 0;
-            data.ExteriorFixtureBudget = 0;
         }
     }
 
     // Build level lookup index (indexed by Level value, not by DB2 row ID)
     for (auto& [id, entry] : _houseLevelDataStore)
         _levelDataByLevel[entry.Level] = &entry;
-
 }
 
 void HousingMgr::LoadHouseRoomData()
@@ -218,7 +201,6 @@ void HousingMgr::LoadHouseRoomData()
         // 0 is legal (the base room is free; the client's budget math charges 0 as well).
         data.WeightCost = entry->WeightCost >= 0 ? entry->WeightCost : 1;
     }
-
 }
 
 void HousingMgr::LoadHouseThemeData()
@@ -231,7 +213,6 @@ void HousingMgr::LoadHouseThemeData()
         data.Flags = entry->Flags;
         data.ParentThemeID = entry->ParentThemeID;
     }
-
 }
 
 void HousingMgr::LoadHouseDecorThemeSetData()
@@ -244,7 +225,6 @@ void HousingMgr::LoadHouseDecorThemeSetData()
         data.HouseThemeID = entry->ThemeID;
         data.HouseDecorCategoryID = entry->IconFileDataID;
     }
-
 }
 
 void HousingMgr::LoadNeighborhoodMapData()
@@ -268,7 +248,6 @@ void HousingMgr::LoadNeighborhoodMapData()
         _worldMapToNeighborhoodMap[data.MapID] = id;
         // NeighborhoodMapFlags (IDA-confirmed): AlliancePurchasable=0x1, HordePurchasable=0x2, CanSystemGenerate=0x4
     }
-
 }
 
 void HousingMgr::LoadNeighborhoodPlotData()
@@ -303,10 +282,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
         data.TeleportFacing = entry->TeleportFacing;
         data.Field_016 = entry->Field_016;
 
-        // The plot's centre is its PlotGameObjectID row of GameObjects.db2 ("Plot - Plot N"): retail puts the plot room
-        // there to the centimetre (12.1.0.69933, Alliance plots 7 and 9). NeighborhoodPlot.HousePosition matches it on
-        // most Alliance plots, but on the Horde map it belongs to other plots (53 of 55 rows are hundreds of yards off,
-        // some out at sea), so a new Horde house was built in the water.
+        // The plot's centre is its PlotGameObjectID row of GameObjects.db2; NeighborhoodPlot.HousePosition is wrong on many Horde plots.
         if (GameObjectsEntry const* plotGo = sGameObjectsStore.LookupEntry(entry->PlotGameObjectID))
         {
             data.HousePosition[0] = plotGo->Pos.X;
@@ -319,9 +295,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
     for (auto const& [id, plot] : _neighborhoodPlotStore)
         _plotsByMap[plot.NeighborhoodMapID].push_back(&plot);
 
-    // Validate that all CornerstoneGameObjectID entries have matching gameobject_template entries.
-    // Templates are loaded from GameObjects.db2 (CASC) + gameobject_template SQL table.
-    // Per-plot entries that are missing from CASC need world_housing_go_templates.sql applied.
+    // Register GO templates for cornerstone/plot-marker entries missing from GameObjects.db2 and gameobject_template.
     uint32 missingCornerstone = 0, missingPlotGO = 0, dynamicAdded = 0;
     for (auto const& [id, plot] : _neighborhoodPlotStore)
     {
@@ -330,9 +304,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
             uint32 entry = static_cast<uint32>(plot.CornerstoneGameObjectID);
             if (!sObjectMgr->GetGameObjectTemplate(entry))
             {
-                // Dynamically register the missing cornerstone template.
-                // All cornerstones are identical: type=48 (UILink), displayId=110660, scale=1.0
-                // Data0=4 (CornerstoneInteraction), Data4=10 (radius), Data7=70 (PlayerInteractionType), Data8=1266097 (spell)
+                // Dynamically register the missing cornerstone template (all cornerstones identical).
                 GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[entry];
                 got.entry = entry;
                 got.type = 48; // GAMEOBJECT_TYPE_UI_LINK
@@ -359,8 +331,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
             uint32 entry = static_cast<uint32>(plot.PlotGameObjectID);
             if (!sObjectMgr->GetGameObjectTemplate(entry))
             {
-                // Register missing plot marker template.
-                // All plot markers are identical: type=5 (Generic), displayId=113004, scale=1.0
+                // Register missing plot marker template (all identical: type=5, displayId=113004).
                 GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[entry];
                 got.entry = entry;
                 got.type = 5; // GAMEOBJECT_TYPE_GENERIC
@@ -379,9 +350,7 @@ void HousingMgr::LoadNeighborhoodPlotData()
         }
     }
 
-    // The shared cornerstone entry itself: normally provided by GameObjects.db2 (official
-    // "Cornerstone" row) or gameobject_template. If the server data has neither, register it
-    // so SpawnPlotGameObjects can still create the GO with the retail interaction data.
+    // The shared cornerstone entry: register it if neither GameObjects.db2 nor gameobject_template provides it.
     if (!sObjectMgr->GetGameObjectTemplate(HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY))
     {
         GameObjectTemplate& got = const_cast<ObjectMgr*>(sObjectMgr)->GetGameObjectTemplateStoreForHotfix()[HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY];
@@ -425,7 +394,6 @@ void HousingMgr::LoadNeighborhoodNameGenData()
         data.NeighborhoodMapID = entry->NeighborhoodMapID;
         _nameGenByMap[entry->NeighborhoodMapID].push_back(std::move(data));
     }
-
 }
 
 HouseDecorData const* HousingMgr::GetHouseDecorData(uint32 id) const
@@ -536,8 +504,7 @@ Optional<HousingMgr::PendingPlotTeleport> HousingMgr::TakePendingPlotTeleport(Ob
 
 Position HousingMgr::GetDefaultHousePosition(NeighborhoodPlotData const& plot) const
 {
-    // 12.1.0.69933 sniffs (both factions): a house root that was never moved sits at local (0,0,0) with no rotation under
-    // the plot room, and the plot room is the plot's GameObjects.db2 row turned half a revolution.
+    // A never-moved house root sits at local (0,0,0) under the plot room (the GO row turned half a revolution).
     if (GameObjectsEntry const* plotGo = sGameObjectsStore.LookupEntry(plot.PlotGameObjectID))
     {
         float goYaw = 0.0f, unusedY = 0.0f, unusedX = 0.0f;
@@ -585,16 +552,13 @@ int32 HousingMgr::ResolvePlotIndex(WorldObject const* searcher, ObjectGuid corne
         return -1;
     }
 
-    // Only GameObject GUIDs encode a GO entry that can be matched against cornerstone entries.
-    // Housing/Neighborhood GUIDs (HighGuid 55) don't have a GO entry — callers sometimes
-    // pass these for diagnostic purposes; silently return -1.
+    // Housing/Neighborhood GUIDs have no GO entry — callers sometimes pass them for diagnostics; return -1.
     if (cornerstoneGuid.GetHigh() != HighGuid::GameObject)
     {
         return -1;
     }
 
-    // Preferred: the PlotIndex carried in the GO's FJamHousingCornerstone_C fragment (all plots
-    // share one Cornerstone GO entry, so the entry no longer identifies the plot).
+    // Preferred: the PlotIndex in the GO's FJamHousingCornerstone_C fragment (all plots share one GO entry).
     if (GameObject const* cornerstone = searcher ? ObjectAccessor::GetGameObject(*searcher, cornerstoneGuid) : nullptr)
     {
         int32 const fragmentPlot = cornerstone->GetHousingCornerstonePlotIndex();
@@ -632,10 +596,7 @@ std::string HousingMgr::GenerateNeighborhoodName(uint32 neighborhoodMapId) const
     std::vector<NeighborhoodNameGenData> const& nameGens = itr->second;
     uint32 count = static_cast<uint32>(nameGens.size());
 
-    // Retail neighborhood names use hyphen-separated NeighborhoodNameGen entry IDs
-    // (e.g., "75-78-61", "86-90-6"). The client resolves each token to localized
-    // text from its local NeighborhoodNameGen.db2 (Prefix, Suffix, FullName fields).
-    // Pick 3 random entries from this map's pool and combine their IDs.
+    // Hyphen-separated NeighborhoodNameGen entry IDs ("75-78-61"); the client resolves each token locally.
     uint32 id1 = nameGens[urand(0, count - 1)].ID;
     uint32 id2 = nameGens[urand(0, count - 1)].ID;
     uint32 id3 = nameGens[urand(0, count - 1)].ID;
@@ -658,10 +619,8 @@ uint32 HousingMgr::GetQuestForLevel(uint32 level) const
     return 0;
 }
 
-// Per-level house values are GlobalCurve.db2 curves (types 37-41) evaluated at the house level; every
-// value matches the Housing/3 entities of the 12.1.0.69933 retail sniffs for levels 1-12:
-//   37 cumulative favor to reach the level, 38 interior decor, 39 exterior decor,
-//   40 room placement (19..134), 41 exterior fixture (1000..5000) budget.
+// Per-level house values are GlobalCurve.db2 curves evaluated at the house level:
+// 37 favor threshold, 38/39 interior/exterior decor budget, 40 room budget, 41 fixture budget.
 static uint32 GetHouseLevelCurveValue(GlobalCurve curve, uint32 level)
 {
     uint32 const curveId = sDB2Manager.GetGlobalCurveId(curve);
@@ -717,20 +676,7 @@ uint32 HousingMgr::GetRoomWeightCost(uint32 roomEntryId) const
 
 std::vector<std::pair<uint32, int32>> HousingMgr::GetStarterDecorWithQuantities(uint32 /*teamId*/) const
 {
-    // Returns {DecorID, StartingQuantity} pairs for the purchase grant. NO faction filter:
-    //
-    // 1. The client credits HouseDecor.StartingQuantity as "remaining redeemable" for every
-    //    SQ > 0 row regardless of the player's faction — proven by decor 9144/10952 (Flags 34,
-    //    doors) showing as an unretirable phantom "1" on an ALLIANCE character whose catalog
-    //    had no row for them: the previous faction filter left those credits unretired forever.
-    //    The only thing that retires a credit is a SourceType 3 storage entry, i.e. granting
-    //    the copy. Every SQ row must therefore be granted to everyone.
-    // 2. Retail keeps no faction split of the collection either: the Horde account of the
-    //    2026-09-26 retail capture owned the "Alliance" starter decor (389, 726, 1994, 1435)
-    //    alongside both front doors (9144, 10952). Sets that looked faction-specific in
-    //    12.0.1 sniffs are server-side curation Blizzard no longer expresses through these
-    //    flags in 69933 (most SQ rows are Flags 3 = both factions).
-    // teamId is kept in the signature so call sites read naturally; it selects nothing.
+    // No faction filter: the client credits StartingQuantity for every SQ > 0 row regardless of faction; teamId selects nothing.
     std::vector<std::pair<uint32, int32>> result;
     for (auto const& [id, decor] : _houseDecorStore)
     {
@@ -757,15 +703,7 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
     uint32 friendsFlag   = isInterior ? HOUSE_SETTING_HOUSE_ACCESS_FRIENDS   : HOUSE_SETTING_PLOT_ACCESS_FRIENDS;
     uint32 partyFlag     = isInterior ? HOUSE_SETTING_HOUSE_ACCESS_PARTY     : HOUSE_SETTING_PLOT_ACCESS_PARTY;
 
-    uint32 accessMask = isInterior
-        ? (HOUSE_SETTING_HOUSE_ACCESS_ANYONE | HOUSE_SETTING_HOUSE_ACCESS_NEIGHBORS |
-           HOUSE_SETTING_HOUSE_ACCESS_GUILD | HOUSE_SETTING_HOUSE_ACCESS_FRIENDS | HOUSE_SETTING_HOUSE_ACCESS_PARTY)
-        : (HOUSE_SETTING_PLOT_ACCESS_ANYONE | HOUSE_SETTING_PLOT_ACCESS_NEIGHBORS |
-           HOUSE_SETTING_PLOT_ACCESS_GUILD | HOUSE_SETTING_PLOT_ACCESS_FRIENDS | HOUSE_SETTING_PLOT_ACCESS_PARTY);
-
-    // NO "no bits = open to all" fallback here: unchecked boxes must deny. The owner
-    // clearing every dropdown (flags 0) means "nobody" — treating that as open made the
-    // access settings appear to do nothing (guest walked the revoked plot freely).
+    // No "no bits = open to all" fallback: unchecked boxes (flags 0) mean "nobody".
 
     if (settingsFlags & anyoneFlag)
         return true;
@@ -797,8 +735,7 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
 
     if (settingsFlags & neighborsFlag)
     {
-        // Both are residents of the same neighborhood. Works offline because
-        // neighborhood membership is stored on Neighborhood objects, not Player.
+        // Works offline: neighborhood membership is stored on Neighborhood, not Player.
         for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(ownerGuid))
             if (nbh->IsMember(visitor->GetGUID()))
                 return true;
@@ -848,33 +785,22 @@ HousingResult HousingMgr::ValidateDecorPlacement(uint32 decorId, Position const&
     if (!decorEntry)
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    // Validate position is finite / not obviously corrupt.
     if (!pos.IsPositionValid())
         return HOUSING_RESULT_BOUNDS_FAILURE_ROOM;
 
-    // M1/A4: reject placements far from the house they belong to (arbitrary-coordinate spam). Decor positions
-    // are world coordinates; measuring them from 0,0,0 refused every plot placement (plots sit at x ~ 3000).
+    // Reject arbitrary-coordinate spam; positions are measured from the placement anchor, not 0,0,0.
     if (std::fabs(pos.GetPositionX() - anchor.GetPositionX()) > HOUSING_MAX_DECOR_LOCAL_EXTENT ||
         std::fabs(pos.GetPositionY() - anchor.GetPositionY()) > HOUSING_MAX_DECOR_LOCAL_EXTENT ||
         std::fabs(pos.GetPositionZ() - anchor.GetPositionZ()) > HOUSING_MAX_DECOR_LOCAL_EXTENT)
         return HOUSING_RESULT_BOUNDS_FAILURE_PLOT;
 
-    // Validate house level meets decor requirements (if any level restriction exists)
-    // For now, all decor is available at any level; future DB2 fields may add restrictions
+    // All decor is available at any level; future DB2 fields may add restrictions.
     (void)houseLevel;
 
-    // #16 Outdoor Lighting: there is intentionally NO category gate here — 12.0.7
-    // permits DecorCategory 4 "Lighting" decor in the exterior/plot scope, so it
-    // flows through the same exterior placement path as any other yard decor. The
-    // light-specific "two lights cannot overlap" rule (A4) is enforced with the
-    // placed-decor context in Housing::CheckLightOverlap, not here (this validator
-    // is per-decor and stateless). Client-side indoor/outdoor gating via
-    // HouseDecor.Flags is tracked separately as audit item M10.
+    // No Lighting category gate here: the overlap rule needs placed-decor context and lives in Housing::CheckLightOverlap.
 
     return HOUSING_RESULT_SUCCESS;
 }
-
-// --- 7 new DB2 Load functions ---
 
 void HousingMgr::LoadHouseDecorMaterialData()
 {
@@ -892,7 +818,6 @@ void HousingMgr::LoadHouseDecorMaterialData()
     // Build decor material index
     for (auto const& [id, mat] : _houseDecorMaterialStore)
         _materialsByTheme[mat.HouseThemeID].push_back(&mat);
-
 }
 
 void HousingMgr::LoadHouseExteriorWmoData()
@@ -904,7 +829,6 @@ void HousingMgr::LoadHouseExteriorWmoData()
         data.Name = SafeStr(entry->Name[sWorld->GetDefaultDbcLocale()]);
         data.Flags = entry->Flags;
     }
-
 }
 
 void HousingMgr::LoadHouseLevelRewardInfoData()
@@ -924,9 +848,7 @@ void HousingMgr::LoadHouseLevelRewardInfoData()
     for (auto const& [id, reward] : _houseLevelRewardInfoStore)
         _rewardsByLevel[reward.HouseLevelDataID].push_back(&reward);
 
-    // HouseLevelRewardInfo: HouseLevelDataID points at the HouseLevelData row ID, Field_4 is the display
-    // order inside a level. The rewards are display text only; budgets come from GlobalCurve 37-41
-    // (see GetHouseLevelCurveValue) and rooms/decor from the level's award quest (HouseLevelData.QuestID).
+    // HouseLevelRewardInfo is display text only; budgets come from GlobalCurve 37-41, rooms/decor from the award quest.
 }
 
 void HousingMgr::LoadNeighborhoodInitiativeData()
@@ -942,17 +864,13 @@ void HousingMgr::LoadNeighborhoodInitiativeData()
         data.RequiredParticipants = entry->RequiredParticipants;
         data.RewardCurrencyID = entry->RewardCurrencyID;
     }
-
 }
 
 void HousingMgr::LoadRoomComponentData()
 {
-    uint32 doorwayCount = 0;
-    uint32 totalCount = 0;
-
     for (RoomComponentEntry const* entry : sRoomComponentStore)
     {
-        // Store all components indexed by RoomWmoDataID for room spawning
+        // All components indexed by RoomWmoDataID for room spawning
         RoomComponentData compData;
         compData.ID = entry->ID;
         compData.RoomWmoDataID = entry->RoomWmoDataID;
@@ -969,9 +887,8 @@ void HousingMgr::LoadRoomComponentData()
         compData.Flags = entry->Flags;
 
         _roomComponentsByWmoData[entry->RoomWmoDataID].push_back(compData);
-        ++totalCount;
 
-        // Also index doorway components separately for connectivity checks
+        // Doorway components are also indexed separately for connectivity checks
         if (entry->Type == HOUSING_ROOM_COMPONENT_DOORWAY)
         {
             RoomDoorInfo door;
@@ -985,10 +902,8 @@ void HousingMgr::LoadRoomComponentData()
             door.ConnectionType = entry->ConnectionType;
 
             _roomDoorMap[entry->RoomWmoDataID].push_back(door);
-            ++doorwayCount;
         }
     }
-
 }
 
 std::vector<RoomComponentData> const* HousingMgr::GetRoomComponents(uint32 roomWmoDataId) const
@@ -1028,8 +943,6 @@ std::vector<RoomDoorInfo> const* HousingMgr::GetRoomDoors(uint32 roomWmoDataId) 
     return nullptr;
 }
 
-// --- 6 new ID-based accessors ---
-
 HouseDecorMaterialData const* HousingMgr::GetHouseDecorMaterialData(uint32 id) const
 {
     auto itr = _houseDecorMaterialStore.find(id);
@@ -1066,8 +979,6 @@ NeighborhoodInitiativeData const* HousingMgr::GetNeighborhoodInitiativeData(uint
     return nullptr;
 }
 
-// --- 2 indexed lookup accessors ---
-
 std::vector<HouseDecorMaterialData const*> HousingMgr::GetMaterialsForTheme(uint32 houseThemeId) const
 {
     auto itr = _materialsByTheme.find(houseThemeId);
@@ -1096,7 +1007,6 @@ void HousingMgr::LoadDecorCategoryData()
         data.UiTextureAtlasElementID = entry->UiTextureAtlasElementID;
         data.OrderIndex = entry->OrderIndex;
     }
-
 }
 
 void HousingMgr::LoadDecorSubcategoryData()
@@ -1112,7 +1022,6 @@ void HousingMgr::LoadDecorSubcategoryData()
 
         _subcategoriesByCategory[entry->DecorCategoryID].push_back(&_decorSubcategoryStore[entry->ID]);
     }
-
 }
 
 void HousingMgr::LoadDecorDyeSlotData()
@@ -1128,48 +1037,33 @@ void HousingMgr::LoadDecorDyeSlotData()
 
         _dyeSlotsByDecor[entry->HouseDecorID].push_back(&_decorDyeSlotStore[entry->ID]);
     }
-
 }
 
 void HousingMgr::LoadDecorXDecorSubcategoryData()
 {
-    uint32 count = 0;
     for (DecorXDecorSubcategoryEntry const* entry : sDecorXDecorSubcategoryStore)
     {
         _decorsBySubcategory[entry->DecorSubcategoryID].push_back(entry->HouseDecorID);
-        // #16 Outdoor Lighting: build a decor -> parent-category reverse index so
-        // the placement path can classify a decor (Lighting = category 4) in O(1)
-        // without walking subcategories. DecorSubcategory rows are already loaded
-        // (LoadDecorSubcategoryData runs before this pass).
+        // Decor -> parent-category reverse index for O(1) placement classification (Lighting = category 4).
         if (DecorSubcategoryData const* sub = GetDecorSubcategoryData(entry->DecorSubcategoryID))
             _categoryByDecor[entry->HouseDecorID] = uint32(sub->DecorCategoryID);
-        ++count;
     }
-
 }
 
 void HousingMgr::BuildRoomComponentOptionIndex()
 {
     _roomCompOptionIndex.clear();
-    uint32 count = 0;
     for (RoomComponentOptionEntry const* entry : sRoomComponentOptionStore)
     {
         if (!entry)
             continue;
-        // Index by (MeshStyleFilterID, HouseThemeID).
-        // Multiple options exist per key with different Types:
-        //   Type=0 (Cosmetic) = normal solid wall (DEFAULT)
-        //   Type=1 (DoorwayWall) = wall with sealed doorway frame
-        //   Type=2 (Doorway) = open doorway passage
-        // Prefer Type=0 (Cosmetic) as the default wall model. Type 1/2 are
-        // used for doorway-capable walls based on connection state.
+        // Index by (MeshStyleFilterID, HouseThemeID); prefer Type 0 (Cosmetic) as the default wall over the doorway-capable Types 1/2.
         uint64 key = (uint64(uint32(entry->MeshStyleFilterID)) << 32) | uint32(entry->HouseThemeID);
         auto existing = _roomCompOptionIndex.find(key);
         if (existing == _roomCompOptionIndex.end())
             _roomCompOptionIndex[key] = entry;
         else if (entry->Type == 0 && existing->second->Type != 0)
             _roomCompOptionIndex[key] = entry; // Replace non-Cosmetic with Cosmetic
-        ++count;
     }
 }
 
@@ -1186,8 +1080,7 @@ void HousingMgr::BuildRoomComponentTextureIndex()
         _textureByOptionId[link->RoomComponentOptionID] = link->RoomComponentTextureID;
     }
 
-    // Build type→texture fallback from RoomComponentTexture
-    // "Type" in RoomComponentTexture maps to component type (1=wall, 2=floor, 3=ceiling)
+    // Build type→texture fallback from RoomComponentTexture (Type = component type: 1=wall, 2=floor, 3=ceiling)
     for (RoomComponentTextureEntry const* tex : sRoomComponentTextureStore)
     {
         if (!tex || tex->Type <= 0)
@@ -1196,7 +1089,6 @@ void HousingMgr::BuildRoomComponentTextureIndex()
         if (!_textureByComponentType.contains(compType))
             _textureByComponentType[compType] = static_cast<int32>(tex->ID);
     }
-
 }
 
 int32 HousingMgr::GetTextureIdForComponentOption(int32 roomComponentOptionID) const
@@ -1213,22 +1105,14 @@ int32 HousingMgr::GetTextureIdForComponentType(uint8 componentType) const
 
 void HousingMgr::EnsureDoorGameObjectTemplates()
 {
-    // Auto-create missing GO templates for door components referenced in DB2.
-    // ExteriorComponent entries with Type=11 (Door) have a GameObjectID for the
-    // clickable entrance GO. If the template doesn't exist, create one based on
-    // the known working template (entry 586576, type 10/GOOBER).
+    // Auto-create missing GO templates for ExteriorComponent Type=11 (Door) entries, modelled on template 586576 (GOOBER).
     uint32 created = 0;
     uint32 scripted = 0;
 
     GameObjectTemplate const* referenceTemplate = sObjectMgr->GetGameObjectTemplate(586576);
     uint32 referenceDisplayId = referenceTemplate ? referenceTemplate->displayId : 116973;
 
-    // Every door - whether it comes from the world DB or is synthesised below - must carry
-    // go_housing_door, because that script's OnGossipHello IS the "enter the house" handler.
-    // GameObject::Use() calls AI()->OnGossipHello() for every GO type, so with no ScriptName
-    // the click reaches the default AI, falls through to the GOOBER branch, plays the open
-    // animation and does nothing else: the door looked interactive (gear cursor, client sends
-    // CMSG_GAME_OBJ_USE) but never teleported anyone.
+    // Every door must carry go_housing_door: its OnGossipHello is the "enter the house" handler.
     uint32 const doorScriptId = sObjectMgr->GetScriptId("go_housing_door", false);
 
     for (ExteriorComponentEntry const* entry : sExteriorComponentStore)
@@ -1239,8 +1123,7 @@ void HousingMgr::EnsureDoorGameObjectTemplates()
         uint32 goEntry = static_cast<uint32>(entry->GameObjectID);
         if (GameObjectTemplate const* existing = sObjectMgr->GetGameObjectTemplate(goEntry))
         {
-            // Present already (world DB). Attach the door script unless something
-            // deliberate is bound there - never clobber an explicit ScriptName.
+            // Present already (world DB); never clobber an explicit ScriptName.
             if (!existing->ScriptId)
             {
                 sObjectMgr->GetGameObjectTemplateStoreForHotfix()[goEntry].ScriptId = doorScriptId;
@@ -1252,8 +1135,8 @@ void HousingMgr::EnsureDoorGameObjectTemplates()
         // Create a GOOBER template (type=10) — clickable interaction object for house entry
         std::string name = entry->Name[DEFAULT_LOCALE] ? entry->Name[DEFAULT_LOCALE] : "Housing Door";
 
-        // Insert directly into ObjectMgr's in-memory store (no DB write needed — these are derived from DB2)
-        // Sniff-verified retail values: Lock=4296 (Opening cast bar), autoClose=3000ms, startOpen=1
+        // Insert directly into ObjectMgr's in-memory store (derived from DB2, no DB write).
+        // Retail values: Lock=4296 ("Opening" cast bar), autoClose=3000ms, startOpen=1
         GameObjectTemplate& goTemplate = sObjectMgr->GetGameObjectTemplateStoreForHotfix()[goEntry];
         goTemplate.entry = goEntry;
         goTemplate.type = GAMEOBJECT_TYPE_GOOBER;
@@ -1269,10 +1152,7 @@ void HousingMgr::EnsureDoorGameObjectTemplates()
         ++created;
     }
 
-    // The INTERIOR doors are not reachable from ExteriorComponent - HouseInteriorMap picks them
-    // by faction in code (Alliance 575017 / Horde 587318), so the DB2 walk above never sees them
-    // and they stayed unscripted after the exterior doors were fixed: the front door worked, the
-    // one inside the house did nothing. Keep this list in step with HouseInteriorMap.
+    // Interior doors are not reachable from ExteriorComponent; keep this list in step with HouseInteriorMap.
     for (uint32 goEntry : { INTERIOR_DOOR_GO_ALLIANCE, INTERIOR_DOOR_GO_HORDE })
     {
         GameObjectTemplate const* existing = sObjectMgr->GetGameObjectTemplate(goEntry);
@@ -1305,28 +1185,14 @@ void HousingMgr::BuildExteriorComponentIndexes()
     _rootCompsByWmoDataId.clear();
     _defaultFixtureByTypeWmo.clear();
 
-    // 1. Build hook index: which hooks are parented to each component.
-    //    ExteriorComponentHook has IndexField=2 (ID in data) and ParentIndexField=4.
-    //    Use the store's range-based iterator which correctly iterates unique entries.
+    // 1. Hook index: which hooks are parented to each component.
     for (ExteriorComponentHookEntry const* hook : sExteriorComponentHookStore)
     {
         if (!hook)
             continue;
         _hooksByExtComp[hook->ExteriorComponentID].push_back(hook);
     }
-    // 1a. Build child index and root-by-WMO index from ExteriorComponent.
-    //     ParentComponentID > 0 → color/dye variant of that component.
-    //     ParentComponentID == 0 → base variant, and if the Type is a structural root,
-    //     it's indexed by HouseExteriorWmoDataID for independent spawning.
-    //
-    //     Structural root check: look up ExteriorComponentType by comp->Type.
-    //     Only types with ParentComponentType == 0 are structural roots (Base=9, Roof=10).
-    //     Types like Door(11), Window(12), Chimney(16) have ParentComponentType > 0
-    //     and are spawned as hook children, NOT as independent roots.
-    //
-    //     ExteriorComponent uses ParentIndexField (HouseExteriorWmoDataID).
-    //     Use range-based iterator, NOT LookupEntry(i), which maps by parent ID.
-    std::unordered_set<uint8> structuralRootTypes;
+    // 2. Child index and root-by-WMO index: ParentComponentID > 0 is a color/dye variant; structural roots are indexed by WmoDataID.
     for (ExteriorComponentEntry const* comp : sExteriorComponentStore)
     {
         if (!comp)
@@ -1337,10 +1203,7 @@ void HousingMgr::BuildExteriorComponentIndexes()
 
         if (comp->ParentComponentID == 0 && comp->ModelFileDataID > 0 && comp->HouseExteriorWmoDataID > 0)
         {
-            // Check if this component's Type is a structural root.
-            // ExteriorComponentType DB2: Base(9) and Roof(10) have ParentComponentType=0.
-            // All fixture types (Door=11, Window=12, etc.) have ParentComponentType > 0.
-            // Try DB2 lookup first; fall back to known root types if store is unreliable.
+            // ExteriorComponentType marks structural roots with ParentComponentType=0; fall back to Base/Roof if unavailable.
             bool isStructuralRoot = false;
             ExteriorComponentTypeEntry const* typeEntry = sExteriorComponentTypeStore.LookupEntry(comp->Type);
             if (typeEntry)
@@ -1349,14 +1212,11 @@ void HousingMgr::BuildExteriorComponentIndexes()
                 isStructuralRoot = (comp->Type == 9 || comp->Type == 10); // Base, Roof
 
             if (isStructuralRoot)
-            {
                 _rootCompsByWmoDataId[comp->HouseExteriorWmoDataID].push_back(comp->ID);
-                structuralRootTypes.insert(comp->Type);
-            }
         }
     }
 
-    // 1c. Build group indexes from ExteriorComponentXGroup (for UI fixture panels)
+    // 3. Group indexes from ExteriorComponentXGroup (for UI fixture panels)
     for (ExteriorComponentXGroupEntry const* xg : sExteriorComponentXGroupStore)
     {
         if (!xg)
@@ -1367,15 +1227,7 @@ void HousingMgr::BuildExteriorComponentIndexes()
         _extCompsByGroup[groupID].push_back(compID);
     }
 
-    // 2. Build fixture resolution index: (componentType, wmoDataID) → default component ID.
-    //    For each hook on a parent component, the fixture that goes there is determined by:
-    //      - Hook's ExteriorComponentTypeID (e.g., Door=11, Window=12, Chimney=16)
-    //      - Parent component's HouseExteriorWmoDataID (e.g., 9=Human, 55=NightElf)
-    //    The default fixture is the root component (ParentComponentID==0) with matching
-    //    Type and WmoDataID that has Flags & 0x1 (IsDefault).
-    //
-    //    This replaces the old GroupXHook→Group→XGroup chain which was incorrect —
-    //    groups are for UI organization, not fixture resolution.
+    // 4. Fixture resolution index: the default is the root (ParentComponentID==0) with matching Type and WmoDataID and Flags & 0x1 (IsDefault).
     for (ExteriorComponentEntry const* comp : sExteriorComponentStore)
     {
         if (!comp || comp->ParentComponentID != 0 || comp->HouseExteriorWmoDataID == 0)
@@ -1387,25 +1239,18 @@ void HousingMgr::BuildExteriorComponentIndexes()
 
         auto existing = _defaultFixtureByTypeWmo.find(key);
         if (existing == _defaultFixtureByTypeWmo.end())
-        {
-            // First component for this (type, wmo, size) — insert it
             _defaultFixtureByTypeWmo[key] = comp->ID;
-        }
         else if (isDefault)
-        {
-            // This component is the default — override any non-default already stored
             _defaultFixtureByTypeWmo[key] = comp->ID;
-        }
     }
 
-    // 3. Build exit point index
+    // 5. Exit point index
     for (ExteriorComponentExitPointEntry const* exitPt : sExteriorComponentExitPointStore)
     {
         if (!exitPt)
             continue;
         _exitPointByExtComp[exitPt->ExteriorComponentID] = exitPt;
     }
-
 }
 
 std::vector<ExteriorComponentHookEntry const*> const* HousingMgr::GetHooksOnComponent(uint32 extCompID) const
@@ -1414,8 +1259,7 @@ std::vector<ExteriorComponentHookEntry const*> const* HousingMgr::GetHooksOnComp
     if (itr != _hooksByExtComp.end())
         return &itr->second;
 
-    // DB2 only hangs hooks on base shapes (ParentComponentID == 0); a colour variant of a base or roof shares its
-    // shape's hooks. Without this a recoloured base lost its door and windows.
+    // DB2 only hangs hooks on base shapes; a colour variant shares its shape's hooks.
     if (ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(extCompID))
         if (comp->ParentComponentID > 0 && static_cast<uint32>(comp->ParentComponentID) != extCompID)
             return GetHooksOnComponent(static_cast<uint32>(comp->ParentComponentID));
@@ -1433,7 +1277,7 @@ uint32 HousingMgr::GetDefaultFixtureForType(uint8 componentType, uint32 wmoDataI
             return itr->second;
     }
 
-    // Fallback: scan all sizes for this (type, wmo) — useful when caller doesn't know the size
+    // Fallback: scan all sizes for this (type, wmo) — useful when caller doesn't know the size.
     for (uint8 sz = 1; sz <= 4; ++sz)
     {
         if (sz == houseSize)
@@ -1571,9 +1415,7 @@ std::vector<DecorDyeSlotData const*> HousingMgr::GetDyeSlotsForDecor(uint32 hous
 
 int32 HousingMgr::GetFactionDefaultThemeID(int32 factionRestriction) const
 {
-    // Returns the BASE theme for DB2 RoomComponentOption lookups.
-    // Folk=1 (Alliance), Rugged=2 (Horde). These are the root themes in HouseTheme
-    // with ParentThemeID=0. The DB2 option entries are keyed by base theme.
+    // Base themes for DB2 RoomComponentOption lookups: Folk=1 (Alliance), Rugged=2 (Horde).
     if (factionRestriction == NEIGHBORHOOD_FACTION_ALLIANCE)
         return 1; // Folk
     if (factionRestriction == NEIGHBORHOOD_FACTION_HORDE)
@@ -1583,9 +1425,7 @@ int32 HousingMgr::GetFactionDefaultThemeID(int32 factionRestriction) const
 
 int32 HousingMgr::GetDefaultSubThemeID(int32 baseThemeID) const
 {
-    // The sub-theme written to FHousingRoomComponentMesh_C.HouseThemeID for a base theme: its "(neutral)" child in
-    // HouseTheme.db2, which is always the lowest child ID (Folk 6, Rugged 8, Bel'ameth 10, Silvermoon 12). A theme
-    // without children (Standard 3) stands for itself.
+    // The base theme's "(neutral)" child in HouseTheme.db2 — always the lowest child ID; a childless theme stands for itself.
     int32 defaultSubTheme = 0;
     for (auto const& [id, theme] : _houseThemeStore)
         if (theme.ParentThemeID == baseThemeID && (!defaultSubTheme || int32(id) < defaultSubTheme))
@@ -1612,9 +1452,7 @@ RoomComponentOptionEntry const* HousingMgr::FindRoomComponentOption(int32 meshSt
 
 std::vector<RoomComponentOptionEntry const*> HousingMgr::FindAllRoomComponentOptions(int32 meshStyleFilterID, int32 houseThemeID) const
 {
-    // Returns ALL options for the given (MSFID, theme): Cosmetic, DoorwayWall, Doorway.
-    // Alliance sniff shows corners have 2 Cosmetic options (SubType 0+1) and
-    // doorway walls have DoorwayWall (Type=1) + Doorway (Type=2) options.
+    // Returns ALL options (Cosmetic, DoorwayWall, Doorway) for the given (MSFID, theme).
     std::vector<RoomComponentOptionEntry const*> results;
     for (RoomComponentOptionEntry const* entry : sRoomComponentOptionStore)
     {
@@ -1628,10 +1466,7 @@ std::vector<RoomComponentOptionEntry const*> HousingMgr::FindAllRoomComponentOpt
 
 uint32 HousingMgr::GetDefaultVisualRoomEntry() const
 {
-    // Sniff-verified: both alliance and horde use HouseRoomID=1 ("Square Room Small")
-    // as the primary interior room. The faction theme (themeID 1=Folk/Alliance, 2=Rugged/Horde)
-    // controls wall/floor textures via RoomComponentOption, not the room shape.
-    // Pick the lowest-ID non-base room with UNLOCKED_BY_DEFAULT + visual components.
+    // Pick the lowest-ID non-base room with UNLOCKED_BY_DEFAULT + visual components (both factions use "Square Room Small").
     uint32 bestId = 0;
     uint32 fallbackId = 0;
 
@@ -1646,7 +1481,7 @@ uint32 HousingMgr::GetDefaultVisualRoomEntry() const
 
         if (roomData.Flags & HOUSING_ROOM_FLAG_UNLOCKED_BY_DEFAULT)
         {
-            // Pick lowest ID for determinism (room 1 = Square Room Small, the sniff default)
+            // Pick lowest ID for determinism
             if (!bestId || id < bestId)
                 bestId = id;
         }
@@ -1657,16 +1492,12 @@ uint32 HousingMgr::GetDefaultVisualRoomEntry() const
     }
 
     uint32 result = bestId ? bestId : fallbackId;
-    TC_LOG_ERROR("housing", "HousingMgr::GetDefaultVisualRoomEntry: bestId={} fallbackId={} -> returning {}",
+    TC_LOG_DEBUG("housing", "HousingMgr::GetDefaultVisualRoomEntry: bestId={} fallbackId={} -> returning {}",
         bestId, fallbackId, result);
     return result;
 }
 
-// ---------------------------------------------------------------------------
-// House-finder per-player ignore list
-// (CMSG_HOUSING_SVCS_HOUSE_FINDER_IGNORE_NEIGHBORHOOD, build 12.1.0.69497)
-// Lazily loaded from character_housing_ignored_neighborhood, cached, write-through.
-// ---------------------------------------------------------------------------
+// House-finder per-player ignore list (CMSG_HOUSING_SVCS_HOUSE_FINDER_IGNORE_NEIGHBORHOOD): lazily loaded, write-through.
 std::unordered_set<ObjectGuid>& HousingMgr::EnsureIgnoredNeighborhoodsLoaded(ObjectGuid playerGuid)
 {
     auto itr = _ignoredNeighborhoods.find(playerGuid);
@@ -1682,8 +1513,7 @@ std::unordered_set<ObjectGuid>& HousingMgr::EnsureIgnoredNeighborhoodsLoaded(Obj
         do
         {
             uint64 counter = (*result)[0].GetUInt64();
-            // Neighborhood GUIDs are HighGuid::Housing subType 4; only the counter is stored.
-            // Resolve the live neighborhood to reconstruct the exact full GUID for comparison.
+            // Only the counter is stored; resolve the live neighborhood to reconstruct the full GUID.
             if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(counter))
                 set.insert(neighborhood->GetGuid());
         } while (result->NextRow());
@@ -1695,7 +1525,7 @@ std::unordered_set<ObjectGuid>& HousingMgr::EnsureIgnoredNeighborhoodsLoaded(Obj
 bool HousingMgr::IsNeighborhoodIgnored(ObjectGuid playerGuid, ObjectGuid neighborhoodGuid)
 {
     std::unordered_set<ObjectGuid> const& set = EnsureIgnoredNeighborhoodsLoaded(playerGuid);
-    return set.find(neighborhoodGuid) != set.end();
+    return set.contains(neighborhoodGuid);
 }
 
 void HousingMgr::AddIgnoredNeighborhood(ObjectGuid playerGuid, ObjectGuid neighborhoodGuid)
@@ -1708,7 +1538,6 @@ void HousingMgr::AddIgnoredNeighborhood(ObjectGuid playerGuid, ObjectGuid neighb
     stmt->setUInt64(0, playerGuid.GetCounter());
     stmt->setUInt64(1, neighborhoodGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
-
 }
 
 void HousingMgr::RemoveIgnoredNeighborhood(ObjectGuid playerGuid, ObjectGuid neighborhoodGuid)

@@ -26,12 +26,7 @@ HousingNeighborhoodMirrorEntity::HousingNeighborhoodMirrorEntity(WorldSession* s
 {
     _Create(guid);
 
-    // Retail serialises Housing/4 (NeighborhoodMirror) CREATE blocks with
-    // objectType byte = 18 (TYPEID_HOUSING_ENTITY). Sniff-verified at
-    // dump_12.0.1.66838_2026-04-15_09-35-59 packet idx 9984. Without this,
-    // BaseEntity's default leaves m_objectTypeId = NUM_CLIENT_OBJECT_TYPES
-    // (invalid sentinel), which the client's CREATE dispatcher may silently
-    // drop from its entity registry.
+    // BaseEntity's default m_objectTypeId is an invalid sentinel the client drops silently
     m_objectTypeId = TYPEID_HOUSING_ENTITY;
 
     m_entityFragments.Add(WowCS::EntityFragment::FNeighborhoodMirrorData_C, false, WowCS::GetRawFragmentData(m_neighborhoodMirrorData));

@@ -368,44 +368,34 @@ AreaTrigger* AreaTrigger::CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId 
     return at;
 }
 
-// 12.0.5 removed FHousingPlotAreaTrigger_C fragment. The previous InitHousingPlotData
-// stored PlotID + owner/house/bnet GUIDs per-AT; that mechanism is gone. Plot ownership
-// is now communicated via PlayerHouseInfoComponentData.CurrentHouse on the Player entity.
-// The AT still exists for editor-menu plot bounds + decal visuals, so this thin init
-// only touches the AreaTrigger's own visual fields.
+namespace
+{
+    constexpr int32 HousingPlotSpellForVisuals = 1282351;
+    constexpr int32 HousingPlotSpellXSpellVisualId = 510142;
+    constexpr uint32 HousingPlotExtraScaleParameterCurve = 0x3F800001;
+}
+
+// 12.0.5 removed the per-AT FHousingPlotAreaTrigger_C fragment; this only sets the AT's own visual fields.
 void AreaTrigger::InitHousingPlotVisuals()
 {
-    // Force SpellForVisuals=1282351 and SpellXSpellVisualID=510142 for housing plot ATs.
-    // Spell 1282351 doesn't exist in sSpellMgr (AreaTriggerDataStore resets SpellForVisuals
-    // to 0 during load, and the normal SpellXSpellVisualID lookup in _InitFields fails).
-    // The client requires BOTH values to properly identify the AT as a housing plot
-    // boundary for the editor-menu decal and placement validation system.
-    {
-        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
-        if (*m_areaTriggerData->SpellForVisuals == 0)
-            SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellForVisuals), int32(1282351));
-        if (m_areaTriggerData->SpellVisual->SpellXSpellVisualID == 0)
-            SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellVisual).ModifyValue(&UF::SpellCastVisual::SpellXSpellVisualID), int32(510142));
-    }
+    auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
 
-    // PeriodModifier=(0, 1.0) — retail sniff-verified on all housing plot ATs.
-    {
-        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
-        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
-            .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_0), int32(0));
-        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
-            .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_4), 1.0f);
-    }
+    // the spell doesn't exist in sSpellMgr, so force these values
+    if (*m_areaTriggerData->SpellForVisuals == 0)
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellForVisuals), HousingPlotSpellForVisuals);
+    if (m_areaTriggerData->SpellVisual->SpellXSpellVisualID == 0)
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellVisual).ModifyValue(&UF::SpellCastVisual::SpellXSpellVisualID), HousingPlotSpellXSpellVisualId);
 
-    // ExtraScaleCurve: ParameterCurve=0x3F800001, OverrideActive=true — tells client to
-    // flatten terrain / remove grass within the plot boundary (decor placement surface).
-    {
-        auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
-        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
-            .ModifyValue(&UF::OverrideCurve::ParameterCurve), uint32(0x3F800001));
-        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
-            .ModifyValue(&UF::OverrideCurve::OverrideActive), true);
-    }
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+        .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_0), int32(0));
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+        .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_4), 1.0f);
+
+    // flatten terrain / remove grass within the plot boundary
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+        .ModifyValue(&UF::OverrideCurve::ParameterCurve), HousingPlotExtraScaleParameterCurve);
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+        .ModifyValue(&UF::OverrideCurve::OverrideActive), true);
 }
 
 ObjectGuid AreaTrigger::CreateNewMovementForceId(Map* map, uint32 areaTriggerId)

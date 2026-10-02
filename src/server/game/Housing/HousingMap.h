@@ -20,8 +20,11 @@
 
 #include "Housing.h"
 #include "Map.h"
+#include <array>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 class AreaTrigger;
 class Housing;
@@ -51,8 +54,7 @@ public:
     void SetPlotOwnershipState(uint8 plotIndex, bool owned);
     AreaTrigger* SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot);
     void DespawnPlotAreaTrigger(uint8 plotIndex);
-    // Retail destroys every world GameObject on a plot (bushes, broken fences, ...) when it is bought and brings
-    // them back when it is freed.
+    // Retail clears every world GameObject on a plot when it is bought and brings them back when freed.
     void SetPlotGroundCleared(NeighborhoodPlotData const* plot, bool cleared);
     // World position and yaw of a plot's room (its GameObjects.db2 plot object, turned half a revolution).
     bool GetPlotRoomFrame(uint8 plotIndex, Position& frame) const;
@@ -70,13 +72,10 @@ public:
     void AddPlayerHousing(ObjectGuid playerGuid, Housing* housing);
     void RemovePlayerHousing(ObjectGuid playerGuid);
 
-    // Fixture override map: hookID → ExteriorComponentID from player's fixture selections.
-    // When provided, SpawnExtCompTree uses these instead of the DB2 default component at each hook.
+    // Fixture override map: hookID → ExteriorComponentID from the player's fixture selections.
     using FixtureOverrideMap = std::unordered_map<uint32 /*hookID*/, uint32 /*extCompID*/>;
 
-    // Root override map: componentType → componentID from player's root fixture selections
-    // (e.g., player chose a specific roof variant). When provided, SpawnFullHouseMeshObjects
-    // uses these instead of the DB2 default root for that type.
+    // Root override map: componentType → componentID from the player's root fixture selections.
     using RootOverrideMap = std::unordered_map<uint8 /*componentType*/, uint32 /*compID*/>;
 
     // House structure GO management
@@ -90,45 +89,25 @@ public:
     int8 GetPlotIndexForHouseGO(ObjectGuid goGuid) const;
     uint32 GetHouseGameObjectCount() const { return static_cast<uint32>(_houseGameObjects.size()); }
 
-    // House-exterior root Entity (HighGuid::Entity, Tag_HouseExteriorPiece + Tag_HouseExteriorRoot), attached to the
-    // plot room at the house offset; the base and roof meshes hang off it. Its GUID is the one referenced by
-    // FHousingPlayerHouse_C.EntityGUID.
+    // House-exterior root Entity attached to the plot room; base and roof meshes hang off it (FHousingPlayerHouse_C.EntityGUID).
     HousingRoomEntity* GetHouseRootEntity(uint8 plotIndex) const;
     ObjectGuid GetHouseMirrorGuid(uint8 plotIndex) const;
-    // Deterministic mirror-GUID derivation that does not require the mirror to
-    // exist yet — used by proxy emission for neighbour plots whose plot index
-    // and bnet owner are known from NeighborhoodMirror data. pieceIndex defaults
-    // to 0 (the Type-9 root mirror) which is the canonical GUID referenced by
-    // FHousingPlayerHouse_C.EntityGUID; pieceIndex 1+ identify the non-root
-    // Group A mirrors (Roof/Door/Window).
+    // Deterministic mirror-GUID derivation usable before the mirror exists; pieceIndex 0 is the Type-9 root mirror.
     ObjectGuid MakeHouseMirrorGuid(uint8 plotIndex, uint32 bnetAccountId, uint8 pieceIndex = 0) const;
 
-    // "Group B" per-piece mesh-level mirrors. Retail pairs EACH visible
-    // exterior fixture MeshObject (Base/Roof/Door/Window — ExteriorComponent
-    // Type 9/10/11/12) with one untagged FMirroredPositionData_C Entity
-    // mirror whose AttachParent is the piece's MeshObject. Sniff idx 9984:
-    // 4 Group A (44-byte values) + 4 Group B (52-byte values, AttachParent=
-    // MeshObject serialises longer). Without these per-piece anchors the
-    // client's spatial index is missing finer-grained hooks (door-hover
-    // detection, expert-mode placement preview off non-root meshes).
+    // "Group B" per-piece mirrors paired with each visible exterior fixture MeshObject (Type 9/10/11/12); used by the client's spatial index.
     HousingMirrorEntity* GetHouseMeshMirror(uint8 plotIndex) const;
     ObjectGuid GetHouseMeshMirrorGuid(uint8 plotIndex) const;
     ObjectGuid MakeHouseMeshMirrorGuid(uint8 plotIndex, uint32 bnetAccountId, uint8 pieceIndex = 0) const;
-    // Full list of per-piece Group B mirrors for this plot (one per fixture
-    // MeshObject of Type 9/10/11/12). Returns empty if no house spawned.
+    // Full list of per-piece Group B mirrors for this plot; empty if no house spawned.
     std::vector<HousingMirrorEntity*> GetHouseMeshMirrors(uint8 plotIndex) const;
 
-    // Lightweight Housing/2 identity room entity (HighGuid::Housing subType=2,
-    // objectType=18) — the authoritative room. Retail-verified architecture:
-    // one Housing/2 identity per plot + one component MeshObject attached to
-    // it (carries the Geobox). The unified model replaces the old dual-
-    // MeshObject pattern. Group A Entity mirrors attach here.
+    // Lightweight Housing/2 identity room entity — the authoritative room the Group A mirrors attach to.
     HousingRoomEntity* GetRoomIdentityEntity(uint8 plotIndex) const;
     ObjectGuid GetRoomIdentityGuid(uint8 plotIndex) const;
 
     // MeshObject management (housing fixture rendering)
-    // pos: local-space position for child pieces (or world position for root pieces)
-    // worldPos: if non-null, used for server-side grid placement (child pieces must be in parent's grid cell)
+    // pos: local-space position for child pieces (or world position for roots); worldPos: server-side grid placement
     MeshObject* SpawnHouseMeshObject(uint8 plotIndex, int32 fileDataID, bool isWMO,
         Position const& pos, QuaternionData const& rot, float scale,
         ObjectGuid houseGuid, int32 exteriorComponentID, int32 houseExteriorWmoDataID,
@@ -153,12 +132,10 @@ public:
     void DespawnAllMeshObjectsForPlot(uint8 plotIndex);
 
     // Targeted fixture mesh operations (no full house rebuild)
-    // Finds and removes the MeshObject at the given hookID for a plot, sends DESTROY to nearby players.
+    // Finds and removes the MeshObject at the given hookID, sending DESTROY to nearby players.
     MeshObject* FindMeshObjectByHookID(uint8 plotIndex, int32 hookID);
     void DespawnSingleMeshObject(uint8 plotIndex, ObjectGuid meshGuid);
-    // Spawn a single fixture component at a hook and send CREATE to a specific player.
-    // `parentHint` is the mesh the client named as the hook's owner (CMSG HookEntityGuid); variant
-    // re-keys of the parent mesh invalidate the DB2 parent-component lookup, so the hint wins.
+    // Spawn a single fixture at a hook; parentHint is the client-named parent mesh (variant re-keys invalidate the DB2 lookup).
     MeshObject* SpawnFixtureAtHook(uint8 plotIndex, uint32 hookID, uint32 componentID,
         ObjectGuid houseGuid, int32 houseExteriorWmoDataID, Player* target,
         ObjectGuid parentHint = ObjectGuid::Empty);
@@ -170,10 +147,7 @@ public:
     void SpawnOrMoveHouseRootEntity(uint8 plotIndex, Position const& housePos, ObjectGuid rootGuid);
     void DespawnHouseRootEntity(uint8 plotIndex);
 
-    // Decor management. Functional decor (HouseDecorData.GameObjectID > 0) spawns
-    // as an interactive GameObject with FHousingDecor_C + FMirroredPositionData_C
-    // fragments — retains sit/open/use behavior. Visual-only decor spawns as a
-    // MeshObject. Returns true on success.
+    // Decor management. Functional decor (HouseDecorData.GameObjectID > 0) spawns as an interactive GameObject; visual-only decor as a MeshObject.
     bool SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& decor, ObjectGuid houseGuid);
     void DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid);
     void DespawnAllDecorForPlot(uint8 plotIndex);
@@ -197,15 +171,10 @@ public:
     // Accessor for fixture MeshObjects (plotIndex → vector of MeshObject GUIDs)
     std::unordered_map<uint8, std::vector<ObjectGuid>> const& GetPlotMeshObjects() const { return _meshObjects; }
 
-    // Transmit a plot's house MeshObjects to everyone currently on this map. MeshObjects are not
-    // delivered by ordinary grid visibility — every other site in this system sends them by hand —
-    // so a house spawned while players are already standing here has to be pushed explicitly.
+    // Transmit a plot's house MeshObjects to everyone on this map; grid visibility does not deliver them.
     void SendPlotMeshObjectsToPlayers(uint8 plotIndex);
 
-    // Transmit a plot's geometry entities (room identity, Geobox room-component mesh, exterior
-    // root Entity, Group B mirrors) to one player — the entities the client's placement/move
-    // validation consumes. Login ships them in the self bundle; mid-session site changes must
-    // re-send them explicitly or the client rejects placements until a relog.
+    // Transmit a plot's geometry entities (room identity, Geobox mesh, root Entity, Group B mirrors) to one player.
     void SendPlotGeometryEntitiesToPlayer(uint8 plotIndex, Player* player);
     void SendPlotGeometryEntitiesToMap(uint8 plotIndex);
 
@@ -214,17 +183,7 @@ public:
     void SendPlotEnterSpellPackets(Player* player, uint8 plotIndex);
     void SendPlotLeaveAuraRemoval(Player* player);
 
-    // Blizzlike neighborhood-map-entry aura burst. Sniff-decoded from
-    // dump_12.0.1.66838_2026-04-15_09-35-59.pkt at idx 9985-10000 (and
-    // cross-checked against the 2026-04-10 capture). Emits the four
-    // housing-specific AURA_UPDATE+SPELL_START+SPELL_GO triples that retail
-    // sends immediately after the big UPDATE_OBJECT batch: Housing Fixup
-    // (1272741 slot 20), Player Action React (1263578 slot 22), Endeavor
-    // Cover (1276064 slot 53), In Your Neighborhood (1227147 slot 121 with
-    // SpellXSpellVisualID 503683). Each aura has ActiveFlags and Flags
-    // sniff-verified per slot. Non-housing pre-existing character auras
-    // (e.g. class talents) are intentionally excluded — core TC aura
-    // resync handles those.
+    // Retail neighborhood-map-entry aura burst: four housing-specific AURA_UPDATE+SPELL_START+SPELL_GO triples.
     void SendNeighborhoodMapEntryAuras(Player* player);
 
 private:
@@ -244,13 +203,10 @@ private:
     std::unordered_map<uint8, std::vector<ObjectGuid::LowType>> _plotGroundSpawns;
     std::unordered_set<ObjectGuid::LowType> _suppressedPlotSpawns;
 
-    // "Group B" per-piece mesh-level Entity mirrors, one per visible exterior
-    // fixture MeshObject (Type 9/10/11/12). Co-spawned with the house and
-    // despawned together. Vector since retail emits 4 of these per plot.
+    // "Group B" per-piece Entity mirrors, co-spawned with the house and despawned together.
     std::unordered_map<uint8, std::vector<std::unique_ptr<HousingMirrorEntity>>> _houseMeshMirrorEntities;
 
-    // Lightweight Housing/2 identity room GUID per plot. The entity itself is
-    // a WorldObject owned by the map's object store; we only track its GUID.
+    // Housing/2 identity room GUID per plot; the entity is owned by the map's object store.
     std::unordered_map<uint8, ObjectGuid> _roomIdentityGuids;
 
     // MeshObject tracking (plotIndex -> vector of MeshObject GUIDs)

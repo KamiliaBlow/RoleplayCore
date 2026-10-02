@@ -93,40 +93,31 @@ void NeighborhoodCharter::SaveToDB(CharacterDatabaseTransaction trans)
         stmt->setUInt32(index++, _createTime);
         trans->Append(stmt);
     }
-
 }
 
-/*static*/ void NeighborhoodCharter::DeleteFromDB(uint64 id, CharacterDatabaseTransaction trans)
+void NeighborhoodCharter::DeleteFromDB(uint64 id, CharacterDatabaseTransaction trans)
 {
-    // Delete signatures first (foreign key dependency)
+    // Signatures first (foreign key dependency)
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_CHARTER_SIGNATURES);
     stmt->setUInt64(0, id);
     trans->Append(stmt);
 
-    // Delete the charter
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_NEIGHBORHOOD_CHARTER);
     stmt->setUInt64(0, id);
     trans->Append(stmt);
-
 }
 
 bool NeighborhoodCharter::AddSignature(ObjectGuid signerGuid)
 {
-    // Cannot sign your own charter
+    // Cannot sign your own charter or sign twice
     if (signerGuid == _creatorGuid)
-    {
         return false;
-    }
 
-    // Cannot sign twice
     if (HasSigned(signerGuid))
-    {
         return false;
-    }
 
     _signatures.push_back(signerGuid);
 
-    // Persist the new signature immediately
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_NEIGHBORHOOD_CHARTER_SIGNATURE);
     uint8 index = 0;

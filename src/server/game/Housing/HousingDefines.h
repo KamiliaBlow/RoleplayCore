@@ -21,10 +21,7 @@
 #include "Define.h"
 #include "Duration.h"
 
-// HousingResult enum - 12.1.0.69587 client values (Enum.HousingResult, 112 values). 12.1 inserted AccountBanned and the
-// Blueprint* results near the top, shifting every later value; the client's blueprint system itself returns 3, 7, 8,
-// 11, 12, 13, 87, 95 and 99 for CodeInvalid, LocationInvalid, NameInvalid, RoomPlacementRequired, TypeInvalid,
-// TypeLocationInvalid, PermissionDenied, RoomNotFound and ServiceNotAvailable.
+// Enum.HousingResult client values, sent as uint8
 enum HousingResult : uint8
 {
     HOUSING_RESULT_SUCCESS                                   = 0,
@@ -141,7 +138,7 @@ enum HousingResult : uint8
     HOUSING_RESULT_UNLOCK_OPERATION_FAILED                   = 111
 };
 
-// HouseEditorMode enum - 7 values
+// HouseEditorMode
 enum HousingEditorMode : uint8
 {
     HOUSING_EDITOR_MODE_NONE                    = 0,
@@ -153,7 +150,7 @@ enum HousingEditorMode : uint8
     HOUSING_EDITOR_MODE_EXTERIOR_CUSTOMIZATION  = 6
 };
 
-// HouseEditingContext enum - 4 values
+// HouseEditingContext
 enum HouseEditingContext : uint8
 {
     HOUSE_EDITING_CONTEXT_NONE      = 0,
@@ -162,7 +159,7 @@ enum HouseEditingContext : uint8
     HOUSE_EDITING_CONTEXT_FIXTURE   = 3
 };
 
-// HousingFixtureSize enum - 5 values
+// HousingFixtureSize
 enum HousingFixtureSize : uint8
 {
     HOUSING_FIXTURE_SIZE_NONE       = 0,
@@ -172,7 +169,7 @@ enum HousingFixtureSize : uint8
     HOUSING_FIXTURE_SIZE_LARGE      = 4
 };
 
-// HousingFixtureType enum - 9 values (sparse)
+// HousingFixtureType (sparse values)
 enum HousingFixtureType : uint8
 {
     HOUSING_FIXTURE_TYPE_NONE           = 0,
@@ -186,7 +183,7 @@ enum HousingFixtureType : uint8
     HOUSING_FIXTURE_TYPE_CHIMNEY        = 16
 };
 
-// HousingRoomComponentType enum - 8 values
+// HousingRoomComponentType
 enum HousingRoomComponentType : uint8
 {
     HOUSING_ROOM_COMPONENT_NONE         = 0,
@@ -199,7 +196,7 @@ enum HousingRoomComponentType : uint8
     HOUSING_ROOM_COMPONENT_DOORWAY      = 7
 };
 
-// HousingRoomComponentDoorType enum - 3 values
+// HousingRoomComponentDoorType
 enum HousingRoomComponentDoorType : uint8
 {
     HOUSING_ROOM_DOOR_TYPE_NONE         = 0,
@@ -207,14 +204,14 @@ enum HousingRoomComponentDoorType : uint8
     HOUSING_ROOM_DOOR_TYPE_THRESHOLD    = 2
 };
 
-// HousingRoomComponentCeilingType enum - 2 values
+// HousingRoomComponentCeilingType
 enum HousingRoomComponentCeilingType : uint8
 {
     HOUSING_ROOM_CEILING_TYPE_FLAT      = 0,
     HOUSING_ROOM_CEILING_TYPE_VAULTED   = 1
 };
 
-// HousingRoomComponentStairType enum - 5 values
+// HousingRoomComponentStairType
 enum HousingRoomComponentStairType : uint8
 {
     HOUSING_ROOM_STAIR_TYPE_NONE            = 0,
@@ -224,7 +221,7 @@ enum HousingRoomComponentStairType : uint8
     HOUSING_ROOM_STAIR_TYPE_MIDDLE_TO_END   = 4
 };
 
-// HousingRoomComponentOptionType enum - 3 values
+// HousingRoomComponentOptionType
 enum HousingRoomComponentOptionType : uint8
 {
     HOUSING_ROOM_COMPONENT_OPTION_COSMETIC      = 0,
@@ -232,11 +229,7 @@ enum HousingRoomComponentOptionType : uint8
     HOUSING_ROOM_COMPONENT_OPTION_DOORWAY       = 2
 };
 
-// DecorSourceType ? identifies how a decor item was acquired.
-// IDA-verified: client reads SourceType as uint8 and SourceValue as SizedCString from DecorStoragePersistedData.
-// Retail sniff examples:
-//   SourceType=5, SourceValue="1250393"            ? spell-acquired (spell ID as string)
-//   SourceType=6, SourceValue="3713-0-40000009CD1F16CB" ? item-acquired (item GUID as string)
+// How a decor item was acquired (SourceValue carries the spell ID / item GUID as a string)
 enum DecorSourceType : uint8
 {
     DECOR_SOURCE_STANDARD       = 0, // Default / starter decor / placed
@@ -245,9 +238,7 @@ enum DecorSourceType : uint8
     DECOR_SOURCE_DEFERRED       = 3, // Redeemed from deferred reward queue
 };
 
-// DecorStoragePersistedData.PlacementStatus (retail 12.1.0.69933: the same decor record is 1
-// while placed inside the house and 2 while placed on the plot; 0 = back in storage). The client
-// sums the interior placement budget from status 1 records and the exterior budget from status 2.
+// DecorStoragePersistedData.PlacementStatus: the client sums the interior budget from 1 records, exterior from 2.
 enum HousingDecorPlacementStatus : uint8
 {
     HOUSING_DECOR_IN_STORAGE    = 0,
@@ -255,7 +246,7 @@ enum HousingDecorPlacementStatus : uint8
     HOUSING_DECOR_PLACED_PLOT   = 2,
 };
 
-// HousingCatalogEntryType enum - 3 values
+// HousingCatalogEntryType
 enum HousingCatalogEntryType : uint8
 {
     HOUSING_CATALOG_ENTRY_INVALID   = 0,
@@ -263,7 +254,7 @@ enum HousingCatalogEntryType : uint8
     HOUSING_CATALOG_ENTRY_ROOM      = 2
 };
 
-// HousingCatalogEntrySize enum - 6 values
+// HousingCatalogEntrySize
 enum HousingCatalogEntrySize : uint8
 {
     HOUSING_CATALOG_SIZE_NONE       = 0,
@@ -274,7 +265,7 @@ enum HousingCatalogEntrySize : uint8
     HOUSING_CATALOG_SIZE_HUGE       = 69
 };
 
-// HousingDecorTheme enum - 6 values
+// HousingDecorTheme
 enum HousingDecorTheme : uint8
 {
     HOUSING_DECOR_THEME_NONE        = 0,
@@ -285,14 +276,14 @@ enum HousingDecorTheme : uint8
     HOUSING_DECOR_THEME_BLOOD_ELF   = 5
 };
 
-// RoomConnectionType enum - 2 values
+// RoomConnectionType
 enum RoomConnectionType : uint8
 {
     ROOM_CONNECTION_NONE    = 0,
     ROOM_CONNECTION_ALL     = 1
 };
 
-// HousingRoomFlags enum - 5 values (bitmask)
+// HousingRoomFlags (bitmask)
 enum HousingRoomFlags : uint32
 {
     HOUSING_ROOM_FLAG_NONE                  = 0x00,
@@ -302,7 +293,7 @@ enum HousingRoomFlags : uint32
     HOUSING_ROOM_FLAG_HAS_CUSTOM_GEOMETRY   = 0x08
 };
 
-// HousingLayoutRestriction enum - 10 values
+// HousingLayoutRestriction
 enum HousingLayoutRestriction : uint8
 {
     HOUSING_LAYOUT_RESTRICTION_NONE                 = 0,
@@ -317,7 +308,7 @@ enum HousingLayoutRestriction : uint8
     HOUSING_LAYOUT_RESTRICTION_SINGLE_DOOR          = 9
 };
 
-// NeighborhoodInviteResult enum - 11 values (0-10), verified against client binary
+// NeighborhoodInviteResult (verified against client binary)
 enum NeighborhoodInviteResult : uint8
 {
     NEIGHBORHOOD_INVITE_SUCCESS                 = 0,
@@ -333,7 +324,7 @@ enum NeighborhoodInviteResult : uint8
     NEIGHBORHOOD_INVITE_TOO_MANY_REQUESTS       = 10
 };
 
-// Enum.BulkRefundResult (12.1.0.69587, BattlepayConstantsDocumentation.lua)
+// Enum.BulkRefundResult
 enum BulkRefundResult : uint8
 {
     BULK_REFUND_RESULT_SUCCESS                  = 0,
@@ -344,7 +335,7 @@ enum BulkRefundResult : uint8
     BULK_REFUND_RESULT_TIMEOUT                  = 5
 };
 
-// HouseOwnerError enum - 4 values (JamPotentialCosmeticHouseOwner.Error: the house settings owner list greys the character out)
+// HouseOwnerError (JamPotentialCosmeticHouseOwner.Error: the house settings owner list greys the character out)
 enum HouseOwnerError : uint8
 {
     HOUSE_OWNER_ERROR_NONE                  = 0,
@@ -353,7 +344,7 @@ enum HouseOwnerError : uint8
     HOUSE_OWNER_ERROR_GENERIC_PERMISSION    = 3
 };
 
-// CreateNeighborhoodErrorType enum - 4 values
+// CreateNeighborhoodErrorType
 enum CreateNeighborhoodErrorType : uint8
 {
     CREATE_NEIGHBORHOOD_ERROR_NONE              = 0,
@@ -362,7 +353,7 @@ enum CreateNeighborhoodErrorType : uint8
     CREATE_NEIGHBORHOOD_ERROR_OVERSIZED_GUILD   = 3
 };
 
-// NeighborhoodMemberRole enum - 3 values
+// NeighborhoodMemberRole
 enum NeighborhoodMemberRole : uint8
 {
     NEIGHBORHOOD_ROLE_RESIDENT  = 0,
@@ -370,7 +361,7 @@ enum NeighborhoodMemberRole : uint8
     NEIGHBORHOOD_ROLE_OWNER     = 2
 };
 
-// NeighborhoodFactionRestriction enum - 3 values
+// NeighborhoodFactionRestriction
 enum NeighborhoodFactionRestriction : int32
 {
     NEIGHBORHOOD_FACTION_NONE       = 0,
@@ -378,23 +369,13 @@ enum NeighborhoodFactionRestriction : int32
     NEIGHBORHOOD_FACTION_ALLIANCE   = 2
 };
 
-// closedInfoFramesAccountWide is the client's FrameTutorialAccount bitfield, kept in the
-// GLOBAL_CONFIG_CACHE account data as two space-separated uint32 words (48 bits; word 0 = bits 0-31,
-// word 1 = bits 32-47). The housing editor keeps its expert/cleanup/layout/customize modes locked until
-// bit 38 "HousingModesUnlocked" is set: 38 - 32 = 6 within word 1, so 1 << 6 = 64 -> "0 64".
-//
-// Set ONLY that bit. Writing the whole field (the old "4294967295 4294967295") also marked every other
-// FrameTutorialAccount step as already seen and, together with housingTutorialsEnabled=0, told the client
-// the housing tutorial was already finished - so a first-time buyer was dropped straight into the House
-// Finder instead of being walked through it. Unlocking the editor modes was the only thing that change
-// was ever meant to do.
+// FrameTutorialAccount bit 38 "HousingModesUnlocked" in the account data: word 1, bit 6 -> "0 64".
 constexpr char const* HOUSING_MODES_UNLOCKED_CVAR = "0 64";
 
 // Rewarding all four quests (in the chain's own order) ends the housing tutorial.
 constexpr uint32 HOUSING_TUTORIAL_QUEST_CHAIN[] = { 93057, 91863, 91968, 91969 };
 
-// HouseSettingFlags enum - 11 values (bitmask), verified against client binary
-// Two groups: HouseAccess (bits 0-4) for interior, PlotAccess (bits 5-9) for exterior
+// HouseSettingFlags (bitmask): bits 0-4 HouseAccess (interior), bits 5-9 PlotAccess (exterior)
 enum HouseSettingFlags : uint32
 {
     HOUSE_SETTING_NONE                      = 0x000,
@@ -408,7 +389,7 @@ enum HouseSettingFlags : uint32
     HOUSE_SETTING_PLOT_ACCESS_GUILD         = 0x080,
     HOUSE_SETTING_PLOT_ACCESS_FRIENDS       = 0x100,
     HOUSE_SETTING_PLOT_ACCESS_PARTY         = 0x200,
-    // 12.1 (Enum.HouseSettingFlags registration 0x7FF7CE1216E0): who may export this house as a blueprint.
+    // Who may export this house as a blueprint.
     HOUSE_SETTING_BLUEPRINT_EXPORT_ANYONE   = 0x400,
     HOUSE_SETTING_BLUEPRINT_EXPORT_NEIGHBORS = 0x800,
     HOUSE_SETTING_BLUEPRINT_EXPORT_GUILD    = 0x1000,
@@ -416,9 +397,7 @@ enum HouseSettingFlags : uint32
     HOUSE_SETTING_BLUEPRINT_EXPORT_PARTY    = 0x4000
 };
 
-// Fresh-house default: plot AND house open to everyone. 0x020 alone was the sniffed value of an
-// existing house; with the "no bits = open" fallback removed from CanVisitorAccessPlot, a default
-// of 0x020 would lock fresh interiors to guests until the owner saves settings once.
+// Fresh-house default: plot AND house open to everyone ("no bits = nobody", so both must be set).
 constexpr uint32 HOUSE_SETTING_DEFAULT    = HOUSE_SETTING_PLOT_ACCESS_ANYONE | HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
 constexpr uint32 HOUSE_SETTING_VALID_MASK = 0x7FFF; // bits 0-14
 
@@ -432,36 +411,22 @@ enum HousingDecorPlacementFlags : int32
     DECOR_PLACEMENT_STACKABLE   = 0x10
 };
 
-// SMSG_HOUSING_GET_PLAYER_PERMISSIONS_RESPONSE flags, retail 12.1.0.69933: 0xFE for the player's
-// own house; 0x10 for a plain visitor of other houses. Observed extras: 0x18 and 0x1C. The 0x1C
-// case is identified (capture 2026-09-27 01:52:16): a house whose owner set EVERY access group to
-// Anyone (HouseSettingFlags 0x7FFF) answered 0x1C = VISITOR | 0x0C to a stranger, so bits 2 and 3
-// are grants the BlueprintExport settings unlock - the client's C_HousingBlueprint.GetExport/
-// GetImportAvailability read this byte, and the blueprint button's
-// HOUSING_CONTROLS_BLUEPRINT_UNAVAILABLE_PERMISSION tooltip is exactly the missing 0x0C.
-// 0x18 (bit 3 alone) is presumably a narrower export grant; which bit is export and which is
-// import was not separated by the captures, so an export-enabled visitor gets both.
+// SMSG_HOUSING_GET_PLAYER_PERMISSIONS_RESPONSE flags: 0xFE own house, 0x10 plain visitor, 0x0C blueprint export/import grants.
 constexpr uint8 HOUSING_PERMISSIONS_OWNER   = 0xFE;
 constexpr uint8 HOUSING_PERMISSIONS_VISITOR = 0x10;
 constexpr uint8 HOUSING_PERMISSIONS_BLUEPRINT = 0x0C;
 
-// TrinityString entry for the plot-eviction warning (ID chosen to match the live DB).
-// Retail sends it as CHAT_MSG_RAID_BOSS_WHISPER with the sender set to the visitor
-// (dump 2026-10-02 12:25: packet #20314, HasBroadcastTextID=false - the text is
-// server-side, not a GlobalString).
+// TrinityString entry for the plot-eviction warning (sent as CHAT_MSG_RAID_BOSS_WHISPER).
 constexpr uint32 HOUSING_STRING_PLOT_ACCESS_DENIED = 304665;
 
-// Plot eviction sequence (dump 2026-10-02 12:25: SPELL_GO #20308 + AURA_UPDATE with
-// Duration=5000, then the whisper, then MOVE_TELEPORT_ACK ~5s later when the aura expires).
+// Plot eviction sequence: warning spell + aura, then the whisper, then the teleport when the aura expires.
 constexpr uint32 SPELL_HOUSING_PLOT_EVICT_WARNING = 1245416;
 constexpr Milliseconds HOUSING_PLOT_EVICT_DELAY = 5s;
 
-// HouseDecor.db2 Flags bit carried by licensed (shop / promotional) decor. Retail 12.1.0.69933 lists only such
-// entries in SMSG_GET_ALL_LICENSED_DECOR_QUANTITIES_RESPONSE (all 8 captured have Flags 0x503 or 0x403);
-// ordinary decor (Flags 0x3) never appears there.
+// HouseDecor.db2 Flags bit carried by licensed (shop / promotional) decor.
 constexpr int32 HOUSE_DECOR_FLAG_LICENSED = 0x400;
 
-// HousingRoomSize enum - 3 values
+// HousingRoomSize
 enum HousingRoomSize : int8
 {
     ROOM_SIZE_SMALL     = 0,
@@ -469,7 +434,7 @@ enum HousingRoomSize : int8
     ROOM_SIZE_LARGE     = 2
 };
 
-// HousingPlotSize enum - 3 values
+// HousingPlotSize
 enum HousingPlotSize : int32
 {
     PLOT_SIZE_SMALL     = 0,
@@ -477,7 +442,7 @@ enum HousingPlotSize : int32
     PLOT_SIZE_LARGE     = 2
 };
 
-// HousingInitiativeType enum - 4 values
+// HousingInitiativeType
 enum HousingInitiativeType : int32
 {
     INITIATIVE_TYPE_GATHERING       = 0,
@@ -486,7 +451,7 @@ enum HousingInitiativeType : int32
     INITIATIVE_TYPE_EXPLORATION     = 3
 };
 
-// HousingFixtureFlags enum - 3 values (bitmask)
+// HousingFixtureFlags (bitmask)
 enum HousingFixtureFlags : uint32
 {
     HOUSING_FIXTURE_FLAG_NONE               = 0x00,
@@ -494,15 +459,14 @@ enum HousingFixtureFlags : uint32
     HOUSING_FIXTURE_FLAG_UNLOCKED_BY_DEFAULT = 0x02
 };
 
-// HousingRoomComponentFlags enum - 2 values (bitmask)
+// HousingRoomComponentFlags (bitmask)
 enum HousingRoomComponentFlags : uint32
 {
     HOUSING_ROOM_COMPONENT_FLAG_NONE                    = 0x00,
     HOUSING_ROOM_COMPONENT_FLAG_HIDDEN_IN_LAYOUT_MODE   = 0x01
 };
 
-// HousingDecorPlacementRestriction enum - 7 values (bitmask) - 12.0.7 (68275) client-verified,
-// server-sent placement-failure reasons. HOUSING_ENUMS_68275.md.
+// HousingDecorPlacementRestriction (bitmask) - server-sent placement-failure reasons.
 enum HousingDecorPlacementRestriction : uint32
 {
     HOUSING_DECOR_PLACEMENT_RESTRICTION_TOO_FAR_AWAY          = 0x01,
@@ -514,21 +478,21 @@ enum HousingDecorPlacementRestriction : uint32
     HOUSING_DECOR_PLACEMENT_RESTRICTION_INVALID_LIGHT_OVERLAP = 0x40
 };
 
-// HousingRoomComponentOptionFlags enum - 2 values (bitmask)
+// HousingRoomComponentOptionFlags (bitmask)
 enum HousingRoomComponentOptionFlags : uint32
 {
     HOUSING_ROOM_COMPONENT_OPTION_FLAG_NONE         = 0x00,
     HOUSING_ROOM_COMPONENT_OPTION_FLAG_IS_DEFAULT   = 0x01
 };
 
-// HousingRoomComponentTextureFlags enum - 2 values (bitmask)
+// HousingRoomComponentTextureFlags (bitmask)
 enum HousingRoomComponentTextureFlags : uint32
 {
     HOUSING_ROOM_COMPONENT_TEXTURE_FLAG_NONE                    = 0x00,
     HOUSING_ROOM_COMPONENT_TEXTURE_FLAG_UNLOCKED_BY_DEFAULT     = 0x01
 };
 
-// NeighborhoodFlags enum - 3 values (bitmask)
+// NeighborhoodFlags (bitmask)
 enum NeighborhoodFlags : uint32
 {
     NEIGHBORHOOD_FLAG_NONE              = 0x00,
@@ -536,7 +500,7 @@ enum NeighborhoodFlags : uint32
     NEIGHBORHOOD_FLAG_OPEN_TO_PUBLIC    = 0x02
 };
 
-// HouseExteriorWMODataFlags enum - 4 values (bitmask)
+// HouseExteriorWMODataFlags (bitmask)
 enum HouseExteriorWMODataFlags : uint32
 {
     HOUSE_EXTERIOR_WMO_FLAG_NONE                            = 0x00,
@@ -545,11 +509,7 @@ enum HouseExteriorWMODataFlags : uint32
     HOUSE_EXTERIOR_WMO_FLAG_ALLOWED_IN_ALLIANCE_NEIGHBORHOODS = 0x04
 };
 
-// ============================================================================
-// New enums from client binary analysis (previously missing)
-// ============================================================================
-
-// HousingDecorModelType enum - 3 values
+// HousingDecorModelType
 enum HousingDecorModelType : uint8
 {
     HOUSING_DECOR_MODEL_TYPE_NONE   = 0,
@@ -557,7 +517,7 @@ enum HousingDecorModelType : uint8
     HOUSING_DECOR_MODEL_TYPE_WMO    = 2
 };
 
-// NeighborhoodInitiativeUpdateStatus enum ? sent via SMSG_INITIATIVE_UPDATE_STATUS
+// NeighborhoodInitiativeUpdateStatus - sent via SMSG_INITIATIVE_UPDATE_STATUS
 enum NeighborhoodInitiativeUpdateStatus : uint8
 {
     NI_UPDATE_STATUS_STARTED                = 0,
@@ -566,7 +526,7 @@ enum NeighborhoodInitiativeUpdateStatus : uint8
     NI_UPDATE_STATUS_FAILED                 = 3
 };
 
-// NeighborhoodInitiativeChestResult enum ? sent via SMSG_INITIATIVE_CHEST_RESULT
+// NeighborhoodInitiativeChestResult - sent via SMSG_INITIATIVE_CHEST_RESULT
 enum NeighborhoodInitiativeChestResult : uint32
 {
     NI_CHEST_SUCCESS                = 0,
@@ -577,7 +537,7 @@ enum NeighborhoodInitiativeChestResult : uint32
     NI_CHEST_SERVICE_DISABLED       = 5
 };
 
-// NeighborhoodInitiativeTaskType enum ? from InitiativeTask DB2 TaskType field
+// NeighborhoodInitiativeTaskType - from InitiativeTask DB2 TaskType field
 enum NeighborhoodInitiativeTaskType : int32
 {
     NI_TASK_TYPE_SINGLE                 = 0,
@@ -585,7 +545,7 @@ enum NeighborhoodInitiativeTaskType : int32
     NI_TASK_TYPE_REPEATABLE_INFINITE    = 2
 };
 
-// NeighborhoodInitiativeCompletionState enum ? per-task completion state
+// NeighborhoodInitiativeCompletionState - per-task completion state
 enum NeighborhoodInitiativeCompletionState : uint8
 {
     NI_COMPLETION_NOT_COMPLETED         = 0,
@@ -593,7 +553,7 @@ enum NeighborhoodInitiativeCompletionState : uint8
     NI_COMPLETION_SYSTEM_ABANDONED      = 2
 };
 
-// NeighborhoodInitiativeFlags enum ? from NeighborhoodInitiative DB2 Flags field
+// NeighborhoodInitiativeFlags - from NeighborhoodInitiative DB2 Flags field
 enum NeighborhoodInitiativeFlags : uint32
 {
     NI_FLAG_DISABLED    = 0x1,
@@ -601,13 +561,13 @@ enum NeighborhoodInitiativeFlags : uint32
     NI_FLAG_NO_REPEAT   = 0x4
 };
 
-// InitiativeMilestoneFlags enum ? from InitiativeMilestone DB2 Flags field
+// InitiativeMilestoneFlags - from InitiativeMilestone DB2 Flags field
 enum InitiativeMilestoneFlags : int32
 {
     INITIATIVE_MILESTONE_FLAG_FINAL = 0x1
 };
 
-// InitiativeRewardFlags enum ? from InitiativeReward DB2 Flags field
+// InitiativeRewardFlags - from InitiativeReward DB2 Flags field
 enum InitiativeRewardFlags : int32
 {
     INITIATIVE_REWARD_FLAG_PERMANENT_WORLD_STATE = 0x1
@@ -620,7 +580,7 @@ enum NeighborhoodInitiativeNeighborhoodType : uint8
     NI_NEIGHBORHOOD_TYPE_POOL       = 1
 };
 
-// HousingFavorUpdateSource enum - 8 values
+// HousingFavorUpdateSource
 enum HousingFavorUpdateSource : uint8
 {
     HOUSING_FAVOR_SOURCE_UNKNOWN            = 0,
@@ -633,7 +593,7 @@ enum HousingFavorUpdateSource : uint8
     HOUSING_FAVOR_SOURCE_QUEST              = 7
 };
 
-// HousingFavorUpdateType enum - 3 values
+// HousingFavorUpdateType
 enum HousingFavorUpdateType : uint8
 {
     HOUSING_FAVOR_UPDATE_NONE           = 0,
@@ -641,7 +601,7 @@ enum HousingFavorUpdateType : uint8
     HOUSING_FAVOR_UPDATE_SET            = 2
 };
 
-// HousingPlotOwnerType enum - 4 values
+// HousingPlotOwnerType
 enum HousingPlotOwnerType : uint8
 {
     HOUSING_PLOT_OWNER_NONE     = 0,
@@ -650,7 +610,7 @@ enum HousingPlotOwnerType : uint8
     HOUSING_PLOT_OWNER_SELF     = 3
 };
 
-// HousingTeleportReason enum - 12 values
+// HousingTeleportReason
 enum HousingTeleportReason : uint8
 {
     HOUSING_TELEPORT_NONE                   = 0,
@@ -667,14 +627,14 @@ enum HousingTeleportReason : uint8
     HOUSING_TELEPORT_TUTORIAL               = 11
 };
 
-// HousingThrottleType enum - 2 values
+// HousingThrottleType
 enum HousingThrottleType : uint8
 {
     HOUSING_THROTTLE_GENERAL    = 0,
     HOUSING_THROTTLE_DECORATION = 1
 };
 
-// HousingThemeFlags enum - 3 values (bitmask)
+// HousingThemeFlags (bitmask)
 enum HousingThemeFlags : uint32
 {
     HOUSING_THEME_FLAG_NONE                     = 0x00,
@@ -682,7 +642,7 @@ enum HousingThemeFlags : uint32
     HOUSING_THEME_FLAG_SHOW_IN_STYLE_SELECTOR   = 0x02
 };
 
-// NeighborhoodMapFlags enum - 4 values (bitmask)
+// NeighborhoodMapFlags (bitmask)
 enum NeighborhoodMapFlags : uint32
 {
     NEIGHBORHOOD_MAP_FLAG_NONE                  = 0x00,
@@ -691,7 +651,7 @@ enum NeighborhoodMapFlags : uint32
     NEIGHBORHOOD_MAP_FLAG_CAN_SYSTEM_GENERATE   = 0x04
 };
 
-// NeighborhoodOwnerType enum - 3 values
+// NeighborhoodOwnerType
 enum NeighborhoodOwnerType : uint8
 {
     NEIGHBORHOOD_OWNER_NONE     = 0,
@@ -699,7 +659,7 @@ enum NeighborhoodOwnerType : uint8
     NEIGHBORHOOD_OWNER_CHARTER  = 2
 };
 
-// NeighborhoodType enum - 3 values
+// NeighborhoodType
 enum NeighborhoodType : uint8
 {
     NEIGHBORHOOD_TYPE_OPEN      = 0,
@@ -707,7 +667,7 @@ enum NeighborhoodType : uint8
     NEIGHBORHOOD_TYPE_PUBLIC    = 2
 };
 
-// PurchaseHouseDisabledReason enum - 10 values
+// PurchaseHouseDisabledReason
 enum PurchaseHouseDisabledReason : uint8
 {
     PURCHASE_HOUSE_DISABLED_NONE                = 0,
@@ -722,7 +682,7 @@ enum PurchaseHouseDisabledReason : uint8
     PURCHASE_HOUSE_DISABLED_NO_GAME_TIME        = 9
 };
 
-// ReservationFlags enum - 4 values (bitmask)
+// ReservationFlags (bitmask)
 enum ReservationFlags : uint32
 {
     RESERVATION_FLAG_NONE       = 0x00,
@@ -731,14 +691,14 @@ enum ReservationFlags : uint32
     RESERVATION_FLAG_PLOTLESS   = 0x04
 };
 
-// RetroactiveDecorRewardFlags enum - 2 values (bitmask)
+// RetroactiveDecorRewardFlags (bitmask)
 enum RetroactiveDecorRewardFlags : uint32
 {
     RETROACTIVE_DECOR_REWARD_FLAG_NONE                  = 0x00,
     RETROACTIVE_DECOR_REWARD_FLAG_ALL_CRITERIA_REQUIRED = 0x01
 };
 
-// InvalidPlotScreenshotReason enum - 5 values
+// InvalidPlotScreenshotReason
 enum InvalidPlotScreenshotReason : uint8
 {
     INVALID_PLOT_SCREENSHOT_NONE                = 0,
@@ -748,7 +708,7 @@ enum InvalidPlotScreenshotReason : uint8
     INVALID_PLOT_SCREENSHOT_NO_ACTIVE_PLAYER    = 4
 };
 
-// HouseFinderSuggestionReason enum - 9 values (Enum.HouseFinderSuggestionReason, 12.1.0.69933)
+// HouseFinderSuggestionReason (bitmask)
 enum HouseFinderSuggestionReason : uint8
 {
     HOUSE_FINDER_SUGGESTION_NONE            = 0x00,
@@ -762,7 +722,7 @@ enum HouseFinderSuggestionReason : uint8
     HOUSE_FINDER_SUGGESTION_RELINQUISHED    = 0x80
 };
 
-// CornerstonePurchaseMode enum - 3 values
+// CornerstonePurchaseMode
 enum CornerstonePurchaseMode : uint8
 {
     CORNERSTONE_PURCHASE_BASIC  = 0,
@@ -770,14 +730,14 @@ enum CornerstonePurchaseMode : uint8
     CORNERSTONE_PURCHASE_MOVE   = 2
 };
 
-// HouseLevelRewardType enum - 2 values
+// HouseLevelRewardType
 enum HouseLevelRewardType : uint8
 {
     HOUSE_LEVEL_REWARD_VALUE    = 0,
     HOUSE_LEVEL_REWARD_OBJECT   = 1
 };
 
-// HouseVisitType enum - 4 values
+// HouseVisitType
 enum HouseVisitType : uint8
 {
     HOUSE_VISIT_UNKNOWN = 0,
@@ -786,7 +746,7 @@ enum HouseVisitType : uint8
     HOUSE_VISIT_PARTY   = 3
 };
 
-// HousingItemToastType enum - 5 values
+// HousingItemToastType
 enum HousingItemToastType : uint8
 {
     HOUSING_ITEM_TOAST_ROOM          = 0,
@@ -796,13 +756,13 @@ enum HousingItemToastType : uint8
     HOUSING_ITEM_TOAST_HOUSE         = 4
 };
 
-// HousingRoomComponentFloorType enum - 1 value
+// HousingRoomComponentFloorType
 enum HousingRoomComponentFloorType : uint8
 {
     HOUSING_ROOM_COMPONENT_FLOOR_TYPE_FLOOR = 0
 };
 
-// HousingDecorType enum - 5 values
+// HousingDecorType
 enum HousingDecorType : uint8
 {
     HOUSING_DECOR_TYPE_NONE     = 0,
@@ -812,7 +772,7 @@ enum HousingDecorType : uint8
     HOUSING_DECOR_TYPE_FLOORING = 4
 };
 
-// HouseLevelRewardValueType enum - 4 values
+// HouseLevelRewardValueType
 enum HouseLevelRewardValueType : uint8
 {
     HOUSE_LEVEL_REWARD_EXTERIOR_DECOR   = 0,
@@ -822,36 +782,17 @@ enum HouseLevelRewardValueType : uint8
 };
 
 // Constants
-// M1/A4 spatial-validation bound. Decor positions are world coordinates (what the client sends and what
-// character_housing_decor stores), so they are measured from Housing::GetDecorPlacementAnchor: the interior
-// origin for interior decor, the owner's position for plot decor. A plot or interior is a few tens of yards
-// across; this half-extent never rejects a legitimate placement but still refuses arbitrary-coordinate spam.
+// Spatial-validation half-extent for decor positions, measured from the placement anchor.
 static constexpr float HOUSING_MAX_DECOR_LOCAL_EXTENT  = 1024.0f;
-// #16 Outdoor Lighting (12.0.7): DecorCategory.db2 id 4 "Lighting" (subcategories
-// 16-21: Large/Wall/Ceiling/Small/Misc Lights). 12.0.7 lets Lighting decor be
-// placed outdoors on the plot; the placement path classifies a decor as Lighting
-// through DecorXDecorSubcategory -> DecorSubcategory.DecorCategoryID.
+// DecorCategory.db2 id 4 "Lighting" (12.0.7 lets Lighting decor be placed outdoors).
 static constexpr uint32 HOUSING_DECOR_CATEGORY_LIGHTING = 4;
-// A4 / RETAIL PARITY-OUTDOOR-LIGHT-RADIUS: 12.0.7 rule "two lights cannot overlap".
-// The exact light-to-light overlap radius is NOT datamineable from DB2 or any
-// capture we hold (CAPTURE-BLOCKED). This is a documented default minimum
-// separation between two exterior lights, in local decor space (yards) ? replace
-// with the sniffed value once an outdoor-light placement capture exists.
+// 12.0.7 "two lights cannot overlap" rule; not datamineable, documented default separation in yards.
 static constexpr float HOUSING_LIGHT_OVERLAP_RADIUS = 3.0f;
 
-// H-05 bound for CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION. A player may nudge the
-// house around its own plot; they may not relocate it. The plot's placement
-// volume is the RoomWmoData geobox SpawnRoomForPlot uses (~+/-35 x +/-30 yards),
-// so these half-extents are deliberately a little wider than that - generous
-// enough never to reject a legitimate reposition, tight enough that the house
-// cannot be parked on a neighbour's plot or flung off the map. Before this the
-// handler validated std::isfinite() and nothing else, and the value was
-// persisted, so any finite coordinate survived a restart.
+// Half-extents for CMSG_HOUSE_EXTERIOR_SET_HOUSE_POSITION: nudge within the plot, no relocation.
 static constexpr float HOUSING_MAX_HOUSE_PLOT_OFFSET_XY = 45.0f;
 static constexpr float HOUSING_MAX_HOUSE_PLOT_OFFSET_Z  = 50.0f;
-// m3/A6 decoration throttle: at most BURST place/move/remove ops per WINDOW_MS.
-// Generous enough for rapid legitimate redecorating, tight enough to cap the
-// AddToMap + synchronous-DB-write amplification a scripted client can drive.
+// Decoration throttle: at most BURST place/move/remove ops per WINDOW_MS.
 static constexpr uint32 HOUSING_DECOR_THROTTLE_WINDOW_MS = 10000;
 static constexpr uint32 HOUSING_DECOR_THROTTLE_BURST     = 40;
 static constexpr uint32 MAX_HOUSING_DECOR_PER_ROOM      = 50;
@@ -861,124 +802,86 @@ static constexpr uint32 MAX_NEIGHBORHOOD_PLOTS          = 55;
 static constexpr uint32 MAX_NEIGHBORHOOD_MANAGERS       = 5;
 static constexpr uint32 MAX_PENDING_INVITES             = 20;
 static constexpr uint8  INVALID_PLOT_INDEX              = 255;
-// Retail spawns the same "Cornerstone" GO on every plot; the plot is identified by the GO's
-// FJamHousingCornerstone_C fragment, not by its entry. Per-plot NeighborhoodPlot.CornerstoneGameObjectID
-// rows remain the position/rotation anchor.
+// Retail spawns the same "Cornerstone" GO on every plot; identified by the GO's FJamHousingCornerstone_C fragment.
 static constexpr uint32 HOUSING_CORNERSTONE_GAMEOBJECT_ENTRY = 457142;
 static constexpr uint32 HOUSING_MAX_NAME_LENGTH         = 64;
 static constexpr uint64 HOUSE_MOVE_COST_COPPER          = 500ULL * 10000ULL;       // 500g move cost
 static constexpr uint32 MAX_HOUSE_LEVEL                 = 12;   // HouseLevelData.db2 levels 1-12
 
-// Starter favor granted on house purchase (sniff: ChangeAmount=910, NewFavorTotal=910 in the
-// post-purchase HousingSvcsUpdateHousesLevelFavor pair).
+// Starter favor granted on house purchase.
 static constexpr uint64 HOUSE_PURCHASE_STARTER_FAVOR    = 910;
 
-// Neighborhood initiative ("Endeavor" in the client UI) progress is reported to the client on a
-// 0..1000 point scale ? sniff-verified: PlayerInitiativeInfo.ProgressRequired == 1000.
-// InitiativeTask.ProgressContributionAmount (12.0.7 DB2 values 10/25/50/75/100/150/300) is how
-// many of those points ONE completion of that task is worth.
+// Initiative progress is reported on a 0..1000 point scale (PlayerInitiativeInfo.ProgressRequired).
 static constexpr float INITIATIVE_PROGRESS_REQUIRED     = 1000.0f;
 
-// InitiativeMilestone.RequiredContributionAmount is a PERCENTAGE of initiative completion, not a
-// 0..1 fraction: the 12.0.7 DB2 holds exactly 25/50/75/100 and only the 100.0 rows carry
-// INITIATIVE_MILESTONE_FLAG_FINAL. ActiveInitiative::Progress is a 0..1 fraction, so it has to be
-// scaled by this before being compared against a milestone threshold.
+// InitiativeMilestone.RequiredContributionAmount is a PERCENTAGE (25/50/75/100), not a 0..1 fraction.
 static constexpr float INITIATIVE_MILESTONE_SCALE       = 100.0f;
 
-// Floating world-text shown when a player earns neighborhood contribution credit. Reproduced
-// byte-for-byte from the retail build-68275 housing capture (housing12.0.7.pkt, four
-// SMSG_DISPLAY_WORLD_TEXT records, each immediately followed by the SMSG_CRITERIA_UPDATE batch for
-// the deed that earned it): null anchor guid, Arg1 = Arg2 = 0, and this exact 34-byte string. The
-// colour token is resolved client-side; the "+Neighborly" wording matches the CriteriaTree strings
-// "Neighborly deeds performed" / "Good Neighbor Points". Only the enUS sample exists, so this is not
-// localized ? retail presumably sends the client's locale here.
+// Floating world-text for neighborhood contribution credit (reproduced from the retail capture; enUS only).
 constexpr char const HOUSING_WORLD_TEXT_NEIGHBORLY[] = "|cnYELLOW_FONT_COLOR:+Neighborly|r";
 
 // Quest 91863 objective 17 ("Acquire a house") kill credit, granted on successful purchase.
 static constexpr uint32 NPC_KILL_CREDIT_BUY_HOME        = 248858;
 
-// Spell applied during housing decor edit mode (creates "phased-out" visual effect)
-// Sniff: aura slot 51, Flags=NoCaster, ActiveFlags=15, CastLevel=36
+// Spell applied during housing decor edit mode ("phased-out" visual; aura slot 51, Flags=NoCaster, ActiveFlags=15)
 static constexpr uint32 SPELL_HOUSING_EDIT_MODE_AURA    = 1263303;
 
-// "[DNT] Decorating - Disable All the Things - Room Editor": room layout mode (stun + no gravity, pacify, immunity)
-// Sniff: aura slot 116, Flags=NoCaster, ActiveFlags=15, cast on CMSG_HOUSING_ROOM_SET_LAYOUT_EDIT_MODE
+// "[DNT] Decorating - Disable All the Things - Room Editor": room layout mode (stun + no gravity, pacify, immunity).
 static constexpr uint32 SPELL_HOUSING_ROOM_EDIT_MODE_AURA = 1263316;
 
 // "Leave House" (effect 343): cast by the interior door after it opens; takes the player out to the plot
 static constexpr uint32 SPELL_HOUSING_LEAVE_HOUSE       = 1234193;
-// 10 s casts that end in SPELL_EFFECT_TELEPORT_UNITS to a plot (12.1.0.69933 sniff 19-48-29)
+// 10 s casts ending in SPELL_EFFECT_TELEPORT_UNITS to a plot
 static constexpr uint32 SPELL_HOUSING_TELEPORT_HOME     = 1233637; // CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT to one's own plot
 static constexpr uint32 SPELL_HOUSING_VISIT_HOUSE       = 1265142; // house finder "Visit" (after the plot reservation) and other plots
 
-// Spell applied when player enters their own housing plot
-// Sniff: aura slot 50/55, Flags=NoCaster, ActiveFlags=1-2, CastLevel=36
+// Spell applied when player enters their own housing plot (aura slots 50/55, Flags=NoCaster, ActiveFlags=1-2)
 static constexpr uint32 SPELL_HOUSING_PLOT_ENTER        = 1239847;
 
-// Second spell applied when player enters their own housing plot
-// Sniff: aura slot 56, Flags=NoCaster, ActiveFlags=1, CastLevel=36
+// Second spell applied when player enters their own housing plot (aura slot 56, Flags=NoCaster, ActiveFlags=1)
 static constexpr uint32 SPELL_HOUSING_PLOT_PRESENCE     = 469226;
 
-// Third spell applied on first plot enter ? replaces slot 9 aura
-// Sniff: aura slot 9, Flags=NoCaster|Scalable(9), ActiveFlags=1, CastLevel=36, has PointsCount
+// Third spell applied on first plot enter - replaces the slot 9 aura (Flags=NoCaster|Scalable, has PointsCount)
 static constexpr uint32 SPELL_HOUSING_PLOT_ENTER_2      = 1266699;
 
-// Neighborhood map-entry auras ? 4 housing-specific auras applied immediately
-// after the big SMSG_UPDATE_OBJECT batch at neighborhood-map entry. Decoded
-// from dump_12.0.1.66838_2026-04-15_09-35-59.pkt idx 9985-10000 (and
-// cross-checked against the 2026-04-10 capture at idx 15673-15690).
-// Slot/Flags/ActiveFlags/Applications/SpellVisual each sniff-verified.
+// Neighborhood map-entry auras, applied right after the big SMSG_UPDATE_OBJECT at neighborhood-map entry.
 static constexpr uint32 SPELL_HOUSING_MAP_ENTRY_FIXUP      = 1272741;  // "Housing Fixup Aura"
 static constexpr uint32 SPELL_HOUSING_MAP_ENTRY_REACT      = 1263578;  // "Player Action React (DNT)"
 static constexpr uint32 SPELL_HOUSING_MAP_ENTRY_ENDEAVOR   = 1276064;  // "[DNT] Endeavor Cover Aura"
 static constexpr uint32 SPELL_HOUSING_MAP_ENTRY_NEIGHBOR   = 1227147;  // "In Your Neighborhood"
-// Cast on the player after a house is bought or moved to a new plot (retail 12.1.0.69933, right after
-// SMSG_NEIGHBORHOOD_MOVE_HOUSE_RESPONSE). Triggers 1248306 (kill credit 248858), 1253658 (quest 92486),
-// 1253555 and 1260705 (aura 430: scene 3819, the move-in cutscene).
+// Cast on the player after a house is bought or moved to a new plot.
 static constexpr uint32 SPELL_HOUSING_HOUSE_ACQUIRED       = 1253572;
 // SpellXSpellVisualID baked into spell 1227147's AuraDataInfo.Visual on retail.
 static constexpr uint32 VISUAL_HOUSING_MAP_ENTRY_NEIGHBOR  = 503683;
 
-// Quest that completes the housing tutorial. Once turned in, the player is granted the
-// post-tutorial aura set and all editor modes (expert/cleanup/layout/customize) unlock.
+// Completes the housing tutorial; turning it in unlocks all editor modes.
 static constexpr uint32 QUEST_HOUSING_TUTORIAL_COMPLETE = 94455; // "Home at Last"
 
-// "Create a Neighborhood" ? retail wires charter founding to this quest: it provides the
-// Neighborhood Charter item (239098), whose use opens the charter UI, and the completed
-// charter is turned in to the steward. Blizzard support: charter neighborhoods require
-// 10 signatures on retail (MIN_CHARTER_SIGNATURES above is the current server policy).
+// "Create a Neighborhood" - charter founding quest (charter neighborhoods require 10 signatures on retail).
 static constexpr uint32 QUEST_CREATE_A_NEIGHBORHOOD = 89450;
-// Neighborhood Charter ? provided by quest 89450; re-obtainable from stewards on retail.
+// Neighborhood Charter - provided by quest 89450; re-obtainable from stewards on retail.
 static constexpr uint32 ITEM_NEIGHBORHOOD_CHARTER = 239098;
 
-// Post-tutorial auras ? applied when QUEST_HOUSING_TUTORIAL_COMPLETE is completed.
-// Sniff-verified: quest reward removes old tutorial auras (slots 8,9,50) and replaces them
-// with these three new ones. These don't exist in DB2, so we send manual SMSG_AURA_UPDATE.
-// Slot 8: Flags=NoCaster, ActiveFlags=1, CastLevel=36
-static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_1   = 1285428;
-// Slot 9: Flags=NoCaster, ActiveFlags=1, CastLevel=36
-static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_2   = 1285424;
-// Slot 50: Flags=NoCaster|Scalable, ActiveFlags=1, CastLevel=36, Points=[1]
-// Note: Same spell ID as SPELL_HOUSING_PLOT_ENTER_2 but applied at slot 50 (not slot 9)
+// Post-tutorial auras, applied when QUEST_HOUSING_TUTORIAL_COMPLETE completes (not in DB2; sent as manual SMSG_AURA_UPDATE).
+static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_1   = 1285428; // slot 8
+static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_2   = 1285424; // slot 9
+// Slot 50: same spell as SPELL_HOUSING_PLOT_ENTER_2 but applied at slot 50, not slot 9.
 static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_3   = 1266699;
 
-// WorldState IDs ? continuous counters sent throughout the entire housing session.
-// 12.1.0.69933 retail sends counters 1-3 as individual SMSG_UPDATE_WORLD_STATE packets every ~5 s
-// (+1333 each).
+// WorldState IDs - continuous counters sent throughout the housing session.
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_2    = 13437;
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_3    = 13438;
 
-// WS[30906]: Toggled 1 when inside a house interior (MapID=2783), 0 when leaving.
+// WS[30906]: toggled 1 when inside a house interior (MapID=2783), 0 when leaving.
 static constexpr uint32 WORLDSTATE_HOUSING_INTERIOR     = 30906;
 
 // Interval and increment for housing WorldState counter updates
-static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 5000;  // 12.1.0.69933: counters 1-3 every ~5 s (+1333)
+static constexpr uint32 HOUSING_WORLDSTATE_INTERVAL_MS  = 5000;  // counters 1-3 every ~5 s (+1333)
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT    = 1333;
 static constexpr uint32 HOUSING_WORLDSTATE_INCREMENT_2  = 7233;
 
-// Cosmetic phases removed when a player enters their own housing plot and
-// restored when they leave. Sniff-verified: 16 phases with ~10s delay.
+// Cosmetic phases removed on plot enter and restored on leave.
 static constexpr uint32 HOUSING_COSMETIC_PHASES[] =
 {
     25571, 26216, 27429, 27442, 27489, 27695,
@@ -991,16 +894,16 @@ static constexpr uint32 HOUSING_COSMETIC_PHASE_COUNT = sizeof(HOUSING_COSMETIC_P
 // Delay in milliseconds before cosmetic phase shifts take effect on plot enter/leave
 static constexpr uint32 HOUSING_COSMETIC_PHASE_DELAY_MS = 10000;
 
-// Room grid spacing for interior maps (sniff-verified: ~24 yards between room centers)
+// Room grid spacing for interior maps (~24 yards between room centers)
 static constexpr float HOUSING_ROOM_GRID_SPACING = 24.0f;
 
-// HouseExteriorWmoDataID for Horde theme (from sniff)
+// HouseExteriorWmoDataID for the Horde theme
 static constexpr int32 HORDE_HOUSE_EXTERIOR_WMO_DATA_ID = 87;
 
 // Max players allowed on a housing map (exterior neighborhood + interior combined)
 static constexpr uint32 MAX_HOUSING_MAP_PLAYERS = 40;
 
-// Housing warning flags ? reasons why housing features may be restricted
+// Housing warning flags - reasons why housing features may be restricted
 enum HousingWarningFlag : uint32
 {
     HOUSING_WARNING_NONE                    = 0x00,
@@ -1016,34 +919,22 @@ static constexpr uint32 HOUSING_MIN_PLAYER_LEVEL = 10;
 // Required expansion for housing access (The War Within = 10)
 static constexpr uint32 HOUSING_REQUIRED_EXPANSION = 10;
 
-// Kill credit that completes QUEST_HOUSING_TUTORIAL_COMPLETE. Packet-attested in the retail
-// Horde starter capture: creature "[DNT] Kill Credit: Housing - Tutorial - 01 - House Entered"
-// is credited the moment the player first stands inside their house, and the quest - which is
-// AUTO_ACCEPT|AUTO_COMPLETE and has no quest-giver NPC on either end - then auto-submits.
+// Kill credit completing QUEST_HOUSING_TUTORIAL_COMPLETE, granted the moment the player first stands inside their house.
 static constexpr uint32 NPC_HOUSING_TUTORIAL_HOUSE_ENTERED_CREDIT = 257763;
 
 // House interior instance map (MAP_HOUSE_INTERIOR = 7)
 static constexpr uint32 HOUSE_INTERIOR_MAP_ID = 2783;
 
-// Vertical spacing between stacked interior rooms. Must match the value HouseInteriorMap
-// actually positions rooms with (roomZ = origin + FloorIndex * this) or anything deriving a
-// room origin from FloorIndex lands on the wrong floor.
+// Vertical spacing between stacked interior rooms; must match HouseInteriorMap's room positioning.
 static constexpr float HOUSE_INTERIOR_FLOOR_HEIGHT = 12.0f;
 
-// Interior front-door GameObjects, picked by faction in HouseInteriorMap. Unlike the exterior
-// doors these are NOT reachable from ExteriorComponent (Type 11), so HousingMgr has to bind the
-// go_housing_door script to them explicitly - without it the door inside the house is inert.
-// HouseDecor.ModelType
-static constexpr uint8 HOUSE_DECOR_MODEL_TYPE_WMO = 2; // interior walls, pillars, doorways
+// Interior front-door GameObjects, picked by faction in HouseInteriorMap (not reachable from ExteriorComponent).
+static constexpr uint8 HOUSE_DECOR_MODEL_TYPE_WMO = 2; // HouseDecor.ModelType: interior walls, pillars, doorways
 
 static constexpr uint32 INTERIOR_DOOR_GO_ALLIANCE = 575017; // displayId 113554
 static constexpr uint32 INTERIOR_DOOR_GO_HORDE    = 587318;
 
-// ============================================================================
-// Housing blueprints (12.1.0.69587). Enum values are the client's (HousingBlueprintConstantsDocumentation.lua,
-// PlayerHousingConstantsDocumentation.lua); limits are the Constants.HousingConsts values the client registers
-// (0x7FF7CE1254A0).
-// ============================================================================
+// Housing blueprints: enum values are the client's; limits are the Constants.HousingConsts values.
 
 enum class HousingBlueprintType : uint8
 {
@@ -1082,8 +973,7 @@ enum HousingBlueprintUnmetRequirementFlags : uint32
     HOUSING_BLUEPRINT_UNMET_MISMATCHED_EXTERIOR_FACTION = 0x20,
     HOUSING_BLUEPRINT_UNMET_HOUSE_TYPE_LOCKED           = 0x40,
     HOUSING_BLUEPRINT_UNMET_HOUSE_SIZE_LOCKED           = 0x80,
-    // The client derives blockingRequirementFlags as unmet & 0xE7: missing decor and dyes do not stop an import, the
-    // missing pieces are left out.
+    // The client derives blockingRequirementFlags as unmet & 0xE7: missing decor/dyes do not stop an import.
     HOUSING_BLUEPRINT_UNMET_BLOCKING_MASK               = 0xE7,
 };
 
@@ -1099,8 +989,7 @@ static constexpr uint32 HOUSING_BLUEPRINTS_MAX_BACKUPS_PER_BNET_ACCOUNT = 10;
 static constexpr uint32 HOUSING_BLUEPRINT_NAME_MIN_CHARACTERS           = 3;
 static constexpr uint32 HOUSING_BLUEPRINT_NAME_MAX_CHARACTERS           = 50;
 
-// The three post-tutorial auras (slots 8, 9, 50) are re-sent whenever the player enters either
-// housing map, so the sequence lives in one place instead of being carried by both map classes.
+// The post-tutorial auras are re-sent whenever the player enters either housing map.
 class Player;
 TC_GAME_API void SendHousingPostTutorialAuras(Player* player);
 

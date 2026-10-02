@@ -26,13 +26,7 @@ HousingPlayerHouseEntity::HousingPlayerHouseEntity(WorldSession* session, Object
 {
     _Create(guid);
 
-    // Retail serialises Housing/3 (HousingPlayerHouse) CREATE blocks with
-    // objectType byte = 18 (TYPEID_HOUSING_ENTITY). Sniff-verified at
-    // dump_12.0.1.66838_2026-04-15_09-35-59 packet idx 9984. Without this,
-    // BaseEntity's default leaves m_objectTypeId = NUM_CLIENT_OBJECT_TYPES
-    // (invalid sentinel), which the client's CREATE dispatcher may silently
-    // drop from its entity registry — breaking the icon picker's
-    // HouseGUID → entity → BnetAccount lookup for the own plot.
+    // BaseEntity's default m_objectTypeId is an invalid sentinel the client drops silently
     m_objectTypeId = TYPEID_HOUSING_ENTITY;
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingPlayerHouse_C, false, WowCS::GetRawFragmentData(m_housingPlayerHouseData));
@@ -42,11 +36,6 @@ void HousingPlayerHouseEntity::ClearUpdateMask(bool remove)
 {
     m_values.ClearChangesMask(&HousingPlayerHouseEntity::m_housingPlayerHouseData);
     BaseEntity::ClearUpdateMask(remove);
-}
-
-void HousingPlayerHouseEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const
-{
-    BaseEntity::BuildCreateUpdateBlockForPlayer(data, target);
 }
 
 std::string HousingPlayerHouseEntity::GetNameForLocaleIdx(LocaleConstant /*locale*/) const

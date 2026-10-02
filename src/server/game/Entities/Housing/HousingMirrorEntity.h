@@ -24,29 +24,14 @@
 
 class Map;
 
-// Lightweight position-carrier entity paired with a housing MeshObject or
-// HousingPlayerHouse. Retail emits these as HighGuid::Entity (57) with
-// objectType=18 and a single FMirroredPositionData_C fragment (plus tags).
-// Their role in the client is to place the plot/house in map-space spatial
-// indices used by the world-map icon picker and other rendering paths.
-//
-// Sniff-verified at dump_12.0.1.66838_2026-04-15_09-35-59 idx 9984:
-//   - Fragments: FMirroredPositionData_C [+ Tag_HouseExteriorPiece / Root]
-//   - movement block: 3 CreateObjectBits flag bytes + uint32 PauseTimes=0
-//   - valuesSize: 44 when AttachParent is HighGuid::Housing (short packed GUID)
-//   - No CGObject, no FMeshObjectData_C — pure mirror
+// Position-carrier entity paired with housing MeshObjects / player houses.
 class TC_GAME_API HousingMirrorEntity final : public BaseEntity
 {
 public:
     HousingMirrorEntity(Map* map, ObjectGuid guid);
     ~HousingMirrorEntity();
 
-    // Tag set this mirror carries — controls which entity-fragment Tag_*
-    // entries are added when InitPositionData is called.
-    //   None         — Group B per-piece mesh anchor (no tags)
-    //   Piece        — Group A non-root piece (Tag_HouseExteriorPiece only)
-    //   PieceAndRoot — Group A root piece (Tag_HouseExteriorPiece +
-    //                  Tag_HouseExteriorRoot)
+    // which Tag_HouseExterior* fragments InitPositionData attaches
     enum class Tagging : uint8
     {
         None,
@@ -54,12 +39,7 @@ public:
         PieceAndRoot,
     };
 
-    // Populate the mirror's position fragment.
-    //   attachParent: the housing entity this mirror is attached to
-    //                 (room identity for Group A, MeshObject for Group B)
-    //   position/rotation/scale: local-space to attachParent
-    //   attachmentFlags: usually 3 (sniff-typical)
-    //   tagging: which Tag_HouseExterior* fragments to attach (see enum above)
+    // position/rotation/scale are local-space to attachParent
     void InitPositionData(ObjectGuid attachParent,
         Position const& position, QuaternionData const& rotation,
         float scale, uint8 attachmentFlags, Tagging tagging);
@@ -75,7 +55,6 @@ protected:
     UF::UpdateFieldFlag GetUpdateFieldFlagsFor(Player const* target) const override;
     bool AddToObjectUpdate() override;
     void RemoveFromObjectUpdate() override;
-
 };
 
 #endif // TRINITYCORE_HOUSING_MIRROR_ENTITY_H

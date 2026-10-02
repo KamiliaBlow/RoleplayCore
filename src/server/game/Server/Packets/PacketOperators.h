@@ -213,16 +213,7 @@ namespace WorldPackets
     template<AsWritable Underlying, ContainerReadable<Underlying> Container>
     inline SizeReaderWriter<Underlying, Container> Size(Container& value) { return { value }; }
 
-    // Size<> resizes from the wire value before a single element is read, so a
-    // hostile count is an allocation request, not a short read — an unbounded
-    // uint32 asks for up to 16 GiB and takes the world thread down with
-    // std::bad_alloc. BoundedSize clamps the count against the bytes actually
-    // left in the packet first: no element occupies less than one byte, so the
-    // remaining length is always a valid upper bound on the element count, and
-    // a malformed count degrades into a short read the element loop rejects.
-    //
-    // Prefer this over Size<> for any container whose length comes from the
-    // client. Writing is identical; only the read path differs.
+    // bounded element count: client-provided lengths must not drive huge allocations
     template<AsWritable Underlying, ContainerReadable<Underlying> Container>
     struct BoundedSizeReaderWriter : SizeWriter<Underlying, Container>
     {
@@ -554,7 +545,6 @@ namespace WorldPackets
 
     template <typename T>
     inline constexpr IgnoredReaderWriter<T> Ignored;
-
 }
 
 #endif // TRINITYCORE_PACKET_OPERATORS_H

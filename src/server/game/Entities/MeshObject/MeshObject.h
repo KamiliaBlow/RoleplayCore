@@ -32,30 +32,25 @@ public:
     void RemoveFromWorld() override;
     void Update(uint32 diff) override;
 
-    // Pure virtual overrides
     ObjectGuid GetCreatorGUID() const override { return ObjectGuid::Empty; }
     ObjectGuid GetOwnerGUID() const override { return ObjectGuid::Empty; }
     uint32 GetFaction() const override { return 0; }
     std::string GetNameForLocaleIdx(LocaleConstant /*locale*/) const override { return "MeshObject"; }
 
-    // Factory
-    // pos: local-space position (stored in FMirroredPositionData_C for client rendering)
-    // worldPos: if non-null, used for server-side grid placement (for child pieces attached to a parent).
-    //           If null, pos is used for both grid placement and local-space data.
+    // pos: local-space; worldPos: grid placement (null = use pos)
     static MeshObject* CreateMeshObject(Map* map, Position const& pos,
         QuaternionData const& rotation, float scale,
         int32 fileDataID, bool isWMO,
         ObjectGuid attachParent = ObjectGuid::Empty, uint8 attachFlags = 0,
         Position const* worldPos = nullptr);
 
-    // Accessors
     int32 GetFileDataID() const { return m_meshObjectData->FileDataID; }
     ObjectGuid const& GetAttachParentGUID() const { return _attachParentGUID; }
     QuaternionData const& GetLocalRotation() const { return _rotationLocalSpace; }
     Position const& GetLocalPosition() const { return _positionLocalSpace; }
     float GetLocalScale() const { return _scaleLocalSpace; }
     void UpdateLocalScale(float scale);
-    // Local-space position/rotation/scale relative to the attach parent, as sent in FMirroredPositionData_C.
+    // local-space, relative to the attach parent
     void UpdateLocalTransform(Position const& pos, QuaternionData const& rotation, float scale);
     uint8 GetAttachmentFlags() const { return _attachmentFlags; }
     bool IsExteriorRoot() const { return _isExteriorRoot; }
@@ -63,40 +58,30 @@ public:
     int32 GetExteriorComponentID() const { return _exteriorComponentID; }
     void UpdateExteriorComponentID(int32 id);
 
-    // Movement block Room/Decor data accessors (used by BaseEntity::BuildMovementUpdate)
+    // Room/Decor data serialized in the movement block (BaseEntity::BuildMovementUpdate)
     ObjectGuid const& GetRoomHouseGUID() const { return _roomHouseGUID; }
     ObjectGuid const& GetDecorRoomEntityGUID() const { return _decorRoomEntityGUID; }
 
-    // Housing fixture
-    // isRoot: true for root pieces (no parent attachment), false for child pieces.
-    // Every piece gets Tag_HouseExteriorPiece (224); isRoot only marks the base for server-side lookups.
+    // isRoot only marks the base for server-side lookups; the root tag belongs to the root entity
     void InitHousingFixtureData(ObjectGuid houseGuid, ObjectGuid fixtureGuid,
         ObjectGuid parentFixtureGuid, int32 exteriorComponentID,
         int32 houseExteriorWmoDataID, uint8 exteriorComponentType = 9,
         uint8 houseSize = 2, int32 exteriorComponentHookID = -1, bool isRoot = false);
     ObjectGuid const& GetFixtureGuid() const { return _fixtureGuid; }
 
-    // Housing decor (adds FHousingDecor_C entity fragment for placed decor items)
-    // Sniff-verified: retail decor is ALWAYS MeshObject (never GO). TargetGameObjectGUID=empty.
-    // roomEntityGuid: the Housing/18 room entity this decor is attached to.
     void InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 flags,
         ObjectGuid roomEntityGuid = ObjectGuid::Empty, uint8 sourceType = 0, std::string sourceValue = {});
 
-    // Housing room entity (adds FHousingRoom_C + Tag_HousingRoom entity fragments)
-    // Creates a room data entity that the client uses to identify the plot's room type.
+    // Housing room data entity identifying the plot's room type to the client.
     void InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID, int32 flags, int32 floorIndex);
 
-    // Add a mesh object GUID to the room's MeshObjects dynamic array.
-    // Must call InitHousingRoomData() first.
+    // Requires InitHousingRoomData() first.
     void AddRoomMeshObject(ObjectGuid meshObjectGuid);
 
-    // Add a door/hookpoint entry to the room's Doors dynamic array.
-    // Must call InitHousingRoomData() first. The client's HousingRoomSystem
-    // reads these entries to create fixture-hookpoint links.
+    // Requires InitHousingRoomData() first.
     void AddRoomDoor(int32 roomComponentID, Position const& offset, uint8 roomComponentType, ObjectGuid attachedRoomGuid);
 
-    // Housing room component mesh (adds FHousingRoomComponentMesh_C fragment, sets IsRoom + Geobox)
-    // The client uses the Geobox for its OutsidePlotBounds collision check.
+    // sets IsRoom + Geobox for the client's OutsidePlotBounds check
     void InitHousingRoomComponentData(ObjectGuid roomGuid,
         int32 roomComponentOptionID, int32 roomComponentID,
         uint8 roomComponentType, int32 field24, uint8 field20,
@@ -105,8 +90,7 @@ public:
         float geoboxMinX, float geoboxMinY, float geoboxMinZ,
         float geoboxMaxX, float geoboxMaxY, float geoboxMaxZ);
 
-    // Update room component theme/texture in-place (no destroy+create).
-    // The client expects UPDATE_OBJECT with changed FHousingRoomComponentMesh_C fields.
+    // client expects an UPDATE_OBJECT, not destroy+create
     void UpdateRoomComponentVisuals(int32 roomComponentOptionID, int32 houseThemeID,
         int32 roomComponentTextureID, int32 roomComponentTypeParam = -1);
 
@@ -115,7 +99,6 @@ public:
     int32 GetHouseThemeID() const;
     int32 GetRoomComponentTextureID() const;
 
-    // Update fields
     UF::UpdateField<UF::MeshObjectData, int32(WowCS::EntityFragment::FMeshObjectData_C), TYPEID_MESH_OBJECT> m_meshObjectData;
     UF::UpdateField<UF::MirroredPositionData, int32(WowCS::EntityFragment::FMirroredPositionData_C), 0> m_mirroredPositionData;
 
@@ -132,16 +115,14 @@ private:
         ObjectGuid attachParent, uint8 attachFlags,
         Position const* worldPos);
 
-    // Movement block data (serialized in BaseEntity::BuildCreateUpdateBlockMovement)
+    // Movement block data (serialized by BaseEntity::BuildMovementUpdate)
     ObjectGuid _attachParentGUID;
-    Position _positionLocalSpace;   // local-space offset from parent (for movement block MeshObject section)
+    Position _positionLocalSpace;   // local-space offset from parent
     QuaternionData _rotationLocalSpace;
     float _scaleLocalSpace = 1.0f;
     uint8 _attachmentFlags = 0;
 
-    // Movement block Room/Decor data (bits 54/55 in CreateObjectBits)
-    // Room: HouseGUID written when m_updateFlag.Room is set (room entities)
-    // Decor: RoomEntityGUID written when m_updateFlag.Decor is set (decor entities)
+    // written when the corresponding CreateObjectBits are set (not part of the FHousing* fragments)
     ObjectGuid _roomHouseGUID;
     ObjectGuid _decorRoomEntityGUID;
     bool _isExteriorRoot = false;

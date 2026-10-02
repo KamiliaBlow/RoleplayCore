@@ -172,8 +172,7 @@ void WorldSession::SendMirrorVars()
         { "browserEnabled"sv, "0"sv },
         { "advFlyKeyboardMinTurnFactor"sv, "1"sv },
         { "advFlyKeyboardMaxTurnFactor"sv, "1"sv },
-        // Housing game rules — ALL values verified against 12.0.1.65940 sniff packet data (Feb 2026)
-        // Service & feature flags (read from config, default true)
+        // Housing game rules; enable flags are read from worldserver config
         { "performHousingExpansionCheckClient"sv, "1"sv },
         { "housingServiceEnabled"sv, "1"sv },
         { "housingEnableBuyHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_BUY_HOUSE) ? "1"sv : "0"sv },
@@ -185,8 +184,7 @@ void WorldSession::SendMirrorVars()
         { "housingMarketEnabled"sv, "1"sv },
         { "housingMarketShopEnabled"sv, "1"sv },
         { "housingMarketCartFullRemoveEnabled"sv, "1"sv },
-        // Blueprints: the client gates C_HousingBlueprint.GetFeatureAvailability / GetImportAvailability /
-        // GetExportAvailability on these (registered at 0x7FF7CCEF81A0, default 0); retail 12.1 sends all three as 1.
+        // the client gates C_HousingBlueprint feature/import/export availability on these
         { "housingBlueprintsEnabled"sv, "1"sv },
         { "housingBlueprintImportEnabled"sv, "1"sv },
         { "housingBlueprintExportEnabled"sv, "1"sv },
@@ -204,41 +202,30 @@ void WorldSession::SendMirrorVars()
         // Screenshot report thresholds
         { "housingDecorReportScreenshotFacingDotThreshold"sv, "0.500000"sv },
         { "housingDecorReportScreenshotDistanceThreshold"sv, "150.000000"sv },
-        // Market telemetry throttles — sniff-verified against build 12.0.1.66838,
-        // SMSG_MIRROR_VARS at packet idx 9976 (dump_12.0.1.66838_2026-04-15_09-35-59).
-        // The client reads these before it will send any SMSG_HOUSING_MARKET_*
-        // telemetry CMSGs; without them the market UI may throttle-fail silently.
+        // the client gates HOUSING_MARKET_* telemetry CMSGs on these throttles
         { "housingMarketViewInStoreTelemThrottle"sv, "5"sv },
         { "housingMarketViewBundleTelemThrottle"sv, "10"sv },
         { "housingMarketAddToCartTelemThrottle"sv, "15"sv },
         { "housingMarketClearCartTelemThrottle"sv, "5"sv },
         { "housingMarketRemoveFromCartTelemThrottle"sv, "20"sv },
         { "housingMarketThrottleTimePeriodMs"sv, "10000"sv },
-        // Situation flags — driver context for the client's "situation" state
-        // machine (automatic/manual triggered events). Retail sends all three
-        // set on login; we were sending none. Same sniff reference.
+        // situation flags for the client's situation state machine
         { "enableAutomaticSituations"sv, "1"sv },
         { "enableManualSituations"sv, "1"sv },
         { "enableTransmogUpdateSituation"sv, "1"sv },
-        // Transmog system flags — the client gates parts of the transmog UI
-        // on these being present. Retail sends them at this stage of login.
+        // Transmog system flags - the client gates parts of the transmog UI on these
         { "transmogEnableSystem"sv, "1"sv },
         { "transmogAllowArtifactOverride"sv, "1"sv },
         { "transmogAllowCanUseEverChanges"sv, "0"sv },
         { "transmogEnableOutfitPurchases"sv, "1"sv },
         { "transmogEnableOutfitSlotChanges"sv, "1"sv },
-        // --- Additional vars from retail MIRROR_VARS audit (2026-04-21) ---
-        // Retail sends 116 MIRROR_VARS entries, we were sending 41. These 40
-        // below are the subset that drive client behaviour without requiring
-        // Blizzard-specific service URLs (shop2 / Pinterest skipped).
-        // Damage meter — gates the in-game damage meter addon feature
+        // remaining vars mirror retail where they drive client behaviour; Blizzard service URLs are skipped
         { "damageMeterCacheEnabled"sv, "1"sv },
         { "damageMeterProcessingEnabled"sv, "1"sv },
-        // Addon chat restrictions — affects WHISPER/GROUP addon message routing
+        // Addon chat restrictions - affects WHISPER/GROUP addon message routing
         { "addonChatRestrictionsEnabled"sv, "1"sv },
         { "addonChatRestrictionsEnabledForOutgoingAddonMessages"sv, "1"sv },
-        // Lua resource caps — the client throttles AddOn resources when these
-        // are present. Retail's caps, keep identical to not break addons.
+        // Lua resource caps - the client throttles AddOn resources by these; keep retail's values
         { "limitedLuaResourcesEnabled"sv, "0"sv },
         { "limitedLuaResourcesAddonCapacityAnim"sv, "5000"sv },
         { "limitedLuaResourcesAddonCapacityAnimGroup"sv, "2000"sv },
@@ -254,15 +241,15 @@ void WorldSession::SendMirrorVars()
         { "limitedLuaResourcesGlobalCapacityFrame"sv, "100000"sv },
         { "limitedLuaResourcesGlobalCapacityTexture"sv, "400000"sv },
         { "limitedLuaResourcesGlobalCapacityTimer"sv, "500"sv },
-        // Lua script throttling — bucket limits per second / burst
+        // Lua script throttling - bucket limits per second / burst
         { "luaScriptBucketThrottleEnabled"sv, "1"sv },
         { "luaScriptBucketThrottleMaxMsBurstNormal"sv, "20000"sv },
         { "luaScriptBucketThrottleMaxMsBurstRestricted"sv, "1000"sv },
         { "luaScriptBucketThrottleMaxMsPerSecondNormal"sv, "2000"sv },
         { "luaScriptBucketThrottleMaxMsPerSecondRestricted"sv, "500"sv },
-        // Hardcore mode throttling — not used but sent for parity
+        // Hardcore mode throttling - not used but sent for parity
         { "hardcoreScriptThrottlingEnabled"sv, "0"sv },
-        // PvP training grounds — the PvP duel area feature
+        // PvP training grounds - the PvP duel area feature
         { "pvpTrainingGroundsEnabledClient"sv, "0"sv },
         // Recent allies request throttle
         { "recentAlliesRequestDataThrottle"sv, "5000"sv },
@@ -275,5 +262,4 @@ void WorldSession::SendMirrorVars()
     WorldPackets::System::MirrorVars variables;
     variables.Variables = vars;
     SendPacket(variables.Write());
-
 }

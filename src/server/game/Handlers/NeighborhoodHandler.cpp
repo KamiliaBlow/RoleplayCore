@@ -17,28 +17,27 @@
 
 #include "WorldSession.h"
 #include "Account.h"
-#include "HousingNeighborhoodMirrorEntity.h"
-#include "QueryPackets.h"
-#include "HousingPlayerHouseEntity.h"
-#include "HousingRoomEntity.h"
 #include "DatabaseEnv.h"
-#include "GameObject.h"
+#include "GameTime.h"
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingMap.h"
 #include "HousingMgr.h"
+#include "HousingNeighborhoodMirrorEntity.h"
 #include "HousingPackets.h"
-#include "Log.h"
+#include "HousingPlayerHouseEntity.h"
+#include "HousingRoomEntity.h"
 #include "InitiativeManager.h"
+#include "Log.h"
 #include "Neighborhood.h"
 #include "NeighborhoodCharter.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
-#include "GameTime.h"
+#include "QueryPackets.h"
 #include "UpdateData.h"
 #include "World.h"
 
@@ -67,9 +66,7 @@ namespace
     }
 }
 
-// ============================================================
 // Neighborhood Charter System
-// ============================================================
 
 void WorldSession::HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Neighborhood::NeighborhoodCharterOpenConfirmationUI const& /*neighborhoodCharterOpenConfirmationUI*/)
 {
@@ -77,9 +74,7 @@ void WorldSession::HandleNeighborhoodCharterOpenConfirmationUI(WorldPackets::Nei
     if (!player)
         return;
 
-    // Sent after the steward's "found the neighborhood" gossip option (OptionNpc 63). The reply feeds
-    // OPEN_CHARTER_CONFIRMATION_UI(neighborhoodName, locationName); its Confirm button sends
-    // CMSG_NEIGHBORHOOD_CHARTER_FINALIZE.
+    // Reply to the steward's "found the neighborhood" gossip option; Confirm sends CMSG_NEIGHBORHOOD_CHARTER_FINALIZE.
     WorldPackets::Neighborhood::NeighborhoodCharterOpenConfirmationUIResponse response;
 
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
@@ -108,8 +103,7 @@ void WorldSession::SendNeighborhoodCharterOpenUI()
     if (!player)
         return;
 
-    // SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE carries the same body as the create reply:
-    // everything the charter panel renders (12.1.0.69933: sent when the charter item is used).
+    // Same body as the create reply: everything the charter panel renders.
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
 
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
@@ -128,7 +122,7 @@ void WorldSession::SendNeighborhoodCharterOpenUI()
     NeighborhoodCharter charter(charterId, ObjectGuid::Empty);
     if (!charter.LoadFromDB(charterResult, sigResult))
     {
-        // A charter row exists but will not load ? report the failure instead of a blank panel.
+        // A charter row exists but will not load - report the failure instead of a blank panel.
         openUI.Result = static_cast<uint8>(HOUSING_RESULT_DB_ERROR);
         SendPacket(openUI.Write());
 
@@ -140,7 +134,7 @@ void WorldSession::SendNeighborhoodCharterOpenUI()
     openUI.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     openUI.CharterGuid = player->GetGUID();
     openUI.MapID = charter.GetNeighborhoodMapID();
-    openUI.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts (retail: 1 with no co-signers)
+    openUI.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts
     openUI.Signers = charter.GetSignatures();
     openUI.Unknown = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES);
     openUI.NeighborhoodName = charter.GetName();
@@ -189,26 +183,19 @@ void WorldSession::HandleNeighborhoodCharterCreate(WorldPackets::Neighborhood::N
     charter.SetFactionFlags(neighborhoodCharterCreate.FactionFlags);
     charter.SetIsGuild(false);
 
-    // H-17: the creator does NOT count toward the required signatures. This used to
-    // call AddSignature(player->GetGUID()) under a "Creator auto-signs" comment, but
-    // AddSignature opens with a self-sign guard and returns false, so the call always
-    // failed and its result was discarded - the comment described behaviour that never
-    // happened. Stating the rule instead of pretending; whether the creator should
-    // count is a design decision, and the code now matches whichever way it is read
-    // today rather than claiming the opposite.
+    // The creator doesn't count toward required signatures (AddSignature has a self-sign guard).
 
     // Persist to DB
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     charter.SaveToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
 
-    // Retail 12.1.0.69933 (sniff 11-13-10): the charter GUID is the creator's player GUID and
-    // `Unknown` is the required signature count (10).
+    // CharterGuid = creator's player GUID; Unknown = required signature count.
     WorldPackets::Neighborhood::NeighborhoodCharterUpdateResponse response;
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.CharterGuid = player->GetGUID();
     response.MapID = neighborhoodCharterCreate.NeighborhoodMapID;
-    response.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts (retail: 1 with no co-signers)
+    response.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts
     response.Signers = charter.GetSignatures();
     response.Unknown = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES);
     response.NeighborhoodName = neighborhoodCharterCreate.Name;
@@ -266,10 +253,7 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     uint64 charterId = static_cast<uint64>(player->GetGUID().GetCounter());
     ObjectGuid charterGuid = player->GetGUID();
 
-    // Capture the signatures the edit is about to discard. DeleteFromDB drops every signature
-    // row and the re-save only re-adds the creator's, so every co-signer silently loses their
-    // signature here. Their clients still believe they have signed this charter until told
-    // otherwise ? that notification is SMSG_NEIGHBORHOOD_CHARTER_SIGNATURE_REMOVED (0x5B0005).
+    // DeleteFromDB drops all signature rows; capture the co-signers first to notify them below.
     std::vector<ObjectGuid> droppedSigners;
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_NEIGHBORHOOD_CHARTER);
@@ -299,13 +283,7 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     charter.SetFactionFlags(neighborhoodCharterEdit.FactionFlags);
     charter.SetIsGuild(false);
 
-    // H-17: the creator does NOT count toward the required signatures. This used to
-    // call AddSignature(player->GetGUID()) under a "Creator auto-signs" comment, but
-    // AddSignature opens with a self-sign guard and returns false, so the call always
-    // failed and its result was discarded - the comment described behaviour that never
-    // happened. Stating the rule instead of pretending; whether the creator should
-    // count is a design decision, and the code now matches whichever way it is read
-    // today rather than claiming the opposite.
+    // The creator doesn't count toward required signatures (AddSignature has a self-sign guard).
 
     // Re-persist
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
@@ -313,8 +291,7 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     charter.SaveToDB(trans);
     CharacterDatabase.CommitTransaction(trans);
 
-    // Tell every co-signer whose signature the edit just wiped, so their charter panel drops
-    // the stale "signed" state instead of holding it until relog.
+    // Notify co-signers whose signature the edit just wiped.
     for (ObjectGuid const& signer : droppedSigners)
     {
         if (Player* signerPlayer = ObjectAccessor::FindPlayer(signer))
@@ -329,7 +306,7 @@ void WorldSession::HandleNeighborhoodCharterEdit(WorldPackets::Neighborhood::Nei
     response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
     response.CharterGuid = charterGuid;
     response.MapID = neighborhoodCharterEdit.NeighborhoodMapID;
-    response.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts (retail: 1 with no co-signers)
+    response.SignatureCount = charter.GetSignatureCount() + 1; // the creator counts
     response.Signers = charter.GetSignatures();
     response.Unknown = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES);
     response.NeighborhoodName = neighborhoodCharterEdit.Name;
@@ -343,8 +320,7 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
     if (!player)
         return;
 
-    // The confirmation frame listens for CREATE_NEIGHBORHOOD_RESULT(result, neighborhoodName), which comes
-    // from SMSG_HOUSING_SVCS_CREATE_CHARTER_NEIGHBORHOOD_RESPONSE; a failure shows HousingResultToErrorText.
+    // The confirmation frame listens for CREATE_NEIGHBORHOOD_RESULT from this SMSG.
     auto sendResult = [this](HousingResult result, Neighborhood const* neighborhood = nullptr)
     {
         WorldPackets::Housing::HousingSvcsCreateCharterNeighborhoodResponse response;
@@ -378,8 +354,7 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
         return;
     }
 
-    // Founding fee (Housing.CharterFoundingCost, in copper). Retail charges nothing
-    // beyond the plot price, so the default keeps charter founding free.
+    // Founding fee (Housing.CharterFoundingCost, in copper).
     uint32 const foundingCost = sWorld->getIntConfig(CONFIG_HOUSING_CHARTER_FOUNDING_COST);
     if (foundingCost && !player->HasEnoughMoney(uint64(foundingCost)))
     {
@@ -387,8 +362,7 @@ void WorldSession::HandleNeighborhoodCharterFinalize(WorldPackets::Neighborhood:
         return;
     }
 
-    // The charter's FactionFlags come from the client (1 for an Alliance charter in the 11-13-10 sniff) and are
-    // not a NeighborhoodFactionRestriction (1 = Horde), so restrict by the founder's faction like guild neighborhoods.
+    // FactionFlags are client-supplied and not a faction restriction; use the founder's faction.
     int32 const factionRestriction = player->GetTeam() == HORDE ? NEIGHBORHOOD_FACTION_HORDE : NEIGHBORHOOD_FACTION_ALLIANCE;
     Neighborhood* neighborhood = sNeighborhoodMgr.CreateNeighborhood(player->GetGUID(), charter.GetName(),
         charter.GetNeighborhoodMapID(), factionRestriction);
@@ -429,9 +403,7 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
     // CharterGuid counter maps to charter DB ID
     uint64 charterId = neighborhoodCharterAddSignature.CharterGuid.GetCounter();
 
-    // H-25: only sign a charter this session was invited to sign. Session-scoped, so a
-    // relog means the requester has to ask again - a signature request is an
-    // in-the-moment offer, and nothing about it is persisted.
+    // Only sign a charter this session was invited to sign (session-scoped, not persisted).
     if (!HasPendingCharterSignatureRequest(charterId))
     {
         WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
@@ -479,8 +451,7 @@ void WorldSession::HandleNeighborhoodCharterAddSignature(WorldPackets::Neighborh
         return;
     }
 
-    // H-25: one invitation, one signature. Without consuming it, a signer whose
-    // signature is later dropped by a charter edit could re-sign unasked.
+    // One invitation, one signature.
     ClearPendingCharterSignatureRequest(charterId);
 
     WorldPackets::Neighborhood::NeighborhoodCharterAddSignatureResponse response;
@@ -524,18 +495,14 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
         return;
     }
 
-    // Send signature request notification to the target player's client; the dialog shows the
-    // charter's name and location (OPEN_NEIGHBORHOOD_CHARTER_SIGNATURE_REQUEST).
+    // Show the charter name/location dialog on the target's client.
     WorldPackets::Neighborhood::NeighborhoodCharterSignRequest signRequest;
     signRequest.CharterGuid = player->GetGUID();
     signRequest.MapID = charter.GetNeighborhoodMapID();
     signRequest.NeighborhoodName = charter.GetName();
     targetPlayer->SendDirectMessage(signRequest.Write());
 
-    // H-25: record that this player was actually asked. ADD_SIGNATURE takes the charter
-    // id straight from the client and charter ids are creator GUID counters, so without
-    // this the invite step is decorative and any charter can be signed by anyone who
-    // enumerates ids.
+    // Gate ADD_SIGNATURE: charter ids are enumerable creator GUID counters.
     if (WorldSession* targetSession = targetPlayer->GetSession())
         targetSession->AddPendingCharterSignatureRequest(charterId);
 
@@ -546,9 +513,7 @@ void WorldSession::HandleNeighborhoodCharterSendSignatureRequest(WorldPackets::N
 
 }
 
-// ============================================================
 // Neighborhood Management System
-// ============================================================
 
 void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::NeighborhoodUpdateName const& neighborhoodUpdateName)
 {
@@ -617,9 +582,7 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
             invalidate.NeighborhoodGuid = neighborhoodGuid;
             memberPlayer->SendDirectMessage(invalidate.Write());
 
-            // 12.0.5: moved from SMSG_NEIGHBORHOOD_UPDATE_NAME_NOTIFICATION (0x5C0004)
-            // to SMSG_HOUSING_SVCS_NEIGHBORHOOD_UPDATE_NAME_NOTIFICATION (0x540023).
-            // IDA-verified wire (sub_7FF75C1EA710 case 0x540023): ObjectGuid + string.
+            // 12.0.5 moved the rename notification to this SMSG.
             WorldPackets::Housing::HousingSvcsNeighborhoodUpdateNameNotification nameNotification;
             nameNotification.NeighborhoodGuid = neighborhoodGuid;
             nameNotification.NewName = neighborhoodUpdateName.NewName;
@@ -627,15 +590,7 @@ void WorldSession::HandleNeighborhoodUpdateName(WorldPackets::Neighborhood::Neig
         }
     }
 
-    // SMSG_INVALIDATE_NEIGHBORHOOD (0x5F0008) is the neighborhood twin of SMSG_INVALIDATE_PLAYER
-    // (0x5F0007): the 12.0.7 dispatcher handles both in the same switch with the same shape ?
-    // read one PackedGUID, then call a registered nullary C++ callback (no Lua event). It is a
-    // pure "drop your cached record for this GUID" signal, so it must reach cache holders who are
-    // NOT members (house-finder browsers, visitors), not just the members handled above.
-    // Sent realm-wide exactly as CharacterCache::UpdateCharacterData sends InvalidatePlayer on a
-    // character rename; the client's follow-up CMSG_QUERY_NEIGHBORHOOD_INFO is already answered
-    // by HandleQueryNeighborhoodInfo. Renames are rare and explicitly operator-driven, so this
-    // does not put the realm-wide send on a hot path.
+    // Invalidate realm-wide: cache holders need not be members (as InvalidatePlayer does on rename).
     WorldPackets::Housing::InvalidateNeighborhood invalidateRecord;
     invalidateRecord.NeighborhoodGuid = neighborhoodGuid;
     sWorld->SendGlobalMessage(invalidateRecord.Write());
@@ -933,7 +888,7 @@ void WorldSession::HandleNeighborhoodPlayerGetInvite(WorldPackets::Neighborhood:
     if (!player)
         return;
 
-    // Client sends empty packet ? search all neighborhoods for a pending invite to this player
+    // Client sends empty packet - search all neighborhoods for a pending invite to this player
     Neighborhood* foundNeighborhood = sNeighborhoodMgr.FindNeighborhoodWithPendingInvite(player->GetGUID());
     Neighborhood::PendingInvite const* foundInvite = nullptr;
 
@@ -971,7 +926,7 @@ void WorldSession::HandleNeighborhoodGetInvites(WorldPackets::Neighborhood::Neig
     if (!player)
         return;
 
-    // Client sends empty packet ? derive neighborhood from player's housing context
+    // Client sends empty packet - derive neighborhood from player's housing context
     Housing* housing = player->GetHousing();
     if (!housing)
     {
@@ -1013,7 +968,7 @@ void WorldSession::HandleNeighborhoodGetInvites(WorldPackets::Neighborhood::Neig
         entry.Timestamp = invite.InviteTime;
         entry.PlayerGuid = invite.InviteeGuid;
         entry.HouseGuid = ObjectGuid::Empty; // invitees don't have houses yet
-        response.Invites.push_back(entry);
+        response.Invites.push_back(std::move(entry));
     }
     SendPacket(response.Write());
 
@@ -1033,7 +988,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         return;
     }
 
-    // CMSG contains CornerstoneGuid (not a NeighborhoodGuid) ? resolve neighborhood from player's map
+    // CMSG contains CornerstoneGuid (not a NeighborhoodGuid) - resolve neighborhood from player's map
     Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(neighborhoodBuyHouse.CornerstoneGuid, player);
     if (!neighborhood)
     {
@@ -1044,19 +999,13 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         return;
     }
 
-    // Use the client's PlotIndex cached from OpenCornerstoneUI.
-    // The BuyHouse CMSG doesn't include a PlotIndex field, so we rely on the
-    // previous OpenCornerstoneUI interaction which cached _lastClientPlotIndex.
-    // Validate by checking the cornerstone GUID matches what we cached.
+    // BuyHouse CMSG has no PlotIndex; use the one cached from OpenCornerstoneUI.
     uint8 resolvedPlotIndex = static_cast<uint8>(_lastClientPlotIndex);
 
-    // Auto-join neighborhood if not already a member ? buying a plot implies joining
+    // Auto-join neighborhood if not already a member - buying a plot implies joining
     if (!neighborhood->IsMember(player->GetGUID()))
     {
-        // M9/A2: enforce faction restriction + private-neighborhood invite gating
-        // BEFORE auto-join. AddResident itself performs no such checks (unlike
-        // InviteResident), so a wrong-faction or uninvited player could otherwise
-        // join a private/faction-locked neighborhood simply by buying a plot.
+        // AddResident performs no faction/invite checks, so gate the auto-join here.
         int32 faction = neighborhood->GetFactionRestriction();
         if (faction != NEIGHBORHOOD_FACTION_NONE)
         {
@@ -1072,8 +1021,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             }
         }
 
-        // Private (non-public) neighborhoods require a matching pending invite,
-        // unless the player is already an owner/manager of that neighborhood.
+        // Private neighborhoods require a pending invite unless owner/manager.
         if (!neighborhood->IsPublic()
             && !neighborhood->HasPendingInvite(player->GetGUID())
             && !neighborhood->IsManager(player->GetGUID())
@@ -1107,8 +1055,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         return;
     }
 
-    // One house per NeighborhoodMap per account: the house GUID is (NeighborhoodMapID, Battle.net account),
-    // so a second one would collide (retail: one Alliance and one Horde house per account).
+    // House GUID is (NeighborhoodMapID, bnet account): a second per map would collide.
     for (Housing const* accountHousing : player->GetAllHousings())
     {
         Neighborhood const* housingNeighborhood = sNeighborhoodMgr.GetNeighborhood(accountHousing->GetNeighborhoodGuid());
@@ -1122,9 +1069,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         }
     }
 
-    // m2/A5: enforce a configurable global house cap across ALL neighborhoods
-    // (retail allows 2 per account ? one Alliance hub, one Horde hub). 0 = no
-    // limit. Prevents plot hoarding across the realm.
+    // Global per-account house cap across all neighborhoods (0 = no limit).
     if (uint32 maxHouses = sWorld->getIntConfig(CONFIG_HOUSING_MAX_HOUSES_PER_ACCOUNT))
     {
         if (player->GetAllHousings().size() >= maxHouses)
@@ -1137,7 +1082,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         }
     }
 
-    // Price of the plot: NeighborhoodPlot.Cost of the DB2 (10,000,000 copper on every 12.1.0.69933 plot).
+    // Price of the plot: NeighborhoodPlot.Cost from DB2.
     NeighborhoodPlotData const* boughtPlot = nullptr;
     for (NeighborhoodPlotData const* plot : sHousingMgr.GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
     {
@@ -1171,8 +1116,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         // Consume any 5-minute reservation hold the player placed via the House Finder.
         neighborhood->ClearReservation(player->GetGUID());
         player->ModifyMoney(-static_cast<int64>(purchaseCost));
-        // Use the server's canonical neighborhood GUID, NOT the client-supplied GUID.
-        // Client may send DB2 NeighborhoodID as counter while server uses internal counter.
+        // Use the server's canonical GUID; the client's may carry a DB2 id.
         player->CreateHousing(neighborhood->GetGuid(), resolvedPlotIndex);
 
         // Update the PlotInfo with the newly created HouseGuid and Battle.net account GUID
@@ -1193,16 +1137,9 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
 
         player->UpdateHousingTutorialCVars();
 
-        // Retail purchase sequence: (FirstTimeDecorAcquisition xN) ? BuyHouseResponse ? LevelFavor.
-        // We deliberately skip the FirstTime packets — see 1b below for why.
+        // Deliberately no FirstTimeDecorAcquisition packets (see 1b below).
 
-        // 1a. Populate the server-side decor catalog with starter items (so edit mode works).
-        // SourceType MUST be DEFERRED: the client counts its HouseDecor.StartingQuantity as
-        // "remaining redeemable" (Blizzard_HousingCatalogUtil.GetEntryNumStored) and only a
-        // storage entry flagged like a materialized auto-award retires that credit. Retail
-        // storage rows for starter decor carry SourceType 3 (dump 69933 2026-10-01, decor
-        // 15454 [73]); rows with SourceType 0 left the credit alive and showed phantom
-        // chest entries that could never be placed (REDEEM_DEFERRED answered 27 forever).
+        // 1a. Starter decor into the catalog; SourceType DEFERRED keeps the client's redeemable credit alive.
         Housing* housing = player->GetHousing();
         if (housing)
         {
@@ -1212,24 +1149,10 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
                 for (int32 i = 0; i < qty; ++i)
                     housing->AddToCatalog(decorId, DECOR_SOURCE_DEFERRED);
             }
-            // NO auto-placement of the starter set. The old PlaceStarterDecor put items at
-            // 12.0.1 sniffed room-local coordinates whose item identities no longer match
-            // 69933 (1435 was a painting then, is a hearth now — it floated at painting
-            // height; 726 sank into the floor) and retail 12.1.0.69933 pre-places NOTHING
-            // from the grant (14 redeemable credits, zero placed entries, empty house).
-            // The set stays in storage; the player places what they want via the editor.
+            // No auto-placement; the set stays in storage for the player to place.
         }
 
-        // 1b. NO FirstTimeDecorAcquisition here. In the retail 12.1.0.69933 purchase capture the
-        // starter set arrives as 14 of those packets (1700x4, 2549x4, 81x2, 10952x2, 8906x2) and
-        // NOTHING else — because the retail client credits each packet as a lazily-instantiated
-        // "redeemable" (Blizzard_HousingCatalogUtil.GetEntryNumStored = totalNumStored +
-        // remainingRedeemable), later materialized by CMSG_HOUSING_DECOR_REDEEM_DEFERRED_DECOR.
-        // Our model is instance-based instead: the copies already exist as FHousingStorage_C
-        // entries built by 1a. Sending the notifications on top double-counts every unit in the
-        // chest UI (15454 showed x2 against one DB row), and the phantom "redeemable" then makes
-        // the client REDEEM it — which our handler grants as a brand-new catalog copy: a x2 dupe
-        // of the whole starter set. Pick ONE model; this server picked instances.
+        // 1b. No FirstTimeDecorAcquisition - it would double-count the chest UI and dupe the starter set via REDEEM.
         // 2. Build buy response with HouseInfo
         WorldPackets::Neighborhood::NeighborhoodBuyHouseResponse response;
         response.Result = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
@@ -1244,7 +1167,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         WorldPacket const* buyRespPkt = response.Write();
         SendPacket(buyRespPkt);
 
-        // 3. Starter favor. Retail 12.1.0.69933 sends one LEVEL_FAVOR packet: level -1 (unchanged), favor = total.
+        // 3. Starter favor via LEVEL_FAVOR (level -1, favor = total).
         if (Housing* h = player->GetHousing())
             h->AddFavor(HOUSE_PURCHASE_STARTER_FAVOR, HOUSING_FAVOR_SOURCE_NEW_HOUSE_DECOR);
 
@@ -1274,8 +1197,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             Housing const* buyHousing = player->GetHousing();
             int32 buyExtCompID = buyHousing ? static_cast<int32>(buyHousing->GetCoreExteriorComponentID()) : 0;
             int32 buyWmoDataID = buyHousing ? static_cast<int32>(buyHousing->GetHouseType()) : 0;
-            // Same fixture/root selections HousingMap::AddPlayerToMap spawns with - without them the
-            // fixtures Housing::Create just gave the house (porch etc.) only appeared after a relog.
+            // Same fixture/root selections as AddPlayerToMap, or the new fixtures only appear after a relog.
             HousingMap::FixtureOverrideMap buyFixtureOverrides;
             HousingMap::RootOverrideMap buyRootOverrides;
             if (buyHousing)
@@ -1286,20 +1208,13 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             housingMap->SpawnHouseForPlot(resolvedPlotIndex, nullptr, buyExtCompID, buyWmoDataID,
                 buyFixtureOverrides.empty() ? nullptr : &buyFixtureOverrides, &buyRootOverrides);
 
-            // The house is made of MeshObjects, which ordinary grid visibility does NOT deliver -
-            // every other site in this system transmits them by hand. SpawnHouseForPlot sends
-            // nothing, so a house bought while the buyer is standing on the plot existed only on
-            // the server: the cornerstone flipped to owned (a GameObject, sent normally) and no
-            // house appeared until the player re-entered the map and AddPlayerToMap pushed them.
+            // MeshObjects are not delivered by grid visibility; push them by hand.
             housingMap->SendPlotMeshObjectsToPlayers(resolvedPlotIndex);
 
-            // The plot geometry entities (room identity, Geobox mesh, exterior root, Group B mirrors)
-            // ride the login bundle only ? without them the client's placement validation rejected
-            // every house move on the new plot ("cannot place outside the plot") until a relog.
+            // Plot geometry entities ride the login bundle; push them or placement validation fails until a relog.
             housingMap->SendPlotGeometryEntitiesToMap(resolvedPlotIndex);
 
-            // Arm the editor/ownership state the plot AreaTrigger would only arm on walking into
-            // its circle (the buyer stands at the plot edge after the purchase).
+            // Arm the editor/ownership state the plot AreaTrigger would only arm on entry.
             if (Housing* armedHousing = player->GetHousing())
             {
                 player->SetCurrentHouse(armedHousing->GetHouseGuid());
@@ -1328,7 +1243,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         }
         else
         {
-            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Player map is NOT a HousingMap ? cannot spawn house exterior!");
+            TC_LOG_ERROR("housing", "HandleNeighborhoodBuyHouse: Player map is NOT a HousingMap - cannot spawn house exterior!");
         }
 
         // Notify client that the basic house was created
@@ -1342,10 +1257,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
         // Refresh NeighborhoodMirrorData (Houses[] changed) on all online members
         neighborhood->RefreshMirrorDataForOnlineMembers();
 
-        // Proactively send DECOR_REQUEST_STORAGE_RESPONSE after purchase.
-        // The client requests storage at map entry (before purchase) and gets "no house".
-        // It does NOT re-request after purchase, so we must push the updated state.
-        // Retail flow: populate storage entries into Account entity THEN send update.
+        // The client requests storage at map entry only; push the post-purchase state.
         if (Housing* h = player->GetHousing())
         {
             h->PopulateCatalogStorageEntries();
@@ -1355,8 +1267,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             storageResp.ResultCode = static_cast<uint8>(HOUSING_RESULT_SUCCESS);
             SendPacket(storageResp.Write());
 
-            // Send Account + HousingPlayerHouseEntity together so budget data
-            // accompanies storage data for the client's decor count display.
+            // Send Account + HousingPlayerHouseEntity together so budget data accompanies storage.
             {
                 GetBattlenetAccount().BuildUpdateChangesMask();
                 GetHousingPlayerHouseEntity().BuildUpdateChangesMask();
@@ -1418,9 +1329,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Use cornerstone GO GUID to find the neighborhood and destination plot.
-    // Per IDA TryMoveHouse (0x7FF75CC59CA1), the first PackedGUID is validated
-    // to be HighGuid::GameObject ? i.e., a cornerstone GO at the destination plot.
+    // CornerstoneGuid is a GO GUID at the destination plot.
     Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(neighborhoodMoveHouse.CornerstoneGuid, player);
     if (!neighborhood)
     {
@@ -1431,8 +1340,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Validate that the HouseGuid in the CMSG matches the player's owned house ?
-    // anti-spoof: a malicious client could try to relocate someone else's house.
+    // Anti-spoof: reject relocating a house the player doesn't own.
     Housing* housing = player->GetHousing();
     if (!housing || housing->GetHouseGuid() != neighborhoodMoveHouse.HouseGuid)
     {
@@ -1443,10 +1351,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Resolve destination plot index from the cornerstone GO GUID. Falls back to
-    // the cached _lastClientPlotIndex if the cornerstone resolve misses (covers
-    // the OPEN_CORNERSTONE_UI ? MOVE_HOUSE flow where the GO no longer exists
-    // on the destination plot, e.g. just-bought plots).
+    // Fall back to the cached OpenCornerstoneUI index when the destination GO no longer exists.
     int32 resolvedTarget = sHousingMgr.ResolvePlotIndex(player, neighborhoodMoveHouse.CornerstoneGuid, neighborhood);
     uint8 targetPlotIndex = (resolvedTarget >= 0)
         ? static_cast<uint8>(resolvedTarget)
@@ -1489,13 +1394,10 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
     response.Result = static_cast<uint8>(result);
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        // The 5-minute hold the player may have placed via the House Finder is
-        // consumed by the actual move; clear it so the lock is released early.
+        // Consume the House Finder reservation hold early.
         neighborhood->ClearReservation(player->GetGUID());
 
-        // Retail (12.1.0.69933 sniff) carries the house over keeping its place on the plot: after the move the root
-        // Entity has the same plot-relative transform as before. Taken from the root on the old plot (it knows where
-        // the house actually stands, moved or not); the DB2 default spot of some plots lies outside the plot.
+        // Carry the house over keeping its plot-relative spot (taken from the old plot's root entity).
         HousingMap* moveMap = dynamic_cast<HousingMap*>(player->GetMap());
         Position fromFrame, toFrame;
         bool const haveFrames = moveMap && oldPlotIndex != INVALID_PLOT_INDEX
@@ -1516,8 +1418,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
             }
         }
 
-        // Update Housing::_plotIndex so all subsequent responses (HouseStatus,
-        // HouseInfo, SyncUpdateFields, etc.) use the correct DB2 PlotIndex.
+        // Update Housing::_plotIndex so subsequent responses use the correct DB2 PlotIndex.
         if (Housing* housing = player->GetHousing())
         {
             housing->SetPlotIndex(targetPlotIndex);
@@ -1528,13 +1429,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
             else
                 housing->ResetHousePosition();
             housing->SyncUpdateFields();
-            // Push the Housing/3 entity (HousingPlayerHouseEntity) to the client
-            // as CREATE ? the regular world-map plot icon resolves via entity
-            // registry lookup of HouseGUID and the icon "self/friend/stranger"
-            // chooser only re-evaluates when CREATE_OBJECT arrives. Without an
-            // explicit re-push here, SyncUpdateFields just flips dirty bits and
-            // the client's local entity copy stays at the old PlotIndex ?
-            // the new plot's icon stays "unowned" until the player re-logs.
+            // Re-push the Housing/3 entity as CREATE: its plot-icon chooser only re-evaluates on CREATE_OBJECT.
             if (CanSeeHousingPlayerHouseEntity())
                 GetHousingPlayerHouseEntity().SendCreateToPlayer(player);
         }
@@ -1570,20 +1465,13 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
                     fixtureOverrides.empty() ? nullptr : &fixtureOverrides,
                     rootOverrides.empty() ? nullptr : &rootOverrides);
 
-                // Re-spawn the player's exterior decor at the new plot. DespawnAllDecorForPlot
-                // (called above for the old plot) only removes the in-world entities ? the
-                // PlacedDecor records in the Housing object are preserved. Without this
-                // matching SpawnAllDecorForPlot the decor stays gone after a move.
-                // Decor is NOT returned to the chest; it follows the house.
+                // Despawn above only removed world entities; re-spawn the PlacedDecor records (decor follows the house).
                 housingMap->SpawnAllDecorForPlot(targetPlotIndex, h);
 
-                // Same relog-only delivery gap as a plot purchase: the destination plot's
-                // geometry entities must reach the client or its placement validation keeps
-                // checking against the old plot ("cannot place outside the plot").
+                // Same delivery gap as purchase: destination geometry must reach the client.
                 housingMap->SendPlotGeometryEntitiesToMap(targetPlotIndex);
 
-                // Re-arm the editor/ownership state for the new plot (the AreaTrigger only
-                // arms it on walking into its circle).
+                // Re-arm the editor/ownership state for the new plot.
                 player->SetCurrentHouse(h->GetHouseGuid());
                 if (housingMap->GetPlayerCurrentPlot(player->GetGUID()) != targetPlotIndex)
                 {
@@ -1607,7 +1495,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
             }
             else
             {
-                TC_LOG_ERROR("housing", "HandleNeighborhoodMoveHouse: No Housing object for player ? cannot spawn house at plot {}", targetPlotIndex);
+                TC_LOG_ERROR("housing", "HandleNeighborhoodMoveHouse: No Housing object for player - cannot spawn house at plot {}", targetPlotIndex);
             }
         }
 
@@ -1623,17 +1511,14 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
         // The house moved to another plot: the other members' rosters need the new plot.
         neighborhood->BroadcastRoster(player->GetGUID());
 
-        // Refresh NeighborhoodMirrorData (Houses[] changed ? plot moved)
+        // Refresh NeighborhoodMirrorData (Houses[] changed - plot moved)
         neighborhood->RefreshMirrorDataForOnlineMembers();
     }
-    // Sniff-verified (12.0.5 packet #13402, 40-byte SMSG_NEIGHBORHOOD_MOVE_HOUSE_RESPONSE):
-    // the trailing PackedGUID is a copy of the moved house's HouseGuid, not an empty
-    // transaction GUID. Re-emitting the same HouseGuid lets the client correlate the
-    // response with its locally-tracked move-in-progress entry.
+    // MoveTransactionGuid echoes the moved HouseGuid so the client correlates the response.
     response.MoveTransactionGuid = housing->GetHouseGuid();
     SendPacket(response.Write());
 
-    // Move-in cutscene and tutorial credit (retail casts this right after the response).
+    // Move-in cutscene and tutorial credit.
     if (result == HOUSING_RESULT_SUCCESS)
         player->CastSpell(player, SPELL_HOUSING_HOUSE_ACQUIRED, true);
 
@@ -1654,16 +1539,14 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
         return;
     }
 
-    // Use the client's PlotIndex directly ? it may differ from our DB2 PlotIndex
-    // values (our SQL has sequential 0-54; the client's actual DB2 may differ).
-    // Also cache for the subsequent BuyHouse CMSG which doesn't include PlotIndex.
+    // Client PlotIndex may differ from our DB2 values; cache it for the BuyHouse CMSG.
     uint32 plotIndex = neighborhoodOpenCornerstoneUI.PlotIndex;
     _lastClientPlotIndex = plotIndex;
 
     // Also resolve via cornerstone GO entry for cost lookup (uses our DB2 internal index)
     int32 resolved = sHousingMgr.ResolvePlotIndex(player, neighborhoodOpenCornerstoneUI.NeighborhoodGuid, neighborhood);
 
-    // Look up cost from plot data ? try both the client's PlotIndex and our DB2 PlotIndex
+    // Look up cost from plot data - try both the client's PlotIndex and our DB2 PlotIndex
     uint32 neighborhoodMapId = neighborhood->GetNeighborhoodMapID();
     std::vector<NeighborhoodPlotData const*> const& plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
 
@@ -1713,8 +1596,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     if (!plotFound)
     {
         TC_LOG_ERROR("housing", "HandleNeighborhoodOpenCornerstoneUI: PlotIndex {} (DB2: {}) not found in neighborhood map {}",
-            plotIndex, resolved,
-            plotIndex, neighborhoodMapId);
+            plotIndex, resolved, neighborhoodMapId);
         WorldPackets::Neighborhood::NeighborhoodOpenCornerstoneUIResponse response;
         response.PlotIndex = plotIndex;
         response.NeighborhoodName = neighborhood->GetName();
@@ -1722,10 +1604,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
         return;
     }
 
-    // Pre-send neighborhood name response to populate the JamCliNeighborhoodName
-    // DataCache. Flag +574 in the display function checks whether the TLS
-    // NeighborhoodGuid is resolved in the DataCache. Sending this immediately
-    // before the cornerstone response ensures the cache entry exists.
+    // Pre-send the name response so JamCliNeighborhoodName exists in the DataCache.
     {
         WorldPackets::Housing::QueryNeighborhoodNameResponse nameResp;
         nameResp.NeighborhoodGuid = neighborhood->GetGuid();
@@ -1739,12 +1618,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
     Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(plotIdx);
     bool isOwned = plotInfo && !plotInfo->OwnerGuid.IsEmpty();
 
-    // Build cornerstone UI response ? wire format verified against retail 12.0.1 build 65940.
-    // Horde retail sniff shows two patterns:
-    //   Packet 1 (PlotIndex=37): PurchaseStatus=73 (PlotReserved), Cost=10M ? actively reserved plot
-    //   Packet 2 (PlotIndex=54): PurchaseStatus=0, Cost=10M, HasAlternatePrice ? available plot
-    // PurchaseStatus=73 = HousingResult::PlotReserved, NOT "purchasable".
-    // For unclaimed purchasable plots: PurchaseStatus=0, Cost=plotCost.
+    // Reserved plot: PurchaseStatus=HOUSING_RESULT_PLOT_RESERVED(73); available: 0 with the plot cost.
     WorldPackets::Neighborhood::NeighborhoodOpenCornerstoneUIResponse response;
     response.PlotIndex = plotIndex;
     response.PurchaseStatus = 0;
@@ -1771,11 +1645,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
         response.Cost = plotCost;
         response.AlternatePrice = static_cast<uint64>(GameTime::GetGameTime()) + 7 * DAY;
 
-        // If another player currently holds the 5-min reservation, retail
-        // marks the plot with PurchaseStatus = HOUSING_RESULT_PLOT_RESERVED (73).
-        // The client renders this as "Reserved" and disables the action button.
-        // The reserving player themselves still gets PurchaseStatus=0 so they
-        // can act on their own hold.
+        // Another player's hold marks the plot reserved; the holder themselves still sees 0.
         ObjectGuid otherReserver = neighborhood->GetPlotReserverOther(plotIdx, player->GetGUID());
         if (!otherReserver.IsEmpty())
         {
@@ -1783,13 +1653,7 @@ void WorldSession::HandleNeighborhoodOpenCornerstoneUI(WorldPackets::Neighborhoo
         }
     }
 
-    // If the player already owns a house in this neighborhood, embed it in the
-    // response. The cornerstone Lua reads this as "you have a house here" and
-    // flips the action button from Buy to Move. Without this the button stays
-    // on Buy, which then routes to BUY_HOUSE and gets rejected by HandleNeighborhoodBuyHouse
-    // (HOUSING_RESULT_INVALID_HOUSE ? "player already has a house in neighborhood").
-    // Only embed when the plot is actually actionable for this player (not owned
-    // by anyone else and not reserved by anyone else).
+    // Embed the player's existing house here so the cornerstone Lua flips Buy into Move.
     if (!isOwned && response.PurchaseStatus == 0)
     {
         if (Housing const* myHousing = player->GetHousingForNeighborhood(neighborhood->GetGuid()))
@@ -1897,8 +1761,7 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     WorldPackets::Neighborhood::NeighborhoodGetRosterResponse response;
     neighborhood->BuildRosterResponse(response);
 
-    // Pre-send neighborhood name response to populate JamCliNeighborhoodName DataCache.
-    // The roster UI resolves the neighborhood name via GroupNeighborhoodGuid cache lookup.
+    // Pre-send the name response; the roster UI resolves the name via the DataCache.
     {
         WorldPackets::Housing::QueryNeighborhoodNameResponse nameResp;
         nameResp.NeighborhoodGuid = neighborhood->GetGuid();
@@ -1910,9 +1773,7 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
     WorldPacket const* rosterPkt = response.Write();
     SendPacket(rosterPkt);
 
-    // Populate the Housing/4 entity with this neighborhood's mirror data so the
-    // client's internal house list stays in sync for plot resolution. The mirror is the neighborhood the
-    // player stands in (the map pins come from it), so a roster of another one leaves it alone.
+    // Refresh the Housing/4 mirror, but only for the neighborhood the player stands in.
     HousingMap const* housingMap = dynamic_cast<HousingMap const*>(player->GetMap());
     bool const refreshMirror = housingMap && housingMap->GetNeighborhood() == neighborhood;
     HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
@@ -1941,14 +1802,11 @@ void WorldSession::HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::Neigh
                 mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
             }
         }
-        // Wholesale re-push (ClearHouses + 55 AddHouse + ClearManagers + AddManagers).
-        // Retail emits CREATE_OBJECT here (sniff-verified). The client's map-icon
-        // refresh path only fires on CREATE.
+        // Wholesale CREATE re-push; the client's map-icon refresh only fires on CREATE.
         mirrorEntity.SendCreateToPlayer(player);
     }
 
-    // Pre-push player names for all plot owners so the client can format
-    // plot names via HOUSING_HOUSE_NAME_FORMAT without waiting for async name queries.
+    // Pre-push plot-owner names so plot names format without async name queries.
     {
         WorldPackets::Query::QueryPlayerNamesResponse nameResponse;
         for (auto const& plot : neighborhood->GetPlots())
@@ -1973,15 +1831,13 @@ void WorldSession::SendNeighborhoodMapRefresh()
     if (!player || !HasHousingNeighborhoodMirrorEntity())
         return;
 
-    // The mirror entity's GUID is the neighborhood GUID (assigned at login by
-    // Player::LoadFromDB); empty means the session has no neighborhood yet.
+    // Mirror entity GUID is the neighborhood GUID; empty = no neighborhood yet.
     HousingNeighborhoodMirrorEntity& mirrorEntity = GetHousingNeighborhoodMirrorEntity();
     Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(mirrorEntity.GetGUID());
     if (!neighborhood)
         return;
 
-    // Keep the JamCliNeighborhoodName DataCache fed ? the map pin label resolves the
-    // neighborhood name from it, and a missing entry drops the name prefix entirely.
+    // Keep JamCliNeighborhoodName fed; a missing entry drops the pin label prefix.
     {
         WorldPackets::Housing::QueryNeighborhoodNameResponse nameResp;
         nameResp.NeighborhoodGuid = neighborhood->GetGuid();
@@ -1990,11 +1846,7 @@ void WorldSession::SendNeighborhoodMapRefresh()
         SendPacket(nameResp.Write());
     }
 
-    // Re-send the roster. The HousingNeighborhoodState singleton (members, plotIDs, the
-    // ownership classification and the neighborhood name the pin labels format from) is
-    // ONLY filled by the roster response. After a relog the client requests it itself, but
-    // on a mid-session map re-entry it does not re-ask while its singleton starts empty ?
-    // the pins then render bare plot numbers ("  49") with no ownership detected.
+    // The HousingNeighborhoodState singleton is only filled by the roster response; push it on re-entry.
     if (neighborhood->GetMember(player->GetGUID()))
     {
         WorldPackets::Neighborhood::NeighborhoodGetRosterResponse rosterResponse;
@@ -2002,18 +1854,14 @@ void WorldSession::SendNeighborhoodMapRefresh()
         SendPacket(rosterResponse.Write());
     }
 
-    // Re-push the Housing/4 mirror with freshly rebuilt fields. The client retains session
-    // entities across map switches, so a blind CREATE here is a duplicate for a held GUID ?
-    // the documented client behavior for that is resetting/ignoring the dynamic Houses array,
-    // which is exactly the lost-pins state. VALUES when held, CREATE when not (the same gate
-    // BuildHousingAccountEntitiesUpdate uses for the Account/Housing/3 pair).
+    // VALUES when the client already holds the entity, CREATE otherwise (a blind CREATE resets Houses).
     neighborhood->RebuildMirrorDataFor(player);
     if (player->HaveAtClient(&mirrorEntity))
         mirrorEntity.SendUpdateToPlayer(player);
     else
         mirrorEntity.SendCreateToPlayer(player);
 
-    // Pre-push plot-owner names so ownership icons resolve without async name queries.
+    // Pre-push plot-owner names so ownership icons resolve without async queries.
     {
         WorldPackets::Query::QueryPlayerNamesResponse nameResponse;
         for (auto const& plot : neighborhood->GetPlots())
@@ -2046,8 +1894,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Use the client's PlotIndex directly ? client sends its internal plot ID
-    // which may differ from our DB2 PlotIndex values
+    // Client sends its internal plot ID, which may differ from our DB2 values.
     uint32 plotIndex = neighborhoodEvictPlot.PlotIndex;
 
     // Only owner or manager can evict
@@ -2060,7 +1907,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
         return;
     }
 
-    // Find the plot by index ? O(1) direct array access
+    // Find the plot by index - O(1) direct array access
     ObjectGuid evictedPlayerGuid;
     ObjectGuid plotGuid;
     if (Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(plotIndex)))
@@ -2107,15 +1954,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
             }
             else
             {
-                // Offline: delete housing directly from DB.
-                //
-                // H-12: this used to run CHAR_DEL_CHARACTER_HOUSING alone, clearing one
-                // of the five tables and orphaning character_housing_decor, _rooms,
-                // _fixtures and _catalog. Those are selected by ownerGuid, not by house,
-                // so the rows were picked up again by the player's NEXT house - decor at
-                // the old coordinates, against a room layout that no longer existed.
-                // Housing::DeleteFromDB is the same clearing the online branch performs
-                // via DeleteHousing().
+                // Offline: Housing::DeleteFromDB clears the housing tables and their children.
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
                 Housing::DeleteFromDB(evictedPlayerGuid.GetCounter(), trans);
                 CharacterDatabase.CommitTransaction(trans);
@@ -2124,11 +1963,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
 
         // Neighborhood::EvictPlayer already sent the remaining members the new roster.
 
-        // SMSG_NEIGHBORHOOD_EVICT_PLAYER (0x5C0000). The 12.0.7 client handler (case 6029312)
-        // does not decode any field ? it consumes the remaining bytes as a blob and then fires
-        // three neighborhood-view refreshes (codes 2, 3, 1). It is a "the roster you are showing
-        // is stale, rebuild it" notification, which is exactly the state after an eviction, so it
-        // goes to everyone whose view just changed: the remaining members and the evicted player.
+        // Eviction notice triggers the clients' neighborhood-view refresh; send to remaining members and the evictee.
         if (!evictedPlayerGuid.IsEmpty())
         {
             WorldPackets::Neighborhood::NeighborhoodEvictPlayerResponse evictNotification;
@@ -2146,9 +1981,7 @@ void WorldSession::HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::Neigh
 
 }
 
-// ============================================================
 // Neighborhood Initiative System
-// ============================================================
 
 void WorldSession::HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::Neighborhood::NeighborhoodInitiativeServiceStatusCheck const& /*packet*/)
 {
@@ -2156,20 +1989,10 @@ void WorldSession::HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::
     if (!player)
         return;
 
-    // Send initiative service status (retail-observed: this CMSG's only response)
+    // This CMSG's only response.
     sInitiativeManager.SendInitiativeServiceStatus(this, true);
 
-    // REMOVED proactive SMSG_GET_PLAYER_INITIATIVE_INFO_RESULT (0x420365).
-    // Sniff set-diff of 3 retail login captures shows retail never emits
-    // this SMSG at login. The earlier comment claimed it was needed for
-    // the client's C_NeighborhoodInitiative.isLoaded flag, but that claim
-    // was not actually sniff-verified. The client sends
-    // CMSG_GET_AVAILABLE_INITIATIVE_REQUEST when it needs the data; the
-    // reactive handler at HandleGetAvailableInitiativeRequest delivers
-    // SendPlayerInitiativeInfo on demand. Hypothesis: the proactive
-    // unsolicited INITIATIVE_INFO_RESULT at login suppresses the client's
-    // map-icon refresh (same pattern as the previously-removed proactive
-    // roster response).
+    // No unsolicited info push; the client asks via CMSG_GET_AVAILABLE_INITIATIVE_REQUEST.
 }
 
 void WorldSession::HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhood::GetAvailableInitiativeRequest const& getAvailableInitiativeRequest)
@@ -2181,9 +2004,7 @@ void WorldSession::HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhoo
     Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(getAvailableInitiativeRequest.NeighborhoodGuid, player);
     if (!neighborhood)
     {
-        // No neighborhood: emit empty response. Wire is just GUID + uint8(0)
-        // ? Flags top-2-bits == 0 makes the client skip the data block entirely,
-        // which is the no-data path. Real failures route via SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE.
+        // Empty response = Flags top-2-bits 0, the client's no-data path.
         WorldPackets::Housing::GetPlayerInitiativeInfoResult response;
         response.NeighborhoodGUID = getAvailableInitiativeRequest.NeighborhoodGuid;
         SendPacket(response.Write());
@@ -2205,8 +2026,7 @@ void WorldSession::HandleGetInitiativeActivityLogRequest(WorldPackets::Neighborh
     Neighborhood* neighborhood = sNeighborhoodMgr.ResolveNeighborhood(getInitiativeActivityLogRequest.NeighborhoodGuid, player);
     if (!neighborhood)
     {
-        // No neighborhood: emit empty log. Wire is just GUID + uint32(0).
-        // Real failures route via SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE.
+        // Empty log; real failures route via SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE.
         WorldPackets::Housing::GetInitiativeActivityLogResult response;
         response.NeighborhoodGuid = getInitiativeActivityLogRequest.NeighborhoodGuid;
         SendPacket(response.Write());
@@ -2241,13 +2061,3 @@ void WorldSession::HandleInitiativeUpdateActiveNeighborhood(WorldPackets::Neighb
     sInitiativeManager.SendPlayerInitiativeInfo(this, nhObjGuid, nhGuid);
 
 }
-
-// ============================================================
-// Phase 7 ? Charter Handlers
-// ============================================================
-
-// ? fake CMSGs 0x370002 + 0x370005, no client senders in build 67186 (STUB-OK only).
-
-// ============================================================
-// Phase 7 ? Neighborhood Handlers
-// ============================================================

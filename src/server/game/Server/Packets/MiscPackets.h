@@ -1271,23 +1271,19 @@ namespace WorldPackets
             uint32 Unknown = 0;
         };
 
-        // SMSG_DISPLAY_WORLD_TEXT (0x420296) — floats a server-authored, already-formatted string in
-        // the 3D world (the engine behind the Lua AddWorldText / AddCustomWorldText bindings), NOT a
-        // chat line, NOT a centre-screen notification and NOT the Lua combat-text system. The client
-        // handler runs the text through the string-token formatter with Arg1/Arg2 as the two numeric
-        // substitution arguments, then hands it to the world-text renderer; it raises no Lua event and
-        // performs no DB2 lookup, so the display string is entirely the server's to compose.
+        // Floats a server-authored, already-formatted string in the 3D world (the
+        // engine behind the Lua AddWorldText / AddCustomWorldText bindings) — not a
+        // chat line or combat-text entry. The client formats the string tokens with
+        // Arg1/Arg2 and raises no Lua event, so the display string is entirely the
+        // server's to compose. Retail uses it for "+XP", "+Gold" and "+Neighborly"
+        // style floats, sometimes with a null guid.
         //
-        // Wire, verified against build-68275/68974 captures (5 distinct bodies, zero leftover bytes):
-        //   PackedGuid Guid    — anchor unit; a null guid makes the client fall back to the receiver
+        // Wire (sniff-verified):
+        //   PackedGuid Guid    anchor unit; a null guid falls back to the receiver
         //   uint32     Arg1
         //   uint32     Arg2
-        //   Bits<12>   Text length, then FlushBits (the 4 pad bits are 0 in every sample)
-        //   char[len]  Text    — no NUL on the wire
-        //
-        // It is a shared channel: retail sends "|cff94008B+XP" anchored on the creature you killed,
-        // "|cnGOLD_FONT_COLOR:+Gold|r" and "|cnYELLOW_FONT_COLOR:+Neighborly|r" with a null guid, and
-        // "|cff19FF19+Satisfaction|r" anchored on a player. Do not model it as any one system's packet.
+        //   Bits<12>   Text length, then FlushBits (pad bits are always 0)
+        //   char[len]  Text    no NUL on the wire
         class DisplayWorldText final : public ServerPacket
         {
         public:

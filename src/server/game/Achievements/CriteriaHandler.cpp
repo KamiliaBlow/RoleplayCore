@@ -17,7 +17,6 @@
 
 #include "CriteriaHandler.h"
 #include "ArenaTeamMgr.h"
-#include "InitiativeManager.h"
 #include "AzeriteItem.h"
 #include "BattlePetMgr.h"
 #include "Battleground.h"
@@ -31,6 +30,7 @@
 #include "Garrison.h"
 #include "Group.h"
 #include "Housing.h"
+#include "InitiativeManager.h"
 #include "InstanceScript.h"
 #include "Item.h"
 #include "ItemBonusMgr.h"
@@ -576,7 +576,6 @@ void CriteriaHandler::UpdateCriteria(Criteria const* criteria, uint64 miscValue1
         case CriteriaType::SellItemsToVendors:
         case CriteriaType::ReachMaxLevel:
         case CriteriaType::LearnTaxiNode:
-        // --- housing
         case CriteriaType::PlaceDecor:
         case CriteriaType::RemoveDecor:
         case CriteriaType::CollectUniqueDecor:

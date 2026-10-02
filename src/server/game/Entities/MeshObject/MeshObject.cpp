@@ -27,9 +27,7 @@ MeshObject::MeshObject() : WorldObject(false), MapObject()
 {
     m_objectTypeId = TYPEID_MESH_OBJECT;
 
-    // Retail MeshObjects: HasPositionFragment=true (from Object), Stationary=false,
-    // HasMeshObject=true. The MeshObject block writes AttachParentGUID + local pos/rot.
-    // Stationary MUST be false — it writes extra position data that shifts parsing.
+    // Stationary would shift client parsing of the MeshObject block
     m_updateFlag.Stationary = false;
     m_updateFlag.MeshObject = true;
 
@@ -84,10 +82,7 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
 {
     SetMap(map);
 
-    // For child pieces (attached to a parent), pos contains LOCAL-SPACE coordinates.
-    // Use worldPos (the parent's position) for server-side grid placement so the MeshObject
-    // is in the correct grid cell and visible to players near the house.
-    // The local-space offset is stored in FMirroredPositionData_C for client rendering.
+    // pos is the local-space offset; grid placement uses the parent's world position
     if (worldPos)
         Relocate(*worldPos);
     else
@@ -100,9 +95,7 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
         return false;
     }
 
-    // Phase shift: always visible regardless of player's phase state.
-    // Must use PHASE_USE_FLAGS_ALWAYS_VISIBLE (matching door GOs, cornerstones, ATs, decor GOs)
-    // otherwise cosmetic phase additions on plot exit hide meshes including neighbor houses.
+    // always visible so phase changes on plot exit don't hide meshes (incl. neighbour houses)
     PhasingHandler::InitDbPhaseShift(GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
 
     _Create(ObjectGuid::Create<HighGuid::MeshObject>(GetMapId(), 0,
@@ -110,30 +103,23 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
 
     SetObjectScale(1.0f);
 
-    // Retail sniff: MeshObject decor entities have ObjectData.EntryID set to FileDataID.
-    // e.g., EntryID=7011541 matching FileDataID=7011541 on the same entity.
-    // The client may use EntryID for internal entity lookups in the placed decor hash map.
+    // client looks up placed decor by EntryID
     SetEntry(fileDataID);
 
-    // Set mesh object update fields
     auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
     SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::FileDataID), fileDataID);
     SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsWMO), isWMO);
     SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsRoom), false);
 
-    // Register FMeshObjectData_C entity fragment
     m_entityFragments.Add(WowCS::EntityFragment::FMeshObjectData_C, false,
         WowCS::GetRawFragmentData(m_meshObjectData));
 
-    // Store movement block data (used by BaseEntity::BuildCreateUpdateBlockMovement)
     _attachParentGUID = attachParent;
     _positionLocalSpace = pos;
-
     _rotationLocalSpace = rotation;
     _scaleLocalSpace = scale;
     _attachmentFlags = attachFlags;
 
-    // Set mirrored position data (FMirroredPositionData_C fragment)
     auto posData = m_values.ModifyValue(&MeshObject::m_mirroredPositionData)
         .ModifyValue(&UF::MirroredPositionData::PositionData);
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachParentGUID), attachParent);
@@ -143,16 +129,13 @@ bool MeshObject::Create(Map* map, Position const& pos, QuaternionData const& rot
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::ScaleLocalSpace), scale);
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachmentFlags), attachFlags);
 
-    // Register FMirroredPositionData_C entity fragment
     m_entityFragments.Add(WowCS::EntityFragment::FMirroredPositionData_C, false,
         WowCS::GetRawFragmentData(m_mirroredPositionData));
 
     SetZoneScript();
     UpdatePositionData();
 
-    // NOTE: AddToMap is NOT called here. The caller must call map->AddToMap(mesh) after
-    // setting up all entity fragments (e.g. InitHousingFixtureData). The create packet
-    // is sent during AddToMap, so all fragments must be registered before that point.
+    // NOTE: caller must AddToMap after all InitHousing* calls (the create packet is sent there)
 
     TC_LOG_DEBUG("housing", "MeshObject::Create: guid={} fileDataID={} isWMO={} at ({:.1f}, {:.1f}, {:.1f}) on map {} (not yet added to map)",
         GetGUID().ToString(), fileDataID, isWMO,
@@ -167,20 +150,13 @@ void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     if (m_housingDecorData.has_value())
         return;
 
-    // Sniff-verified: FHousingDecor_C entity fragment on MeshObject decor entities.
-    // TargetGameObjectGUID is EMPTY (0x0) in ALL retail sniffs.
-    // AttachParentGUID points to the room entity (Housing/18 base room) the decor is placed in.
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::DecorGUID), decorGuid);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::AttachParentGUID), roomEntityGuid);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::Flags), flags);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), ObjectGuid::Empty);
+    auto decorData = m_values.ModifyValue(&Object::m_housingDecorData, 0);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::DecorGUID), decorGuid);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::AttachParentGUID), roomEntityGuid);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::Flags), flags);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), ObjectGuid::Empty);
 
-    auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
+    auto persistedRef = decorData.ModifyValue(&UF::HousingDecorData::PersistedData, 0);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceValue), std::move(sourceValue));
@@ -188,15 +164,7 @@ void MeshObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingDecorData));
 
-    // Retail sniff-verified: decor MeshObjects have exactly these fragments:
-    //   [CGObject(2), FMeshObjectData_C(19), FHousingDecor_C(20),
-    //    FMirroredPositionData_C(31), Tag_MeshObject(221)]
-    // FHousingDecorActor_C (28) is NOT present on any retail entity.
-
-    // Retail sniff: HasDecor movement block flag is NEVER set (always False).
-    // The room entity GUID is already in the FHousingDecor_C fragment's AttachParentGUID field.
-    // Do NOT set m_updateFlag.Decor here — it adds an extra movement block field
-    // that the client does not expect.
+    // HasDecor movement flag not set; the room entity GUID lives in FHousingDecor_C
     _decorRoomEntityGUID = roomEntityGuid;
 
     TC_LOG_DEBUG("housing", "MeshObject::InitHousingDecorData: guid={} decorGuid={} houseGuid={} flags={} roomEntity={} (FHousingDecor_C ON)",
@@ -211,38 +179,17 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, ObjectGuid fixture
     if (m_housingFixtureData.has_value())
         return;
 
-    // FHousingFixture_C fragment (ID 34, 96 bytes, 11 fields with HasChangesMask<11>).
-    // Field order must match the client's CREATE deserializer:
-    //   [0] ExteriorComponentID  (CompressedUInt32)
-    //   [1] HouseExteriorWmoDataID (CompressedUInt32)
-    //   [2] ExteriorComponentHookID (CompressedUInt32, defaults -1)
-    //   [3] HouseGUID (PackedGUID128)
-    //   [4] AttachParentGUID (PackedGUID128) — parent fixture in hierarchy
-    //   [5] Guid (PackedGUID128) — unique per fixture, for client identification
-    //   [6] GameObjectGUID (PackedGUID128) — always empty
-    //   [7] ExteriorComponentType (uint8)
-    //   [8] Field_59 (uint8)
-    //   [9] Size (uint8)
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), exteriorComponentID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::HouseExteriorWmoDataID), houseExteriorWmoDataID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentHookID), exteriorComponentHookID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::HouseGUID), houseGuid);
-    // AttachParentGUID: the parent fixture's unique GUID in the hierarchy.
-    // Root pieces have empty parent. Child pieces point to their parent root's fixture GUID.
-    // The client uses this to build the fixture tree and resolve hook point ownership.
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::AttachParentGUID), parentFixtureGuid);
-    // Guid: unique per fixture — the client uses this to identify individual fixtures.
-    // Must be a Housing-type GUID (client crashes with non-Housing GUIDs here).
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Guid), fixtureGuid);
-    // GameObjectGUID: retail sniff shows door components (Type=11) have the GO entry GUID here.
-    // Other fixture types (base, roof, window, etc.) have empty GUID.
-    // Look up the ExteriorComponent DB2 entry for GameObjectID.
+    auto fixtureData = m_values.ModifyValue(&Object::m_housingFixtureData, 0);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), exteriorComponentID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::HouseExteriorWmoDataID), houseExteriorWmoDataID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentHookID), exteriorComponentHookID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::HouseGUID), houseGuid);
+    // the client builds its fixture tree from this
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::AttachParentGUID), parentFixtureGuid);
+    // must be a Housing-type GUID - the client's resolver crashes on non-Housing GUIDs
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Guid), fixtureGuid);
+
+    // Door components (Type 11) carry the GO entry's GUID; other fixture types stay empty.
     {
         ObjectGuid goGuid = ObjectGuid::Empty;
         if (exteriorComponentID > 0)
@@ -250,38 +197,28 @@ void MeshObject::InitHousingFixtureData(ObjectGuid houseGuid, ObjectGuid fixture
             ExteriorComponentEntry const* extComp = sExteriorComponentStore.LookupEntry(
                 static_cast<uint32>(exteriorComponentID));
             if (extComp && extComp->GameObjectID > 0)
-            {
-                // Build a GameObject-type GUID referencing the GO entry.
-                // Retail sniff: the GUID uses the same Low value as the MeshObject's Low.
+                // reuse the MeshObject's counter in the GO GUID
                 goGuid = ObjectGuid::Create<HighGuid::GameObject>(GetMap()->GetId(),
                     static_cast<uint32>(extComp->GameObjectID), GetGUID().GetCounter());
-            }
         }
+
         if (!goGuid.IsEmpty())
-        {
-            SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-                .ModifyValue(&UF::HousingFixtureData::GameObjectGUID), goGuid);
-        }
+            SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::GameObjectGUID), goGuid);
     }
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentType), exteriorComponentType);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Field_59), uint8(1)); // sniff: always 1
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Size), houseSize);
+
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentType), exteriorComponentType);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Field_59), uint8(1)); // always 1
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Size), houseSize);
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingFixture_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingFixtureData));
 
-    // Cache for targeted fixture lookup and hierarchy traversal
     _exteriorComponentHookID = exteriorComponentHookID;
     _exteriorComponentID = exteriorComponentID;
     _fixtureGuid = fixtureGuid;
-
-    // Every house mesh is a Tag_HouseExteriorPiece, the base included: retail only puts Tag_HouseExteriorRoot on the
-    // root Entity (HousingMirrorEntity PieceAndRoot). A base tagged Root instead of Piece was left out of the
-    // dragged house, which the client then lowered until the roof touched the ground.
     _isExteriorRoot = isRoot;
+
+    // Tag_HouseExteriorRoot belongs to the root entity; tagging the base Root breaks house dragging
     m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorPiece, IsInWorld());
 
     TC_LOG_DEBUG("housing", "MeshObject::InitHousingFixtureData: meshGuid={} fixtureGuid={} "
@@ -328,32 +265,20 @@ void MeshObject::InitHousingRoomData(ObjectGuid houseGuid, int32 houseRoomID,
     if (m_housingRoomData.has_value())
         return;
 
-    // Set IsRoom=true — this MeshObject has FHousingRoom_C, so the client's
-    // MeshObjectSystem can safely read FHousingRoom_C.Flags from it.
-    {
-        auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
-        SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsRoom), true);
-    }
+    // this MeshObject carries FHousingRoom_C, so the client reads it via MeshObjectSystem
+    SetUpdateFieldValue(m_values.ModifyValue(&MeshObject::m_meshObjectData)
+        .ModifyValue(&UF::MeshObjectData::IsRoom), true);
 
-    // Populate HousingRoomData (FHousingRoom_C fragment data).
     auto roomData = m_values.ModifyValue(&Object::m_housingRoomData, 0);
     SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::HouseGUID), houseGuid);
     SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::HouseRoomID), houseRoomID);
     SetUpdateFieldValue(roomData.ModifyValue(&UF::HousingRoomData::Flags), flags);
-    // floorIndex is no longer part of the FHousingRoom_C wire layout in 12.0.7
-    // (see UF::HousingRoomData); it is only kept for the log line below.
 
-    // Register FHousingRoom_C entity fragment
     m_entityFragments.Add(WowCS::EntityFragment::FHousingRoom_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingRoomData));
-
-    // Register Tag_HousingRoom tag fragment
     m_entityFragments.Add(WowCS::EntityFragment::Tag_HousingRoom, IsInWorld());
 
-    // Retail sniff: HasRoom movement block flag is NEVER set (always False).
-    // The house GUID is already in the FHousingRoom_C fragment data.
-    // Do NOT set m_updateFlag.Room here — it adds an extra movement block field
-    // that the client does not expect.
+    // HasRoom movement flag not set; the house GUID lives in FHousingRoom_C
     _roomHouseGUID = houseGuid;
 
     TC_LOG_DEBUG("housing", "MeshObject::InitHousingRoomData: guid={} houseGuid={} "
@@ -378,8 +303,6 @@ void MeshObject::AddRoomDoor(int32 roomComponentID, Position const& offset, uint
     if (!m_housingRoomData.has_value())
         return;
 
-    // For a fresh dynamic array entry, populate fields via the mutable reference's ModifyValue
-    // which returns a setter that marks the change mask and writes the underlying value.
     auto&& doorRef = AddDynamicUpdateFieldValue(m_values.ModifyValue(&Object::m_housingRoomData, 0)
         .ModifyValue(&UF::HousingRoomData::Doors));
     doorRef.ModifyValue(&UF::HousingDoorData::RoomComponentID).SetValue(roomComponentID);
@@ -405,22 +328,15 @@ void MeshObject::InitHousingRoomComponentData(ObjectGuid roomGuid,
     if (m_housingRoomComponentMeshData.has_value())
         return;
 
-    // Sniff-verified: ALL retail room component MeshObjects have IsRoom=true.
-    {
-        auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
-        SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsRoom), true);
-    }
+    // room component MeshObjects always have IsRoom=true
+    auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
+    SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::IsRoom), true);
 
-    // Set Geobox (axis-aligned bounding box) on MeshObjectData.
-    {
-        auto meshData = m_values.ModifyValue(&MeshObject::m_meshObjectData);
-        UF::AaBox geobox;
-        geobox.Low = TaggedPosition<Position::XYZ>(geoboxMinX, geoboxMinY, geoboxMinZ);
-        geobox.High = TaggedPosition<Position::XYZ>(geoboxMaxX, geoboxMaxY, geoboxMaxZ);
-        SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::Geobox, uint32(0)), std::move(geobox));
-    }
+    UF::AaBox geobox;
+    geobox.Low = TaggedPosition<Position::XYZ>(geoboxMinX, geoboxMinY, geoboxMinZ);
+    geobox.High = TaggedPosition<Position::XYZ>(geoboxMaxX, geoboxMaxY, geoboxMaxZ);
+    SetUpdateFieldValue(meshData.ModifyValue(&UF::MeshObjectData::Geobox, uint32(0)), std::move(geobox));
 
-    // Populate HousingRoomComponentMeshData (FHousingRoomComponentMesh_C fragment data)
     auto compData = m_values.ModifyValue(&Object::m_housingRoomComponentMeshData, 0);
     SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomGUID), roomGuid);
     SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentOptionID), roomComponentOptionID);
@@ -432,10 +348,8 @@ void MeshObject::InitHousingRoomComponentData(ObjectGuid roomGuid,
     SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentTextureID), roomComponentTextureID);
     SetUpdateFieldValue(compData.ModifyValue(&UF::HousingRoomComponentMeshData::RoomComponentTypeParam), roomComponentTypeParam);
 
-    // Register FHousingRoomComponentMesh_C entity fragment
     m_entityFragments.Add(WowCS::EntityFragment::FHousingRoomComponentMesh_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingRoomComponentMeshData));
-
 }
 
 void MeshObject::UpdateRoomComponentVisuals(int32 roomComponentOptionID, int32 houseThemeID,
@@ -488,15 +402,11 @@ void MeshObject::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* targe
     if (!target)
         return;
 
-    // Write CREATE block manually with UpdateType=1 (UPDATETYPE_CREATE_OBJECT).
-    // Retail MeshObjects always use CreateObject1. BaseEntity uses m_isNewObject
-    // which produces UpdateType=2 for newly spawned entities, but the client may
-    // not handle type 2 for entity-fragment types (objectType 14/18).
-    uint8 updateType = UPDATETYPE_CREATE_OBJECT; // Always 1, like HousingRoomEntity
+    // the client may not handle CreateObject2 for entity-fragment types
     CreateObjectBits flags = m_updateFlag;
 
     ByteBuffer& buf = data->GetBuffer();
-    buf << uint8(updateType);
+    buf << uint8(UPDATETYPE_CREATE_OBJECT);
     buf << GetGUID();
     buf << uint8(m_objectTypeId);
 
@@ -514,7 +424,7 @@ void MeshObject::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* targe
         if (WowCS::IsIndirectFragment(fragmentId))
             buf << uint8(1);
 
-        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(m_entityFragments.Updateable.Ids[i])](
+        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(fragmentId)](
             m_entityFragments.Updateable.Data[i], fieldFlags, buf, target, this);
     }
 
@@ -524,17 +434,13 @@ void MeshObject::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* targe
 
 void MeshObject::BuildValuesCreate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const
 {
-    // Only ObjectData belongs to the CGObject fragment for MeshObjects.
-    // m_meshObjectData is serialized by FMeshObjectData_C fragment's own SerializeCreate handler.
-    // m_mirroredPositionData is serialized by FMirroredPositionData_C fragment.
-    // m_housingFixtureData is serialized by FHousingFixture_C fragment.
+    // only ObjectData belongs to CGObject; other fields go via their entity fragments
     m_objectData->WriteCreate(flags, data, target, this);
 }
 
 void MeshObject::BuildValuesUpdate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const
 {
-    // GetChangedObjectTypeMask() only contains CGObject-owned fields (TYPEID_OBJECT).
-    // Entity fragment data is handled by BuildValuesUpdateBlockForPlayer using SerializeUpdate.
+    // entity fragment data is handled separately via SerializeUpdate
     data << uint32(m_values.GetChangedObjectTypeMask());
 
     if (m_values.HasChanged(TYPEID_OBJECT))

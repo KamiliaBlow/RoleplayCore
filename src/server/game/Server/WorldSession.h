@@ -459,88 +459,6 @@ namespace WorldPackets
         class HotfixRequest;
     }
 
-    namespace Housing
-    {
-        // Patch 12.1.0 (build 69299) blueprint packets (HousingBlueprintPackets.h)
-        class HousingBlueprintRequestCollection;
-        class HousingBlueprintRequestContents;
-        class HousingBlueprintExport;
-        class HousingBlueprintRename;
-        class HousingBlueprintDelete;
-        class HousingBlueprintImport;
-        class HouseExteriorCommitPosition;
-        class HouseInteriorLeaveHouse;
-        class HousingDecorSetEditMode;
-        class HousingDecorPlace;
-        class HousingDecorMove;
-        class HousingDecorRemove;
-        class HousingDecorLock;
-        class HousingDecorSetPet;
-        class HousingDecorSetDyeSlots;
-        class HousingDecorDeleteFromStorage;
-        class HousingDecorRequestStorage;
-        class HousingDecorRedeemDeferredDecor;
-        class HousingDecorStartPlacingNewDecor;
-        class HousingDecorCatalogCreateSearcher;
-        class GetLastCatalogFetch;
-        class UpdateLastCatalogFetch;
-        class HousingFixtureSetEditMode;
-        class HousingFixtureSetCoreFixture;
-        class HousingFixtureCreateFixture;
-        class HousingFixtureDeleteFixture;
-        class HousingRoomSetLayoutEditMode;
-        class HousingRoomAdd;
-        class HousingRoomRemove;
-        class HousingRoomRotate;
-        class HousingRoomMoveRoom;
-        class HousingRoomSetComponentTheme;
-        class HousingRoomApplyComponentMaterials;
-        class HousingRoomSetDoorType;
-        class HousingRoomSetCeilingType;
-        class HousingSvcsGuildCreateNeighborhood;
-        class HousingSvcsNeighborhoodReservePlot;
-        class HousingSvcsRelinquishHouse;
-        class HousingSvcsUpdateHouseSettings;
-        class HousingSvcsPlayerViewHousesByPlayer;
-        class HousingSvcsPlayerViewHousesByBnetAccount;
-        class HousingSvcsGetPlayerHousesInfo;
-        class HousingSvcsTeleportToPlot;
-        class HousingSvcsStartTutorial;
-        class HousingSvcsSetTutorialState;
-        class HousingSvcsCompleteTutorialStep;
-        class HousingSvcsSkipTutorial;
-        class HousingSvcsQueryPendingInvites;
-        class HousingSvcsAcceptNeighborhoodOwnership;
-        class HousingSvcsRejectNeighborhoodOwnership;
-        class HousingSvcsGetPotentialHouseOwners;
-        class HousingSvcsGetHouseFinderInfo;
-        class HousingSvcsGetHouseFinderNeighborhood;
-        class HousingSvcsHouseFinderIgnoreNeighborhood;
-        class HousingSvcsGetBnetFriendNeighborhoods;
-        class HousingSvcsDeleteAllNeighborhoodInvites;
-        class HousingHouseStatus;
-        class HousingGetCurrentHouseInfo;
-        class HousingGetPlayerPermissions;
-        class HousingResetKioskMode;
-        class HousingResetHouse;
-        class DeclineNeighborhoodInvites;
-        class QueryNeighborhoodInfo;
-        class InvitePlayerToNeighborhood;
-        class GuildGetOthersOwnedHouses;
-        class HouseExteriorLock;
-        class HousingPhotoSharingCompleteAuthorization;
-        class HousingPhotoSharingClearAuthorization;
-        class HousingFixtureSetHouseSize;
-        class HousingFixtureSetHouseType;
-        class GetAllLicensedDecorQuantities;
-        class GetDecorRefundList;
-        class BulkRefund;
-        class HousingRequestEditorAvailability;
-        class HousingDecorStartPlacingFromSource;
-        class HousingDecorBatchOperation;
-        class HousingDecorPlacementPreview;
-    }
-
     namespace Neighborhood
     {
         class NeighborhoodCharterOpenConfirmationUI;
@@ -699,7 +617,6 @@ namespace WorldPackets
 
     namespace Housing
     {
-        // Patch 12.1.0 (build 69299) blueprint packets (HousingBlueprintPackets.h)
         class HousingBlueprintRequestCollection;
         class HousingBlueprintRequestContents;
         class HousingBlueprintExport;
@@ -777,7 +694,7 @@ namespace WorldPackets
         class HousingDecorStartPlacingFromSource;
         class HousingDecorBatchOperation;
         class HousingDecorPlacementPreview;
-        // HouseSnapshot, ExportHouse, UpdateHouseInfo) â€” no client senders in build 67186.
+        // HouseSnapshot / ExportHouse / UpdateHouseInfo have no client senders in this build.
     }
     namespace Movement
     {
@@ -1279,27 +1196,14 @@ class TC_GAME_API WorldSession
         ObjectGuid GetBattlenetAccountGUID() const;
         Battlenet::Account& GetBattlenetAccount() const { return *_battlenetAccount; }
         bool HasHousingPlayerHouseEntity() const { return _housingPlayerHouseEntity != nullptr; }
-        /// Whether the client may hold the Housing/3 entity of the player's own house right now. Retail 12.1.0.69933
-        /// (sniff 09-29 13-25-41) never sends it in a neighborhood where the account has no house: the client marks
-        /// the entity's PlotIndex as the player's own plot in whatever neighborhood the player stands in.
+        /// Retail only sends the player's own Housing/3 entity in neighborhoods where the account has a house.
         bool CanSeeHousingPlayerHouseEntity() const;
         bool HasHousingNeighborhoodMirrorEntity() const { return _housingNeighborhoodMirrorEntity != nullptr; }
         HousingPlayerHouseEntity& GetHousingPlayerHouseEntity() const { return *_housingPlayerHouseEntity; }
         HousingNeighborhoodMirrorEntity& GetHousingNeighborhoodMirrorEntity() const { return *_housingNeighborhoodMirrorEntity; }
-        // Appends the Account (FHousingStorage_C) and HousingPlayerHouseEntity blocks for `player`:
-        // a values update when the client already holds the entity, a CREATE otherwise.
-        // accountAsCreate forces a full CREATE even when the client already holds the entities:
-        // retail re-issues CreateObject1 for the BNetAccount entity on every storage ingest point
-        // (storage request response, editor open) — a values-only re-send of the Decor map is not
-        // re-ingested by the client, which left the budgets at 0 after a relog.
+        // accountAsCreate forces a full CREATE: the client only re-ingests the Decor map on a CreateObject1.
         void BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* player, bool accountAsCreate = false);
-        // Re-primes the neighborhood map state on every map entry: re-sends the roster (the
-        // client's HousingNeighborhoodState singleton is only filled by the roster response and
-        // is not re-requested on mid-session re-entry), feeds the JamCliNeighborhoodName
-        // DataCache, re-pushes the Housing/4 mirror (VALUES when the client holds it, CREATE
-        // otherwise) and pre-pushes plot-owner names for the NameCache. Without this the
-        // map pins lose their name prefix and ownership state after leaving and re-opening
-        // the neighborhood map.
+        // Re-sends the roster on every map entry (the client's HousingNeighborhoodState singleton only fills from it).
         void SendNeighborhoodMapRefresh();
         // SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE with the player's pending charter (charter item use).
         void SendNeighborhoodCharterOpenUI();
@@ -1798,11 +1702,10 @@ class TC_GAME_API WorldSession
         void HandleHouseInteriorLeaveHouse(WorldPackets::Housing::HouseInteriorLeaveHouse const& houseInteriorLeaveHouse);
 
         // Housing - Decor System
-        // m3/A6: returns false (and consumes no budget) when the per-session
-        // decoration throttle is exceeded; handlers then reply TOO_MANY_REQUESTS.
+        // False (no budget consumed) when the per-session decoration throttle trips.
         bool CheckHousingDecorThrottle();
 
-        // H-25: a charter may only be signed by someone who was asked to sign it.
+        // A charter may only be signed by someone who was asked to sign it.
         void AddPendingCharterSignatureRequest(uint64 charterId) { _pendingCharterSignatureRequests.insert(charterId); }
         bool HasPendingCharterSignatureRequest(uint64 charterId) const { return _pendingCharterSignatureRequests.contains(charterId); }
         void ClearPendingCharterSignatureRequest(uint64 charterId) { _pendingCharterSignatureRequests.erase(charterId); }
@@ -1856,12 +1759,9 @@ class TC_GAME_API WorldSession
         void HandleHousingSvcsGuildCreateNeighborhood(WorldPackets::Housing::HousingSvcsGuildCreateNeighborhood const& housingSvcsGuildCreateNeighborhood);
         void HandleHousingSvcsNeighborhoodReservePlot(WorldPackets::Housing::HousingSvcsNeighborhoodReservePlot const& housingSvcsNeighborhoodReservePlot);
         void HandleHousingSvcsRelinquishHouse(WorldPackets::Housing::HousingSvcsRelinquishHouse const& housingSvcsRelinquishHouse);
-        // Closes any active housing editor (decor / room layout / exterior fixture), replaying the
-        // wire sequence of that mode's normal exit. The client keeps the editor UI open until its
-        // EditorMode update field goes to 0.
+        // Replays each editor mode's normal exit sequence; the client keeps its UI open until EditorMode is 0.
         void ForceExitHousingEditorModes(ObjectGuid houseGuid = ObjectGuid::Empty);
-        // CurrentHouse -> Empty + HOUSE_STATUS 0, so the client drops its "at your house" state
-        // (and with it the housing controls panel).
+        // CurrentHouse -> Empty + HOUSE_STATUS 0, so the client drops its "at your house" state.
         void ClearHousingHouseContext(ObjectGuid houseGuid);
         void HandleHousingSvcsUpdateHouseSettings(WorldPackets::Housing::HousingSvcsUpdateHouseSettings const& housingSvcsUpdateHouseSettings);
         void HandleHousingSvcsPlayerViewHousesByPlayer(WorldPackets::Housing::HousingSvcsPlayerViewHousesByPlayer const& housingSvcsPlayerViewHousesByPlayer);
@@ -1869,8 +1769,6 @@ class TC_GAME_API WorldSession
         void HandleHousingSvcsGetPlayerHousesInfo(WorldPackets::Housing::HousingSvcsGetPlayerHousesInfo const& housingSvcsGetPlayerHousesInfo);
         void HandleHousingSvcsTeleportToPlot(WorldPackets::Housing::HousingSvcsTeleportToPlot const& housingSvcsTeleportToPlot);
         void HandleHousingSvcsStartTutorial(WorldPackets::Housing::HousingSvcsStartTutorial const& housingSvcsStartTutorial);
-        // Removed 2026-04-24: HandleHousingSvcsSetTutorialState / CompleteTutorialStep /
-        // SkipTutorial / QueryPendingInvites — no matching 12.0.5 Lua API exists.
         void HandleHousingSvcsAcceptNeighborhoodOwnership(WorldPackets::Housing::HousingSvcsAcceptNeighborhoodOwnership const& housingSvcsAcceptNeighborhoodOwnership);
         void HandleHousingSvcsRejectNeighborhoodOwnership(WorldPackets::Housing::HousingSvcsRejectNeighborhoodOwnership const& housingSvcsRejectNeighborhoodOwnership);
         void HandleHousingSvcsGetPotentialHouseOwners(WorldPackets::Housing::HousingSvcsGetPotentialHouseOwners const& housingSvcsGetPotentialHouseOwners);
@@ -1926,11 +1824,7 @@ class TC_GAME_API WorldSession
         void HandleNeighborhoodGetRoster(WorldPackets::Neighborhood::NeighborhoodGetRoster const& neighborhoodGetRoster);
         void HandleNeighborhoodEvictPlot(WorldPackets::Neighborhood::NeighborhoodEvictPlot const& neighborhoodEvictPlot);
 
-        // Phase 7 Neighborhood Charter handlers
-        // (fake CMSGs 0x370002 + 0x370005 — STUB-OK only, no client senders).
-
-        // Phase 7 Neighborhood handlers
-
+        // Neighborhood - Initiative System
         void HandleNeighborhoodInitiativeServiceStatusCheck(WorldPackets::Neighborhood::NeighborhoodInitiativeServiceStatusCheck const& packet);
         void HandleGetAvailableInitiativeRequest(WorldPackets::Neighborhood::GetAvailableInitiativeRequest const& getAvailableInitiativeRequest);
         void HandleGetInitiativeActivityLogRequest(WorldPackets::Neighborhood::GetInitiativeActivityLogRequest const& getInitiativeActivityLogRequest);
@@ -2567,25 +2461,14 @@ class TC_GAME_API WorldSession
         ConnectToKey _instanceConnectKey;
         ObjectGuid::LowType _realmTransferCharacterGuid = 0; // character selected before a cross-realm handoff, entered into the world after the session resume
 
-        // Housing: client's last-used PlotIndex from OpenCornerstoneUI,
-        // cached for the subsequent BuyHouse CMSG which doesn't include it.
-        // The client's PlotIndex may differ from our DB2 PlotIndex values.
+        // Client's last-used PlotIndex from OpenCornerstoneUI, cached for the subsequent BuyHouse CMSG.
         uint32 _lastClientPlotIndex = 0;
 
-        // m3/A6 per-session decoration throttle. Each decor place/move/remove is
-        // an AddToMap + synchronous DB write; without a limit a scripted client
-        // can amplify GO-spawn / DB load. Sliding fixed window: up to
-        // HOUSING_DECOR_THROTTLE_BURST edits per HOUSING_DECOR_THROTTLE_WINDOW_MS.
+        // Sliding window: HOUSING_DECOR_THROTTLE_BURST edits per HOUSING_DECOR_THROTTLE_WINDOW_MS.
         uint32 _housingDecorThrottleWindowStart = 0;
         uint32 _housingDecorThrottleCount = 0;
 
-        // H-25: charter ids this session has actually been asked to sign.
-        // CMSG_NEIGHBORHOOD_CHARTER_ADD_SIGNATURE takes the charter id from the client
-        // and charter ids are creator GUID counters, so without this any player could
-        // sign any charter on the realm by enumerating ids, and
-        // CMSG_NEIGHBORHOOD_CHARTER_SEND_SIGNATURE_REQUEST - which exists to invite a
-        // signer - was decorative. Session-scoped on purpose: a signature request is an
-        // in-the-moment offer, so it does not survive a relog, and nothing is persisted.
+        // Charter ids this session was actually asked to sign; blocks signing unrequested (enumerated) ids.
         std::unordered_set<uint64> _pendingCharterSignatureRequests;
 
         WorldSession(WorldSession const& right) = delete;

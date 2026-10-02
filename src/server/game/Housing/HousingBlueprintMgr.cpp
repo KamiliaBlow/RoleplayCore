@@ -19,8 +19,8 @@
 #include "Account.h"
 #include "ByteBuffer.h"
 #include "CryptoRandom.h"
-#include "DatabaseEnv.h"
 #include "DB2Stores.h"
+#include "DatabaseEnv.h"
 #include "GameTime.h"
 #include "Housing.h"
 #include "HousingMgr.h"
@@ -71,8 +71,7 @@ Quat Yaw(float angle)
     return { 0.0f, 0.0f, std::sin(angle * 0.5f), std::cos(angle * 0.5f) };
 }
 
-// World <-> frame-local transforms. The rotation convention matches HouseInteriorMap/HousingMap, which derive a decor's
-// room-local position the same way.
+// World <-> frame-local transforms; rotation convention matches HouseInteriorMap/HousingMap.
 void ToLocal(Frame const& frame, float x, float y, float z, Quat const& worldRot, HousingBlueprintDecor& decor)
 {
     float const dx = x - frame.X;
@@ -188,8 +187,7 @@ void PlaceBlueprintDecor(Player* player, Housing* housing, HousingBlueprintDecor
     Quat rot;
     ToWorld(frame, decor, x, y, z, rot);
 
-    // Reuse an instance this import took out of the house before minting a new one, so the account's decor storage keeps
-    // one entry per owned item.
+    // Reuse a pool instance before minting a new one, so storage keeps one entry per owned item.
     bool fromPool = false;
     PooledDecor pooled;
     std::vector<PooledDecor>& instances = pool[decor.DecorEntryId];
@@ -245,6 +243,7 @@ void ReturnPoolToStorage(Player* player, DecorPool const& pool)
 void TakeDecorOut(Housing* housing, bool exterior, DecorPool& pool, HousingBlueprintApplyResult& result)
 {
     std::vector<ObjectGuid> toRemove;
+    toRemove.reserve(housing->GetPlacedDecorMap().size());
     for (auto const& [guid, decor] : housing->GetPlacedDecorMap())
         if (Housing::IsExteriorDecorPlacement(decor.RoomGuid) == exterior)
             toRemove.push_back(guid);
@@ -645,6 +644,8 @@ HousingResult HousingBlueprintMgr::Snapshot(Housing const& housing, HousingBluep
         case HousingBlueprintType::Interior:
         {
             std::vector<Housing::Room const*> rooms = housing.GetRooms();
+            roomIndex.reserve(rooms.size());
+            content.Rooms.reserve(rooms.size());
             std::sort(rooms.begin(), rooms.end(), [](Housing::Room const* a, Housing::Room const* b) { return a->SlotIndex < b->SlotIndex; });
             for (Housing::Room const* room : rooms)
                 addRoom(*room);
@@ -673,6 +674,7 @@ HousingResult HousingBlueprintMgr::Snapshot(Housing const& housing, HousingBluep
         content.HouseSize = housing.GetHouseSize();
 
         bool hasCore = false;
+        content.Fixtures.reserve(housing.GetFixtures().size() + 1);
         for (Housing::Fixture const* fixture : housing.GetFixtures())
         {
             content.Fixtures.push_back({ fixture->FixturePointId, fixture->OptionId });
@@ -697,6 +699,7 @@ HousingResult HousingBlueprintMgr::Snapshot(Housing const& housing, HousingBluep
     }
 
     Frame const plotFrame = PlotFrame(housing);
+    content.Decor.reserve(housing.GetPlacedDecorMap().size());
     for (auto const& [guid, decor] : housing.GetPlacedDecorMap())
     {
         bool const exterior = Housing::IsExteriorDecorPlacement(decor.RoomGuid);
@@ -754,7 +757,22 @@ void HousingBlueprintMgr::Evaluate(HousingBlueprint const& blueprint, Housing co
             interiorDecorCost += cost;
     }
 
+    // Decor the import takes out of the house counts as owned.
+    std::unordered_map<uint32, uint32> replacedDecorCounts;
+    if (target && replaces)
+    {
+        bool const countExterior = CoversExterior(blueprint.Type);
+        bool const countInterior = CoversInterior(blueprint.Type);
+        for (auto const& [guid, placed] : target->GetPlacedDecorMap())
+            if (Housing::IsExteriorDecorPlacement(placed.RoomGuid) ? countExterior : countInterior)
+                ++replacedDecorCounts[placed.DecorEntryId];
+    }
+
     WorldPackets::Housing::JamBlueprintContentLists& totals = evaluation.Totals;
+    totals.Decor.reserve(decorTotals.size());
+    totals.Dyes.reserve(dyeTotals.size());
+    totals.Rooms.reserve(content.Rooms.size());
+    totals.Fixtures.reserve(content.Fixtures.size());
     for (auto const& [entryId, count] : decorTotals)
     {
         totals.Decor.emplace_back(entryId, count);
@@ -766,16 +784,8 @@ void HousingBlueprintMgr::Evaluate(HousingBlueprint const& blueprint, Housing co
         }
 
         uint32 available = storageSource ? CatalogCount(*storageSource, entryId) : 0;
-        if (target && replaces)
-        {
-            // Decor the import takes out of the house counts as owned.
-            for (auto const& [guid, placed] : target->GetPlacedDecorMap())
-            {
-                bool const exterior = Housing::IsExteriorDecorPlacement(placed.RoomGuid);
-                if (placed.DecorEntryId == entryId && (exterior ? CoversExterior(blueprint.Type) : CoversInterior(blueprint.Type)))
-                    ++available;
-            }
-        }
+        if (auto itr = replacedDecorCounts.find(entryId); itr != replacedDecorCounts.end())
+            available += itr->second;
 
         if (count > available)
         {
@@ -831,8 +841,7 @@ void HousingBlueprintMgr::Evaluate(HousingBlueprint const& blueprint, Housing co
         }
     }
 
-    // Budgets. Room blueprints add to what the house already spends, every other type replaces it (the client shows
-    // "available" for rooms and "max" otherwise).
+    // Room blueprints add to the current budget spend, every other type replaces it.
     auto addBudget = [&](std::vector<WorldPackets::Housing::JamBlueprintBudgetEntry>& budgets, HousingBudgetType budgetType, uint32 cost,
         uint32 max, uint32 current)
     {
@@ -948,6 +957,7 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
             housing->SetHouseSize(content.HouseSize);
 
         std::vector<Housing::Fixture> fixtures;
+        fixtures.reserve(content.Fixtures.size());
         for (HousingBlueprintFixture const& fixture : content.Fixtures)
             if (sExteriorComponentStore.LookupEntry(FixtureComponentId(fixture)))
                 fixtures.push_back({ fixture.FixturePointId, fixture.OptionId });
@@ -968,14 +978,14 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
         result.ExteriorChanged = true;
     }
 
+    ObjectGuid const exteriorRoomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, /*arg1*/ 0,
+        /*arg2*/ sHousingMgr.GetBaseRoomEntryId(), /*counter*/ ObjectGuid::LowType(housing->GetPlotIndex()) + 1);
     for (HousingBlueprintDecor const& decor : content.Decor)
     {
         if (decor.RoomIndex == HousingBlueprintDecor::EXTERIOR)
         {
             if (!CoversExterior(blueprint.Type))
                 continue;
-            ObjectGuid const exteriorRoomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, /*arg1*/ 0,
-                /*arg2*/ sHousingMgr.GetBaseRoomEntryId(), /*counter*/ ObjectGuid::LowType(housing->GetPlotIndex()) + 1);
             PlaceBlueprintDecor(player, housing, decor, exteriorRoomGuid, plotFrame, pool, result);
             continue;
         }

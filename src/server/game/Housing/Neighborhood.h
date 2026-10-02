@@ -57,47 +57,18 @@ public:
         ObjectGuid HouseGuid;
         ObjectGuid OwnerBnetGuid;
 
-        // Mirrored from character_housing for tooltip display of OTHER players' houses
-        // on the neighborhood map (hover info). Set by Neighborhood::LoadFromDB; refreshed
-        // on ownership / level / favor changes.
+        // Mirrored from character_housing so offline owners' houses still render for other players.
         uint8 HouseLevel = 1;
         uint64 HouseFavor = 0;
         std::string HouseName;
-
-        // Mirrored from character_housing so the neighborhood map can spawn the
-        // correct WMO geometry for EVERY occupied plot at preload. The data is
-        // always in the DB regardless of whether the owner is currently online —
-        // PlotInfo carries enough of it to build the exterior visual for every
-        // plot at map init without needing a live Housing object.
         uint32 HouseType = 0;
-
-        // Mirrored from character_housing.posX/posY/posZ/facing: where the owner moved the house (unset = the plot's
-        // default spot), so it is built there at map load even with the owner offline.
-        Optional<Position> HousePosition;
-
-        // Mirrored from character_housing_fixtures. Key = FixturePointId (DB2
-        // ExteriorComponentHook slot), value = FixtureOptionId (DB2
-        // ExteriorComponent override). Drives the correct roof/doors/windows
-        // on every plot's exterior, not just the logged-in owner's.
+        Optional<Position> HousePosition; // custom house spot (unset = plot default)
+        // Key = FixturePointId (ExteriorComponentHook slot), value = FixtureOptionId (ExteriorComponent override)
         std::unordered_map<uint32, uint32> Fixtures;
-
-        // Mirrored from character_housing_decor. Every placed decor item
-        // (exterior AND interior) for this plot's owner. HousingMap uses the
-        // exterior entries (RoomGuid.IsEmpty()) at preload so visitors see
-        // neighbours' placed decor even when the owner is offline. Interior
-        // entries are reused when a visitor opens the owner's interior map.
+        // Exterior entries (RoomGuid.IsEmpty()) spawn at preload; interior entries serve visitor interior maps.
         std::vector<Housing::PlacedDecor> Decor;
-
-        // Mirrored from character_housing_rooms. Interior-room layout for the
-        // plot owner. Used by HouseInteriorMap to spawn the owner's actual
-        // rooms when a visitor enters their house — independent of whether
-        // the owner is currently online.
         std::vector<Housing::Room> Rooms;
-
-        // Mirrored from character_housing.settingsFlags so visitor permission
-        // checks (CanVisitorAccess) work when the plot owner is offline.
-        // Refreshed when an online owner mutates their Housing settings.
-        uint32 HouseSettingsFlags = 0;
+        uint32 HouseSettingsFlags = 0; // CanVisitorAccess checks work with the owner offline
 
         bool IsOccupied() const { return PlotIndex != INVALID_PLOT_INDEX; }
     };
@@ -129,9 +100,7 @@ public:
     std::string const& GetName() const { return _name; }
     uint32 GetNeighborhoodMapID() const { return _neighborhoodMapID; }
     ObjectGuid GetOwnerGuid() const { return _ownerGuid; }
-    /// The owner the client is told about: it derives NeighborhoodOwnerType from this GUID (12.1.0.69933, 0x2A46B0 and
-    /// the house finder entry reader 0x2108150): empty = public, a HighGuid::Guild = guild, anything else = charter.
-    /// A guild neighborhood therefore names its guild, while _ownerGuid keeps the founding character.
+    /// Client derives NeighborhoodOwnerType from this GUID: empty = public, HighGuid::Guild = guild, else charter.
     ObjectGuid GetClientOwnerGuid() const { return _guildId ? ObjectGuid::Create<HighGuid::Guild>(_guildId) : _ownerGuid; }
     int32 GetFactionRestriction() const { return _factionRestriction; }
     void SetFactionRestriction(int32 faction) { _factionRestriction = faction; }
@@ -147,9 +116,7 @@ public:
     bool ClearReservation(ObjectGuid playerGuid);
     bool HasReservation(ObjectGuid playerGuid) const;
     uint8 GetReservedPlot(ObjectGuid playerGuid) const;
-    // Returns the reserver's GUID if `plotIndex` is currently locked by another
-    // player, or ObjectGuid::Empty when the plot is free / locked by `viewerGuid`.
-    // Sweeps expired reservations as a side-effect (same 5-minute window as ReservePlot).
+    // Returns the reserver's GUID if plotIndex is locked by another player; sweeps expired reservations.
     ObjectGuid GetPlotReserverOther(uint8 plotIndex, ObjectGuid viewerGuid);
 
     // Management
@@ -176,15 +143,10 @@ public:
     void UpdatePlotHousePosition(ObjectGuid ownerGuid, Optional<Position> const& housePosition);
     void UpdatePlotHouseType(ObjectGuid ownerGuid, uint32 houseType);
     HousingResult MoveHouse(ObjectGuid sourcePlotOwner, uint8 newPlotIndex);
-    // The house went to another character of the account (house settings owner change): the plot follows it. A resident
-    // membership moves with it; a manager or owner keeps the role without the plot.
+    // House went to another character of the same account: the plot follows; a resident membership moves with it.
     bool TransferPlot(ObjectGuid oldOwnerGuid, ObjectGuid newOwnerGuid, CharacterDatabaseTransaction trans);
     void SetPlotAreaTriggerGuid(uint8 plotIndex, ObjectGuid atGuid);
-    // m2/A5: free the plot owned by `ownerGuid` on house delete / kiosk reset so
-    // it becomes vacant (IsOccupied()==false) and re-purchasable, and clear the
-    // member's plot assignment in memory + DB. The player stays a member of the
-    // neighborhood — only the plot ownership is released. Returns true if a plot
-    // was actually freed.
+    // Frees ownerGuid's plot on house delete / kiosk reset; the player stays a member. Returns true if freed.
     bool ReleasePlot(ObjectGuid ownerGuid);
 
     PlotInfo const* GetPlotInfo(uint8 plotIndex) const
@@ -213,23 +175,22 @@ public:
     void BroadcastPacket(WorldPacket const* packet, ObjectGuid excludeGuid = ObjectGuid::Empty) const;
     // The roster as SMSG_NEIGHBORHOOD_GET_ROSTER_RESPONSE carries it.
     void BuildRosterResponse(WorldPackets::Neighborhood::NeighborhoodGetRosterResponse& response) const;
-    // A member joined, left or moved house: every online member's bulletin board needs the whole roster again (the status
-    // update can only change members the client already lists).
+    // Whole-roster refresh for all online members' bulletin boards (status updates can't add/remove members).
     void BroadcastRoster(ObjectGuid excludeGuid = ObjectGuid::Empty) const;
     // A member's resident type or online state changed (SMSG_NEIGHBORHOOD_ROSTER_RESIDENT_UPDATE).
     void BroadcastMemberStatus(ObjectGuid playerGuid, bool isOnline) const;
     void BroadcastMemberStatus(ObjectGuid playerGuid) const;
 
-    // Rebuild NeighborhoodMirrorData on every online member's Account entity.
-    // Call after any mutation to name, owner, managers, or houses.
+    // Rebuild NeighborhoodMirrorData on online members after any name/owner/manager/house mutation.
     void RefreshMirrorDataForOnlineMembers() const;
     // Per-player variant — used by the map-entry refresh path (SendNeighborhoodMapRefresh).
     void RefreshMirrorDataForPlayer(Player* player) const;
-    // Setter-only half of RefreshMirrorDataForPlayer (no packet); lets callers pick the
-    // wire form — VALUES when the client already holds the entity, CREATE otherwise.
+    // Setter-only half of RefreshMirrorDataForPlayer (no packet); caller picks the wire form.
     void RebuildMirrorDataFor(Player* player) const;
 
 private:
+    PlotInfo* GetPlotByOwner(ObjectGuid ownerGuid);
+
     ObjectGuid _guid;
     std::string _name;
     uint32 _neighborhoodMapID = 0;

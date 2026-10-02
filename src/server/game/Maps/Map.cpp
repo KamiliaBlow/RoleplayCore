@@ -436,9 +436,7 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     player->SetMap(this);
     player->AddToWorld();
 
-    // Session-scoped entities (BNet account, Housing/3, Housing/4): the client drops them on every map load. Retail
-    // re-creates them after each transfer (12.1.0.69933), and a VALUES update for one the client no longer holds
-    // is answered with CMSG_OBJECT_UPDATE_FAILED - so forget them here and let SendInitSelf re-create them.
+    // Session-scoped entities (BNet account, Housing/3, Housing/4): forget them here so SendInitSelf re-creates them.
     ObjectGuid bnetAccountGuid = player->GetSession()->GetBattlenetAccount().GetGUID();
     ObjectGuid houseEntityGuid = player->GetSession()->HasHousingPlayerHouseEntity() ? player->GetSession()->GetHousingPlayerHouseEntity().GetGUID() : ObjectGuid::Empty;
     ObjectGuid mirrorEntityGuid = player->GetSession()->HasHousingNeighborhoodMirrorEntity() ? player->GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID() : ObjectGuid::Empty;
@@ -455,9 +453,7 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
 
     if (initPlayer)
     {
-        // Keep the marks of what SendInitSelf just created through the visibility-set reset, so the rebuild below
-        // does not send them a second time. The Housing/4 mirror is only created on neighborhood maps (retail sends
-        // none on other maps or inside a house interior).
+        // Keep the marks SendInitSelf just created so the visibility-set rebuild does not send them twice.
         player->m_clientGUIDs.clear();
 
         if (!bnetAccountGuid.IsEmpty())
@@ -2757,9 +2753,6 @@ void Map::RemoveAllObjectsInRemoveList()
                 obj->ToCreature()->CleanupsBeforeDelete();
                 RemoveFromMap(obj->ToCreature(), true);
                 break;
-            // Housing grid objects: without these a despawned house piece or plot room stayed in the grid, flagged
-            // destroyed, and a respawn with the same GUID (house moved back to a plot) was destroyed and re-created
-            // for every client on each visibility update.
             case TYPEID_MESH_OBJECT:
                 RemoveFromMap(obj->ToMeshObject(), true);
                 break;

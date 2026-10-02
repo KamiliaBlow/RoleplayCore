@@ -49,8 +49,7 @@ public:
     Neighborhood* GetNeighborhood(ObjectGuid neighborhoodGuid);
     Neighborhood const* GetNeighborhood(ObjectGuid neighborhoodGuid) const;
 
-    // Resolve a neighborhood GUID that may be in client format (GO GUID of bulletin board)
-    // Falls back to the player's current HousingMap neighborhood when direct lookup fails
+    // Accepts client-format GUIDs (bulletin board GO); falls back to the player's current map neighborhood.
     Neighborhood* ResolveNeighborhood(ObjectGuid guid, Player* player);
 
     // Queries
@@ -75,25 +74,17 @@ public:
     // Expansion
     void CheckAndExpandNeighborhoods();
 
-    // Charter support.
-    // neighborhoodMapID becomes arg1 of the GUID: the 12.0.7 client slices that 16-bit field straight out of
-    // the high qword and uses it as the record ID into NeighborhoodMap.db2 (both
-    // C_Housing.DoesFactionMatchNeighborhood @ RVA 0xF7C1B0 and C_Housing.GetUIMapIDForNeighborhood @ 0xF80C90
-    // do `shr rax,0x20; movzx edx,ax` and look up the store at data RVA 0x486F5C0). It is NOT a realm id.
+    // neighborhoodMapID becomes arg1 of the GUID: the client's NeighborhoodMap.db2 record ID (not a realm id).
     ObjectGuid GenerateNeighborhoodGuid(uint32 neighborhoodMapID, bool hasCustomName);
 
-    // arg2 of the GUID tells the 12.1.0.69933 client how to show the neighborhood name: 0 means a system name,
-    // "prefix-middle-suffix" NeighborhoodNameGen ids put together with NEIGHBORHOOD_NAME_FORMAT (formatter
-    // 0x3146B70), anything else shows the name as sent. Every name reader tests `dword [guid + 8]` - the low half
-    // of the high qword - before calling the formatter (0x2A60F0 mirror name, 0x2A67BA, 0x29C4F6, 0x2181F44,
-    // 0x2109F1E, 0x210F274). A player-owned (charter or guild) neighborhood carries its founder's own name.
+    // arg2 of the GUID: 0 = client formats a system NeighborhoodNameGen name, else the sent name is shown.
     static ObjectGuid MakeNeighborhoodGuid(uint32 neighborhoodMapID, bool hasCustomName, uint64 counter);
 
     // Startup guarantee
     void VerifyNeighborhoodFactions();
     void EnsurePublicNeighborhoods();
 
-    // Migrate members in wrong-faction public neighborhoods (legacy data fix)
+    // Move members stuck in wrong-faction public neighborhoods (legacy data fix)
     void MigrateWrongFactionResidents();
 
     // Regenerate names for public neighborhoods using base DB2 entry IDs
@@ -103,9 +94,7 @@ private:
     NeighborhoodMgr() = default;
 
     std::unordered_map<ObjectGuid, std::unique_ptr<Neighborhood>> _neighborhoods;
-    // Counter -> neighborhood. _neighborhoods is keyed by the FULL ObjectGuid, so now that arg1 varies per
-    // neighborhood map, nothing may rebuild a lookup GUID from a bare persisted counter - the persisted tables
-    // store only GetCounter(). Every such site resolves through GetNeighborhoodByCounter instead.
+    // Persisted tables store only GetCounter(), so DB-driven lookups resolve through this map.
     std::unordered_map<uint64, Neighborhood*> _neighborhoodsByCounter;
     std::unordered_map<ObjectGuid, ObjectGuid> _ownerToNeighborhood; // owner guid -> neighborhood guid
     uint64 _nextGuid = 1;

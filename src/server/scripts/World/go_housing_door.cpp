@@ -15,11 +15,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
 #include "GameObject.h"
 #include "GameObjectAI.h"
-#include "Group.h"
-#include "Guild.h"
 #include "HouseInteriorMap.h"
 #include "Housing.h"
 #include "HousingDefines.h"
@@ -32,7 +29,7 @@
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
-#include "SocialMgr.h"
+#include "ScriptMgr.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
 
@@ -45,14 +42,10 @@ namespace
     constexpr float INTERIOR_SPAWN_O = 0.0f;
 }
 
-// Sends a player standing in a house interior out to the plot's TeleportPosition (next to the cornerstone), where retail
-// puts them too (12.1.0.69933 sniff: SMSG_NEW_WORLD at NeighborhoodPlot.TeleportPosition after "Leave House").
+// Teleports a player out of a house interior to the plot's TeleportPosition next to the cornerstone.
 static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interiorMap)
 {
-    // Resolve the exit based on the HOUSE this interior belongs to,
-    // not on the player's own housing. When a visitor exits a
-    // neighbour's house the destination plot is the house owner's
-    // plot, not the visitor's.
+    // Resolve the exit through the interior's owner: a visitor returns to the house owner's plot.
     ObjectGuid houseOwner = interiorMap->GetOwnerGuid();
     Neighborhood* nbh = nullptr;
     uint8 ownerPlotIndex = INVALID_PLOT_INDEX;
@@ -71,9 +64,7 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
             break;
     }
 
-    // Fall back to the visitor's own housing when the owner lookup
-    // fails (shouldn't happen ? the owner exists by construction
-    // since the interior map was created for them).
+    // Fall back to the player's own housing when the owner lookup fails.
     if (!nbh)
     {
         if (Housing* own = player->GetHousing())
@@ -83,8 +74,7 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
         }
     }
 
-    // The neighborhood's world map and the plot's TeleportPosition, both from DB2 (NeighborhoodMap / NeighborhoodPlot).
-    // Without them there is no plot to return to: send the player home instead of to made-up coordinates.
+    // Destination comes from DB2; without a plot to return to, send the player home.
     uint32 destMapId = nbh ? sHousingMgr.GetWorldMapIdByNeighborhoodMapId(nbh->GetNeighborhoodMapID()) : 0;
     NeighborhoodPlotData const* exitPlot = nullptr;
     if (nbh)
@@ -119,10 +109,7 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
         .InstanceId = neighborhoodId });
 }
 
-// Script for the housing front door GO (entry 602702).
-// When a player clicks the door, teleport them to the house interior map (MapID 2783).
-// The interior is a separate instanced map per player (MAP_HOUSE_INTERIOR = 7),
-// NOT a position within the neighborhood map.
+// Housing front door GO (entry 602702): teleports the player to the house's interior instance.
 class go_housing_door : public GameObjectScript
 {
 public:
@@ -137,9 +124,7 @@ public:
             if (!player || !player->IsInWorld())
                 return true;
 
-            // Interior side: retail leaves through spell 1234193 ("Leave House", effect 343) cast right after the door
-            // opens; the client runs its own house-exit cleanup (editor camera included) off that cast. The
-            // teleport itself is done by spell_housing_leave_house.
+            // Interior side: retail leaves through spell 1234193; fall back to a manual teleport when it is not in the DB.
             if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(me->GetMap()))
             {
                 if (sSpellMgr->GetSpellInfo(SPELL_HOUSING_LEAVE_HOUSE, DIFFICULTY_NONE))
@@ -152,32 +137,27 @@ public:
             HousingMap* housingMap = dynamic_cast<HousingMap*>(me->GetMap());
             if (!housingMap)
             {
-                TC_LOG_ERROR("housing", "go_housing_door: Map {} is NOT a HousingMap or HouseInteriorMap", me->GetMapId());
+                TC_LOG_ERROR("housing", "go_housing_door: Map {} is not a HousingMap or HouseInteriorMap", me->GetMapId());
                 return true;
             }
 
-            // Find which plot this door belongs to.
-            // Try dynamic door tracking first, then fall back to the player's current
-            // plot (set by the at_housing_plot AreaTrigger script). This handles both
-            // dynamically-spawned doors and static DB-spawned doors (from gameobject table).
+            // Resolve the door's plot: tracked doors first, then the player's current plot, then the nearest plot.
             int8 plotIndex = housingMap->GetPlotIndexForHouseGO(me->GetGUID());
             if (plotIndex < 0)
             {
-                // Fallback: use the plot the player is currently standing on
                 plotIndex = housingMap->GetPlayerCurrentPlot(player->GetGUID());
                 if (plotIndex < 0)
                 {
-                    // Last resort: find the nearest plot by proximity to the door GO
                     Neighborhood* nbh = housingMap->GetNeighborhood();
                     if (nbh)
                     {
-                        uint32 nbhMapId = nbh->GetNeighborhoodMapID();
-                        std::vector<NeighborhoodPlotData const*> plots = sHousingMgr.GetPlotsForMap(nbhMapId);
                         float bestDist = std::numeric_limits<float>::max();
-                        for (NeighborhoodPlotData const* plot : plots)
+                        float doorX = me->GetPositionX();
+                        float doorY = me->GetPositionY();
+                        for (NeighborhoodPlotData const* plot : sHousingMgr.GetPlotsForMap(nbh->GetNeighborhoodMapID()))
                         {
-                            float dx = me->GetPositionX() - plot->HousePosition[0];
-                            float dy = me->GetPositionY() - plot->HousePosition[1];
+                            float dx = doorX - plot->HousePosition[0];
+                            float dy = doorY - plot->HousePosition[1];
                             float dist = dx * dx + dy * dy;
                             if (dist < bestDist)
                             {
@@ -190,15 +170,13 @@ public:
 
                 if (plotIndex < 0)
                 {
-                    TC_LOG_ERROR("housing", "go_housing_door: Could not determine plot for door GO {} "
-                        "(player {} at {:.1f},{:.1f},{:.1f})",
+                    TC_LOG_ERROR("housing", "go_housing_door: Could not determine plot for door GO {} (player {} at {:.1f},{:.1f},{:.1f})",
                         me->GetGUID().ToString(), player->GetGUID().ToString(),
                         me->GetPositionX(), me->GetPositionY(), me->GetPositionZ());
                     return true;
                 }
 
-                TC_LOG_DEBUG("housing", "go_housing_door: Door GO {} not in _houseGameObjects, "
-                    "resolved plotIndex={} via fallback",
+                TC_LOG_DEBUG("housing", "go_housing_door: Door GO {} not tracked, resolved plot {} via fallback",
                     me->GetGUID().ToString(), plotIndex);
             }
 
@@ -209,7 +187,6 @@ public:
                 return true;
             }
 
-            // Check visitor access permissions if this isn't the player's own plot
             Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(plotIndex));
             // Houses belong to the account: another character of the account enters it as its owner.
             bool const accountHouse = plotInfo && player->GetHousingByOwner(plotInfo->OwnerGuid);
@@ -218,17 +195,7 @@ public:
                 player->SetHouseVisitTarget(plotInfo->OwnerGuid); // route to the buyer's interior instance
             if (isVisit)
             {
-                // Permissions check. Prefer the live Housing object when the owner
-                // is online (the settingsFlags may have changed since the last DB
-                // write); fall back to the value mirrored onto PlotInfo at load.
-                //
-                // H-11: this used CanVisitorAccess, which returns false whenever
-                // `owner` is null - so every interior visit was refused while the
-                // owner was offline, regardless of their settings. CanVisitorAccessPlot
-                // resolves guild membership through CharacterCache and neighborhood
-                // membership through the Neighborhood objects, so it answers the same
-                // question with the owner logged out. It is the same function the
-                // teleport handler uses; the plot AreaTrigger now uses it too.
+                // Prefer the owner's live settings when online; fall back to the PlotInfo mirror.
                 uint32 settingsFlags = plotInfo->HouseSettingsFlags;
                 if (Player* owner = ObjectAccessor::FindPlayer(plotInfo->OwnerGuid))
                     if (Housing const* oh = owner->GetHousing())
@@ -236,18 +203,10 @@ public:
 
                 if (!sHousingMgr.CanVisitorAccessPlot(player, plotInfo->OwnerGuid, settingsFlags, true))
                 {
-                    TC_LOG_DEBUG("housing", "go_housing_door: Player {} denied interior access to plot {} "
-                        "(owner {} flags 0x{:X})",
-                        player->GetGUID().ToString(), plotIndex, plotInfo->OwnerGuid.ToString(),
-                        settingsFlags);
-                    // Retail door refusal: capture 2026-10-02 12:29:12.885 (packet #14122), ~1.2 s
-                    // after the visitor's door report on a closed house (flags 0x20, permissions
-                    // 0x10): SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE with the exact bytes
-                    // 57 00 = FailureType 87 (PERMISSION_DENIED) + ErrorCode 0 - and nothing else,
-                    // no transfer. The client shows "This house is closed to visitors."
-                    // (ERR_HOUSING_ACTION_NOENTRY) off THIS packet. A permissions-response push
-                    // must not be used for this: an unrequested flags-0 response flips the
-                    // client's HouseEditorPlayerType to None and hides the visitor UI.
+                    TC_LOG_DEBUG("housing", "go_housing_door: Player {} denied interior access to plot {} (owner {} flags 0x{:X})",
+                        player->GetGUID().ToString(), plotIndex, plotInfo->OwnerGuid.ToString(), settingsFlags);
+
+                    // Retail refusal: PERMISSIONS_FAILURE with FailureType PERMISSION_DENIED, ErrorCode 0.
                     WorldPackets::Housing::HousingSvcsNotifyPermissionsFailure failure;
                     failure.FailureType = static_cast<uint8>(HOUSING_RESULT_PERMISSION_DENIED);
                     failure.ErrorCode = 0;
@@ -255,28 +214,20 @@ public:
                     return true;
                 }
 
-                // Route the teleport to the OWNER's interior instance (MapManager
-                // reads this before selecting the HouseInteriorMap instance id).
+                // Route the teleport to the owner's interior instance (MapManager reads this).
                 player->SetHouseVisitTarget(plotInfo->OwnerGuid);
             }
 
-            // Animate the door
             me->UseDoorOrButton();
 
-            // Mark interior BEFORE teleport so the AT leave handler (which fires
-            // during the async teleport) knows not to send FlagByte=0x00 and
-            // erase the interior's editor state.
+            // Mark the interior before the teleport; the AT leave handler fires during the async transfer.
             if (Housing* housing = player->GetHousing())
                 housing->SetInInterior(true);
 
-            // Teleport player to the house interior map (Map 2783).
-            bool ok = player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
-                INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
-
-            if (!ok)
+            if (!player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
+                INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O))
             {
-                TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED ? player {} ? map {} "
-                    "from plot {}",
+                TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED - player {} to map {} from plot {}",
                     player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex);
             }
 
@@ -313,10 +264,7 @@ class spell_housing_leave_house : public SpellScript
 // 1265142 - Visit House
 class spell_housing_plot_teleport : public SpellScript
 {
-    // The plot to land on is chosen when the cast starts (HousingHandler: CMSG_HOUSING_SVCS_TELEPORT_TO_PLOT, the house
-    // finder's reservation). It lies on another map, so it cannot be an explicit cast target - CheckCast would refuse it
-    // as out of the spell's self range - and is used only now, after the cast bar. The default effect cannot name a map
-    // instance, and every neighborhood on a world map is its own instance, so the script teleports by itself.
+    // The plot was chosen at cast start and may lie on another map; the script performs the teleport itself.
     void TeleportToPlot(SpellEffIndex effIndex)
     {
         PreventHitDefaultEffect(effIndex);
@@ -338,12 +286,8 @@ class spell_housing_plot_teleport : public SpellScript
     }
 };
 
-// Doors placed as decor (HouseDecor.GameObjectID of GAMEOBJECT_TYPE_DOOR, e.g. 527736 for decor 378).
-// Retail 12.1.0.69933 (sniff 11-13-10): every CMSG_GAME_OBJ_USE flips State 1 <-> 0 (the first one also
-// drops GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE) and the door never closes on its own (autoClose 0).
-// GO_FLAG_IN_USE is set for the swing only: retail clears it ~3 s later (Flags 33 -> 32), and while it
-// is set the client refuses to use the door, so keeping it would leave the door stuck open.
-// UseDoorOrButton would open it once and ignore every later use.
+// Decor doors (e.g. 527736): every use flips the state; GO_FLAG_IN_USE must clear after ~3 s
+// or the client refuses further uses.
 struct go_housing_decor_door : public GameObjectAI
 {
     static constexpr uint32 IN_USE_DURATION = 3 * IN_MILLISECONDS;
@@ -381,10 +325,7 @@ private:
     uint32 _inUseTimer;
 };
 
-// Lights and fireplaces placed as decor (Goober with empty data, e.g. 527890 fireplace, 527892 chandelier, 567758 chamberstick).
-// Retail 12.1.0.69933 (sniff 14-43-07): every CMSG_GAME_OBJ_USE flips State 1 <-> 0 and it stays until the next use, the
-// first one also drops GO_DYNFLAG_LO_STATE_TRANSITION_ANIM_DONE; Flags stay 0. The core Goober use would reset the state
-// on its own shortly after.
+// Decor lights/fireplaces (Goober with empty data, e.g. 527890 fireplace, 527892 chandelier): every use flips the GO state.
 struct go_housing_decor_toggle : public GameObjectAI
 {
     go_housing_decor_toggle(GameObject* go) : GameObjectAI(go) { }

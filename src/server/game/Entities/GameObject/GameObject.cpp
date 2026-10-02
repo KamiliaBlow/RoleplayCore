@@ -3524,37 +3524,35 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
             if (!player)
                 return;
 
+            // per-plot cornerstone GOs have spell=0 in their template; fall back to the conversation trigger spell
+            constexpr uint32 CornerstoneInteractionType = 70;
+            constexpr uint32 CornerstoneConversationSpellId = 1266097; // [DNT] Trigger Convo for Unowned Plot
+
+            GameObjectTemplate const* goInfo = GetGOInfo();
+
             TC_LOG_DEBUG("housing", "GameObject::Use(GAMEOBJECT_TYPE_UI_LINK): entry={} guid={} "
                 "UILinkType={} PlayerInteractionType={} spell={} player={}",
                 GetEntry(), GetGUID().ToString(),
-                GetGOInfo()->UILink.UILinkType,
-                GetGOInfo()->UILink.PlayerInteractionType,
-                GetGOInfo()->UILink.spell,
+                goInfo->UILink.UILinkType,
+                goInfo->UILink.PlayerInteractionType,
+                goInfo->UILink.spell,
                 player->GetGUID().ToString());
 
-            if (GetGOInfo()->UILink.PlayerInteractionType)
+            if (goInfo->UILink.PlayerInteractionType)
             {
                 WorldPackets::NPC::NPCInteractionOpenResult npcInteraction;
                 npcInteraction.Npc = GetGUID();
-                npcInteraction.InteractionType = static_cast<PlayerInteractionType>(GetGOInfo()->UILink.PlayerInteractionType);
+                npcInteraction.InteractionType = static_cast<PlayerInteractionType>(goInfo->UILink.PlayerInteractionType);
                 npcInteraction.Success = true;
                 player->SendDirectMessage(npcInteraction.Write());
 
-                TC_LOG_DEBUG("housing", "  -> Sent SMSG_NPC_INTERACTION_OPEN_RESULT: npc={} interactionType={} success=true",
-                    GetGUID().ToString(), GetGOInfo()->UILink.PlayerInteractionType);
-
-                uint32 spellId = GetGOInfo()->UILink.spell;
-
-                // Per-plot cornerstone GOs from DB2 CASC data have spell=0 in their
-                // template.  The master template (entry 457142) has Data8=1266097 but
-                // the actual per-plot entries do not.  Fall back to the known spell
-                // for CornerstoneInteraction (type 70).
-                if (!spellId && GetGOInfo()->UILink.PlayerInteractionType == 70)
-                    spellId = 1266097; // [DNT] Trigger Convo for Unowned Plot
+                uint32 spellId = goInfo->UILink.spell;
+                if (!spellId && goInfo->UILink.PlayerInteractionType == CornerstoneInteractionType)
+                    spellId = CornerstoneConversationSpellId;
 
                 if (spellId)
                 {
-                    TC_LOG_DEBUG("housing", "  -> Casting spell {} on player", spellId);
+                    TC_LOG_DEBUG("housing", "GameObject::Use(GAMEOBJECT_TYPE_UI_LINK): casting spell {} on player", spellId);
                     player->CastSpell(player, spellId, true);
                 }
             }
@@ -3562,7 +3560,7 @@ void GameObject::Use(Unit* user, bool ignoreCastInProgress /*= false*/)
             {
                 WorldPackets::GameObject::GameObjectInteraction gameObjectUILink;
                 gameObjectUILink.ObjectGUID = GetGUID();
-                switch (GetGOInfo()->UILink.UILinkType)
+                switch (goInfo->UILink.UILinkType)
                 {
                     case 0:
                         gameObjectUILink.InteractionType = PlayerInteractionType::AdventureJournal;
@@ -4357,10 +4355,9 @@ void GameObject::InitHousingCornerstoneData(uint64 cost, int32 plotIndex)
     if (m_housingCornerstoneData.has_value())
         return;
 
-    SetUpdateFieldValue(m_values.ModifyValue(&GameObject::m_housingCornerstoneData, 0)
-        .ModifyValue(&UF::HousingCornerstoneData::Cost), cost);
-    SetUpdateFieldValue(m_values.ModifyValue(&GameObject::m_housingCornerstoneData, 0)
-        .ModifyValue(&UF::HousingCornerstoneData::PlotIndex), plotIndex);
+    auto cornerstoneData = m_values.ModifyValue(&GameObject::m_housingCornerstoneData, 0);
+    SetUpdateFieldValue(cornerstoneData.ModifyValue(&UF::HousingCornerstoneData::Cost), cost);
+    SetUpdateFieldValue(cornerstoneData.ModifyValue(&UF::HousingCornerstoneData::PlotIndex), plotIndex);
 
     m_entityFragments.Add(WowCS::EntityFragment::FJamHousingCornerstone_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingCornerstoneData));
@@ -4378,18 +4375,13 @@ void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     if (m_housingDecorData.has_value())
         return;
 
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::DecorGUID), decorGuid);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::AttachParentGUID), attachParent);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::Flags), flags);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), GetGUID());
+    auto decorData = m_values.ModifyValue(&Object::m_housingDecorData, 0);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::DecorGUID), decorGuid);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::AttachParentGUID), attachParent);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::Flags), flags);
+    SetUpdateFieldValue(decorData.ModifyValue(&UF::HousingDecorData::TargetGameObjectGUID), GetGUID());
 
-    // Set persisted data (house ownership + source tracking)
-    auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
-        .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
+    auto persistedRef = decorData.ModifyValue(&UF::HousingDecorData::PersistedData, 0);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::HouseGUID), houseGuid);
     SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::SourceType), sourceType);
     if (!sourceValue.empty())
@@ -4398,10 +4390,7 @@ void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingDecorData));
 
-    // 12.0.5 added Tag_HousingDecorProxyGameObject (=226) to mark a GameObject that is
-    // serving as a housing-decor proxy (chair/chest/mailbox/etc. placed as decor).
-    // Attach it alongside FHousingDecor_C so the client treats this entity as housing
-    // decor in addition to its normal GO behavior.
+    // marks the GO as a housing-decor proxy (chair/chest/mailbox/etc. placed as decor)
     m_entityFragments.Add(WowCS::EntityFragment::Tag_HousingDecorProxyGameObject, IsInWorld());
 
     TC_LOG_DEBUG("housing", "GameObject::InitHousingDecorData: entry={} goGuid={} decorGuid={} houseGuid={} flags={} "
@@ -4413,8 +4402,6 @@ void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
 void GameObject::InitHousingDecorMirroredPosition(Position const& localPos, QuaternionData const& localRot,
     float localScale, ObjectGuid attachParent, uint8 attachFlags /*= 3*/)
 {
-    // Retail sniff-verified: GameObject decor carries FMirroredPositionData_C fragment
-    // with AttachParent=room entity and local-space position.
     auto posData = m_values.ModifyValue(&GameObject::m_mirroredPositionData)
         .ModifyValue(&UF::MirroredPositionData::PositionData);
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachParentGUID), attachParent);
@@ -4450,36 +4437,16 @@ void GameObject::InitHousingFixtureData(ObjectGuid houseGuid, int32 exteriorComp
     if (m_housingFixtureData.has_value())
         return;
 
-    // Sniff-verified field values (11.2 retail MeshObject with FHousingFixture_C):
-    //   ExteriorComponentID: 141 (Stucco Base, small Human house)
-    //   HouseExteriorWmoDataID: 9 (Human/Generic theme, NOT 32)
-    //   ExteriorComponentHookID: -1 (base piece, no hook)
-    //   ExteriorComponentType: 9 (Base)
-    //   Field_59: 1
-    //   Size: 2 (small)
-    //   GameObjectGUID: 0 (empty)
-    //   Guid: MeshObject GUID (we use Housing GUID as safe substitute)
-
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), exteriorComponentID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::HouseExteriorWmoDataID), houseExteriorWmoDataID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentHookID), exteriorComponentHookID);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::HouseGUID), houseGuid);
-    // Guid must be a Housing-type GUID (HighGuid::Housing, type 55). Client GUID resolver
-    // crashes if it receives a non-Housing, non-null GUID here (e.g. HighGuid::GameObject = 11)
-    // because it enters a conversion path that returns null, then dereferences at +0x64.
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Guid), houseGuid);
-    // GameObjectGUID: sniff confirms 0x0 (empty) for all fixture pieces
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::ExteriorComponentType), exteriorComponentType);
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Field_59), uint8(1)); // sniff: always 1
-    SetUpdateFieldValue(m_values.ModifyValue(&Object::m_housingFixtureData, 0)
-        .ModifyValue(&UF::HousingFixtureData::Size), houseSize);
+    auto fixtureData = m_values.ModifyValue(&Object::m_housingFixtureData, 0);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentID), exteriorComponentID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::HouseExteriorWmoDataID), houseExteriorWmoDataID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentHookID), exteriorComponentHookID);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::HouseGUID), houseGuid);
+    // must be a Housing-type GUID - the client crashes on other non-null GUID types here
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Guid), houseGuid);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::ExteriorComponentType), exteriorComponentType);
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Field_59), uint8(1)); // always 1
+    SetUpdateFieldValue(fixtureData.ModifyValue(&UF::HousingFixtureData::Size), houseSize);
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingFixture_C, IsInWorld(),
         WowCS::GetRawFragmentData(m_housingFixtureData));
@@ -5021,4 +4988,3 @@ SpellInfo const* GameObject::GetSpellForLock(Player const* player) const
 
     return nullptr;
 }
-

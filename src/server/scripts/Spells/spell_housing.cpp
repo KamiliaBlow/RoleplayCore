@@ -22,7 +22,6 @@
 #include "WorldSession.h"
 
 // 1225512 - Open Neighborhood Charter (use of item 239098)
-// Retail answers the item use with SMSG_NEIGHBORHOOD_CHARTER_OPEN_UI_RESPONSE carrying the charter state.
 class spell_housing_neighborhood_charter : public SpellScript
 {
     void HandleDummy(SpellEffIndex /*effIndex*/) const

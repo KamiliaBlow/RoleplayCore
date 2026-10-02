@@ -31,8 +31,7 @@
 class Housing;
 class Player;
 
-// A saved layout. Decor is stored relative to its room (interior) or to the plot (exterior), so a blueprint lands the same
-// way in any house.
+// A saved layout; decor positions are relative to their room (interior) or plot (exterior).
 struct HousingBlueprintRoom
 {
     uint32 RoomEntryId = 0;

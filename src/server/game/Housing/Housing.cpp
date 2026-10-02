@@ -43,13 +43,7 @@
 
 namespace
 {
-    // M13: normalize a decor rotation quaternion to a unit quaternion before it
-    // is stored. The client sends Euler angles which the handler converts to a
-    // quaternion each place/move; normalizing removes any float drift so a decor
-    // item at a cardinal angle (0/90/180/270) round-trips through the FLOAT
-    // columns to the exact same orientation instead of subtly re-rotating on
-    // reload (the retail rotation bug we must not replicate). A degenerate
-    // (near-zero) quaternion falls back to identity.
+    // Normalize to a unit quaternion so cardinal angles round-trip through FLOAT columns exactly; degenerate input falls back to identity.
     void NormalizeDecorRotation(float& x, float& y, float& z, float& w)
     {
         float len = std::sqrt(x * x + y * y + z * z + w * w);
@@ -63,6 +57,14 @@ namespace
         x *= inv; y *= inv; z *= inv; w *= inv;
     }
 
+    // Scale clamps shared by the place/move paths (sniffed scale range 0.45 - 1.62).
+    constexpr float MIN_DECOR_SCALE = 0.01f;
+    constexpr float MAX_DECOR_SCALE = 5.0f;
+
+    // Synthetic storage GUID band for unplaced catalog copies: ownerCounter * 100000 + decorEntryId * 100 + index.
+    constexpr uint64 STORAGE_GUID_OWNER_SCALE = 100000;
+    constexpr uint64 STORAGE_GUID_ENTRY_SCALE = 100;
+
     // House type (HouseExteriorWmoData) of the component a hook hangs on, 0 if unknown.
     uint32 GetHookOwnerWmo(uint32 hookId)
     {
@@ -74,7 +76,7 @@ namespace
     }
 }
 
-// Global DB ID generators — initialized from MAX(id) at server startup
+// Global DB ID generators - initialized from MAX(id) at server startup
 std::atomic<uint64> Housing::s_nextDecorDbId{1};
 std::atomic<uint64> Housing::s_nextRoomDbId{1};
 
@@ -91,8 +93,6 @@ Housing::Housing(Player* owner, ObjectGuid ownerGuid /*= ObjectGuid::Empty*/)
 
 void Housing::InitializeDbIdGenerators()
 {
-    // Initialize global ID generators from current MAX(id) in the database.
-    // Must be called during server startup before any Housing objects are loaded.
     {
         QueryResult result = CharacterDatabase.Query("SELECT COALESCE(MAX(id), 0) FROM character_housing_decor");
         uint64 maxDecorId = result ? (*result)[0].GetUInt64() : 0;
@@ -116,13 +116,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         return false;
 
     Field* fields = housing->Fetch();
-    // Expected columns: houseId, neighborhoodGuid, plotIndex, level, favor, settingsFlags, exteriorLocked, houseSize, houseType, ...
-    // fields[0] = houseId (DB2 entry ID) — NOT used as GUID counter.
-    // Housing GUID counter must match HousingPlayerHouseEntity GUID (WorldSession.cpp), which uses battlenetAccountId.
+    // fields[0] is the DB2 entry id, not a GUID counter: the house GUID is rebuilt from the Battle.net account id.
     uint32 bnetAccountId = _owner->GetSession()->GetBattlenetAccountId();
-    // Take the neighborhood's real GUID from the manager rather than rebuilding it: arg1 is its
-    // NeighborhoodMapID, and this GUID goes out to the client in house/neighborhood packets, so a wrong arg1
-    // reproduces the client-side NeighborhoodMap.db2 miss on the house path too.
+    // Take the neighborhood's real GUID from the manager: arg1 is its NeighborhoodMapID and goes out to the client.
     _neighborhoodGuid.Clear();
     uint32 neighborhoodMapId = 0;
     if (Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(fields[1].GetUInt64()))
@@ -151,10 +147,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     _houseName = fields[14].GetString();
     _houseDescription = fields[15].GetString();
 
-    // Load rooms FIRST so decor can look up roomEntryId for GUID arg2
-    //           0         1            2           3       4       5           6            7         8        9              10              11               12             13          14        15              16
-    // SELECT roomGuid, roomEntryId, slotIndex, gridX, gridY, floorIndex, orientation, mirrored, themeId, wallTextureId, floorTextureId, ceilingTextureId, colorOverride, doorTypeId, doorSlot, ceilingTypeId, ceilingSlot
-    // FROM character_housing_rooms WHERE ownerGuid = ?
+    // Load rooms first so decor can look up roomEntryId for GUID arg2
     if (rooms)
     {
         do
@@ -164,12 +157,11 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             uint64 roomDbId = fields[0].GetUInt64();
             uint32 roomEntryId = fields[1].GetUInt32();
 
-            // Fix up roomDbId=0 from old saves that used ObjectGuid::Empty (subType=0 produced Empty GUID).
-            // Without this, all rooms get the same GUID key and overwrite each other in _rooms.
+            // Fix up roomDbId=0 from old saves that used ObjectGuid::Empty (all rooms would share one GUID key).
             if (roomDbId == 0)
                 roomDbId = GenerateRoomDbId();
 
-            // arg2=roomEntryId matches retail GUID format (sniff-verified: arg2=HouseRoomID)
+            // arg2=roomEntryId matches the retail Housing GUID format
             ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, roomEntryId, roomDbId);
 
             Room& room = _rooms[roomGuid];
@@ -179,12 +171,10 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             room.GridX = fields[3].GetInt32();
             room.GridY = fields[4].GetInt32();
             room.FloorIndex = fields[5].GetInt32();
-            // Backward compat: if gridX looks like old grid index (0-20), convert to yards
+            // Backward compat: old grid index (0-20) -> yards
             if (room.GridX >= 0 && room.GridX <= 20 && room.GridX == static_cast<int32>(room.SlotIndex) && room.SlotIndex > 0)
                 room.GridX = static_cast<int32>(room.SlotIndex) * static_cast<int32>(HOUSING_ROOM_GRID_SPACING);
-            // Backward compat: previously FloorIndex was stored as a yard offset (e.g. 12
-            // for upper stairwell partner). Retail treats it as a floor NUMBER (0, 1, 2…)
-            // multiplied by 12 yards at spawn time. Convert legacy multiples-of-12 values.
+            // Backward compat: FloorIndex was once stored as a yard offset; convert legacy multiples of 12 to floor numbers
             if (room.FloorIndex >= 12 && (room.FloorIndex % 12) == 0)
                 room.FloorIndex /= 12;
             room.Orientation = fields[6].GetUInt32();
@@ -203,8 +193,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             room.CeilingThemeId = fields[19].GetUInt32();
             LoadDoorTypes(room, fields[20].GetString());
             LoadComponentStyles(room, fields[21].GetString());
-            // Legacy rows (pre-per-surface-theme migration) have all three = 0:
-            // seed them from the single ThemeId so old houses keep their look.
+            // Legacy rows have all three per-surface themes = 0: seed them from the single ThemeId.
             if (!room.WallThemeId && !room.FloorThemeId && !room.CeilingThemeId && room.ThemeId)
             {
                 room.WallThemeId = room.ThemeId;
@@ -216,17 +205,12 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             uint64 expected = s_nextRoomDbId.load();
             while (roomDbId >= expected && !s_nextRoomDbId.compare_exchange_weak(expected, roomDbId + 1))
                 ;
-
         } while (rooms->NextRow());
     }
 
-    // Runtime fixup: ensure entry hall room (46) + correct visual room exist.
-    // Due to the old subType=0 GUID bug, both rooms shared ObjectGuid::Empty
-    // as their key and only the last one survived in the DB. Fix that first.
+    // Runtime fixup for houses saved by older builds: ensure the entry hall and a visual room exist.
     {
-        // Step 0: Migrate exterior geobox room (18) to entry hall room (46) in existing houses.
-        // Room 18 was incorrectly used as the interior base room. It should only be used
-        // for the exterior plot geobox (handled by SpawnRoomForPlot independently).
+        // Migrate the exterior geobox room entry to the entry hall entry (the geobox entry is exterior-plot only).
         uint32 entryHallEntry = sHousingMgr.GetEntryHallRoomEntryId();
         uint32 extGeoboxEntry = sHousingMgr.GetBaseRoomEntryId();
         if (entryHallEntry != extGeoboxEntry)
@@ -244,7 +228,6 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             }
         }
 
-        // Step 1: Ensure base room (entry hall) exists
         bool hasBaseRoom = false;
         for (auto const& [guid, room] : _rooms)
         {
@@ -264,7 +247,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 entryHallRoomEntry, _houseGuid.ToString(), baseResult);
         }
 
-        // Step 2: Ensure correct visual room exists
+        // Only add a default visual room when the house has no non-base rooms at all.
         uint32 correctVisualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
         bool hasVisualRoom = false;
         ObjectGuid wrongRoomGuid;
@@ -287,12 +270,6 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 hasVisualRoom = true; // Multiple visual rooms — don't mess with them
         }
 
-        // NOTE: Previously replaced non-Room-1 rooms with Room 1. This was too aggressive —
-        // it replaced valid user placements (e.g., Stairwell) and lost gridX/gridY coordinates.
-        // Rooms placed by the user are valid regardless of entry type. Only add a default
-        // visual room if there are NO non-base rooms at all (empty house).
-
-        // No visual room at all — add one
         if (!hasVisualRoom && wrongRoomGuid.IsEmpty() && correctVisualRoom)
         {
             // Find the next free slot (slot 0 is base room)
@@ -310,10 +287,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         }
     }
 
-    // Load placed decor (after rooms so RoomGuid can use correct arg2=roomEntryId)
-    //           0        1             2     3     4     5          6          7          8          9       10       11       12        13     14              15          16
-    // SELECT decorGuid, decorEntryId, posX, posY, posZ, rotationX, rotationY, rotationZ, rotationW, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked, placementTime, sourceType, sourceValue
-    // FROM character_housing_decor WHERE ownerGuid = ?
+    // Load placed decor (after rooms so RoomGuid can use the room's actual GUID key)
     std::unordered_map<uint64, ObjectGuid> roomGuidByDbId;
     for (auto const& [rGuid, r] : _rooms)
         roomGuidByDbId[rGuid.GetCounter()] = rGuid;
@@ -343,17 +317,15 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             placed.RotationZ = fields[7].GetFloat();
             placed.RotationW = fields[8].GetFloat();
             placed.Scale = fields[9].GetFloat();
-            if (placed.Scale < 0.01f) placed.Scale = 1.0f;
+            if (placed.Scale < MIN_DECOR_SCALE)
+                placed.Scale = 1.0f;
             placed.DyeSlots[0] = fields[10].GetUInt32();
             placed.DyeSlots[1] = fields[11].GetUInt32();
             placed.DyeSlots[2] = fields[12].GetUInt32();
             uint64 roomDbId = fields[13].GetUInt64();
             if (roomDbId)
             {
-                // Use the room's actual GUID key from _rooms, not a reconstructed one.
-                // Room migration (e.g. entry 18->46) changes RoomEntryId but not the GUID
-                // key's arg2 field. Reconstructing with the migrated RoomEntryId would
-                // produce a GUID that doesn't match the room's key, breaking AttachParentGUID.
+                // Use the room's actual GUID key from _rooms: room migration changes RoomEntryId but not the key's arg2.
                 if (auto itr = roomGuidByDbId.find(roomDbId); itr != roomGuidByDbId.end())
                     placed.RoomGuid = itr->second;
             }
@@ -368,14 +340,10 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             uint64 expected = s_nextDecorDbId.load();
             while (decorDbId >= expected && !s_nextDecorDbId.compare_exchange_weak(expected, decorDbId + 1))
                 ;
-
         } while (decor->NextRow());
     }
 
     // Load fixtures
-    //           0               1
-    // SELECT fixturePointId, optionId
-    // FROM character_housing_fixtures WHERE ownerGuid = ?
     if (fixtures)
     {
         do
@@ -386,11 +354,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             Fixture& fixture = _fixtures[fixturePointId];
             fixture.FixturePointId = fixturePointId;
             fixture.OptionId = fields[1].GetUInt32();
-
         } while (fixtures->NextRow());
 
-        // A fixture of one house type on a hook of another (left by an old type switch) never spawns - its hook's
-        // root is not part of the house - yet it counted as the house's entrance, so no door was placed.
+        // A fixture of one house type on a hook of another never spawns, yet it counted as the house's entrance.
         for (auto itr = _fixtures.begin(); itr != _fixtures.end();)
         {
             ExteriorComponentEntry const* comp = itr->second.OptionId ? sExteriorComponentStore.LookupEntry(itr->second.OptionId) : nullptr;
@@ -408,12 +374,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             else
                 ++itr;
         }
-
     }
 
-    // A Small-only item facade saved on a bigger house (before IsHouseSizeAvailableForType checked the exact size), and
-    // this type's roots stored at another size (kept from before a size change under a different type): the client
-    // shows no base/roof style when the roots do not match the house size.
+    // A Small-only item facade saved on a bigger house: the client shows no base/roof style when the roots do not match the size.
     if (_houseType && _houseSize > HOUSING_FIXTURE_SIZE_SMALL && !sHousingMgr.IsHouseSizeAvailableForType(_houseType, _houseSize))
     {
         if (uint8 const size = sHousingMgr.GetLargestHouseSizeForType(_houseType, _houseSize - 1))
@@ -430,8 +393,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     if (_houseSize >= HOUSING_FIXTURE_SIZE_SMALL)
         RemapFixturesForHouseSize(_houseSize);
 
-    // Migration: populate starter fixtures for houses created before persistence was added.
-    // Also handles existing houses that have fixtures but are missing starter roots (Base/Roof) or door.
+    // Migration: houses created before fixture persistence may miss their starter roots (Base/Roof) or door.
     bool hasBaseRoot = false, hasRoofRoot = false, hasDoor = false;
     for (auto const& [pointId, fix] : _fixtures)
     {
@@ -456,9 +418,6 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     }
 
     // Load catalog
-    //           0             1        2           3
-    // SELECT houseDecorId, quantity, sourceType, sourceValue
-    // FROM character_housing_catalog WHERE ownerGuid = ?
     if (catalog)
     {
         do
@@ -471,16 +430,13 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             entry.Count = fields[1].GetUInt32();
             entry.SourceType = fields[2].GetUInt8();
             entry.SourceValue = fields[3].GetString();
-
         } while (catalog->NextRow());
     }
 
-    // Fixup: if house exists but catalog is empty, populate with starter decor.
-    // This handles houses created before the catalog-population fix was added.
+    // Fixup: houses created before the catalog was populated start with the starter decor.
     if (_catalog.empty() && !_houseGuid.IsEmpty() && _owner)
     {
-        // The house's neighborhood, not the loading character: another character of the account may be of the
-        // other faction.
+        // The house's neighborhood, not the loading character: another character of the account may be of the other faction.
         auto starterDecorWithQty = sHousingMgr.GetStarterDecorWithQuantities(GetNeighborhoodFaction() == NEIGHBORHOOD_FACTION_HORDE ? HORDE : ALLIANCE);
         if (!starterDecorWithQty.empty())
         {
@@ -494,7 +450,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             TC_LOG_INFO("housing", "Housing::LoadFromDB: Catalog was empty for house {} — auto-populated {} starter decor types for player {}",
                 _houseGuid.ToString(), uint32(starterDecorWithQty.size()), _ownerGuid.ToString());
 
-            // Persist the fixup to DB so it only happens once
+            // Persist the fixup so it only happens once
             if (_owner->GetSession())
             {
                 CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
@@ -514,27 +470,18 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
         }
     }
 
-    // Starter decor is placed once, when the house is bought (NeighborhoodHandler). No top-up here: a house whose owner
-    // cleared every item would get the starter set back on each login.
+    // Starter decor is placed once on purchase - no top-up, or a cleared house would get the set back each login.
 
-    // Recalculate budget weights from loaded data
     RecalculateBudgets();
 
-    // NOTE: FHousingStorage_C is NOT populated at login — retail flow confirms it is only sent
-    // when the player enters edit mode or sends REQUEST_STORAGE. Populating it at login causes
-    // client crashes (BLZ_ALLOC for HouseDecorGUID) because the client doesn't expect storage
-    // data in the initial Account entity CREATE. Storage entries (both placed and catalog) are
-    // populated on-demand by PopulateCatalogStorageEntries() called from REQUEST_STORAGE handler.
+    // FHousingStorage_C is NOT populated at login - the client only expects it on edit mode / REQUEST_STORAGE.
 
     SyncUpdateFields();
 
     return true;
 }
 
-// The CHAR_INS_CHARACTER_HOUSING_DECOR column list is spelled out here and nowhere else. It used to
-// be repeated at each of the three insert sites, and two of them had drifted: they stopped after
-// sourceValue, leaving petGuid and petFlag unbound, and wrote literal zeros where the decor already
-// carried its dye slots and lock flag.
+// Single place binding the CHAR_INS_CHARACTER_HOUSING_DECOR column list, shared by every insert site.
 static void BindDecorInsert(CharacterDatabasePreparedStatement* stmt, ObjectGuid::LowType ownerGuid,
     ObjectGuid decorGuid, Housing::PlacedDecor const& decor)
 {
@@ -679,15 +626,7 @@ void Housing::SetEditorMode(HousingEditorMode mode)
 {
     _editorMode = mode;
 
-    // Sniff-verified: retail sends EditorMode via UPDATE_OBJECT alongside
-    // UNIT_FLAG_PACIFIED, UNIT_FLAG2_NO_ACTIONS and SilencedSchoolMask=127.
-    // The client reads EditorMode from PlayerHouseInfoComponentData to set
-    // the internal editor state (ClientHousingDecorSystem +329) which gates
-    // ClickTarget (flag 16) for decor selection.
-    //
-    // The field carries the editing context, not HousingEditorMode (12.1.0.69933 sniffs: decor edit = 1, room
-    // layout = 2, fixture edit = 3). Layout used to go out as 3, so the client ran the exterior-fixture camera,
-    // anchored to the house on the plot, and kept it after leaving the interior.
+    // The update field carries the editing context (decor=1, room=2, fixture=3), not HousingEditorMode.
     HouseEditingContext context = HOUSE_EDITING_CONTEXT_NONE;
     switch (mode)
     {
@@ -741,10 +680,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     _hasCustomPosition = false;
     _housePosX = _housePosY = _housePosZ = _houseFacing = 0.0f;
 
-    // Generate a new house guid using BNetAccountId as the counter.
-    // Retail-verified: HouseGUID.Low always equals BNetAccountGUID.Low (the BNet account ID).
-    // Using player GUID counter produces small values that don't match the retail pattern
-    // and may cause the client's AABB/DB2 lookup to fail during decor placement bounds checks.
+    // HouseGUID.Low must be the Battle.net account counter, not a player GUID counter, or client lookups break.
     uint32 bnetAccountId = _owner->GetSession() ? _owner->GetSession()->GetBattlenetAccountId() : 0;
     if (bnetAccountId == 0)
     {
@@ -757,13 +693,10 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
 
     SyncUpdateFields();
 
-    // Every new house starts with an entry hall room (interior base room).
-    // Room 18 is the EXTERIOR geobox only (handled by SpawnRoomForPlot independently).
-    // Room 46 is the proper interior entry hall (sniff-verified: BASE_ROOM flag, door to visual room).
+    // Every new house starts with an entry hall room (the exterior geobox room is handled by SpawnRoomForPlot).
     PlaceRoom(sHousingMgr.GetEntryHallRoomEntryId(), /*slotIndex*/ 0, /*orientation*/ 0, /*mirrored*/ false);
 
     // Also place a default visual room so the interior renders walls/floor/ceiling.
-    // Base room (18) only provides the geobox boundary — visual geometry needs a separate room.
     uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
     if (visualRoom)
     {
@@ -787,8 +720,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
             _owner->GetName());
     }
 
-    // Populate starter fixtures: Base + Roof for the racial WMO style.
-    // These are persisted to DB so spawning only reads what's stored.
+    // Starter fixtures (Base + Roof) are persisted so spawning only reads what is stored.
     PopulateStarterFixtures();
 
     return HOUSING_RESULT_SUCCESS;
@@ -810,9 +742,7 @@ void Housing::Delete()
     DeleteFromDB(_ownerGuid.GetCounter(), trans);
     CharacterDatabase.CommitTransaction(trans);
 
-    // m2/A5: release the neighborhood plot so it becomes vacant and
-    // re-purchasable instead of being orphaned forever (the old bug: delete /
-    // kiosk-reset removed the character rows but never freed the PlotInfo).
+    // Release the neighborhood plot so it becomes vacant and re-purchasable instead of being orphaned.
     if (!_neighborhoodGuid.IsEmpty())
     {
         if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
@@ -876,7 +806,6 @@ ObjectGuid Housing::StartPlacingNewDecor(uint32 catalogEntryId, HousingResult& r
         return ObjectGuid::Empty;
     }
 
-    // Generate a GUID for this pending placement.
     // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
     ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
@@ -929,19 +858,11 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     if (GetDecorCount() >= maxDecor)
         return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
 
-    // Retail semantics (verified via sniff build 66263, both alliance + horde):
-    // the client ALWAYS sends a non-Empty RoomGuid in CMSG_HOUSING_DECOR_PLACE.
-    // Exterior placements use Housing-2-arg2=<base-room-entry-id>-counter=X
-    // (arg2=18 on 66263). Interior placements use Housing-2-arg2=<visual-room
-    // -entry-id>-counter=Y (arg2=1 etc.). AttachParent is always Empty.
-    //
-    // Detect the plot exterior room identity and route it to the exterior
-    // budget/skip the interior _rooms lookup, while preserving the RoomGuid
-    // as-sent so downstream consumers (DB row, move/remove round-trips) still
-    // see what retail sends.
+    // The client always sends a non-Empty RoomGuid; exterior placements use the plot's base room identity,
+    // routed to the exterior budget with the RoomGuid preserved as-sent.
     bool const isExterior = IsExteriorDecorPlacement(roomGuid);
 
-    // A4: enforce the outdoor "two lights cannot overlap" rule before charging.
+    // Enforce the outdoor "two lights cannot overlap" rule before charging.
     if (HousingResult overlap = CheckLightOverlap(decorEntryId, x, y, z, isExterior);
         overlap != HOUSING_RESULT_SUCCESS)
         return overlap;
@@ -978,30 +899,17 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
         return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
-    // H-09: decorGuid arrives from the client on the fallback path (no matching pending
-    // placement), and used to be trusted as the map key and the DB row id without ever
-    // being checked. Two consequences, both closed here.
-    //
-    // 1. _placedDecor[decorGuid] overwrote an existing entry in place. Re-sending the GUID
-    //    of something already placed destroyed the old record: its weight was never
-    //    returned to the budget (so the budget inflated permanently), the catalog was
-    //    still decremented, and the player silently lost the item that had been there.
-    //    Placement onto an occupied GUID is now refused instead of overwriting.
+    // Client-supplied GUID (no matching pending placement): refuse an occupied GUID and advance the generator past it.
     if (_placedDecor.contains(decorGuid))
         return HOUSING_RESULT_INVALID_DECOR_ITEM;
 
-    // 2. A client-chosen counter never advanced s_nextDecorDbId, so the generator would
-    //    later hand the same id to a legitimate placement. Bump past it, the same way the
-    //    load path reconciles ids it did not issue.
     uint64 const clientDbId = decorGuid.GetCounter();
     uint64 expectedDbId = s_nextDecorDbId.load();
     while (clientDbId >= expectedDbId && !s_nextDecorDbId.compare_exchange_weak(expectedDbId, clientDbId + 1))
         ;
 
-    // Remove from pending placements
     _pendingPlacements.erase(decorGuid);
 
-    // M13: persist a normalized unit quaternion for a lossless cardinal round-trip.
     NormalizeDecorRotation(rotX, rotY, rotZ, rotW);
 
     PlacedDecor& decor = _placedDecor[decorGuid];
@@ -1014,9 +922,8 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     decor.RotationY = rotY;
     decor.RotationZ = rotZ;
     decor.RotationW = rotW;
-    // The client previews and places at the scale it sends (HouseDecor InitialScale unless resized, e.g. 0.6);
-    // dropping it spawned such decor at 1.0, bigger than the preview. Same clamp as MoveDecor.
-    decor.Scale = std::isfinite(scale) && scale >= 0.01f ? std::min(scale, 5.0f) : GetDecorInitialScale(decorEntryId);
+    // Place at the scale the client sent; dropping it would spawn resized decor bigger than the preview.
+    decor.Scale = std::isfinite(scale) && scale >= MIN_DECOR_SCALE ? std::min(scale, MAX_DECOR_SCALE) : GetDecorInitialScale(decorEntryId);
     decor.DyeSlots = {};
     decor.RoomGuid = roomGuid;
     decor.PlacementTime = GameTime::GetGameTime();
@@ -1028,8 +935,7 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     if (catalogItr->second.Count == 0)
         _catalog.erase(catalogItr);
 
-    // M2: charge the SAME budget the CHECK validated (exterior-plot rooms count
-    // as exterior, not interior).
+    // Charge the same budget the check validated.
     if (isExterior)
         _exteriorDecorWeightUsed += weightCost;
     else
@@ -1054,8 +960,7 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
         _owner->GetSession()->GetBattlenetAccount().SetHousingDecorStorageEntry(decorGuid, _houseGuid, decor.SourceType, decor.SourceValue,
             isExterior ? std::optional<uint8>(HOUSING_DECOR_PLACED_PLOT) : std::nullopt);
 
-    // CriteriaType::PlaceDecor (270, "Place any decor"). miscValue1 = HouseDecor entry so decor-scoped
-    // ModifierTree conditions can still discriminate; this is the single commit point for a placement.
+    // CriteriaType::PlaceDecor (270); miscValue1 = HouseDecor entry so decor-scoped conditions can discriminate.
     _owner->UpdateCriteria(CriteriaType::PlaceDecor, decorEntryId);
 
     SyncUpdateFields();
@@ -1068,12 +973,10 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
-    // Validate coordinate sanity (reject NaN/Inf and extreme values)
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
         !std::isfinite(rotX) || !std::isfinite(rotY) || !std::isfinite(rotZ) || !std::isfinite(rotW))
         return HOUSING_RESULT_BOUNDS_FAILURE_ROOM;
 
-    // Validate decor entry exists in the HousingMgr DB2 data
     HousingResult validationResult = sHousingMgr.ValidateDecorPlacement(decorEntryId, Position(x, y, z),
         GetDecorPlacementAnchor(roomGuid), _level);
     if (validationResult != HOUSING_RESULT_SUCCESS)
@@ -1082,41 +985,35 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (HousingResult boundsResult = CheckInteriorDecorBounds(roomGuid, x, y, z); boundsResult != HOUSING_RESULT_SUCCESS)
         return boundsResult;
 
-    // Check decor count limit based on house level
     uint32 maxDecor = GetMaxDecorCount();
     if (GetDecorCount() >= maxDecor)
         return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
 
-    // Check WeightCost-based budget (exterior vs interior) — M2: classify once.
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
     bool const isExterior = IsExteriorDecorPlacement(roomGuid);
 
-    // A4: enforce the outdoor "two lights cannot overlap" rule before charging.
+    // Enforce the outdoor "two lights cannot overlap" rule before charging.
     if (HousingResult overlap = CheckLightOverlap(decorEntryId, x, y, z, isExterior);
         overlap != HOUSING_RESULT_SUCCESS)
         return overlap;
 
     if (isExterior)
     {
-        // Outdoor decor uses exterior budget
         if (_exteriorDecorWeightUsed + weightCost > GetMaxExteriorDecorBudget())
             return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
     }
     else
     {
-        // Indoor decor uses interior budget
         if (_interiorDecorWeightUsed + weightCost > GetMaxInteriorDecorBudget())
             return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
     }
 
-    // Validate room exists if specified, and check per-room decor limit
     if (!isExterior)
     {
         auto roomItr = _rooms.find(roomGuid);
         if (roomItr == _rooms.end())
             return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-        // Enforce per-room decor limit
         uint32 roomDecorCount = 0;
         for (auto const& [guid, decor] : _placedDecor)
         {
@@ -1127,19 +1024,16 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
             return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
     }
 
-    // Check catalog for available copies
     auto catalogItr = _catalog.find(decorEntryId);
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
         return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
-    // Generate a new decor guid.
     // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
     ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
         /*subType*/ 1, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
         /*arg2*/ decorEntryId, newDbId);
 
-    // M13: persist a normalized unit quaternion for a lossless cardinal round-trip.
     NormalizeDecorRotation(rotX, rotY, rotZ, rotW);
 
     PlacedDecor& decor = _placedDecor[decorGuid];
@@ -1160,12 +1054,11 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     decor.SourceType = catalogItr->second.SourceType;
     decor.SourceValue = catalogItr->second.SourceValue;
 
-    // Decrement catalog count
     catalogItr->second.Count--;
     if (catalogItr->second.Count == 0)
         _catalog.erase(catalogItr);
 
-    // Update budget tracking (route to correct budget based on room) — M2.
+    // Charge the same budget the check validated.
     if (isExterior)
         _exteriorDecorWeightUsed += weightCost;
     else
@@ -1178,7 +1071,6 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
         CharacterDatabase.Execute(stmt);
     }
 
-    // Also persist updated catalog count
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
         auto catItr = _catalog.find(decorEntryId);
@@ -1203,24 +1095,21 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
-    // Validate coordinate sanity
     if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
         !std::isfinite(rotX) || !std::isfinite(rotY) || !std::isfinite(rotZ) || !std::isfinite(rotW))
         return HOUSING_RESULT_BOUNDS_FAILURE_ROOM;
 
-    // Clamp scale to reasonable range (sniff shows values like 0.45 to 1.62)
-    if (!std::isfinite(scale) || scale < 0.01f)
+    // Clamp scale to a reasonable range (sniffs show values like 0.45 to 1.62)
+    if (!std::isfinite(scale) || scale < MIN_DECOR_SCALE)
         scale = 1.0f;
-    if (scale > 5.0f)
-        scale = 5.0f;
+    if (scale > MAX_DECOR_SCALE)
+        scale = MAX_DECOR_SCALE;
 
     auto itr = _placedDecor.find(decorGuid);
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    // M1: MoveDecor previously performed NO spatial validation. Route the move
-    // target through the same room/plot AABB check as placement so a moved item
-    // cannot be flung to arbitrary coordinates.
+    // Validate the move target like a placement so an item cannot be flung to arbitrary coordinates.
     HousingResult validationResult = sHousingMgr.ValidateDecorPlacement(itr->second.DecorEntryId, Position(x, y, z),
         GetDecorPlacementAnchor(itr->second.RoomGuid), _level);
     if (validationResult != HOUSING_RESULT_SUCCESS)
@@ -1229,14 +1118,12 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     if (HousingResult boundsResult = CheckInteriorDecorBounds(itr->second.RoomGuid, x, y, z); boundsResult != HOUSING_RESULT_SUCCESS)
         return boundsResult;
 
-    // A4: a moved light must also honour the "two lights cannot overlap" rule.
-    // Exclude the decor being moved so an in-place nudge never collides with itself.
+    // excludeGuid skips the decor being moved so an in-place nudge never collides with itself.
     if (HousingResult overlap = CheckLightOverlap(itr->second.DecorEntryId, x, y, z,
             IsExteriorDecorPlacement(itr->second.RoomGuid), decorGuid);
         overlap != HOUSING_RESULT_SUCCESS)
         return overlap;
 
-    // M13: normalize the rotation quaternion for a lossless cardinal round-trip.
     NormalizeDecorRotation(rotX, rotY, rotZ, rotW);
 
     PlacedDecor& decor = itr->second;
@@ -1276,11 +1163,9 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    // Sniff-verified: Lock→Remove is a valid retail flow (packet #27117 LOCK then
-    // #27139 REMOVE with Result=0). The house owner can always remove their own decor.
-    // Lock only prevents OTHER editors from modifying — not the owner.
+    // Lock only prevents OTHER editors from modifying; the owner can always remove their own decor.
 
-    // Refund WeightCost budget (route to correct budget based on room)
+    // Refund the budget the placement charged
     uint32 decorEntryId = itr->second.DecorEntryId;
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
     if (IsExteriorDecorPlacement(itr->second.RoomGuid))
@@ -1310,7 +1195,7 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
 
     _placedDecor.erase(itr);
 
-    // Immediate persist for crash safety — delete the placed decor row
+    // Immediate persist for crash safety
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_DECOR_SINGLE);
         stmt->setUInt64(0, _ownerGuid.GetCounter());
@@ -1318,7 +1203,6 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
         CharacterDatabase.Execute(stmt);
     }
 
-    // Persist updated catalog count
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
         stmt->setUInt32(0, _catalog[decorEntryId].Count);
@@ -1331,8 +1215,7 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
     if (_storagePopulated && _owner->GetSession())
         _owner->GetSession()->GetBattlenetAccount().RemoveHousingDecorStorageEntry(decorGuid);
 
-    // CriteriaType::RemoveDecor (271, "Remove any decor"). miscValue1 = the HouseDecor entry removed
-    // (captured before the erase invalidated the iterator).
+    // CriteriaType::RemoveDecor (271, "Remove any decor"); miscValue1 = the HouseDecor entry removed.
     _owner->UpdateCriteria(CriteriaType::RemoveDecor, decorEntryId);
 
     SyncUpdateFields();
@@ -1348,15 +1231,7 @@ HousingResult Housing::CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
     if (itr == _placedDecor.end())
         return HOUSING_RESULT_DECOR_NOT_FOUND;
 
-    // Validate each requested dye color exists in the palette (DyeColor.db2). A color of 0
-    // clears that slot and is always allowed. Each dye slot maps to a shader channel on the
-    // decor (per HousingDecorDyeSlot.channel) - for light-emitting decor a channel drives the
-    // emitted light/glow color, so this is also how decor "lighting" is recolored.
-    // NOTE: the client documents that dye slots "accept colors of any category"
-    // (HousingDecorDyeSlot.dyeColorCategoryID has no functional use), so category is NOT
-    // enforced here - only that the color is a real DyeColor record.
-    // Retail 12.1.0.69933 (sniff 11-13-10): every slot that gets a new color consumes one
-    // DyeColor.ItemID from the bags (three dyes -> three stacks 3 -> 2, no other cost).
+    // A color of 0 clears the slot; each newly dyed slot consumes one DyeColor.ItemID from the bags.
     std::map<uint32, uint32> dyeItems; // itemId -> count
     for (std::size_t i = 0; i < dyeSlots.size(); ++i)
     {
@@ -1366,7 +1241,7 @@ HousingResult Housing::CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
 
         DyeColorEntry const* dyeColor = sDyeColorStore.LookupEntry(dyeColorId);
         if (!dyeColor)
-            return HOUSING_RESULT_MISSING_DYE; // color does not exist in DyeColor.db2
+            return HOUSING_RESULT_MISSING_DYE;
 
         if (consumeDyes && dyeColorId != itr->second.DyeSlots[i] && dyeColor->ItemID > 0)
             ++dyeItems[uint32(dyeColor->ItemID)];
@@ -1467,8 +1342,7 @@ HousingResult Housing::ResetDecor(uint8 scope, uint32* outRemoved /*= nullptr*/)
     uint32 removed = 0;
     for (ObjectGuid const& guid : toRemove)
     {
-        // RemoveDecor refunds budget, returns the item to the catalog, deletes the DB row
-        // and syncs update fields for each item — full teardown per decor.
+        // RemoveDecor refunds budget, returns the item to the catalog and deletes the DB row per item.
         if (RemoveDecor(guid) == HOUSING_RESULT_SUCCESS)
             ++removed;
     }
@@ -1546,14 +1420,10 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
             return HOUSING_RESULT_PLOT_NOT_FOUND;
     }
 
-    // NOTE: Doorway components (Type 7) are OPTIONAL in the DB2.
-    // Standard rooms (1-15) have 0 doorway components — they use wall segments (Type 1) instead.
-    // Only prefab/custom rooms (113+) have explicit doorway components.
-    // Retail places rooms without doorways, so we don't enforce this check.
+    // NOTE: Doorway components (Type 7) are optional in DB2; standard rooms use wall segments instead.
 
-    // Generate a new room guid
+    // arg2=roomEntryId matches the retail Housing GUID format
     uint64 newDbId = GenerateRoomDbId();
-    // arg2=roomEntryId matches retail GUID format (sniff-verified: arg2=HouseRoomID)
     ObjectGuid roomGuid = ObjectGuid::Create<HighGuid::Housing>(/*subType*/ 2, 0, roomEntryId, newDbId);
 
     Room& room = _rooms[roomGuid];
@@ -1570,10 +1440,9 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     if (outRoomGuid)
         *outRoomGuid = roomGuid;
 
-    // Update room budget tracking
     _roomWeightUsed += roomWeightCost;
 
-    // No SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE here: retail sends it once per login, never after any of 13 sniffed adds.
+    // No SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE here: retail sends it once per login, never after an add.
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -1640,9 +1509,7 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     if (!roomData || roomData->IsBaseRoom())
         return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
-    // Retail (12.1.0.69933 sniffs) turns a room about its own centre, a quarter per step (clockwise = negative
-    // yaw), skipping headings where any room it is attached to would lose its door - a square room between two
-    // others just turns, an L room hanging off one door jumps to the next heading that still meets it.
+    // A room turns a quarter per step, skipping headings where any room attached to it would lose its door.
     std::vector<Room const*> rooms = GetRooms();
     Room const* partner = FindStairwellPartner(room);
     ObjectGuid const partnerGuid = partner ? partner->Guid : ObjectGuid::Empty;
@@ -1717,8 +1584,7 @@ void Housing::SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orie
     room.Orientation = orientation;
     PersistRoomToDB(room.Guid, room);
 
-    // Placed decor is stored in interior world space; it rides along with its room (the client already moves it,
-    // it hangs off the room entity).
+    // Placed decor is stored in interior world space; it rides along with its room.
     NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID);
     if (!interior)
         return;
@@ -1791,8 +1657,7 @@ std::vector<Housing::RoomDoor> Housing::GetRoomDoors(uint32 roomEntryId, float g
         if (comp.ConnectionType == 0)
             continue;
 
-        // Retail FHousingRoomData.Doors: connectable walls with exactly one horizontal offset axis, and for a
-        // stairwell also its connectable floor and ceiling (the link between its two stacked halves).
+        // Connectable walls with exactly one horizontal offset axis; a stairwell also lists its connectable floor and ceiling.
         bool const alongX = std::abs(comp.OffsetPos[0]) > 0.5f;
         bool const alongY = std::abs(comp.OffsetPos[1]) > 0.5f;
         int32 dirZ = 0;
@@ -1869,8 +1734,7 @@ Housing::Room const* Housing::FindRoomAtDoor(std::vector<Room const*> const& roo
 
 bool Housing::OwnsDoorway(Room const& room, Room const& other)
 {
-    // Sniffed layout edits (12.1.0.69933): the room placed earlier (lower slot) carries the doorway piece, the entry
-    // hall included - a square room added on the entry got 739 on the entry side and only its wall (373) itself.
+    // The room placed earlier (lower slot) carries the doorway piece, the entry hall included.
     return room.SlotIndex < other.SlotIndex;
 }
 
@@ -1913,7 +1777,7 @@ void Housing::LoadDoorTypes(Room& room, std::string const& doorTypes)
             room.DoorTypes[*componentId] = uint8(*variant);
     }
 
-    // Rows written before per-door styles: the single (component, variant) pair
+    // Rows written before per-door styles carry a single (component, variant) pair.
     if (room.DoorTypeId && room.DoorSlot && !room.DoorTypes.contains(room.DoorTypeId))
         room.DoorTypes[room.DoorTypeId] = room.DoorSlot;
 }
@@ -1969,9 +1833,7 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
 {
     struct Box { float MinX, MinY, MaxX, MaxY; };
 
-    // The floor footprint is RoomGridLine.db2: one or more rectangles per RoomWmoData (round and cross-shaped rooms).
-    // The RoomWmoData bounding box is the model's extent and pokes past the doors of a round room (WMO 233: 24.1
-    // yards against a door at 22.9), which rejected every placement retail allows. Rooms without grid lines keep it.
+    // Floor footprint from RoomGridLine.db2; the WMO bounding box pokes past a round room's doors, so only rooms without grid lines use it.
     auto getBoxes = [](uint32 entryId, int32 x, int32 y, uint32 turn)
     {
         std::vector<Box> boxes;
@@ -2009,10 +1871,7 @@ bool Housing::RoomFits(std::vector<Room const*> const& rooms, uint32 roomEntryId
     if (boxes.empty())
         return true;
 
-    // Neighbouring walls stand on (almost) the same line - "almost" being up to a few yards:
-    // RoomGridLine rects include wall thickness and are not aligned to the door plane, so
-    // legitimate door-adjacent placements overlap by up to ~4yd. Positions snap to the integer
-    // cell grid, where a real overlap is >= ~11yd.
+    // RoomGridLine rects include wall thickness: legitimate door-adjacent placements overlap by a few yards, real overlaps by ~11yd.
     constexpr float TOLERANCE = 5.0f;
     for (Room const* other : rooms)
     {
@@ -2114,7 +1973,6 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
 
         PersistRoomToDB(roomGuid, itr->second);
         PersistRoomToDB(swapRoomGuid, swapItr->second);
-
     }
     else
     {
@@ -2128,7 +1986,6 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
         itr->second.SlotIndex = newSlotIndex;
 
         PersistRoomToDB(roomGuid, itr->second);
-
     }
 
     SyncUpdateFields();
@@ -2205,7 +2062,7 @@ HousingResult Housing::ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, st
     if (itr == _rooms.end())
         return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-    // Only the named slots change (12.1.0.69933 sniff: a ceiling restyle recreates just that ceiling piece).
+    // Only the named slots change (a ceiling restyle recreates just that ceiling piece).
     for (uint32 componentId : optionIds)
         itr->second.ComponentThemes[componentId] = themeSetId;
 
@@ -2324,22 +2181,21 @@ void Housing::MoveHookFixtures(uint32 oldCompId, uint32 newCompId)
     if (!oldHooks || !newHooks)
         return;
 
-    // Both roots share the house frame, so a fixture goes to the free hook of the same fixture type closest to
-    // where it hung before (hook order differs between base styles: rank matching put the door on another wall).
+    // A fixture goes to the free hook of the same fixture type closest to where it hung before (hook order differs between base styles).
     std::vector<std::pair<uint32, uint32>> moves; // old hook -> new hook
     std::unordered_set<uint32> taken;
     for (ExteriorComponentHookEntry const* oldHook : *oldHooks)
     {
-        if (!oldHook || !_fixtures.count(oldHook->ID))
+        if (!oldHook || !_fixtures.contains(oldHook->ID))
             continue;
 
         ExteriorComponentHookEntry const* best = nullptr;
         float bestDist = std::numeric_limits<float>::max();
         for (ExteriorComponentHookEntry const* newHook : *newHooks)
         {
-            if (!newHook || newHook->ExteriorComponentTypeID != oldHook->ExteriorComponentTypeID || taken.count(newHook->ID))
+            if (!newHook || newHook->ExteriorComponentTypeID != oldHook->ExteriorComponentTypeID || taken.contains(newHook->ID))
                 continue;
-            if (newHook->ID != oldHook->ID && _fixtures.count(newHook->ID))
+            if (newHook->ID != oldHook->ID && _fixtures.contains(newHook->ID))
                 continue;
 
             float const dx = newHook->Position[0] - oldHook->Position[0];
@@ -2379,7 +2235,6 @@ void Housing::MoveHookFixtures(uint32 oldCompId, uint32 newCompId)
         ins->setUInt32(1, newHookId);
         ins->setUInt32(2, optionId);
         CharacterDatabase.Execute(ins);
-
     }
 }
 
@@ -2388,11 +2243,9 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
     if (_houseGuid.IsEmpty())
         return;
 
-    // Size lives on each ExteriorComponent (HouseExteriorWmoDataID is the style), so a size change
-    // invalidates every stored root fixture: SpawnFullHouseMeshObjects filters candidates by size, and
-    // stale old-size Base/Roof selections either suppress the rebuild or fall back to arbitrary-size
-    // defaults instead of the player's chosen styles.
+    // Size lives on each ExteriorComponent, so a size change invalidates every stored root fixture.
     std::vector<std::pair<uint32, uint32>> rootMoves; // old componentID -> new componentID
+    LocaleConstant const locale = sWorld->GetDefaultDbcLocale();
 
     for (auto const& [pointId, fixture] : _fixtures)
     {
@@ -2415,9 +2268,8 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
         }
         else
         {
-            // Style/color variant: keep the player's pick by matching the variant name among the
-            // new-size candidates of the same style and type.
-            char const* oldName = comp->Name[sWorld->GetDefaultDbcLocale()];
+            // Style/color variant: keep the player's pick by matching the variant name among the new-size candidates.
+            char const* oldName = comp->Name[locale];
             if (oldName)
             {
                 for (ExteriorComponentEntry const* candidate : sExteriorComponentStore)
@@ -2425,7 +2277,7 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
                     if (!candidate || candidate->Size != newSize || candidate->Type != comp->Type
                         || uint32(candidate->HouseExteriorWmoDataID) != comp->HouseExteriorWmoDataID)
                         continue;
-                    if (char const* candidateName = candidate->Name[sWorld->GetDefaultDbcLocale()];
+                    if (char const* candidateName = candidate->Name[locale];
                         candidateName && strcmp(candidateName, oldName) == 0)
                     {
                         newCompId = candidate->ID;
@@ -2470,7 +2322,6 @@ void Housing::RemapFixturesForHouseSize(uint8 newSize)
         ins->setUInt32(1, newCompId);
         ins->setUInt32(2, optionId);
         CharacterDatabase.Execute(ins);
-
     }
 }
 
@@ -2482,14 +2333,12 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
     // Root fixture selections (optionId == 0) use componentID as fixturePointId — skip hook validation
     if (optionId != 0)
     {
-        // Validate hook exists in DB2
         ExteriorComponentHookEntry const* hookEntry = sExteriorComponentHookStore.LookupEntry(fixturePointId);
         if (!hookEntry)
         {
             return HOUSING_RESULT_FIXTURE_NOT_FOUND;
         }
 
-        // Validate component exists in DB2
         ExteriorComponentEntry const* compEntry = sExteriorComponentStore.LookupEntry(optionId);
         if (!compEntry)
         {
@@ -2502,14 +2351,12 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
             return HOUSING_RESULT_FIXTURE_NOT_FOUND;
         }
 
-        // Validate component type matches hook's expected type
         if (compEntry->Type != hookEntry->ExteriorComponentTypeID)
         {
             return HOUSING_RESULT_GENERIC_FAILURE;
         }
 
-        // Enforce one door (entrance) per house: if placing a door, remove any existing door at other hooks.
-        // Also remove any existing fixture at the TARGET hook (only one fixture per hook).
+        // Enforce one door per house; also remove any existing fixture at the target hook.
         std::vector<uint32> conflictHooks;
 
         if (compEntry->Type == HOUSING_FIXTURE_TYPE_DOOR)
@@ -2536,7 +2383,6 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
             conflictHooks.push_back(fixturePointId);
         }
 
-        // Remove all conflicting fixtures (data + DB)
         for (uint32 conflictHookId : conflictHooks)
         {
             _fixtures.erase(conflictHookId);
@@ -2554,9 +2400,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
     }
     else
     {
-        // Root fixture (optionId == 0): fixturePointId is a componentID.
-        // Remove any existing root fixture of the SAME type to prevent accumulation.
-        // E.g., switching Base from Stucco(142) to Cottage(3797) must remove the old 142 entry.
+        // Root fixture (optionId == 0): remove any existing root of the same type and house type.
         ExteriorComponentEntry const* newComp = sExteriorComponentStore.LookupEntry(fixturePointId);
         if (newComp)
         {
@@ -2567,8 +2411,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
                 if (fixture.OptionId != 0 || pointId == fixturePointId)
                     continue;
                 ExteriorComponentEntry const* oldComp = sExteriorComponentStore.LookupEntry(fixture.FixturePointId);
-                // Roots of other house types are kept: a human base choice deleted the stored elf base, and switching
-                // back to elf fell back to the plain default base, its fixtures dragged onto human hooks.
+                // Roots of other house types stay stored: switching back to that type restores them.
                 if (oldComp && oldComp->Type == newType && oldComp->HouseExteriorWmoDataID == newComp->HouseExteriorWmoDataID)
                 {
                     toRemove.push_back(pointId);
@@ -2577,7 +2420,6 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
             for (uint32 oldKey : toRemove)
             {
                 _fixtures.erase(oldKey);
-                // Delete old entry from DB
                 CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE);
                 stmt->setUInt64(0, _ownerGuid.GetCounter());
                 stmt->setUInt32(1, oldKey);
@@ -2585,9 +2427,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
                 if (_fixtureWeightUsed > 0)
                     --_fixtureWeightUsed;
 
-                // Fixtures (door, windows, ...) are keyed by the hooks of the component they hang on, and every
-                // root has its own hook IDs: left on the old root's hooks they vanished with it (a new base style
-                // lost its entrance). Move each to the new root's hook of the same type and rank.
+                // Fixtures hang on the old root's hooks; move each to the new root's hook of the same type and rank.
                 MoveHookFixtures(oldKey, fixturePointId);
             }
         }
@@ -2595,7 +2435,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
 
     bool isNew = _fixtures.find(fixturePointId) == _fixtures.end();
 
-    // Enforce fixture budget for new fixtures (WeightCost = 1 per fixture by default)
+    // Enforce fixture budget for new fixtures
     uint32 const fixtureWeightCost = 1;
     if (isNew)
     {
@@ -2608,7 +2448,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
     fixture.FixturePointId = fixturePointId;
     fixture.OptionId = optionId;
 
-    // Immediate persist — use REPLACE semantics (delete old + insert new)
+    // Immediate persist
     if (!isNew)
         PersistFixtureToDB(fixturePointId, optionId);
     else
@@ -2691,9 +2531,7 @@ std::vector<Housing::Fixture const*> Housing::GetFixtures() const
 
 std::unordered_map<uint32, uint32> Housing::GetFixtureOverrideMap() const
 {
-    // Build override map from player's hook-based fixture selections.
-    // These are fixtures at hooks (doors, windows, etc.) where OptionId != 0.
-    // Root overrides (base, roof variants) are handled separately via GetRootComponentOverrides().
+    // Hook-based fixture selections; root overrides come from GetRootComponentOverrides().
     std::unordered_map<uint32, uint32> result;
 
     for (auto const& [pointId, fixture] : _fixtures)
@@ -2706,10 +2544,7 @@ std::unordered_map<uint32, uint32> Housing::GetFixtureOverrideMap() const
 
 std::unordered_map<uint8, uint32> Housing::GetRootComponentOverrides() const
 {
-    // Build override map for player-selected root components per type.
-    // Core fixtures (OptionId == 0) represent the player's choice for a structural root type.
-    // These include both base variants (ParentComponentID == 0) and color/style variants
-    // (ParentComponentID != 0) — color variants are valid selections via SetCoreFixture.
+    // Player-selected structural roots (Base/Roof, OptionId == 0), only for the current house type.
     std::unordered_map<uint8, uint32> result;
 
     for (auto const& [pointId, fixture] : _fixtures)
@@ -2719,19 +2554,12 @@ std::unordered_map<uint8, uint32> Housing::GetRootComponentOverrides() const
 
         ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(fixture.FixturePointId);
         if (!comp)
-        {
             continue;
-        }
-        // Only structural root types (Base=9, Roof=10) are valid here.
-        // Fixture types (Door=11, Window=12, etc.) stored with OptionId=0 would be invalid.
+
         if (comp->Type != HOUSING_FIXTURE_TYPE_BASE && comp->Type != HOUSING_FIXTURE_TYPE_ROOF)
-        {
             continue;
-        }
         if (_houseType != 0 && comp->HouseExteriorWmoDataID != static_cast<uint32>(_houseType))
-        {
             continue;
-        }
 
         result[comp->Type] = fixture.FixturePointId;
     }
@@ -2741,16 +2569,13 @@ std::unordered_map<uint8, uint32> Housing::GetRootComponentOverrides() const
 
 uint32 Housing::GetCoreExteriorComponentID() const
 {
-    // The core fixture is the primary component set via SetCoreFixture (OptionId == 0).
-    // It can be any root type — Base (9) for Alliance, or different types for Horde.
+    // The core fixture is the primary root selected via SetCoreFixture (OptionId == 0).
     for (auto const& [pointId, fixture] : _fixtures)
     {
         if (fixture.OptionId == 0)
         {
             ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(fixture.FixturePointId);
-            // Only return this fixture if it matches the current house type's WMO data.
-            // When the player switches house type, old fixtures from the previous type
-            // must not override the new type's default component.
+            // Only a fixture of the current house type counts; a previous type's must not override the new default.
             if (comp && comp->ParentComponentID == 0 && (_houseType == 0 || comp->HouseExteriorWmoDataID == _houseType))
                 return fixture.FixturePointId;
         }
@@ -2789,24 +2614,20 @@ HousingResult Housing::AddToCatalog(uint32 decorEntryId, uint8 sourceType, std::
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
-    // A decor entry the player has never owned before is a NEW unique collection entry
-    // (CriteriaType::CollectUniqueDecor 272). The catalog is quantity-based, so "first time" is exactly
-    // "no row existed before this add"; a second copy of the same entry must NOT count again.
+    // "First time" is exactly "no row existed before this add" (CriteriaType::CollectUniqueDecor 272).
     bool const firstTimeAcquired = !_catalog.contains(decorEntryId);
 
     CatalogEntry& entry = _catalog[decorEntryId];
     entry.DecorEntryId = decorEntryId;
     entry.Count++;
-    // Store the most recent source info for this entry type.
-    // All instances of the same decorEntryId share the same source since catalog is quantity-based.
+    // Store the most recent source info (all instances of an entry share it).
     if (sourceType != DECOR_SOURCE_STANDARD || !sourceValue.empty())
     {
         entry.SourceType = sourceType;
         entry.SourceValue = std::move(sourceValue);
     }
 
-    // Persist to DB immediately (crash safety).
-    // Uses REPLACE INTO to handle both first-add and count-increment cases.
+    // Persist to DB immediately (crash safety); REPLACE INTO handles both first-add and count-increment.
     CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_CHARACTER_HOUSING_CATALOG);
     stmt->setUInt64(0, _ownerGuid.GetCounter());
     stmt->setUInt32(1, decorEntryId);
@@ -2819,15 +2640,8 @@ HousingResult Housing::AddToCatalog(uint32 decorEntryId, uint8 sourceType, std::
     if (firstTimeAcquired)
         _owner->UpdateCriteria(CriteriaType::CollectUniqueDecor, decorEntryId);
 
-    // Storage truth travels ONLY through the FHousingStorage_C fragment on the BNetAccount entity
-    // (PopulateOwnStorageEntries, pulled by REQUEST_STORAGE / edit mode). SMSG_HOUSING_DECOR_ADD_TO_
-    // HOUSE_CHEST_RESPONSE (0x510008) must NOT be sent here: the client credits it as a redeemable
-    // copy ON TOP of the fragment entries, double-counting every acquisition (decor 15454 showed x2
-    // in the chest while the DB held one row; placing the phantom copy failed with
-    // ERR_HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE). Full retail 12.1.0.69933 captures (house
-    // purchase, edit mode, place/remove, redeem deferred decor — 2026-09-26 / 2026-10-01 dumps)
-    // contain zero 0x510008 packets; the 12.0.7 (68275/68453) adjacency evidence predates that
-    // contract and no longer applies.
+    // Storage truth travels ONLY through the FHousingStorage_C fragment; a DECOR_ADD_TO_HOUSE_CHEST
+    // response here would double-count every acquisition.
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -2872,18 +2686,15 @@ ObjectGuid Housing::MintStorageDecorInstance(uint32 decorEntryId, HousingResult&
         return ObjectGuid::Empty;
     }
 
-    // Same synthetic band PopulateOwnStorageEntries emits: ownerCounter*100000 +
-    // entryId*100 + i. Returning a GUID from a different generator (the old
-    // GenerateDecorGuid path) planted an entry the populator never re-emits, so the
-    // client's Decor map accumulated it forever next to the synthetic copies.
-    uint64 const catalogGuidBase = _ownerGuid.GetCounter() * 100000;
+    // Must reuse the synthetic band PopulateOwnStorageEntries emits, or the client's Decor map accumulates it forever.
+    uint64 const catalogGuidBase = _ownerGuid.GetCounter() * STORAGE_GUID_OWNER_SCALE;
     for (uint32 i = 0; i < itr->second.Count; ++i)
     {
         ObjectGuid candidate = ObjectGuid::Create<HighGuid::Housing>(
             /*subType*/ 1,
             /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
             /*arg2*/ decorEntryId,
-            catalogGuidBase + uint64(decorEntryId) * 100 + i);
+            catalogGuidBase + uint64(decorEntryId) * STORAGE_GUID_ENTRY_SCALE + i);
         if (!_placedDecor.contains(candidate))
             return candidate;
     }
@@ -2904,7 +2715,7 @@ HousingResult Housing::DestroyAllCopies(uint32 decorEntryId)
 
     _catalog.erase(itr);
 
-    // Also remove all placed decor of this entry and their storage entries
+    // Also remove all placed decor of this entry
     std::vector<ObjectGuid> removedGuids;
     for (auto it = _placedDecor.begin(); it != _placedDecor.end(); )
     {
@@ -2984,9 +2795,7 @@ void Housing::AddFavor(uint64 amount, HousingFavorUpdateSource source /*= HOUSIN
 
 void Housing::GrantLevelAwards(uint32 fromLevel, uint32 toLevel)
 {
-    // HouseLevelData.QuestID is a hidden "[DNT] House Level N Room/Decor Award" quest whose RewardSpell grants
-    // the room (effect 349) or decor (effect 324). Retail casts that spell right after the level spell, with no
-    // quest packets (sniff 11-13-10, level 3 -> 4: 1252051 then 1270198).
+    // HouseLevelData.QuestID is a hidden award quest whose RewardSpell grants the room/decor for the level.
     for (uint32 level = std::max<uint32>(fromLevel, 2); level <= toLevel; ++level)
     {
         uint32 const questId = sHousingMgr.GetQuestForLevel(level);
@@ -3000,7 +2809,6 @@ void Housing::GrantLevelAwards(uint32 fromLevel, uint32 toLevel)
         if (quest->GetRewSpell())
             _owner->CastSpell(_owner, quest->GetRewSpell(), true);
         _owner->SetRewardedQuest(questId);
-
     }
 }
 
@@ -3009,8 +2817,7 @@ void Housing::SendLevelFavorUpdate(int32 level, int32 favor) const
     if (!_owner || !_owner->GetSession())
         return;
 
-    // Retail 12.1.0.69933: header Result 0 / 0xFFFFFFFF / 0xFFFFFFFF; per house HouseLevel and FavorValue,
-    // -1 meaning unchanged (level-up: 4 / -1, plot purchase: -1 / 840).
+    // Header Result 0 / 0xFFFFFFFF / 0xFFFFFFFF; per house HouseLevel and FavorValue, -1 = unchanged.
     WorldPackets::Housing::HousingSvcsUpdateHousesLevelFavor update;
     update.Result = 0;
     update.ChangeAmount = 0xFFFFFFFF;
@@ -3068,9 +2875,7 @@ HousingResult Housing::CheckInteriorDecorBounds(ObjectGuid roomGuid, float x, fl
     if (!interior)
         return HOUSING_RESULT_SUCCESS;
 
-    // Room placement as in HouseInteriorMap::SpawnRoomMeshObjects: origin + grid offset, 12 yards per floor,
-    // quarter-turn orientation. Any room counts, so an item may be moved into a neighbouring room; the
-    // tolerance covers wall decor whose origin sits on the wall plane.
+    // Room placement as in HouseInteriorMap::SpawnRoomMeshObjects; the tolerance covers wall decor on the wall plane.
     constexpr float FLOOR_HEIGHT = 12.0f;
     constexpr float TOLERANCE = 0.5f;
     constexpr float QUARTER_TURN = 1.57079632679f;
@@ -3103,9 +2908,7 @@ bool Housing::IsExteriorDecorPlacement(ObjectGuid roomGuid)
     if (roomGuid.IsEmpty())
         return true;
 
-    // The plot's base (exterior) room identity: HighGuid::Housing, subType==2,
-    // low 32 bits of the high word == the base room entry id. Retail always
-    // sends this RoomGuid for exterior decor even though it is "on a room".
+    // The plot's base room identity: retail always sends this RoomGuid for exterior decor.
     return roomGuid.GetHigh() == HighGuid::Housing
         && uint32((roomGuid.GetRawValue(1) >> 53) & 0x1F) == 2
         && uint32(roomGuid.GetRawValue(1) & 0xFFFFFFFFULL) == sHousingMgr.GetBaseRoomEntryId();
@@ -3114,10 +2917,7 @@ bool Housing::IsExteriorDecorPlacement(ObjectGuid roomGuid)
 HousingResult Housing::CheckLightOverlap(uint32 decorEntryId, float x, float y, float z,
     bool isExterior, ObjectGuid excludeGuid /*= ObjectGuid::Empty*/) const
 {
-    // A4 / 12.0.7 "two lights cannot overlap". The rule is scoped to the exterior
-    // (outdoor-lighting) placement scope and only Lighting-category decor (cat 4)
-    // participates — non-lights and interior placements pass through untouched so
-    // ordinary decorating is never affected.
+    // Only exterior Lighting-category decor participates; non-lights and interior placements pass through.
     if (!isExterior || !sHousingMgr.IsLightingDecor(decorEntryId))
         return HOUSING_RESULT_SUCCESS;
 
@@ -3164,7 +2964,6 @@ void Housing::RecalculateBudgets()
         uint32 weightCost = GetRoomWeightCost(room.RoomEntryId, room.GridX, room.GridY, room.FloorIndex, guid);
         _roomWeightUsed += weightCost;
     }
-
 }
 
 void Housing::SyncUpdateFields()
@@ -3184,15 +2983,13 @@ void Housing::SyncUpdateFields()
     houseEntity.SetPlotIndex(static_cast<int32>(_plotIndex));
     houseEntity.SetLevel(_level);
     houseEntity.SetFavor(_favor64);
-    // Send MAX budgets — the client computes remaining locally by summing placed decor weight
-    // from FHousingStorage_C entries. Sending (max - used) would cause double-subtraction.
+    // Send MAX budgets - the client computes remaining locally by summing placed decor weight.
     houseEntity.SetBudgets(
         GetMaxInteriorDecorBudget(),
         GetMaxExteriorDecorBudget(),
         GetMaxRoomBudget(),
         GetMaxFixtureBudget()
     );
-
 }
 
 void Housing::PopulateCatalogStorageEntries()
@@ -3224,28 +3021,22 @@ void Housing::PopulateOwnStorageEntries()
         account.SetHousingDecorDyeSlots(decorGuid, decor.DyeSlots);
     }
 
-    // 2. Catalog (unplaced/available) entries → HouseGUID=Empty, entry's SourceType
-    // Sniff-verified: items in storage have HouseGUID=Empty, placed items have non-empty HouseGUID.
-    // Catalog Count IS the free stock: PlaceDecor/PlaceDecorWithGuid already decrement it and
-    // RemoveDecor re-increments, so subtracting placed instances here double-subtracted and
-    // hid starter decor that PlaceStarterDecor had placed (389/726/9144 sat in the DB and the
-    // chest but had zero emittable instances and could not be selected). Emit exactly Count
-    // entries, skipping synthetic GUIDs currently occupied by placed instances of this entry
-    // (a client-side PLACE consumes the synthetic it picked, so the occupied ones must not
-    // be re-emitted as free).
-    uint64 catalogGuidBase = _ownerGuid.GetCounter() * 100000;
-    uint32 totalStorageItems = 0;
+    // 2. Catalog (unplaced) entries → HouseGUID=Empty. Catalog Count IS the free stock; emit exactly Count
+    // entries, skipping synthetic GUIDs currently occupied by placed instances of this entry.
+    std::unordered_map<uint32, uint32> placedCountByEntry;
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        ++placedCountByEntry[decor.DecorEntryId];
+
+    uint64 catalogGuidBase = _ownerGuid.GetCounter() * STORAGE_GUID_OWNER_SCALE;
     for (auto const& [entryId, entry] : _catalog)
     {
-        uint32 placedOfType = 0;
-        for (auto const& [decorGuid, decor] : _placedDecor)
-            if (decor.DecorEntryId == entryId)
-                ++placedOfType;
+        auto const placedItr = placedCountByEntry.find(entryId);
+        uint32 const placedOfType = placedItr != placedCountByEntry.end() ? placedItr->second : 0;
 
         uint32 emitted = 0;
         for (uint32 i = 0; emitted < entry.Count && i < entry.Count + placedOfType; ++i)
         {
-            uint64 uniqueId = catalogGuidBase + uint64(entryId) * 100 + i;
+            uint64 uniqueId = catalogGuidBase + uint64(entryId) * STORAGE_GUID_ENTRY_SCALE + i;
             ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
                 /*subType*/ 1,
                 /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
@@ -3256,11 +3047,9 @@ void Housing::PopulateOwnStorageEntries()
             account.SetHousingDecorStorageEntry(catalogDecorGuid, ObjectGuid::Empty, entry.SourceType, entry.SourceValue);
             ++emitted;
         }
-        totalStorageItems += emitted;
     }
 
     _storagePopulated = true;
-
 }
 
 void Housing::SaveSettings(uint32 settingsFlags)
@@ -3273,13 +3062,11 @@ void Housing::SaveSettings(uint32 settingsFlags)
     stmt->setUInt64(1, _ownerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
-    // Mirror onto the in-memory neighborhood plot so visitor permission checks
-    // (CanVisitorAccessPlot) work correctly when the owner is offline.
+    // Mirror onto the in-memory neighborhood plot so visitor checks work while the owner is offline.
     if (Neighborhood* nbh = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
         nbh->UpdatePlotSettingsFlags(_ownerGuid, _settingsFlags);
 
     SyncUpdateFields();
-
 }
 
 void Housing::SetHouseNameDescription(std::string const& name, std::string const& desc)
@@ -3294,7 +3081,6 @@ void Housing::SetHouseNameDescription(std::string const& name, std::string const
     CharacterDatabase.Execute(stmt);
 
     SyncUpdateFields();
-
 }
 
 void Housing::SetExteriorLocked(bool locked)
@@ -3308,7 +3094,6 @@ void Housing::SetExteriorLocked(bool locked)
     CharacterDatabase.Execute(stmt);
 
     SyncUpdateFields();
-
 }
 
 HousingResult Housing::ChangeOwner(ObjectGuid newOwnerGuid)
@@ -3360,13 +3145,11 @@ void Housing::SetHouseSize(uint8 size)
     stmt->setUInt64(1, _ownerGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
-    // Stored root fixtures (Base/Roof/core) reference old-size components; re-resolve them to the same
-    // style at the new size so the exterior rebuild applies the player's chosen styles at the new size.
+    // Stored root fixtures reference old-size components; re-resolve them to the same style at the new size.
     if (changed)
         RemapFixturesForHouseSize(size);
 
     SyncUpdateFields();
-
 }
 
 int32 Housing::GetNeighborhoodFaction() const
@@ -3393,9 +3176,7 @@ void Housing::SetHouseType(uint32 typeId)
     if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
         neighborhood->UpdatePlotHouseType(_ownerGuid, typeId);
 
-    // The previous type's roots and hook fixtures belong to other components; without starter fixtures for
-    // the new type the rebuilt house had no roof selection and no entrance. Roots this type kept from an earlier
-    // visit may be at another size than the house now has.
+    // Without starter fixtures for the new type the rebuilt house had no roof selection and no entrance.
     if (changed)
     {
         if (_houseSize >= HOUSING_FIXTURE_SIZE_SMALL)
@@ -3404,7 +3185,6 @@ void Housing::SetHouseType(uint32 typeId)
     }
 
     SyncUpdateFields();
-
 }
 
 void Housing::SetHousePosition(float x, float y, float z, float facing)
@@ -3427,7 +3207,6 @@ void Housing::SetHousePosition(float x, float y, float z, float facing)
     // Keep the neighborhood's mirror in step: it builds this house at map load when the owner is offline.
     if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(_neighborhoodGuid))
         neighborhood->UpdatePlotHousePosition(_ownerGuid, Position(x, y, z, facing));
-
 }
 
 void Housing::ResetHousePosition()
@@ -3554,8 +3333,7 @@ bool Housing::HasCurrentTypeDoor() const
         if (!comp || comp->Type != HOUSING_FIXTURE_TYPE_DOOR || !IsCurrentTypeComponent(comp))
             continue;
 
-        // The door only exists if its hook is on the current house: a stored root of this type, or a child
-        // component of this type.
+        // The door only exists if its hook is on the current house.
         ExteriorComponentHookEntry const* hook = sExteriorComponentHookStore.LookupEntry(pointId);
         ExteriorComponentEntry const* owner = hook ? sExteriorComponentStore.LookupEntry(hook->ExteriorComponentID) : nullptr;
         if (!owner || !IsCurrentTypeComponent(owner))
@@ -3581,13 +3359,9 @@ bool Housing::HasCurrentTypeDoor() const
 
 void Housing::PopulateStarterFixtures()
 {
-    // Starter house = Base(9) + Roof(10) as root components.
-    // Door(11) auto-resolves from hook system via GetDefaultFixtureForType.
-    // Root components are stored as { FixturePointId = componentID, OptionId = 0 }.
-    // Only add types that don't already have a valid root in _fixtures.
+    // Starter house = Base + Roof roots ({ FixturePointId = componentID, OptionId = 0 }); only missing types are added.
     static constexpr uint8 starterTypes[] = { HOUSING_FIXTURE_TYPE_BASE, HOUSING_FIXTURE_TYPE_ROOF };
 
-    // Determine which root types already exist
     std::unordered_set<uint8> existingRootTypes;
     for (auto const& [pointId, fix] : _fixtures)
     {
@@ -3605,10 +3379,8 @@ void Housing::PopulateStarterFixtures()
 
     for (uint8 fixtureType : starterTypes)
     {
-        if (existingRootTypes.count(fixtureType))
-        {
+        if (existingRootTypes.contains(fixtureType))
             continue;
-        }
 
         uint32 compID = sHousingMgr.GetDefaultFixtureForType(fixtureType, _houseType, _houseSize);
         if (!compID)
@@ -3618,28 +3390,21 @@ void Housing::PopulateStarterFixtures()
             continue;
         }
 
-        // Insert into in-memory map
         Fixture& fixture = _fixtures[compID];
         fixture.FixturePointId = compID;
         fixture.OptionId = 0;
 
-        // Persist to DB
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_CHARACTER_HOUSING_FIXTURES);
         uint8 index = 0;
         stmt->setUInt64(index++, ownerGuid);
         stmt->setUInt32(index++, compID);
         stmt->setUInt32(index++, 0); // OptionId = 0 (default)
         CharacterDatabase.Execute(stmt);
-
     }
 
-    // --- Starter door ---
-    // Every new house starts with a door at the first door hook on the base component.
-    // Only this house type's fixtures count: fixtures of a previous type stay stored (switching back restores
-    // them) but must neither suppress the new type's door nor supply its base.
+    // Every new house starts with a door at the first door hook on the base component; only this type's fixtures count.
     if (!HasCurrentTypeDoor())
     {
-        // Find the base component to get its door hooks
         uint32 baseCompID = 0;
         for (auto const& [pointId, fix] : _fixtures)
         {
@@ -3658,7 +3423,6 @@ void Housing::PopulateStarterFixtures()
             auto const* hooks = sHousingMgr.GetHooksOnComponent(baseCompID);
             if (hooks)
             {
-                // Find the first door hook (ExteriorComponentTypeID == 11)
                 uint32 doorHookID = 0;
                 for (ExteriorComponentHookEntry const* hook : *hooks)
                 {
@@ -3684,7 +3448,6 @@ void Housing::PopulateStarterFixtures()
                         stmt->setUInt32(index++, doorHookID);
                         stmt->setUInt32(index++, doorCompID);
                         CharacterDatabase.Execute(stmt);
-
                     }
                     else
                     {

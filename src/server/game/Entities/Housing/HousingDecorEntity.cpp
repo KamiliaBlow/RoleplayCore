@@ -18,7 +18,6 @@
 #include "HousingDecorEntity.h"
 #include "Log.h"
 #include "Map.h"
-#include "PhasingHandler.h"
 #include "Player.h"
 #include "StringFormat.h"
 #include "UpdateData.h"
@@ -26,12 +25,11 @@
 HousingDecorEntity::HousingDecorEntity()
     : WorldObject(false)
 {
-    m_objectTypeId = TYPEID_HOUSING_ENTITY; // 18 — same as HousingRoomEntity
+    m_objectTypeId = TYPEID_HOUSING_ENTITY;
 
     m_updateFlag.HasEntityPosition = true;
 
-    // Retail decor entities do NOT have CGObject — sniff-verified fragment list is
-    // [FHousingDecor_C, FMirroredPositionData_C] only. Remove CGObject added by Object ctor.
+    // remove the CGObject fragment added by the Object constructor
     m_entityFragments.Remove(WowCS::EntityFragment::CGObject);
 
     m_entityFragments.Add(WowCS::EntityFragment::FHousingDecor_C, false, WowCS::GetRawFragmentData(m_housingDecorData));
@@ -71,14 +69,12 @@ void HousingDecorEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Playe
     if (!target)
         return;
 
-    uint8 updateType = UPDATETYPE_CREATE_OBJECT;
-    uint8 objectType = m_objectTypeId;
     CreateObjectBits flags = m_updateFlag;
 
     ByteBuffer& buf = data->GetBuffer();
-    buf << uint8(updateType);
+    buf << uint8(UPDATETYPE_CREATE_OBJECT);
     buf << GetGUID();
-    buf << uint8(objectType);
+    buf << uint8(m_objectTypeId);
 
     BuildMovementUpdate(buf, flags, target);
 
@@ -94,7 +90,7 @@ void HousingDecorEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Playe
         if (WowCS::IsIndirectFragment(fragmentId))
             buf << uint8(1);
 
-        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(m_entityFragments.Updateable.Ids[i])](
+        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(fragmentId)](
             m_entityFragments.Updateable.Data[i], fieldFlags, buf, target, this);
     }
 
@@ -110,7 +106,7 @@ void HousingDecorEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Playe
 
 void HousingDecorEntity::BuildValuesCreate(UF::UpdateFieldFlag /*flags*/, ByteBuffer& /*data*/, Player const* /*target*/) const
 {
-    // Not used — BuildCreateUpdateBlockForPlayer handles everything via entity fragments.
+    // values are serialized via entity fragments
 }
 
 void HousingDecorEntity::BuildValuesUpdate(UF::UpdateFieldFlag /*flags*/, ByteBuffer& /*data*/, Player const* /*target*/) const

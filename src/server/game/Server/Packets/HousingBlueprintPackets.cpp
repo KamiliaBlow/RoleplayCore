@@ -135,7 +135,6 @@ WorldPacket const* HousingBlueprintImportResponse::Write()
 
 static void WriteContentLists(WorldPacket& data, JamBlueprintContentLists const& lists)
 {
-    // All four counts come first, then the four arrays.
     data << uint32(lists.Decor.size());
     data << uint32(lists.Dyes.size());
     data << uint32(lists.Rooms.size());
@@ -185,8 +184,7 @@ WorldPacket const* HousingBlueprintContents::Write()
 
 WorldPacket const* HousingHouseBudgetsUpdate::Write()
 {
-    // JamHouseBudgets: interiorBudgets@0, exteriorBudgets@24 (spec §2). HouseGuid is a
-    // convenience prefix so the client can associate the update; framing is [INF].
+    // HouseGuid is a convenience prefix so the client can associate the update with a house.
     _worldPacket << HouseGuid;
     _worldPacket << uint32(InteriorBudgets.size());
     for (JamHouseBudgetEntry const& e : InteriorBudgets)

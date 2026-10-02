@@ -59,14 +59,13 @@
 #include "GameTime.h"
 #include "GarrisonMgr.h"
 #include "GitRevision.h"
-#include "HousingBlueprintMgr.h"
-#include "HousingMgr.h"
-#include "InitiativeManager.h"
-#include "NeighborhoodMgr.h"
 #include "GridNotifiersImpl.h"
 #include "GroupMgr.h"
 #include "GuildMgr.h"
 #include "GuildRenameMgr.h"
+#include "HousingBlueprintMgr.h"
+#include "HousingMgr.h"
+#include "InitiativeManager.h"
 #include "IPLocation.h"
 #include "InstanceLockMgr.h"
 #include "ItemBonusMgr.h"
@@ -83,6 +82,7 @@
 #include "MapUtils.h"
 #include "Metric.h"
 #include "MiscPackets.h"
+#include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvPMgr.h"
@@ -2039,16 +2039,7 @@ bool World::SetInitialWorldSettings()
     sScriptMgr->Initialize();
     sScriptMgr->OnConfigLoad(false);                                // must be done after the ScriptMgr has been properly initialized
 
-    ///- MUST run after sScriptMgr->Initialize(). The preload spawns every occupied plot's
-    /// house: the front-door GameObject and the plot AreaTrigger (entry 37358) are created
-    /// here, and both pick their AI once, at construction, via AIM_Initialize(). Run before
-    /// the scripts are registered and the registry lookup misses, so both silently get the
-    /// default AI and are never revisited - go_housing_door::OnGossipHello (the whole "enter
-    /// the house" path) and at_housing_plot::OnUnitEnter (which calls SetCurrentHouse, the
-    /// value the client's C_Housing.IsInsidePlot reads) never run. Symptoms were a door that
-    /// showed the gear cursor but did nothing, and "out of plot bounds" on decor placement.
-    /// Only bites when a house already exists at startup; houses bought mid-session spawn
-    /// on demand, after this point, and worked - which is what made it look intermittent.
+    ///- Must run after sScriptMgr->Initialize(): preloaded plot GOs/ATs resolve their AI once at construction.
     TC_LOG_INFO("server.loading", "Pre-loading housing neighborhood maps...");
     sMapMgr->PreloadHousingMaps();
 

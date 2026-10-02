@@ -16,9 +16,7 @@
 */
 
 #include "HousingRoomEntity.h"
-#include "Log.h"
 #include "Map.h"
-#include "PhasingHandler.h"
 #include "Player.h"
 #include "StringFormat.h"
 #include "UpdateData.h"
@@ -26,22 +24,17 @@
 HousingRoomEntity::HousingRoomEntity(bool exteriorRoot /*= false*/)
     : WorldObject(false)
 {
-    m_objectTypeId = TYPEID_HOUSING_ENTITY; // 18 — retail objectType for housing entities
+    m_objectTypeId = TYPEID_HOUSING_ENTITY;
 
     m_updateFlag.HasEntityPosition = true;
     m_updateFlag.Stationary = !exteriorRoot;
 
-    // Object constructor adds CGObject (fragment 2) automatically. Retail room entities
-    // do NOT have CGObject — sniff-verified fragment list is [21, 31, 220] only.
-    // Remove it before adding our housing fragments.
+    // remove the CGObject fragment added by the Object constructor
     m_entityFragments.Remove(WowCS::EntityFragment::CGObject);
 
     if (exteriorRoot)
     {
-        // House-exterior root (retail 12.1.0.69933): an Entity with [FMirroredPositionData_C,
-        // Tag_HouseExteriorPiece, Tag_HouseExteriorRoot], no stationary position, attached to the plot room at the
-        // house offset. The base and roof meshes hang off it at local 0, and a house move only updates its
-        // PositionLocalSpace. It is a grid object so visibility delivers it together with the meshes.
+        // base and roof meshes hang off this root at local 0
         m_entityFragments.Add(WowCS::EntityFragment::FMirroredPositionData_C, false, WowCS::GetRawFragmentData(m_mirroredPositionData));
         m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorPiece, false);
         m_entityFragments.Add(WowCS::EntityFragment::Tag_HouseExteriorRoot, false);
@@ -63,12 +56,7 @@ bool HousingRoomEntity::Create(ObjectGuid guid, Map* map, Position const& pos)
     if (!GetMap()->AddToMap(this))
         return false;
 
-    // The Housing/2 identity carries the per-plot Geobox via its attached
-    // component MeshObject. The client's OutsidePlotBounds and IsInsidePlot
-    // checks both walk the room registry — if the identity is not in the
-    // client's entity table, every decor placement attempt fails. Mark it
-    // active + far-visible so it streams to every player on the map even
-    // after we drop HousingMap::m_VisibleDistance below MAX.
+    // client plot-bounds checks walk the room registry; keep this streamed to every player
     setActive(true);
     SetFarVisible(true);
 
@@ -98,18 +86,12 @@ void HousingRoomEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player
     if (!target)
         return;
 
-    // HousingRoomEntity uses entity fragments (like BaseEntity) but is a WorldObject
-    // for grid/visibility. Object::BuildCreateUpdateBlockForPlayer uses BuildValuesCreate
-    // which expects CGObject fields. We override to use the entity fragment path instead.
-
-    uint8 updateType = UPDATETYPE_CREATE_OBJECT;
-    uint8 objectType = m_objectTypeId;
     CreateObjectBits flags = m_updateFlag;
 
     ByteBuffer& buf = data->GetBuffer();
-    buf << uint8(updateType);
+    buf << uint8(UPDATETYPE_CREATE_OBJECT);
     buf << GetGUID();
-    buf << uint8(objectType);
+    buf << uint8(m_objectTypeId);
 
     BuildMovementUpdate(buf, flags, target);
 
@@ -125,7 +107,7 @@ void HousingRoomEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player
         if (WowCS::IsIndirectFragment(fragmentId))
             buf << uint8(1);
 
-        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(m_entityFragments.Updateable.Ids[i])](
+        WowCS::EntityFragmentInfo->SerializeCreate[static_cast<std::size_t>(fragmentId)](
             m_entityFragments.Updateable.Data[i], fieldFlags, buf, target, this);
     }
 
@@ -135,12 +117,12 @@ void HousingRoomEntity::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player
 
 void HousingRoomEntity::BuildValuesCreate(UF::UpdateFieldFlag /*flags*/, ByteBuffer& /*data*/, Player const* /*target*/) const
 {
-    // Not used — BuildCreateUpdateBlockForPlayer handles everything via entity fragments.
+    // values are serialized via entity fragments
 }
 
-void HousingRoomEntity::BuildValuesUpdate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const
+void HousingRoomEntity::BuildValuesUpdate(UF::UpdateFieldFlag /*flags*/, ByteBuffer& /*data*/, Player const* /*target*/) const
 {
-    // VALUES updates use the standard fragment change mask system
+    // handled by the entity fragment change mask system
 }
 
 std::string HousingRoomEntity::GetNameForLocaleIdx(LocaleConstant /*locale*/) const
@@ -195,9 +177,7 @@ void HousingRoomEntity::SetFlags(int32 flags)
 
 void HousingRoomEntity::SetFloorIndex(int32 floorIndex)
 {
-    // Server-side only since 12.0.7 - the client no longer carries FloorIndex in
-    // the FHousingRoom_C fragment (see UF::HousingRoomData). Kept for the interior
-    // map's floor bookkeeping.
+    // server-side only; not a client wire field anymore
     _floorIndex = floorIndex;
 }
 
@@ -209,9 +189,7 @@ void HousingRoomEntity::AddMeshObject(ObjectGuid meshObjectGuid)
 
 void HousingRoomEntity::ReplaceMeshObjects(std::vector<ObjectGuid> const& newGuids)
 {
-    // Clear existing MeshObjects dynamic array and repopulate with new GUIDs.
-    // Called after theme respawn to update the room entity's mesh list so the
-    // client doesn't reference stale/destroyed mesh GUIDs (causes null deref crash).
+    // refresh the mesh list after theme respawn (stale GUIDs crash the client)
     ClearDynamicUpdateFieldValues(m_values.ModifyValue(&HousingRoomEntity::m_housingRoomData)
         .ModifyValue(&UF::HousingRoomData::MeshObjects));
 
@@ -234,8 +212,6 @@ void HousingRoomEntity::AddDoor(int32 roomComponentID, Position const& offset, u
 
 bool HousingRoomEntity::UpdateDoorConnection(int32 roomComponentID, ObjectGuid attachedRoomGuid)
 {
-    // Find the door with the matching component ID and update its AttachedRoomGUID.
-    // Read from the const view, then modify the matching entry.
     UF::HousingRoomData const& roomData = *m_housingRoomData;
     for (uint32 i = 0; i < roomData.Doors.size(); ++i)
     {

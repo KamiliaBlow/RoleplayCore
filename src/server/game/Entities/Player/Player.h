@@ -82,7 +82,6 @@ class CinematicMgr;
 class Creature;
 class DynamicObject;
 class Garrison;
-class Housing;
 class Group;
 class Guild;
 class Housing;
@@ -1123,7 +1122,6 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS,
     PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES,
     PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG,
-
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -3138,8 +3136,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void CreateGarrison(uint32 garrSiteId);
         void DeleteGarrison();
         Garrison* GetGarrison() const { return _garrison.get(); }
-        // House-visit teleport target: set by the door GO script, read+cleared by MapManager so a visitor is
-        // routed to the OWNER's HouseInteriorMap instance. Empty = enter own interior (per feature/housing-system).
+        // House-visit teleport target: set by the door GO script, consumed by MapManager. Empty = own interior.
         void SetHouseVisitTarget(ObjectGuid ownerGuid) { _houseVisitTargetOwner = ownerGuid; }
         ObjectGuid GetHouseVisitTarget() const { return _houseVisitTargetOwner; }
         void ClearHouseVisitTarget() { _houseVisitTargetOwner = ObjectGuid::Empty; }
@@ -3148,7 +3145,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void DeleteHousing(ObjectGuid neighborhoodGuid);
         Housing* GetHousing() const;
         Housing* GetHousingForNeighborhood(ObjectGuid neighborhoodGuid) const;
-        // Houses belong to the account (retail 12.1.0.69933): _housings also holds the other characters' houses.
+        // Houses belong to the account: _housings also holds the other characters' houses.
         Housing* GetHousingByOwner(ObjectGuid ownerGuid) const;
         Housing* GetHousingByHouseGuid(ObjectGuid houseGuid) const;
         std::vector<Housing const*> GetAllHousings() const;
@@ -3157,18 +3154,13 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void UpdateInitiativeFavor(uint32 favor);
         void UpdateHousingLevelFavor(ObjectGuid houseGuid, uint32 level, uint32 favor);
 
-        // 12.0.5 plot-entry mechanism: writes PlayerHouseInfoComponentData.CurrentHouse to
-        // the given house GUID (or ObjectGuid::Empty on plot-leave). Client tracks plot
-        // occupancy by observing this field's UPDATE_OBJECT changes ? it replaces the
-        // removed SMSG_NEIGHBORHOOD_PLAYER_ENTER_PLOT / LEAVE_PLOT opcodes and the
-        // per-AT FHousingPlotAreaTrigger_C fragment that were deleted in 12.0.5.
+        // Writes PlayerHouseInfoComponentData.CurrentHouse (empty on plot-leave); the client tracks plot occupancy from it.
         void SetCurrentHouse(ObjectGuid houseGuid);
 
         // The housing tutorial runs while Housing.TutorialsEnabled is set and the character has
         // not rewarded the whole HOUSING_TUTORIAL_QUEST_CHAIN.
         bool HousingTutorialChainComplete() const;
-        // Updates closedInfoFramesAccountWide and housingTutorialsEnabled in GLOBAL_CONFIG_CACHE
-        // and re-sends the account data timestamps.
+        // Updates housingTutorialsEnabled in GLOBAL_CONFIG_CACHE and re-sends the account data timestamps.
         void UpdateHousingTutorialCVars();
 
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
@@ -3753,10 +3745,6 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         };
         Optional<PendingArchaeologyFind> _pendingArchaeologyFind;
         std::unordered_map<uint32 /*researchSiteId*/, std::pair<float, float>> _researchSiteFindLocations;
-        // Owner of the house this player is currently teleporting to visit.
-        // Empty for "enter my own interior". Set by the door GO script and
-        // consumed by MapManager when it creates/finds the HouseInteriorMap
-        // instance. Not persisted.
         ObjectGuid _houseVisitTargetOwner;
 
         uint32 _activeCheats;

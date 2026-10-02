@@ -73,14 +73,7 @@ void WorldSession::HandleQueryPlayerNames(WorldPackets::Query::QueryPlayerNames&
 {
     WorldPackets::Query::QueryPlayerNamesResponse response;
     for (ObjectGuid guid : queryPlayerNames.Players)
-    {
-        // Log Housing GUID queries for debugging neighborhood name display
-        if (guid.GetHigh() == HighGuid::Housing)
-            TC_LOG_ERROR("housing", "CMSG_QUERY_PLAYER_NAMES: Client queried Housing GUID {} — resolving via HouseData",
-                guid.ToString());
-
         BuildNameQueryData(guid, response.Players.emplace_back());
-    }
 
     SendPacket(response.Write());
 }

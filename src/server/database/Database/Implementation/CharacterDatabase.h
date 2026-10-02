@@ -814,20 +814,20 @@ enum CharacterDatabaseStatements : uint32
     CHAR_DEL_NEIGHBORHOOD_INITIATIVE,
     CHAR_DEL_NEIGHBORHOOD_INITIATIVES,
 
-    // Neighborhood Initiative Task Progress (per-task persistence)
+    // Neighborhood Initiative Task Progress
     CHAR_SEL_INITIATIVE_TASK_PROGRESS,
     CHAR_REP_INITIATIVE_TASK_PROGRESS,
 
-    // Neighborhood Initiative Milestones (reached/claimed tracking)
+    // Neighborhood Initiative Milestones
     CHAR_SEL_INITIATIVE_MILESTONES,
     CHAR_REP_INITIATIVE_MILESTONE,
 
-    // Neighborhood Initiative Reward Claims (per-player, per-milestone)
+    // Neighborhood Initiative Reward Claims
     CHAR_SEL_INITIATIVE_REWARD_CLAIMS,
     CHAR_SEL_INITIATIVE_REWARD_CLAIM_PLAYER,
     CHAR_INS_INITIATIVE_REWARD_CLAIM,
 
-    // Neighborhood Initiative Contributions (per-player tracking)
+    // Neighborhood Initiative Contributions
     CHAR_INS_INITIATIVE_CONTRIBUTION,
     CHAR_SEL_INITIATIVE_CONTRIBUTIONS,
     CHAR_SEL_PLAYER_INITIATIVE_FAVOR,

@@ -22,15 +22,11 @@
 #include "GridObject.h"
 #include "MapObject.h"
 
-// Room entity matching retail Housing/2 GUID (subType=2, arg2=HouseRoomID).
-// objectType=18. Fragments: FHousingRoom_C + FMirroredPositionData_C + Tag_HousingRoom.
-// Inherits from WorldObject so it can be AddToMap'd and sent via the visibility
-// system in the SAME UPDATE_OBJECT as room MeshObjects — matching retail behavior.
-// Has Stationary position in the movement block (sniff-verified: COB 0x81 0x00 0x00).
+// Housing/2 room entity; streams through the grid visibility system with its MeshObjects.
 class TC_GAME_API HousingRoomEntity final : public WorldObject, public GridObject<HousingRoomEntity>, public MapObject
 {
 public:
-    // exteriorRoot: the house-exterior root Entity instead of a room (see the constructor).
+    // exteriorRoot: create the house-exterior root entity instead of a room (see constructor)
     explicit HousingRoomEntity(bool exteriorRoot = false);
 
     void AddToWorld() override;
@@ -38,20 +34,18 @@ public:
 
     bool Create(ObjectGuid guid, Map* map, Position const& pos);
 
-    // Pure virtual overrides from WorldObject
     ObjectGuid GetCreatorGUID() const override { return ObjectGuid::Empty; }
     ObjectGuid GetOwnerGUID() const override { return ObjectGuid::Empty; }
     uint32 GetFaction() const override { return 0; }
 
-    // Override to use entity fragment serialization (like BaseEntity) instead of
-    // Object's BuildValuesCreate path which expects CGObject fields.
+    // serialized via entity fragments, not Object's CGObject path
     void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const override;
     void BuildValuesCreate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const override;
     void BuildValuesUpdate(UF::UpdateFieldFlag flags, ByteBuffer& data, Player const* target) const override;
     std::string GetNameForLocaleIdx(LocaleConstant locale) const override;
     std::string GetDebugInfo() const override;
 
-    // Room data setters
+    // must be called before Create (Create adds the entity to the map)
     void SetHouseGUID(ObjectGuid houseGuid);
     void SetHouseRoomID(int32 roomId);
     void SetFlags(int32 flags);
@@ -62,7 +56,6 @@ public:
     void AddDoor(int32 roomComponentID, Position const& offset, uint8 connectionType, ObjectGuid attachedRoomGuid = ObjectGuid::Empty);
     bool UpdateDoorConnection(int32 roomComponentID, ObjectGuid attachedRoomGuid);
 
-    // Mirrored position data setters
     void SetMirroredPosition(Position const& pos, QuaternionData const& rot, float scale,
         ObjectGuid attachParent = ObjectGuid::Empty, uint8 attachFlags = 3);
 
@@ -76,7 +69,7 @@ protected:
     void RemoveFromObjectUpdate() override;
 
 private:
-    // Not a wire field since 12.0.7 - see UF::HousingRoomData.
+    // not a client wire field anymore
     int32 _floorIndex = 0;
 };
 

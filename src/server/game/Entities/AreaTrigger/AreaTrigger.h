@@ -127,10 +127,7 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
         static ObjectGuid CreateNewMovementForceId(Map* map, uint32 areaTriggerId);
         bool LoadFromDB(ObjectGuid::LowType spawnId, Map* map, bool addToMap, bool allowDuplicate);
 
-        // Plot AT visual setup (SpellForVisuals, PeriodModifier, ExtraScaleCurve).
-        // 12.0.5 removed the per-AT FHousingPlotAreaTrigger_C fragment; plot ownership is
-        // now communicated via PlayerHouseInfoComponentData.CurrentHouse on the Player.
-        // The AT itself still exists for editor-menu plot bounds / decal placement visuals.
+        // Housing plot AT visual setup (SpellForVisuals, PeriodModifier, ExtraScaleCurve).
         void InitHousingPlotVisuals();
 
         void Update(uint32 diff) override;
@@ -226,9 +223,6 @@ class TC_GAME_API AreaTrigger final : public WorldObject, public GridObject<Area
         void HandleUnitExit(Unit* unit);
 
         UF::UpdateField<UF::AreaTriggerData, int32(WowCS::EntityFragment::CGObject), TYPEID_AREATRIGGER> m_areaTriggerData;
-
-        // Removed in 12.0.5: FHousingPlotAreaTrigger_C fragment no longer exists.
-        // Client now tracks plot entry via PlayerHouseInfoComponentData.CurrentHouse (house GUID).
 
     protected:
         void _UpdateDuration(int32 newDuration);

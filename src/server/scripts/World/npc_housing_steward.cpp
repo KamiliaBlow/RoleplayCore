@@ -15,7 +15,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "GossipDef.h"
@@ -26,6 +25,7 @@
 #include "NeighborhoodMgr.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
 #include "ScriptedGossip.h"
 #include "World.h"
 
@@ -43,9 +43,7 @@ enum HousingTutorialData
     GOSSIP_ACTION_FOUND_NEIGHBORHOOD = 1002,
 };
 
-// Lyssabel Dawnpetal (233063) / Tocho (233708) — Housing tutorial steward NPCs.
-// When the player interacts with the steward during the "My First Home" quest (91863),
-// the gossip grants quest kill credits for greeting the steward and asking them to join.
+// Housing tutorial steward NPCs; gossip grants the "My First Home" (91863) kill credits.
 struct npc_housing_steward : public CreatureAI
 {
     npc_housing_steward(Creature* creature) : CreatureAI(creature) { }
@@ -54,26 +52,18 @@ struct npc_housing_steward : public CreatureAI
 
     bool OnGossipHello(Player* player) override
     {
-        // Grant "Greet the steward" kill credit (quest objective 0: MONSTER 249851)
         player->KilledMonsterCredit(NPC_KILL_CREDIT_GREET_STEWARD);
-
-        // Satisfy "Talk to Lyssabel/Tocho" objective (quest objective 1/2: TALKTO with NPC entry)
         player->TalkedToCreature(me->GetEntry(), me->GetGUID());
 
         TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} greeted steward {} (kill credit {}, talkto {})",
             player->GetGUID().ToString(), me->GetEntry(), NPC_KILL_CREDIT_GREET_STEWARD, me->GetEntry());
 
-        // Founding path (retail: the steward near the bulletin board offers neighborhood
-        // founding). Shown to players who neither own a neighborhood nor carry a charter
-        // already, when charter founding is enabled.
+        // Founding path: offered to players with no neighborhood and no charter when charter founding is enabled.
         bool const canFoundNeighborhood = sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD)
             && !sNeighborhoodMgr.GetNeighborhoodByOwner(player->GetGUID())
             && !player->HasItemCount(ITEM_NEIGHBORHOOD_CHARTER);
 
-        // Only show the custom "Ask the steward to join" gossip when the player is on
-        // "My First Home" (91863) and hasn't yet asked the steward (kill credit 248857).
-        // For all other interactions (including quest 94210 "Feathering the Nest" turn-in),
-        // return false to let the default QuestGiver / gossip pathway proceed.
+        // Tutorial gossip only shows on "My First Home" without the "asked" credit; otherwise default gossip.
         bool const onTutorial = player->GetQuestStatus(QUEST_MY_FIRST_HOME) == QUEST_STATUS_INCOMPLETE;
 
         if (onTutorial || canFoundNeighborhood)
@@ -106,7 +96,6 @@ struct npc_housing_steward : public CreatureAI
 
         if (action == GOSSIP_ACTION_ASK_TO_JOIN)
         {
-            // Grant "Ask the steward to join you" kill credit (quest objective 3)
             player->KilledMonsterCredit(NPC_KILL_CREDIT_ASK_STEWARD);
 
             TC_LOG_DEBUG("housing", "npc_housing_steward: Player {} asked steward {} to join (kill credit {})",
@@ -114,8 +103,7 @@ struct npc_housing_steward : public CreatureAI
         }
         else if (action == GOSSIP_ACTION_FOUND_NEIGHBORHOOD)
         {
-            // Hand out the Neighborhood Charter; using it opens the client's charter UI,
-            // which drives the CMSG_NEIGHBORHOOD_CHARTER_* flow (create / sign / finalize).
+            // Hand out the Neighborhood Charter; using it opens the client's charter UI.
             if (!sObjectMgr->GetItemTemplate(ITEM_NEIGHBORHOOD_CHARTER))
             {
                 TC_LOG_ERROR("housing", "npc_housing_steward: Item {} (Neighborhood Charter) missing from item_template, cannot hand it to player {}",
@@ -145,13 +133,11 @@ enum HousingHouseUpgrade
     GOSSIP_OPTION_CREATIVE_BLUEPRINTS   = 2,        // 139907, vendor
     GOSSIP_MENU_HOUSE_UPGRADE_CONFIRM   = 41353,    // "Let's go!"
 
-    // [DNT] Level Up Houses - Cover: force-casts 1252051 (SPELL_EFFECT_GIVE_HOUSE_LEVEL) + kill credit 257414
+    // [DNT] Level Up Houses - Cover: casts 1252051 (SPELL_EFFECT_GIVE_HOUSE_LEVEL) + kill credit 257414
     SPELL_LEVEL_UP_HOUSES_COVER         = 1264549
 };
 
-// Jorvan Longmoor (255104) — raises the house level (retail 12.1.0.69933, sniff 11-13-10).
-// Menu 41352 shows one of two "I'd like to upgrade my house." options: 137141 when the house has the
-// favor for the next level (-> 41353 "Let's go!", which casts 1264549), 137143 otherwise (-> 41354).
+// Jorvan Longmoor (255104): raises the house level; the confirm menu casts 1264549.
 struct npc_housing_house_upgrade : public CreatureAI
 {
     npc_housing_house_upgrade(Creature* creature) : CreatureAI(creature) { }

@@ -22,8 +22,7 @@
 
 class WorldSession;
 
-// Separate entity carrying FHousingPlayerHouse_C fragment.
-// Retail sends this on a Housing/3 GUID (subType=3, arg2=7), NOT on the BNetAccount entity.
+// FHousingPlayerHouse_C carrier entity on a Housing/3 GUID (subType 3, arg2 7).
 class HousingPlayerHouseEntity final : public BaseEntity
 {
 public:
@@ -37,16 +36,10 @@ public:
     void SendUpdateToPlayer(Player* player);
     // The entity stands for the logged-in character's house (Housing::SyncUpdateFields); its GUID follows that house.
     void SetGuid(ObjectGuid const& guid) { _Create(guid); }
-    // Force-emit CREATE_OBJECT (bypasses HaveAtClient). See Housing/4 twin
-    // for rationale — the world-map / plot icon refresh path needs CREATE
-    // on wholesale re-pushes (sniff-verified against retail dumps).
+    // force-emit CREATE_OBJECT (bypasses HaveAtClient); map-icon refresh only fires on CREATE
     void SendCreateToPlayer(Player* player);
 
-    // Diagnostic: log every emitted CREATE's field contents so we can verify
-    // fixes from sniff comparisons without needing to decode hex by hand.
-    void BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) const override;
-
-    // Housing UpdateField setters (IDA-verified: HouseType/HouseSize not in this fragment)
+    // HouseType/HouseSize are not part of this fragment
     void SetPlotIndex(int32 plotIndex);
     void SetLevel(uint32 level);
     void SetFavor(uint64 favor);
