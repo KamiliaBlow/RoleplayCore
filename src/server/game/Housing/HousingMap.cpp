@@ -59,6 +59,7 @@
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
+#include "WorldStatePackets.h"
 
 namespace
 {
@@ -630,6 +631,30 @@ AreaTrigger* HousingMap::SpawnPlotAreaTrigger(NeighborhoodPlotData const* plot)
 
     _plotAreaTriggers[plotIndex] = plotAt->GetGUID();
 
+    // Plot ATs reach clients through the login bundle, not the ordinary visibility
+    // stream (like the housing meshes): a bystander watching a plot purchase never
+    // received the AT create - capture 2026-10-02 16:30:05, the create went to the
+    // buyer only and the observer's map pin kept the "for sale" texture until a
+    // relog rebuilt the bundle. Push the create to every current viewer; the AT's
+    // removal path already destroys it for everyone holding it.
+    uint32 atReceivers = 0;
+    for (MapReference const& ref : GetPlayers())
+    {
+        Player* viewer = ref.GetSource();
+        if (!viewer || viewer->HaveAtClient(plotAt))
+            continue;
+
+        ++atReceivers;
+        UpdateData atUpdate(GetId());
+        plotAt->BuildCreateUpdateBlockForPlayer(&atUpdate, viewer);
+        viewer->m_clientGUIDs.insert(plotAt->GetGUID());
+        WorldPacket packet;
+        atUpdate.BuildPacket(&packet);
+        viewer->SendDirectMessage(&packet);
+    }
+
+    TC_LOG_ERROR("housing", "[PinSync] plot {} area trigger create -> {} viewers", plotIndex, atReceivers);
+
     std::string ownerDesc = (plotInfo && !plotInfo->OwnerGuid.IsEmpty())
         ? plotInfo->OwnerGuid.ToString() : std::string("none");
 
@@ -701,6 +726,20 @@ void HousingMap::SetPlotGroundCleared(NeighborhoodPlotData const* plot, bool cle
             GameObjectData const* data = sObjectMgr->GetGameObjectData(spawnId);
             if (!data || !IsGridLoaded(data->spawnPoint))
                 continue; // spawns with its grid
+
+            // Door GOs are not plot ground clutter. A house spawns its interactive door
+            // dynamically (SpawnExtCompTree -> _houseGameObjects, removed together with the
+            // house); world-DB door spawns on housing maps are stale leftovers from earlier
+            // revisions. Respawning them on sale resurrected an invisible, still-scripted
+            // go_housing_door floating in the air where the house used to be. Retail's
+            // purchase-time ground clear (44 despawns, capture 2026-09-27 01:54) contains
+            // no door entries either. Every door template carries the go_housing_door
+            // script id (EnsureDoorGameObjectTemplates binds it at startup).
+            if (uint32 const doorScriptId = sObjectMgr->GetScriptId("go_housing_door", false))
+                if (GameObjectTemplate const* goInfo = sObjectMgr->GetGameObjectTemplate(data->id))
+                    if (goInfo->ScriptId == doorScriptId)
+                        continue;
+
             GameObject* go = new GameObject();
             if (!go->LoadFromDB(spawnId, this, true))
                 delete go;
@@ -795,7 +834,32 @@ void HousingMap::SetPlotOwnershipState(uint8 plotIndex, bool owned)
         // get it in INIT_WORLD_STATES) AND broadcasts `SMSG_UPDATE_WORLD_STATE` to
         // every player currently on the map. No per-player enum override.
         if (wsId)
+        {
             SetWorldStateValue(wsId, owned ? 1 : 0, /*hidden*/ false);
+
+            // SetWorldStateValue's broadcast is filtered through the worldstate template's
+            // AreaIds: a bystander elsewhere in the neighborhood never received the plot's
+            // occupancy flip (capture 2026-10-02 16:30:05, ws 29730 0->1 reached only the
+            // buyer), so their world-map/minimap pins kept showing the plot as purchasable
+            // until a relog rebuilt INIT_WORLD_STATES. Retail ships every plot state to the
+            // whole map, so push the flip to every player explicitly (the duplicate packet
+            // for players the template filter already covered is idempotent).
+            WorldPackets::WorldState::UpdateWorldState plotOccupancy;
+            plotOccupancy.VariableID = wsId;
+            plotOccupancy.Value = owned ? 1 : 0;
+            plotOccupancy.Hidden = false;
+            plotOccupancy.Write();
+            uint32 plotStateReceivers = 0;
+            for (MapReference const& ref : GetPlayers())
+                if (Player* viewer = ref.GetSource())
+                {
+                    viewer->SendDirectMessage(plotOccupancy.GetRawPacket());
+                    ++plotStateReceivers;
+                }
+
+            TC_LOG_ERROR("housing", "[PinSync] plot {} worldstate {} -> {} broadcast to {} players",
+                plotIndex, wsId, owned ? 1 : 0, plotStateReceivers);
+        }
 
         break;
     }
@@ -3066,6 +3130,20 @@ void HousingMap::DespawnAllMeshObjectsForPlot(uint8 plotIndex)
     }
 
     _meshObjects.erase(itr);
+}
+
+void HousingMap::SendPlotGeometryEntitiesToMap(uint8 plotIndex)
+{
+    // MeshObjects and the housing entities do not stream through ordinary grid visibility
+    // (see SendPlotGeometryEntitiesToPlayer): a mid-session plot purchase or move delivered
+    // them only to the acting player, leaving everyone else standing on the map without the
+    // plot's geobox room mesh - their client never clipped the plot terrain (grass stayed
+    // standing inside the new house) until a relog rebuilt the initial bundle. Push the
+    // geometry to every current viewer; the per-player HaveAtClient gating inside makes
+    // this safe for players who already hold part of the set.
+    for (MapReference const& ref : GetPlayers())
+        if (Player* viewer = ref.GetSource())
+            SendPlotGeometryEntitiesToPlayer(plotIndex, viewer);
 }
 
 MeshObject* HousingMap::FindMeshObjectByHookID(uint8 plotIndex, int32 hookID)

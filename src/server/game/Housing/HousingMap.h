@@ -207,6 +207,7 @@ public:
     // validation consumes. Login ships them in the self bundle; mid-session site changes must
     // re-send them explicitly or the client rejects placements until a relog.
     void SendPlotGeometryEntitiesToPlayer(uint8 plotIndex, Player* player);
+    void SendPlotGeometryEntitiesToMap(uint8 plotIndex);
 
     // Manual spell packet helpers — called from AddPlayerToMap and at_housing_plot AT script.
     // These spells don't exist in DB2, so CastSpell() silently fails; manual packets are required.

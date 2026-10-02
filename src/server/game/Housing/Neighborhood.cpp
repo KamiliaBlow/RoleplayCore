@@ -20,6 +20,9 @@
 #include "BattlenetAccountMgr.h"
 #include "DatabaseEnv.h"
 #include "HousingMap.h"
+#include "HousingMgr.h"
+#include "Map.h"
+#include "MapManager.h"
 #include "HousingPackets.h"
 #include "GameTime.h"
 #include "Log.h"
@@ -1307,10 +1310,20 @@ void Neighborhood::RefreshMirrorDataForPlayer(Player* player) const
 
 void Neighborhood::RefreshMirrorDataForOnlineMembers() const
 {
-    // The mirror is the neighborhood the player stands in (the map pins come from it): a member elsewhere keeps theirs.
-    for (auto const& member : _members)
-        if (Player* player = ObjectAccessor::FindPlayer(member.PlayerGuid))
-            if (HousingMap const* housingMap = dynamic_cast<HousingMap const*>(player->GetMap()); housingMap && housingMap->GetNeighborhood() == this)
+    // The mirror is the neighborhood the player stands in (the world-map pins come from
+    // it). The loop used to iterate _members only: a NON-member standing in the
+    // neighborhood - someone watching a plot being bought or sold - kept stale
+    // map/minimap pins until a relog, because the client's map-icon refresh only
+    // re-runs on the wholesale CREATE this push sends. Iterate the neighborhood's map
+    // instance instead: every current viewer, member or not. Members standing in other
+    // neighborhoods keep their own mirror and are not updated - as before.
+    uint32 const worldMapId = sHousingMgr.GetWorldMapIdByNeighborhoodMapId(GetNeighborhoodMapID());
+    if (!worldMapId)
+        return;
+
+    if (Map* map = sMapMgr->FindMap(worldMapId, static_cast<uint32>(GetGuid().GetCounter())))
+        for (MapReference const& ref : map->GetPlayers())
+            if (Player* player = ref.GetSource())
                 RefreshMirrorDataForPlayer(player);
 }
 

@@ -1296,7 +1296,7 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             // The plot geometry entities (room identity, Geobox mesh, exterior root, Group B mirrors)
             // ride the login bundle only ? without them the client's placement validation rejected
             // every house move on the new plot ("cannot place outside the plot") until a relog.
-            housingMap->SendPlotGeometryEntitiesToPlayer(resolvedPlotIndex, player);
+            housingMap->SendPlotGeometryEntitiesToMap(resolvedPlotIndex);
 
             // Arm the editor/ownership state the plot AreaTrigger would only arm on walking into
             // its circle (the buyer stands at the plot edge after the purchase).
@@ -1580,7 +1580,7 @@ void WorldSession::HandleNeighborhoodMoveHouse(WorldPackets::Neighborhood::Neigh
                 // Same relog-only delivery gap as a plot purchase: the destination plot's
                 // geometry entities must reach the client or its placement validation keeps
                 // checking against the old plot ("cannot place outside the plot").
-                housingMap->SendPlotGeometryEntitiesToPlayer(targetPlotIndex, player);
+                housingMap->SendPlotGeometryEntitiesToMap(targetPlotIndex);
 
                 // Re-arm the editor/ownership state for the new plot (the AreaTrigger only
                 // arms it on walking into its circle).
