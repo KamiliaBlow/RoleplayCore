@@ -4365,62 +4365,95 @@ void WorldSession::HandleHousingGetPlayerPermissions(WorldPackets::Housing::Hous
     if (!player)
         return;
 
-    Housing* housing = player->GetHousing();
-
     WorldPackets::Housing::HousingGetPlayerPermissionsResponse response;
-    if (housing)
+
+    // Resolve whose place the player is standing at BEFORE the owner lookup: a houseless
+    // visitor (player->GetHousing() == null) must still get a visitor answer, or the client
+    // flips HouseEditorPlayerType to None and hides its visitor UI right after showing it
+    // ("appears for a moment then disappears"). The client drives VisitorControlFrame off
+    // this response (0x10 = inspect / blueprints / house info / leave; retail 2026-09-26:
+    // Field_09=16 for every visited house).
+    ObjectGuid visitedOwnerGuid;
+    ObjectGuid visitedHouseGuid;
+    uint32 visitedSettingsFlags = HOUSE_SETTING_DEFAULT;
+    bool isInteriorVisit = false;
+
+    if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
     {
-        response.HouseGuid = housing->GetHouseGuid();
-
-        // Client sends the HouseGuid it wants permissions for.
-        // If it matches our house, we're the owner.
-        // Any house of the account gives owner rights (retail 12.1.0.69933: 254 in the other character's house).
-        ObjectGuid requestedHouseGuid = housingGetPlayerPermissions.HouseGuid.value_or(housing->GetHouseGuid());
-        bool isOwner = player->GetHousingByHouseGuid(requestedHouseGuid) != nullptr;
-        if (isOwner)
-            response.HouseGuid = requestedHouseGuid;
-
-        if (isOwner)
+        // The interior instance is per-house: GetOwnerGuid is the visited owner.
+        if (!interiorMap->IsHouseOwnerAccount(player))
         {
-            // House owner gets full permissions
-            // Retail 12.1.0.69933: 0xFE for the own house
-            response.ResultCode = 0;
-            response.PermissionFlags = HOUSING_PERMISSIONS_OWNER;
-        }
-        else
-        {
-            // Visitor on another player's plot ? check stored settings
-            response.ResultCode = 0;
-            response.PermissionFlags = 0x00;
+            visitedOwnerGuid = interiorMap->GetOwnerGuid();
+            isInteriorVisit = true;
 
-            HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
-            if (housingMap)
-            {
-                int8 visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
-                if (visitedPlot >= 0)
+            if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+                if (Housing const* ownerHousing = owner->GetHousing())
                 {
-                    Neighborhood* neighborhood = housingMap->GetNeighborhood();
-                    if (neighborhood)
-                    {
-                        Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(visitedPlot));
-                        if (plotInfo && plotInfo->IsOccupied())
+                    visitedSettingsFlags = ownerHousing->GetSettingsFlags();
+                    visitedHouseGuid = ownerHousing->GetHouseGuid();
+                }
+            if (visitedHouseGuid.IsEmpty())
+                for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(visitedOwnerGuid))
+                {
+                    bool found = false;
+                    for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                        if (plot.OwnerGuid == visitedOwnerGuid)
                         {
-                            Housing* plotHousing = housingMap->GetHousingForPlayer(plotInfo->OwnerGuid);
-                            if (plotHousing)
-                            {
-                                response.HouseGuid = plotHousing->GetHouseGuid();
-                                // H-11: was CanVisitorAccess gated on `ownerPlayer &&`, which
-                                // reported "no permission" for every plot whose owner was
-                                // offline. Same rule, same function as the door and the plot AT.
-                                bool hasAccess = sHousingMgr.CanVisitorAccessPlot(player, plotInfo->OwnerGuid,
-                                    plotHousing->GetSettingsFlags(), false);
-                                response.PermissionFlags = hasAccess ? HOUSING_PERMISSIONS_VISITOR : 0x00;
-                            }
+                            visitedSettingsFlags = plot.HouseSettingsFlags;
+                            visitedHouseGuid = plot.HouseGuid;
+                            found = true;
+                            break;
                         }
-                    }
+                    if (found)
+                        break;
+                }
+        }
+    }
+    else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+    {
+        if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+        {
+            int8 visitedPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+            if (visitedPlot >= 0)
+            {
+                Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(visitedPlot));
+                // A plot bought by another character of the account is still the player's own.
+                if (plotInfo && plotInfo->IsOccupied() && !player->GetHousingByOwner(plotInfo->OwnerGuid))
+                {
+                    visitedOwnerGuid = plotInfo->OwnerGuid;
+                    visitedHouseGuid = plotInfo->HouseGuid;
+                    // Live flags from the loaded housing; the PlotInfo mirror covers an
+                    // offline owner (H-11: checks must not depend on the owner being online).
+                    if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+                        if (Housing const* ownerHousing = owner->GetHousing())
+                            visitedSettingsFlags = ownerHousing->GetSettingsFlags();
                 }
             }
         }
+    }
+
+    if (!visitedOwnerGuid.IsEmpty())
+    {
+        response.HouseGuid = visitedHouseGuid;
+        response.ResultCode = 0;
+        response.PermissionFlags = sHousingMgr.CanVisitorAccessPlot(player, visitedOwnerGuid,
+            visitedSettingsFlags, isInteriorVisit) ? HOUSING_PERMISSIONS_VISITOR : 0x00;
+        SendPacket(response.Write());
+        return;
+    }
+
+    // Standing at one's own place (or nowhere): owner permissions.
+    // Retail 12.1.0.69933: 0xFE for the own house; any house of the account counts.
+    Housing* housing = player->GetHousing();
+    if (housing)
+    {
+        ObjectGuid requestedHouseGuid = housingGetPlayerPermissions.HouseGuid.value_or(housing->GetHouseGuid());
+        if (player->GetHousingByHouseGuid(requestedHouseGuid))
+            response.HouseGuid = requestedHouseGuid;
+        else
+            response.HouseGuid = housing->GetHouseGuid();
+        response.ResultCode = 0;
+        response.PermissionFlags = HOUSING_PERMISSIONS_OWNER;
     }
     else
     {
@@ -4436,57 +4469,84 @@ void WorldSession::HandleHousingGetCurrentHouseInfo(WorldPackets::Housing::Housi
     if (!player)
         return;
 
-    HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap());
-    bool isInterior = player->GetMap() && dynamic_cast<HouseInteriorMap*>(player->GetMap());
-    int8 currentPlot = -1;
-    if (housingMap)
-        currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
-    else if (isInterior)
+    // Resolve whose house the player is at (interior instance or tracked plot). Visitors must
+    // get the VISITED house with its owner's accessFlags: the client derives blueprint
+    // availability from HouseSettingFlags export bits ("Действия с чертежами недоступны" = the
+    // response carried flags without BLUEPRINT_EXPORT_*). The old code returned the visitor's
+    // OWN house here, so the button was locked no matter what the owner configured.
+    ObjectGuid visitedOwnerGuid;
+    Neighborhood::PlotInfo const* visitedPlotInfo = nullptr;
+    Neighborhood const* visitedNeighborhood = nullptr;
+    uint8 visitedPlotIndex = 0;
+
+    if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
     {
-        if (Housing* housing = player->GetHousing())
-            currentPlot = static_cast<int8>(housing->GetPlotIndex());
+        // The interior instance is per-house: GetOwnerGuid is the visited owner.
+        if (!interiorMap->IsHouseOwnerAccount(player))
+        {
+            visitedOwnerGuid = interiorMap->GetOwnerGuid();
+            for (Neighborhood const* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(visitedOwnerGuid))
+            {
+                bool found = false;
+                for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                    if (plot.OwnerGuid == visitedOwnerGuid)
+                    {
+                        visitedPlotInfo = &plot;
+                        visitedNeighborhood = nbh;
+                        visitedPlotIndex = plot.PlotIndex;
+                        found = true;
+                        break;
+                    }
+                if (found)
+                    break;
+            }
+        }
+    }
+    else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+    {
+        if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+        {
+            int8 currentPlot = housingMap->GetPlayerCurrentPlot(player->GetGUID());
+            if (currentPlot >= 0)
+            {
+                Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(currentPlot));
+                // A plot bought by another character of the account is still the player's own.
+                if (plotInfo && plotInfo->IsOccupied() && !player->GetHousingByOwner(plotInfo->OwnerGuid))
+                {
+                    visitedOwnerGuid = plotInfo->OwnerGuid;
+                    visitedPlotInfo = plotInfo;
+                    visitedNeighborhood = neighborhood;
+                    visitedPlotIndex = static_cast<uint8>(currentPlot);
+                }
+            }
+        }
     }
 
     WorldPackets::Housing::HousingGetCurrentHouseInfoResponse response;
 
-    if (currentPlot >= 0 && housingMap && housingMap->GetNeighborhood())
+    if (!visitedOwnerGuid.IsEmpty())
     {
-        // Player is on a specific plot ? return info about THAT plot's house
-        Neighborhood* neighborhood = housingMap->GetNeighborhood();
-        Neighborhood::PlotInfo const* plotInfo = neighborhood->GetPlotInfo(static_cast<uint8>(currentPlot));
-
-        if (plotInfo && plotInfo->IsOccupied())
-        {
-            // Find the plot owner's housing data for AccessFlags
-            Housing* plotHousing = player->GetHousingByOwner(plotInfo->OwnerGuid);
-            if (!plotHousing)
-                if (Player* ownerPlayer = ObjectAccessor::FindPlayer(plotInfo->OwnerGuid))
-                    plotHousing = ownerPlayer->GetHousingByOwner(plotInfo->OwnerGuid);
-
-            response.House.HouseGUID = plotInfo->HouseGuid;
-            response.House.OwnerGUID = plotInfo->OwnerGuid;
-            response.House.NeighborhoodGUID = neighborhood->GetGuid();
-            response.House.PlotIndex = static_cast<uint8>(currentPlot);
-            response.House.HouseSettingFlags = plotHousing ? plotHousing->GetSettingsFlags() : 0;
-        }
-        else
-        {
-            // On an unoccupied plot
-            response.House.OwnerGUID = player->GetGUID();
-            response.House.NeighborhoodGUID = neighborhood->GetGuid();
-            response.House.PlotIndex = static_cast<uint8>(currentPlot);
-        }
+        response.House.HouseGUID = visitedPlotInfo ? visitedPlotInfo->HouseGuid : ObjectGuid::Empty;
+        response.House.OwnerGUID = visitedOwnerGuid;
+        response.House.NeighborhoodGUID = visitedNeighborhood ? visitedNeighborhood->GetGuid() : ObjectGuid::Empty;
+        response.House.PlotIndex = visitedPlotIndex;
+        // Live flags from the loaded housing; the PlotInfo mirror covers an offline owner (H-11).
+        uint32 visitedFlags = visitedPlotInfo ? visitedPlotInfo->HouseSettingsFlags : 0;
+        if (Player* owner = ObjectAccessor::FindPlayer(visitedOwnerGuid))
+            if (Housing const* ownerHousing = owner->GetHousing())
+                visitedFlags = ownerHousing->GetSettingsFlags();
+        response.House.HouseSettingFlags = visitedFlags;
     }
     else if (Housing* housing = player->GetHousing())
     {
-        // Not on any tracked plot ? fall back to player's own house data
+        // Own place (or the player's own interior) - return the player's own house data
         response.House.HouseGUID = housing->GetHouseGuid();
         response.House.OwnerGUID = housing->GetOwnerGuid();
         response.House.NeighborhoodGUID = housing->GetNeighborhoodGuid();
         response.House.PlotIndex = housing->GetPlotIndex();
         response.House.HouseSettingFlags = housing->GetSettingsFlags();
     }
-    else if (housingMap)
+    else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
     {
         // No house, no tracked plot
         response.House.OwnerGUID = player->GetGUID();
@@ -4650,8 +4710,25 @@ void WorldSession::HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorS
     HousingResult result = housing->SetDecorPet(housingDecorSetPet.DecorGuid, petGuid, housingDecorSetPet.Flag);
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        // Refresh the owner's account decor storage so the client's decor-instance info
-        // (GetDecorAssignedPetName) reflects the new binding.
+        // The binding lives in FHousingDecor_C.PetInfo of the decor's visual object — the
+        // client's editor reads it back from there; the account storage fragment carries no
+        // pet state. Resolve CreatureID/name from the battle pet journal for the client render.
+        ObjectGuid battlePetGuid;
+        uint32 creatureId = 0;
+        std::string petName;
+        if (!petGuid.IsEmpty())
+            if (BattlePets::BattlePet const* pet = GetBattlePetMgr()->GetPet(petGuid))
+            {
+                battlePetGuid = petGuid;
+                creatureId = pet->PacketInfo.CreatureID;
+                petName = pet->PacketInfo.Name;
+            }
+
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            interiorMap->UpdateDecorPet(housingDecorSetPet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetPet.Flag);
+        else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+            housingMap->UpdateDecorPet(housingDecorSetPet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetPet.Flag);
+
         GetBattlenetAccount().SendUpdateToPlayer(player);
     }
 

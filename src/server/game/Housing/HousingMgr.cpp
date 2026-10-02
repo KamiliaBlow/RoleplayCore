@@ -763,8 +763,9 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
         : (HOUSE_SETTING_PLOT_ACCESS_ANYONE | HOUSE_SETTING_PLOT_ACCESS_NEIGHBORS |
            HOUSE_SETTING_PLOT_ACCESS_GUILD | HOUSE_SETTING_PLOT_ACCESS_FRIENDS | HOUSE_SETTING_PLOT_ACCESS_PARTY);
 
-    if ((settingsFlags & accessMask) == 0)
-        return true; // No restrictions configured — open to all
+    // NO "no bits = open to all" fallback here: unchecked boxes must deny. The owner
+    // clearing every dropdown (flags 0) means "nobody" — treating that as open made the
+    // access settings appear to do nothing (guest walked the revoked plot freely).
 
     if (settingsFlags & anyoneFlag)
         return true;

@@ -180,6 +180,7 @@ public:
     void SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing);
     void UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
     void UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
+    void UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, uint32 creatureId, std::string const& petName, uint8 petBehavior);
 
     // Track which plot a player is currently visiting (set by at_housing_plot)
     void SetPlayerCurrentPlot(ObjectGuid playerGuid, uint8 plotIndex) { _playerCurrentPlot[playerGuid] = plotIndex; }
@@ -261,6 +262,7 @@ private:
     // Decor GO tracking
     std::unordered_map<uint8, std::vector<ObjectGuid>> _decorGameObjects;         // plotIndex -> decor GO GUIDs
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToGoGuid;                // decor GUID -> GO GUID
+    std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToPetSummon;             // decor GUID -> companion battle pet creature
     std::unordered_map<ObjectGuid, uint8> _decorGuidToPlotIndex;                  // decor GUID -> plotIndex
     std::unordered_set<uint8> _decorSpawnedPlots;                                 // plots whose decor has been spawned
     std::unordered_map<ObjectGuid, uint8> _playerCurrentPlot;                    // player GUID -> current visited plot index

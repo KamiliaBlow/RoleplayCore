@@ -15,7 +15,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "ChatPackets.h"
 #include "ScriptMgr.h"
+#include "SpellMgr.h"
 #include "AreaTrigger.h"
 #include "AreaTriggerAI.h"
 #include "EventProcessor.h"
@@ -91,6 +93,77 @@ struct at_housing_plot : AreaTriggerAI
             {
                 TC_LOG_DEBUG("housing", "at_housing_plot: Player {} denied plot access (owner {} flags 0x{:X})",
                     player->GetGUID().ToString(), ownerGuid.ToString(), settingsFlags);
+
+                // The trespasser IS physically inside the plot AT: track them so the eviction
+                // timer can tell "still here" from "walked away" (OnUnitExit clears the mark
+                // via ClearPlayerCurrentPlot, which cancels the pending eviction).
+                housingMap->SetPlayerCurrentPlot(player->GetGUID(), static_cast<uint8>(plotIdx));
+
+                // Retail eviction sequence (dump 2026-10-02 12:25): self-cast warning spell
+                // 1245416 whose aura ticks 5s, the warning as CHAT_MSG_RAID_BOSS_WHISPER
+                // (sender = the visitor, SpellID 1245416), teleport to the neighborhood entry
+                // when the aura expires.
+                if (sSpellMgr->GetSpellInfo(SPELL_HOUSING_PLOT_EVICT_WARNING, DIFFICULTY_NONE))
+                    player->CastSpell(player, SPELL_HOUSING_PLOT_EVICT_WARNING, true);
+
+                {
+                    WorldPackets::Chat::Chat warning;
+                    warning.Initialize(CHAT_MSG_RAID_BOSS_WHISPER, LANG_UNIVERSAL, player, player,
+                        player->GetSession()->GetTrinityString(HOUSING_STRING_PLOT_ACCESS_DENIED));
+                    warning.SpellID = SPELL_HOUSING_PLOT_EVICT_WARNING;
+                    player->SendDirectMessage(warning.Write());
+                }
+
+                // Eviction target: the plot's own TeleportPosition (retail kicks to the
+                // plot cornerstone, not the map entry portal); map origin as fallback.
+                uint32 const mapId = player->GetMapId();
+                float x = 0.0f, y = 0.0f, z = 0.0f, o = 0.0f;
+                bool haveTarget = false;
+                NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(mapId);
+                if (nmData)
+                {
+                    x = nmData->Origin[0]; y = nmData->Origin[1]; z = nmData->Origin[2]; o = nmData->EntryRotation;
+                    haveTarget = true;
+                    for (NeighborhoodPlotData const* plotData : sHousingMgr.GetPlotsForMap(nmData->ID))
+                        if (plotData->PlotIndex == plotIdx)
+                        {
+                            x = plotData->TeleportPosition[0]; y = plotData->TeleportPosition[1]; z = plotData->TeleportPosition[2];
+                            o = plotData->TeleportFacing;
+                            break;
+                        }
+                }
+
+                if (haveTarget)
+                    player->m_Events.AddEventAtOffset([guid = player->GetGUID(), mapId, plotIdx, x, y, z, o]()
+                    {
+                        Player* visitor = ObjectAccessor::FindConnectedPlayer(guid);
+                        if (!visitor || visitor->GetMapId() != mapId)
+                            return;
+
+                        // Walked off the plot during the warning: eviction canceled (the AT
+                        // exit cleared the tracking mark and removed the warning aura).
+                        HousingMap* hMap = dynamic_cast<HousingMap*>(visitor->GetMap());
+                        if (!hMap || hMap->GetPlayerCurrentPlot(guid) != plotIdx)
+                            return;
+
+                        // Cancel conditions: the owner granted access while the warning was
+                        // ticking (retail cancels the eviction in that case rather than
+                        // teleporting a permitted visitor), or the plot changed hands.
+                        Neighborhood* nbh = hMap ? hMap->GetNeighborhood() : nullptr;
+                        Neighborhood::PlotInfo const* evictedPlot = nbh ? nbh->GetPlotInfo(static_cast<uint8>(plotIdx)) : nullptr;
+                        if (!evictedPlot || !evictedPlot->IsOccupied())
+                            return;
+                        if (visitor->GetGUID() == evictedPlot->OwnerGuid || visitor->GetHousingByOwner(evictedPlot->OwnerGuid))
+                            return;
+                        uint32 flags = evictedPlot->HouseSettingsFlags;
+                        if (Player* owner = ObjectAccessor::FindPlayer(evictedPlot->OwnerGuid))
+                            if (Housing const* ownerHousing = owner->GetHousing())
+                                flags = ownerHousing->GetSettingsFlags();
+                        if (sHousingMgr.CanVisitorAccessPlot(visitor, evictedPlot->OwnerGuid, flags, false))
+                            return;
+
+                        visitor->TeleportTo(mapId, x, y, z, o);
+                    }, HOUSING_PLOT_EVICT_DELAY);
                 return;
             }
         }
@@ -205,6 +278,10 @@ struct at_housing_plot : AreaTriggerAI
 
         // Remove plot-auras (manual packets, spells aren't in DB2).
         housingMap->SendPlotLeaveAuraRemoval(player);
+
+        // Walking off the plot during the eviction warning cancels it: drop the warning
+        // spell (the delayed teleport re-checks access and no-ops for a permitted visitor).
+        player->RemoveAura(SPELL_HOUSING_PLOT_EVICT_WARNING);
 
         housingMap->ClearPlayerCurrentPlot(player->GetGUID());
 

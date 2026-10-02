@@ -31,6 +31,8 @@
 #include "DB2Stores.h"
 #include "DB2Structure.h"
 #include "GameObject.h"
+#include "Creature.h"
+#include "TemporarySummon.h"
 #include "GridDefines.h"
 #include "Housing.h"
 #include "HousingDefines.h"
@@ -3555,6 +3557,15 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
 
 void HousingMap::DespawnDecorItem(uint8 plotIndex, ObjectGuid decorGuid)
 {
+    // Remove the bound companion creature first, then the decor itself.
+    auto petItr = _decorGuidToPetSummon.find(decorGuid);
+    if (petItr != _decorGuidToPetSummon.end())
+    {
+        if (Creature* pet = GetCreature(petItr->second))
+            pet->DespawnOrUnsummon();
+        _decorGuidToPetSummon.erase(petItr);
+    }
+
     auto itr = _decorGuidToGoGuid.find(decorGuid);
     if (itr == _decorGuidToGoGuid.end())
         return;
@@ -3663,6 +3674,57 @@ void HousingMap::UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HO
     }
     else if (MeshObject* mesh = GetMeshObject(itr->second))
         mesh->SetHousingDecorDyeSlots(dyeSlots);
+}
+
+void HousingMap::UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, uint32 creatureId,
+    std::string const& petName, uint8 petBehavior)
+{
+    auto itr = _decorGuidToGoGuid.find(decorGuid);
+    if (itr == _decorGuidToGoGuid.end())
+        return;
+
+    WorldObject* decorObj = nullptr;
+    if (itr->second.IsGameObject())
+        decorObj = GetGameObject(itr->second);
+    else
+        decorObj = GetMeshObject(itr->second);
+    if (!decorObj)
+        return;
+
+    // Drop the previous companion for this decor first (bind-over-bind and unbind both pass here).
+    auto summonItr = _decorGuidToPetSummon.find(decorGuid);
+    if (summonItr != _decorGuidToPetSummon.end())
+    {
+        if (Creature* oldPet = GetCreature(summonItr->second))
+            oldPet->DespawnOrUnsummon();
+        _decorGuidToPetSummon.erase(summonItr);
+    }
+
+    ObjectGuid spawnedPetGuid;
+    if (!battlePetGuid.IsEmpty() && creatureId != 0)
+    {
+        // Spawn the companion creature beside the decor. Retail walks it around the cage;
+        // a passive creature stands in place until pet AI is tuned.
+        if (CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(creatureId))
+        {
+            Position petPos = decorObj->GetPosition();
+            float const escapeDistance = 1.5f;
+            petPos.Relocate(petPos.GetPositionX() + std::cos(petPos.GetOrientation()) * escapeDistance,
+                petPos.GetPositionY() + std::sin(petPos.GetOrientation()) * escapeDistance,
+                petPos.GetPositionZ());
+
+            if (TempSummon* summon = SummonCreature(creatureId, petPos, nullptr, Milliseconds(0), decorObj))
+            {
+                summon->SetReactState(REACT_PASSIVE);
+                summon->SetImmuneToAll(true);
+                summon->SetControlled(true, UNIT_STATE_ROOT);
+                spawnedPetGuid = summon->GetGUID();
+                _decorGuidToPetSummon[decorGuid] = spawnedPetGuid;
+            }
+        }
+    }
+
+    decorObj->SetHousingDecorPet(battlePetGuid, creatureId, petName, petBehavior, spawnedPetGuid);
 }
 
 void HousingMap::UpdateDecorPosition(uint8 plotIndex, ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale /*= 1.0f*/)

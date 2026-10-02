@@ -1212,9 +1212,12 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
                 for (int32 i = 0; i < qty; ++i)
                     housing->AddToCatalog(decorId, DECOR_SOURCE_DEFERRED);
             }
-            // 1a2. Auto-place starter decor in the visual room (sniff-verified: retail pre-places items).
-            // The "Welcome Home" quest requires the player to remove 3 of these items.
-            housing->PlaceStarterDecor();
+            // NO auto-placement of the starter set. The old PlaceStarterDecor put items at
+            // 12.0.1 sniffed room-local coordinates whose item identities no longer match
+            // 69933 (1435 was a painting then, is a hearth now — it floated at painting
+            // height; 726 sank into the floor) and retail 12.1.0.69933 pre-places NOTHING
+            // from the grant (14 redeemable credits, zero placed entries, empty house).
+            // The set stays in storage; the player places what they want via the editor.
         }
 
         // 1b. NO FirstTimeDecorAcquisition here. In the retail 12.1.0.69933 purchase capture the

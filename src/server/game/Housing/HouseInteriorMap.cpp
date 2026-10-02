@@ -31,7 +31,10 @@
 #include "NeighborhoodMgr.h"
 #include "HousingPackets.h"
 #include "Log.h"
+#include "BattlePetMgr.h"
 #include "MeshObject.h"
+#include "Creature.h"
+#include "TemporarySummon.h"
 #include "ObjectAccessor.h"
 #include "ObjectGridLoader.h"
 #include "ObjectMgr.h"
@@ -969,6 +972,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                     go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                         roomEntityGuid, decor.SourceType, decor.SourceValue);
                     go->SetHousingDecorDyeSlots(decor.DyeSlots);
+                    RestoreDecorPetBinding(go, decor.Guid, decor.PetGuid, decor.PetFlag);
                     go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
 
                     if (AddToMap(go))
@@ -1023,6 +1027,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
         PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
         mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
         mesh->SetHousingDecorDyeSlots(decor.DyeSlots);
+        RestoreDecorPetBinding(mesh, decor.Guid, decor.PetGuid, decor.PetFlag);
 
         if (AddToMap(mesh))
         {
@@ -1142,6 +1147,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
                 go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                     roomEntityGuid, decor.SourceType, decor.SourceValue);
                 go->SetHousingDecorDyeSlots(decor.DyeSlots);
+                RestoreDecorPetBinding(go, decor.Guid, decor.PetGuid, decor.PetFlag);
                 go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
 
                 if (AddToMap(go))
@@ -1183,6 +1189,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
     PhasingHandler::InitDbPhaseShift(mesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
     mesh->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0, roomEntityGuid, decor.SourceType, decor.SourceValue);
     mesh->SetHousingDecorDyeSlots(decor.DyeSlots);
+    RestoreDecorPetBinding(mesh, decor.Guid, decor.PetGuid, decor.PetFlag);
 
     if (AddToMap(mesh))
     {
@@ -1207,6 +1214,78 @@ void HouseInteriorMap::UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, 
     }
     else if (MeshObject* mesh = GetMeshObject(itr->second))
         mesh->SetHousingDecorDyeSlots(dyeSlots);
+}
+
+void HouseInteriorMap::UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, uint32 creatureId,
+    std::string const& petName, uint8 petBehavior)
+{
+    auto itr = _decorGuidToObjGuid.find(decorGuid);
+    if (itr == _decorGuidToObjGuid.end())
+        return;
+
+    if (itr->second.IsGameObject())
+    {
+        if (GameObject* go = GetGameObject(itr->second))
+            ApplyDecorPetBinding(go, decorGuid, battlePetGuid, creatureId, petName, petBehavior);
+    }
+    else if (MeshObject* mesh = GetMeshObject(itr->second))
+        ApplyDecorPetBinding(mesh, decorGuid, battlePetGuid, creatureId, petName, petBehavior);
+}
+
+void HouseInteriorMap::ApplyDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid battlePetGuid,
+    uint32 creatureId, std::string const& petName, uint8 petBehavior)
+{
+    if (!obj)
+        return;
+
+    // Drop the previous companion for this decor first (bind-over-bind and unbind both pass here).
+    auto summonItr = _decorGuidToPetSummon.find(decorGuid);
+    if (summonItr != _decorGuidToPetSummon.end())
+    {
+        if (Creature* oldPet = GetCreature(summonItr->second))
+            oldPet->DespawnOrUnsummon();
+        _decorGuidToPetSummon.erase(summonItr);
+    }
+
+    ObjectGuid spawnedPetGuid;
+    if (!battlePetGuid.IsEmpty() && creatureId != 0)
+    {
+        // Spawn the companion creature beside the decor. Retail walks it around the cage;
+        // a passive creature stands in place until pet AI is tuned.
+        if (CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(creatureId))
+        {
+            Position petPos = obj->GetPosition();
+            float const escapeDistance = 1.5f;
+            petPos.Relocate(petPos.GetPositionX() + std::cos(petPos.GetOrientation()) * escapeDistance,
+                petPos.GetPositionY() + std::sin(petPos.GetOrientation()) * escapeDistance,
+                petPos.GetPositionZ());
+
+            if (TempSummon* summon = SummonCreature(creatureId, petPos, nullptr, Milliseconds(0), obj))
+            {
+                summon->SetReactState(REACT_PASSIVE);
+                summon->SetImmuneToAll(true);
+                summon->SetControlled(true, UNIT_STATE_ROOT);
+                spawnedPetGuid = summon->GetGUID();
+                _decorGuidToPetSummon[decorGuid] = spawnedPetGuid;
+            }
+        }
+    }
+
+    obj->SetHousingDecorPet(battlePetGuid, creatureId, petName, petBehavior, spawnedPetGuid);
+}
+
+void HouseInteriorMap::RestoreDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid petGuid, uint8 petBehavior)
+{
+    if (!obj || petGuid.IsEmpty())
+        return;
+
+    // PetInfo needs CreatureID/name from the owner's battle pet journal (only the journal
+    // GUID is persisted with the decor row). The owner is connected whenever this map is
+    // being populated; without the journal the client just shows an unbound cage.
+    if (Player* owner = ObjectAccessor::FindConnectedPlayer(_owner))
+        if (BattlePets::BattlePetMgr* petMgr = owner->GetSession()->GetBattlePetMgr())
+            if (BattlePets::BattlePet const* pet = petMgr->GetPet(petGuid))
+                ApplyDecorPetBinding(obj, decorGuid, petGuid, pet->PacketInfo.CreatureID, pet->PacketInfo.Name, petBehavior);
 }
 
 void HouseInteriorMap::UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale /*= 1.0f*/)
@@ -1255,6 +1334,15 @@ void HouseInteriorMap::UpdateDecorPosition(ObjectGuid decorGuid, Position const&
 
 void HouseInteriorMap::DespawnDecorItem(ObjectGuid decorGuid)
 {
+    // Remove the bound companion creature first, then the decor itself.
+    auto petItr = _decorGuidToPetSummon.find(decorGuid);
+    if (petItr != _decorGuidToPetSummon.end())
+    {
+        if (Creature* pet = GetCreature(petItr->second))
+            pet->DespawnOrUnsummon();
+        _decorGuidToPetSummon.erase(petItr);
+    }
+
     auto itr = _decorGuidToObjGuid.find(decorGuid);
     if (itr == _decorGuidToObjGuid.end())
     {
@@ -1584,10 +1672,20 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             float fbX = _originX - 2.52f;
                             float fbY = _originY;
                             float fbZ = _originZ + 0.02f;
-                            if (GameObject* doorGo = p->SummonGameObject(INTERIOR_DOOR_GO_ALLIANCE,
-                                Position(fbX, fbY, fbZ, 0.0f), QuaternionData(0, 0, 0, 1), 0s))
+                            if (!_doorGoGuid.IsEmpty() && GetGameObject(_doorGoGuid))
+                                return;
+                            if (GameObject* doorGo = GameObject::CreateGameObject(INTERIOR_DOOR_GO_ALLIANCE, this,
+                                Position(fbX, fbY, fbZ, 0.0f), QuaternionData(0, 0, 0, 1), 255, GO_STATE_READY))
                             {
+                                doorGo->SetSpawnedByDefault(false);
+                                doorGo->SetRespawnTime(0);
                                 doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                                PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(),
+                                    PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+                                if (AddToMap(doorGo))
+                                    _doorGoGuid = doorGo->GetGUID();
+                                else
+                                    delete doorGo;
                             }
                             return;
                         }
@@ -1622,11 +1720,20 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             TC_LOG_ERROR("housing", "InteriorDoor: entry hall room (slot 0) NOT FOUND — "
                                 "falling back to SummonGameObject");
                             // Fallback to the old simple approach so door still works
-                            if (GameObject* doorGo = p->SummonGameObject(doorGoEntry,
-                                Position(doorWorldX, doorWorldY, doorWorldZ, 0.0f),
-                                QuaternionData(0, 0, 0, 1), 0s))
+                            if (!_doorGoGuid.IsEmpty() && GetGameObject(_doorGoGuid))
+                                return;
+                            if (GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this,
+                                Position(doorWorldX, doorWorldY, doorWorldZ, 0.0f), QuaternionData(0, 0, 0, 1), 255, GO_STATE_READY))
                             {
+                                doorGo->SetSpawnedByDefault(false);
+                                doorGo->SetRespawnTime(0);
                                 doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                                PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(),
+                                    PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+                                if (AddToMap(doorGo))
+                                    _doorGoGuid = doorGo->GetGUID();
+                                else
+                                    delete doorGo;
                             }
                             return;
                         }
@@ -1656,10 +1763,20 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             {
                                 TC_LOG_ERROR("housing", "InteriorDoor: decorEntity Create FAILED — falling back to SummonGameObject");
                                 delete decorEntity;
-                                if (GameObject* doorGo = p->SummonGameObject(doorGoEntry,
-                                    doorWorldPos, QuaternionData(0, 0, 0, 1), 0s))
+                                if (!_doorGoGuid.IsEmpty() && GetGameObject(_doorGoGuid))
+                                    return;
+                                if (GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this,
+                                    doorWorldPos, QuaternionData(0, 0, 0, 1), 255, GO_STATE_READY))
                                 {
+                                    doorGo->SetSpawnedByDefault(false);
+                                    doorGo->SetRespawnTime(0);
                                     doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                                    PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(),
+                                        PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+                                    if (AddToMap(doorGo))
+                                        _doorGoGuid = doorGo->GetGUID();
+                                    else
+                                        delete doorGo;
                                 }
                                 return;
                             }
@@ -1684,10 +1801,20 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                             {
                                 TC_LOG_ERROR("housing", "InteriorDoor: decorEntity AddToMap FAILED — falling back to SummonGameObject");
                                 delete decorEntity;
-                                if (GameObject* doorGo = p->SummonGameObject(doorGoEntry,
-                                    doorWorldPos, QuaternionData(0, 0, 0, 1), 0s))
+                                if (!_doorGoGuid.IsEmpty() && GetGameObject(_doorGoGuid))
+                                    return;
+                                if (GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this,
+                                    doorWorldPos, QuaternionData(0, 0, 0, 1), 255, GO_STATE_READY))
                                 {
+                                    doorGo->SetSpawnedByDefault(false);
+                                    doorGo->SetRespawnTime(0);
                                     doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                                    PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(),
+                                        PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+                                    if (AddToMap(doorGo))
+                                        _doorGoGuid = doorGo->GetGUID();
+                                    else
+                                        delete doorGo;
                                 }
                                 return;
                             }
@@ -1697,22 +1824,38 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                         {
                         }
 
-                        // Spawn the interactive GO via SummonGameObject — this path is proven
-                        // to trigger visibility updates to the existing player. Manual
-                        // CreateGameObject+AddToMap misses SetSpawnedByDefault(false) +
-                        // SetRespawnTime(0) and resulted in the GO being invisible client-side.
-                        // This always runs (even on re-entry with existing decor) because the
-                        // GO is PrivateObjectOwner-tied to the player and despawns on leave.
-                        GameObject* doorGo = p->SummonGameObject(doorGoEntry,
-                            doorWorldPos, QuaternionData(0, 0, 0, 1), 0s);
-                        if (!doorGo)
+                        // Map-owned door GO (NOT a player summon): SummonGameObject registers
+                        // the GO in the summoner's Player-owned set, which despawns it when that
+                        // player leaves the map - guests lost the door the moment the owner
+                        // walked out. A map-owned GO with SetSpawnedByDefault(false) +
+                        // SetRespawnTime(0) persists for everyone and is re-created on demand.
+                        if (_doorGoGuid.IsEmpty() || !GetGameObject(_doorGoGuid))
                         {
-                            TC_LOG_ERROR("housing", "InteriorDoor: SummonGameObject FAILED for entry={}",
-                                doorGoEntry);
-                            return;
-                        }
+                            GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this,
+                                doorWorldPos, QuaternionData(0, 0, 0, 1), 255, GO_STATE_READY);
+                            if (!doorGo)
+                            {
+                                TC_LOG_ERROR("housing", "InteriorDoor: CreateGameObject FAILED for entry={}",
+                                    doorGoEntry);
+                                return;
+                            }
 
-                        doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                            doorGo->SetSpawnedByDefault(false);
+                            doorGo->SetRespawnTime(0);
+                            doorGo->ReplaceAllFlags(GameObjectFlags(0x40000));
+                            PhasingHandler::InitDbPhaseShift(doorGo->GetPhaseShift(),
+                                PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
+
+                            if (!AddToMap(doorGo))
+                            {
+                                TC_LOG_ERROR("housing", "InteriorDoor: AddToMap FAILED for entry={}",
+                                    doorGoEntry);
+                                delete doorGo;
+                                return;
+                            }
+
+                            _doorGoGuid = doorGo->GetGUID();
+                        }
 
                     }
 

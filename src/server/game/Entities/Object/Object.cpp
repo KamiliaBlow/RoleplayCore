@@ -151,6 +151,32 @@ void Object::SetHousingDecorDyeSlots(std::array<uint32, 3> const& dyeSlots)
         RemoveOptionalUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::DyeSlots));
 }
 
+void Object::SetHousingDecorPet(ObjectGuid battlePetGuid, uint32 creatureId, std::string petName, uint8 petBehavior,
+    ObjectGuid spawnedPet /*= ObjectGuid::Empty*/)
+{
+    if (!m_housingDecorData.has_value())
+        return;
+
+    // Retail: binding a battle pet to CAN_ATTACH_PET decor fills FHousingDecor_C.PetInfo;
+    // an empty GUID clears the optional. SpawnGroup stays empty (no spawn-group linkage).
+    if (battlePetGuid.IsEmpty())
+    {
+        RemoveOptionalUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+            .ModifyValue(&UF::HousingDecorData::PetInfo));
+        return;
+    }
+
+    auto petRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::PetInfo, 0);
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::BattlePetGUID), battlePetGuid);
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::CreatureID), creatureId);
+    if (!petName.empty())
+        SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::PetName), std::move(petName));
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::PetBehavior), petBehavior);
+    if (!spawnedPet.IsEmpty())
+        SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::SpawnedPet), spawnedPet);
+}
+
 void Object::ClearValuesChangesMask()
 {
     m_values.ClearChangesMask(&Object::m_objectData);

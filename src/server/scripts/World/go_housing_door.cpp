@@ -72,7 +72,7 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
     }
 
     // Fall back to the visitor's own housing when the owner lookup
-    // fails (shouldn't happen — the owner exists by construction
+    // fails (shouldn't happen ? the owner exists by construction
     // since the interior map was created for them).
     if (!nbh)
     {
@@ -240,6 +240,15 @@ public:
                         "(owner {} flags 0x{:X})",
                         player->GetGUID().ToString(), plotIndex, plotInfo->OwnerGuid.ToString(),
                         settingsFlags);
+                    // Push a permissions refresh with flags 0 for this house: the client derives
+                    // HouseEditorPlayerType.None from it ("without even sufficient visiting
+                    // permissions") and shows its own ERR_HOUSING_ACTION_NOENTRY
+                    // ("This house is closed to visitors.") - no server text is sent.
+                    WorldPackets::Housing::HousingGetPlayerPermissionsResponse response;
+                    response.HouseGuid = plotInfo->HouseGuid;
+                    response.ResultCode = 0;
+                    response.PermissionFlags = 0;
+                    player->SendDirectMessage(response.Write());
                     return true;
                 }
 
@@ -263,7 +272,7 @@ public:
 
             if (!ok)
             {
-                TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED — player {} → map {} "
+                TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED ? player {} ? map {} "
                     "from plot {}",
                     player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex);
             }

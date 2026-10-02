@@ -233,11 +233,6 @@ public:
     std::vector<PlacedDecor const*> GetAllPlacedDecor() const;
     uint32 GetDecorCount() const { return static_cast<uint32>(_placedDecor.size()); }
 
-    // Auto-place starter decor in the visual room (called after catalog is populated).
-    // Sniff-verified: retail pre-places starter items at fixed positions in Room 1.
-    // The "Welcome Home" quest requires the player to remove 3 of these items.
-    uint32 PlaceStarterDecor();
-
     // Room operations
     HousingResult PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 orientation, bool mirrored, ObjectGuid* outRoomGuid = nullptr, int32 gridX = 0, int32 gridY = 0, int32 floorIndex = 0);
     HousingResult RemoveRoom(ObjectGuid roomGuid);

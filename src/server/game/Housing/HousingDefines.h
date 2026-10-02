@@ -19,6 +19,7 @@
 #define TRINITYCORE_HOUSING_DEFINES_H
 
 #include "Define.h"
+#include "Duration.h"
 
 // HousingResult enum - 12.1.0.69587 client values (Enum.HousingResult, 112 values). 12.1 inserted AccountBanned and the
 // Blueprint* results near the top, shifting every later value; the client's blueprint system itself returns 3, 7, 8,
@@ -231,11 +232,11 @@ enum HousingRoomComponentOptionType : uint8
     HOUSING_ROOM_COMPONENT_OPTION_DOORWAY       = 2
 };
 
-// DecorSourceType — identifies how a decor item was acquired.
+// DecorSourceType ? identifies how a decor item was acquired.
 // IDA-verified: client reads SourceType as uint8 and SourceValue as SizedCString from DecorStoragePersistedData.
 // Retail sniff examples:
-//   SourceType=5, SourceValue="1250393"            → spell-acquired (spell ID as string)
-//   SourceType=6, SourceValue="3713-0-40000009CD1F16CB" → item-acquired (item GUID as string)
+//   SourceType=5, SourceValue="1250393"            ? spell-acquired (spell ID as string)
+//   SourceType=6, SourceValue="3713-0-40000009CD1F16CB" ? item-acquired (item GUID as string)
 enum DecorSourceType : uint8
 {
     DECOR_SOURCE_STANDARD       = 0, // Default / starter decor / placed
@@ -415,7 +416,10 @@ enum HouseSettingFlags : uint32
     HOUSE_SETTING_BLUEPRINT_EXPORT_PARTY    = 0x4000
 };
 
-constexpr uint32 HOUSE_SETTING_DEFAULT    = HOUSE_SETTING_PLOT_ACCESS_ANYONE; // 0x020 — sniff-verified default
+// Fresh-house default: plot AND house open to everyone. 0x020 alone was the sniffed value of an
+// existing house; with the "no bits = open" fallback removed from CanVisitorAccessPlot, a default
+// of 0x020 would lock fresh interiors to guests until the owner saves settings once.
+constexpr uint32 HOUSE_SETTING_DEFAULT    = HOUSE_SETTING_PLOT_ACCESS_ANYONE | HOUSE_SETTING_HOUSE_ACCESS_ANYONE;
 constexpr uint32 HOUSE_SETTING_VALID_MASK = 0x7FFF; // bits 0-14
 
 // HousingDecorPlacementFlags enum - 5 values (bitmask)
@@ -432,6 +436,17 @@ enum HousingDecorPlacementFlags : int32
 // own house; 0x10 in 8 of the 16 for other houses (the rest 0x18 or 0, rules not yet known).
 constexpr uint8 HOUSING_PERMISSIONS_OWNER   = 0xFE;
 constexpr uint8 HOUSING_PERMISSIONS_VISITOR = 0x10;
+
+// TrinityString entry for the plot-eviction warning (ID chosen to match the live DB).
+// Retail sends it as CHAT_MSG_RAID_BOSS_WHISPER with the sender set to the visitor
+// (dump 2026-10-02 12:25: packet #20314, HasBroadcastTextID=false - the text is
+// server-side, not a GlobalString).
+constexpr uint32 HOUSING_STRING_PLOT_ACCESS_DENIED = 304665;
+
+// Plot eviction sequence (dump 2026-10-02 12:25: SPELL_GO #20308 + AURA_UPDATE with
+// Duration=5000, then the whisper, then MOVE_TELEPORT_ACK ~5s later when the aura expires).
+constexpr uint32 SPELL_HOUSING_PLOT_EVICT_WARNING = 1245416;
+constexpr Milliseconds HOUSING_PLOT_EVICT_DELAY = 5s;
 
 // HouseDecor.db2 Flags bit carried by licensed (shop / promotional) decor. Retail 12.1.0.69933 lists only such
 // entries in SMSG_GET_ALL_LICENSED_DECOR_QUANTITIES_RESPONSE (all 8 captured have Flags 0x503 or 0x403);
@@ -534,7 +549,7 @@ enum HousingDecorModelType : uint8
     HOUSING_DECOR_MODEL_TYPE_WMO    = 2
 };
 
-// NeighborhoodInitiativeUpdateStatus enum — sent via SMSG_INITIATIVE_UPDATE_STATUS
+// NeighborhoodInitiativeUpdateStatus enum ? sent via SMSG_INITIATIVE_UPDATE_STATUS
 enum NeighborhoodInitiativeUpdateStatus : uint8
 {
     NI_UPDATE_STATUS_STARTED                = 0,
@@ -543,7 +558,7 @@ enum NeighborhoodInitiativeUpdateStatus : uint8
     NI_UPDATE_STATUS_FAILED                 = 3
 };
 
-// NeighborhoodInitiativeChestResult enum — sent via SMSG_INITIATIVE_CHEST_RESULT
+// NeighborhoodInitiativeChestResult enum ? sent via SMSG_INITIATIVE_CHEST_RESULT
 enum NeighborhoodInitiativeChestResult : uint32
 {
     NI_CHEST_SUCCESS                = 0,
@@ -554,7 +569,7 @@ enum NeighborhoodInitiativeChestResult : uint32
     NI_CHEST_SERVICE_DISABLED       = 5
 };
 
-// NeighborhoodInitiativeTaskType enum — from InitiativeTask DB2 TaskType field
+// NeighborhoodInitiativeTaskType enum ? from InitiativeTask DB2 TaskType field
 enum NeighborhoodInitiativeTaskType : int32
 {
     NI_TASK_TYPE_SINGLE                 = 0,
@@ -562,7 +577,7 @@ enum NeighborhoodInitiativeTaskType : int32
     NI_TASK_TYPE_REPEATABLE_INFINITE    = 2
 };
 
-// NeighborhoodInitiativeCompletionState enum — per-task completion state
+// NeighborhoodInitiativeCompletionState enum ? per-task completion state
 enum NeighborhoodInitiativeCompletionState : uint8
 {
     NI_COMPLETION_NOT_COMPLETED         = 0,
@@ -570,7 +585,7 @@ enum NeighborhoodInitiativeCompletionState : uint8
     NI_COMPLETION_SYSTEM_ABANDONED      = 2
 };
 
-// NeighborhoodInitiativeFlags enum — from NeighborhoodInitiative DB2 Flags field
+// NeighborhoodInitiativeFlags enum ? from NeighborhoodInitiative DB2 Flags field
 enum NeighborhoodInitiativeFlags : uint32
 {
     NI_FLAG_DISABLED    = 0x1,
@@ -578,13 +593,13 @@ enum NeighborhoodInitiativeFlags : uint32
     NI_FLAG_NO_REPEAT   = 0x4
 };
 
-// InitiativeMilestoneFlags enum — from InitiativeMilestone DB2 Flags field
+// InitiativeMilestoneFlags enum ? from InitiativeMilestone DB2 Flags field
 enum InitiativeMilestoneFlags : int32
 {
     INITIATIVE_MILESTONE_FLAG_FINAL = 0x1
 };
 
-// InitiativeRewardFlags enum — from InitiativeReward DB2 Flags field
+// InitiativeRewardFlags enum ? from InitiativeReward DB2 Flags field
 enum InitiativeRewardFlags : int32
 {
     INITIATIVE_REWARD_FLAG_PERMANENT_WORLD_STATE = 0x1
@@ -812,7 +827,7 @@ static constexpr uint32 HOUSING_DECOR_CATEGORY_LIGHTING = 4;
 // A4 / RETAIL PARITY-OUTDOOR-LIGHT-RADIUS: 12.0.7 rule "two lights cannot overlap".
 // The exact light-to-light overlap radius is NOT datamineable from DB2 or any
 // capture we hold (CAPTURE-BLOCKED). This is a documented default minimum
-// separation between two exterior lights, in local decor space (yards) — replace
+// separation between two exterior lights, in local decor space (yards) ? replace
 // with the sniffed value once an outdoor-light placement capture exists.
 static constexpr float HOUSING_LIGHT_OVERLAP_RADIUS = 3.0f;
 
@@ -851,7 +866,7 @@ static constexpr uint32 MAX_HOUSE_LEVEL                 = 12;   // HouseLevelDat
 static constexpr uint64 HOUSE_PURCHASE_STARTER_FAVOR    = 910;
 
 // Neighborhood initiative ("Endeavor" in the client UI) progress is reported to the client on a
-// 0..1000 point scale — sniff-verified: PlayerInitiativeInfo.ProgressRequired == 1000.
+// 0..1000 point scale ? sniff-verified: PlayerInitiativeInfo.ProgressRequired == 1000.
 // InitiativeTask.ProgressContributionAmount (12.0.7 DB2 values 10/25/50/75/100/150/300) is how
 // many of those points ONE completion of that task is worth.
 static constexpr float INITIATIVE_PROGRESS_REQUIRED     = 1000.0f;
@@ -868,7 +883,7 @@ static constexpr float INITIATIVE_MILESTONE_SCALE       = 100.0f;
 // the deed that earned it): null anchor guid, Arg1 = Arg2 = 0, and this exact 34-byte string. The
 // colour token is resolved client-side; the "+Neighborly" wording matches the CriteriaTree strings
 // "Neighborly deeds performed" / "Good Neighbor Points". Only the enUS sample exists, so this is not
-// localized — retail presumably sends the client's locale here.
+// localized ? retail presumably sends the client's locale here.
 constexpr char const HOUSING_WORLD_TEXT_NEIGHBORLY[] = "|cnYELLOW_FONT_COLOR:+Neighborly|r";
 
 // Quest 91863 objective 17 ("Acquire a house") kill credit, granted on successful purchase.
@@ -896,11 +911,11 @@ static constexpr uint32 SPELL_HOUSING_PLOT_ENTER        = 1239847;
 // Sniff: aura slot 56, Flags=NoCaster, ActiveFlags=1, CastLevel=36
 static constexpr uint32 SPELL_HOUSING_PLOT_PRESENCE     = 469226;
 
-// Third spell applied on first plot enter — replaces slot 9 aura
+// Third spell applied on first plot enter ? replaces slot 9 aura
 // Sniff: aura slot 9, Flags=NoCaster|Scalable(9), ActiveFlags=1, CastLevel=36, has PointsCount
 static constexpr uint32 SPELL_HOUSING_PLOT_ENTER_2      = 1266699;
 
-// Neighborhood map-entry auras — 4 housing-specific auras applied immediately
+// Neighborhood map-entry auras ? 4 housing-specific auras applied immediately
 // after the big SMSG_UPDATE_OBJECT batch at neighborhood-map entry. Decoded
 // from dump_12.0.1.66838_2026-04-15_09-35-59.pkt idx 9985-10000 (and
 // cross-checked against the 2026-04-10 capture at idx 15673-15690).
@@ -920,15 +935,15 @@ static constexpr uint32 VISUAL_HOUSING_MAP_ENTRY_NEIGHBOR  = 503683;
 // post-tutorial aura set and all editor modes (expert/cleanup/layout/customize) unlock.
 static constexpr uint32 QUEST_HOUSING_TUTORIAL_COMPLETE = 94455; // "Home at Last"
 
-// "Create a Neighborhood" — retail wires charter founding to this quest: it provides the
+// "Create a Neighborhood" ? retail wires charter founding to this quest: it provides the
 // Neighborhood Charter item (239098), whose use opens the charter UI, and the completed
 // charter is turned in to the steward. Blizzard support: charter neighborhoods require
 // 10 signatures on retail (MIN_CHARTER_SIGNATURES above is the current server policy).
 static constexpr uint32 QUEST_CREATE_A_NEIGHBORHOOD = 89450;
-// Neighborhood Charter — provided by quest 89450; re-obtainable from stewards on retail.
+// Neighborhood Charter ? provided by quest 89450; re-obtainable from stewards on retail.
 static constexpr uint32 ITEM_NEIGHBORHOOD_CHARTER = 239098;
 
-// Post-tutorial auras — applied when QUEST_HOUSING_TUTORIAL_COMPLETE is completed.
+// Post-tutorial auras ? applied when QUEST_HOUSING_TUTORIAL_COMPLETE is completed.
 // Sniff-verified: quest reward removes old tutorial auras (slots 8,9,50) and replaces them
 // with these three new ones. These don't exist in DB2, so we send manual SMSG_AURA_UPDATE.
 // Slot 8: Flags=NoCaster, ActiveFlags=1, CastLevel=36
@@ -939,7 +954,7 @@ static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_2   = 1285424;
 // Note: Same spell ID as SPELL_HOUSING_PLOT_ENTER_2 but applied at slot 50 (not slot 9)
 static constexpr uint32 SPELL_HOUSING_TUTORIAL_DONE_3   = 1266699;
 
-// WorldState IDs — continuous counters sent throughout the entire housing session.
+// WorldState IDs ? continuous counters sent throughout the entire housing session.
 // 12.1.0.69933 retail sends counters 1-3 as individual SMSG_UPDATE_WORLD_STATE packets every ~5 s
 // (+1333 each).
 static constexpr uint32 WORLDSTATE_HOUSING_COUNTER_1    = 13436;
@@ -977,7 +992,7 @@ static constexpr int32 HORDE_HOUSE_EXTERIOR_WMO_DATA_ID = 87;
 // Max players allowed on a housing map (exterior neighborhood + interior combined)
 static constexpr uint32 MAX_HOUSING_MAP_PLAYERS = 40;
 
-// Housing warning flags — reasons why housing features may be restricted
+// Housing warning flags ? reasons why housing features may be restricted
 enum HousingWarningFlag : uint32
 {
     HOUSING_WARNING_NONE                    = 0x00,

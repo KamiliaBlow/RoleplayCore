@@ -118,6 +118,16 @@ public:
     /// Update position/rotation of a single interior decor item.
     void UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale = 1.0f);
     void UpdateDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots);
+    void UpdateDecorPet(ObjectGuid decorGuid, ObjectGuid battlePetGuid, uint32 creatureId, std::string const& petName, uint8 petBehavior);
+    // Restores FHousingDecor_C.PetInfo from the owner's battle pet journal at spawn time
+    // and spawns the companion creature beside the decor.
+    void ApplyDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid battlePetGuid,
+        uint32 creatureId, std::string const& petName, uint8 petBehavior);
+
+private:
+    void RestoreDecorPetBinding(WorldObject* obj, ObjectGuid decorGuid, ObjectGuid petGuid, uint8 petBehavior);
+
+public:
 
     /// Despawn a single decor item by its Housing decor GUID.
     void DespawnDecorItem(ObjectGuid decorGuid);
@@ -181,6 +191,12 @@ private:
 
     /// Decor GUID ? visual object GUID (for despawning individual decor items)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
+
+    /// Decor GUID ? companion battle pet creature GUID (CAN_ATTACH_PET decor)
+    std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToPetSummon;
+
+    /// Map-owned interior exit door GO (persists across owner leave/re-entry)
+    ObjectGuid _doorGoGuid;
 
     /// HousingRoomEntity instances (objectType=18, Housing/2 GUIDs) for the layout editor
     std::vector<HousingRoomEntity*> _roomEntities;

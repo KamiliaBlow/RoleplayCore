@@ -179,6 +179,9 @@ class TC_GAME_API Object : public BaseEntity
         bool HasHousingDecorData() const { return m_housingDecorData.has_value(); }
         // DyeColor.db2 IDs per DecorDyeSlot (0 = undyed); all zero drops the optional DyeSlots.
         void SetHousingDecorDyeSlots(std::array<uint32, 3> const& dyeSlots);
+        // Fills FHousingDecor_C.PetInfo (battle pet bound to this decor); empty GUID clears it.
+        void SetHousingDecorPet(ObjectGuid battlePetGuid, uint32 creatureId, std::string petName, uint8 petBehavior,
+            ObjectGuid spawnedPet = ObjectGuid::Empty);
         UF::OptionalUpdateField<UF::HousingDecorData, int32(WowCS::EntityFragment::FHousingDecor_C), 0> m_housingDecorData;
         UF::OptionalUpdateField<UF::HousingRoomData, int32(WowCS::EntityFragment::FHousingRoom_C), 0> m_housingRoomData;
         UF::OptionalUpdateField<UF::HousingRoomComponentMeshData, int32(WowCS::EntityFragment::FHousingRoomComponentMesh_C), 0> m_housingRoomComponentMeshData;
