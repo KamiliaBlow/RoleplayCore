@@ -3024,13 +3024,25 @@ void HousingMap::SpawnAllDecorForPlot(uint8 plotIndex, Housing const* housing)
     if (!housing)
         return;
 
+    uint32 expected = 0;
+    for (auto const& [decorGuid, decor] : housing->GetPlacedDecorMap())
+        if (decor.RoomGuid.IsEmpty())
+            ++expected;
+
     if (_decorSpawnedPlots.count(plotIndex))
     {
-        TC_LOG_ERROR("housing", "HousingMap::SpawnAllDecorForPlot: Plot {} already in _decorSpawnedPlots — skipping respawn "
-            "(decorGuidMap.size={} decorGOs[{}].size={})",
-            plotIndex, uint32(_decorGuidToGoGuid.size()),
-            plotIndex, _decorGameObjects.count(plotIndex) ? uint32(_decorGameObjects[plotIndex].size()) : 0);
-        return; // Already spawned
+        uint32 const spawned = _decorGameObjects.count(plotIndex) ? uint32(_decorGameObjects[plotIndex].size()) : 0;
+        // A preload that matched no decor (stale mark from a load-order race) must not permanently
+        // block the owner's own spawn pass; partially spawned plots self-heal through place/remove.
+        if (spawned > 0 || expected == 0)
+        {
+            TC_LOG_ERROR("housing", "HousingMap::SpawnAllDecorForPlot: Plot {} already in _decorSpawnedPlots — skipping respawn "
+                "(decorGuidMap.size={} decorGOs[{}].size={})",
+                plotIndex, uint32(_decorGuidToGoGuid.size()),
+                plotIndex, _decorGameObjects.count(plotIndex) ? uint32(_decorGameObjects[plotIndex].size()) : 0);
+            return; // Already spawned
+        }
+        _decorSpawnedPlots.erase(plotIndex);
     }
 
     ObjectGuid houseGuid = housing->GetHouseGuid();

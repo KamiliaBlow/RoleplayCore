@@ -267,7 +267,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             if (wrongRoomGuid.IsEmpty())
                 wrongRoomGuid = guid;
             else
-                hasVisualRoom = true; // Multiple visual rooms — don't mess with them
+                hasVisualRoom = true; // Multiple visual rooms - don't mess with them
         }
 
         if (!hasVisualRoom && wrongRoomGuid.IsEmpty() && correctVisualRoom)
@@ -412,7 +412,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
 
     if ((!hasBaseRoot || !hasRoofRoot || !hasDoor) && _houseType != 0)
     {
-        TC_LOG_INFO("housing", "Housing::LoadFromDB: Missing starter fixtures (base={}, roof={}, door={}) for house {} — populating (migration)",
+        TC_LOG_INFO("housing", "Housing::LoadFromDB: Missing starter fixtures (base={}, roof={}, door={}) for house {} - populating (migration)",
             hasBaseRoot, hasRoofRoot, hasDoor, _houseGuid.ToString());
         PopulateStarterFixtures();
     }
@@ -447,7 +447,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 entry.Count = qty;
                 entry.SourceType = DECOR_SOURCE_DEFERRED; // starter copies retire the client's StartingQuantity credit (see purchase handler)
             }
-            TC_LOG_INFO("housing", "Housing::LoadFromDB: Catalog was empty for house {} — auto-populated {} starter decor types for player {}",
+            TC_LOG_INFO("housing", "Housing::LoadFromDB: Catalog was empty for house {} - auto-populated {} starter decor types for player {}",
                 _houseGuid.ToString(), uint32(starterDecorWithQty.size()), _ownerGuid.ToString());
 
             // Persist the fixup so it only happens once
@@ -500,7 +500,8 @@ static void BindDecorInsert(CharacterDatabasePreparedStatement* stmt, ObjectGuid
     stmt->setUInt32(index++, decor.DyeSlots[0]);
     stmt->setUInt32(index++, decor.DyeSlots[1]);
     stmt->setUInt32(index++, decor.DyeSlots[2]);
-    stmt->setUInt64(index++, decor.RoomGuid.IsEmpty() ? 0 : decor.RoomGuid.GetCounter());
+    stmt->setUInt64(index++, !decor.RoomGuid.IsEmpty() && !Housing::IsExteriorDecorPlacement(decor.RoomGuid)
+        ? decor.RoomGuid.GetCounter() : 0);
     stmt->setUInt8(index++, decor.Locked ? 1 : 0);
     stmt->setUInt64(index++, static_cast<uint64>(decor.PlacementTime));
     stmt->setUInt8(index++, decor.SourceType);
@@ -674,7 +675,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     _editorMode = HOUSING_EDITOR_MODE_NONE;
     _exteriorLocked = false;
     _houseSize = HOUSING_FIXTURE_SIZE_SMALL;
-    // Racial house style: Night Elf → 55, Blood Elf → 56, other Alliance → 9, other Horde → 87
+    // Racial house style: Night Elf -> 55, Blood Elf -> 56, other Alliance -> 9, other Horde -> 87
     _houseType = HousingMgr::GetRacialWmoDataID(_owner->GetRace(), _owner->GetTeam());
     _createTime = static_cast<uint32>(GameTime::GetGameTime());
     _hasCustomPosition = false;
@@ -684,7 +685,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     uint32 bnetAccountId = _owner->GetSession() ? _owner->GetSession()->GetBattlenetAccountId() : 0;
     if (bnetAccountId == 0)
     {
-        TC_LOG_ERROR("housing", "Housing::Create: BNetAccountId is 0 for player {} — falling back to player GUID counter",
+        TC_LOG_ERROR("housing", "Housing::Create: BNetAccountId is 0 for player {} - falling back to player GUID counter",
             _ownerGuid.ToString());
         bnetAccountId = static_cast<uint32>(_ownerGuid.GetCounter());
     }
@@ -700,7 +701,7 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
     if (visualRoom)
     {
-        // Entry door at +3, Room1 door at -12 → spacing = 3-(-12) = 15 yards
+        // Entry door at +3, Room1 door at -12 -> spacing = 3-(-12) = 15 yards
         HousingResult visualResult = PlaceRoom(visualRoom, /*slotIndex*/ 1, /*orientation*/ 0, /*mirrored*/ false, nullptr, /*gridX*/ 15, /*gridY*/ 0);
         if (visualResult == HOUSING_RESULT_SUCCESS)
         {
@@ -709,14 +710,14 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
         }
         else
         {
-            TC_LOG_ERROR("housing", "Housing::Create: PlaceRoom FAILED for visual room entry {} — result={} — "
+            TC_LOG_ERROR("housing", "Housing::Create: PlaceRoom FAILED for visual room entry {} - result={} - "
                 "interior will be empty for player {}",
                 visualRoom, visualResult, _owner->GetName());
         }
     }
     else
     {
-        TC_LOG_ERROR("housing", "Housing::Create: No visual room entry found — interior will be empty for player {}",
+        TC_LOG_ERROR("housing", "Housing::Create: No visual room entry found - interior will be empty for player {}",
             _owner->GetName());
     }
 
@@ -798,15 +799,7 @@ ObjectGuid Housing::StartPlacingNewDecor(uint32 catalogEntryId, HousingResult& r
         return ObjectGuid::Empty;
     }
 
-    // Check decor count limit
-    uint32 maxDecor = GetMaxDecorCount();
-    if (GetDecorCount() >= maxDecor)
-    {
-        result = HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
-        return ObjectGuid::Empty;
-    }
-
-    // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
+    // Must use subType=1 (decor GUID format) - subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
     ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
         /*subType*/ 1, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
@@ -853,10 +846,6 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
 
     if (HousingResult boundsResult = CheckInteriorDecorBounds(roomGuid, x, y, z); boundsResult != HOUSING_RESULT_SUCCESS)
         return boundsResult;
-
-    uint32 maxDecor = GetMaxDecorCount();
-    if (GetDecorCount() >= maxDecor)
-        return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
 
     // The client always sends a non-Empty RoomGuid; exterior placements use the plot's base room identity,
     // routed to the exterior budget with the RoomGuid preserved as-sent.
@@ -985,10 +974,6 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (HousingResult boundsResult = CheckInteriorDecorBounds(roomGuid, x, y, z); boundsResult != HOUSING_RESULT_SUCCESS)
         return boundsResult;
 
-    uint32 maxDecor = GetMaxDecorCount();
-    if (GetDecorCount() >= maxDecor)
-        return HOUSING_RESULT_MAX_PLACED_DECOR_REACHED;
-
     uint32 weightCost = sHousingMgr.GetDecorWeightCost(decorEntryId);
     bool const isExterior = IsExteriorDecorPlacement(roomGuid);
 
@@ -1028,7 +1013,7 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
         return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
-    // Must use subType=1 (decor GUID format) — subType=0 returns ObjectGuid::Empty!
+    // Must use subType=1 (decor GUID format) - subType=0 returns ObjectGuid::Empty!
     uint64 newDbId = GenerateDecorDbId();
     ObjectGuid decorGuid = ObjectGuid::Create<HighGuid::Housing>(
         /*subType*/ 1, /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
@@ -1080,7 +1065,7 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
         CharacterDatabase.Execute(stmt);
     }
 
-    // Update account decor storage UpdateField (only if storage is populated — not during LoadFromDB)
+    // Update account decor storage UpdateField (only if storage is populated - not during LoadFromDB)
     if (_storagePopulated && _owner->GetSession())
         _owner->GetSession()->GetBattlenetAccount().SetHousingDecorStorageEntry(decorGuid, _houseGuid, decor.SourceType, decor.SourceValue,
             isExterior ? std::optional<uint8>(HOUSING_DECOR_PLACED_PLOT) : std::nullopt);
@@ -1330,7 +1315,7 @@ HousingResult Housing::ResetDecor(uint8 scope, uint32* outRemoved /*= nullptr*/)
 
     bool wantExterior = (scope == 2);
 
-    // Snapshot the matching guids first — RemoveDecor mutates _placedDecor.
+    // Snapshot the matching guids first - RemoveDecor mutates _placedDecor.
     std::vector<ObjectGuid> toRemove;
     toRemove.reserve(_placedDecor.size());
     for (auto const& [guid, decor] : _placedDecor)
@@ -2330,7 +2315,7 @@ HousingResult Housing::SelectFixtureOption(uint32 fixturePointId, uint32 optionI
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
 
-    // Root fixture selections (optionId == 0) use componentID as fixturePointId — skip hook validation
+    // Root fixture selections (optionId == 0) use componentID as fixturePointId - skip hook validation
     if (optionId != 0)
     {
         ExteriorComponentHookEntry const* hookEntry = sExteriorComponentHookStore.LookupEntry(fixturePointId);
@@ -2503,7 +2488,7 @@ HousingResult Housing::RemoveFixture(uint32 componentID, uint32* outHookID /*= n
 
     _fixtures.erase(itr);
 
-    // Immediate persist — delete single fixture from DB
+    // Immediate persist - delete single fixture from DB
     {
         CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_FIXTURE_SINGLE);
         stmt->setUInt64(0, _ownerGuid.GetCounter());
@@ -2580,7 +2565,7 @@ uint32 Housing::GetCoreExteriorComponentID() const
                 return fixture.FixturePointId;
         }
     }
-    // No explicit core fixture set — find first default root component for this house's WMO data ID.
+    // No explicit core fixture set - find first default root component for this house's WMO data ID.
     if (_houseType > 0)
     {
         auto const* roots = sHousingMgr.GetRootComponentsForWmoData(static_cast<uint32>(_houseType));
@@ -2604,7 +2589,7 @@ uint32 Housing::GetCoreExteriorComponentID() const
     }
     else
     {
-        TC_LOG_ERROR("housing", "Housing::GetCoreExteriorComponentID: No fixtures and houseType=0 — cannot determine base component");
+        TC_LOG_ERROR("housing", "Housing::GetCoreExteriorComponentID: No fixtures and houseType=0 - cannot determine base component");
     }
     return 0;
 }
@@ -2829,11 +2814,6 @@ void Housing::SendLevelFavorUpdate(int32 level, int32 favor) const
     _owner->SendDirectMessage(update.Write());
 }
 
-uint32 Housing::GetMaxDecorCount() const
-{
-    return sHousingMgr.GetMaxDecorForLevel(_level);
-}
-
 uint32 Housing::GetMaxInteriorDecorBudget() const
 {
     return sHousingMgr.GetInteriorDecorBudgetForLevel(_level);
@@ -2904,7 +2884,7 @@ HousingResult Housing::CheckInteriorDecorBounds(ObjectGuid roomGuid, float x, fl
 
 bool Housing::IsExteriorDecorPlacement(ObjectGuid roomGuid)
 {
-    // No room → yard/exterior placement.
+    // No room -> yard/exterior placement.
     if (roomGuid.IsEmpty())
         return true;
 
@@ -3013,7 +2993,7 @@ void Housing::PopulateOwnStorageEntries()
 
     Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
 
-    // 1. Placed decor → HouseGUID=_houseGuid, SourceType from decor instance
+    // 1. Placed decor -> HouseGUID=_houseGuid, SourceType from decor instance
     for (auto const& [decorGuid, decor] : _placedDecor)
     {
         account.SetHousingDecorStorageEntry(decorGuid, _houseGuid, decor.SourceType, decor.SourceValue,
@@ -3021,7 +3001,7 @@ void Housing::PopulateOwnStorageEntries()
         account.SetHousingDecorDyeSlots(decorGuid, decor.DyeSlots);
     }
 
-    // 2. Catalog (unplaced) entries → HouseGUID=Empty. Catalog Count IS the free stock; emit exactly Count
+    // 2. Catalog (unplaced) entries -> HouseGUID=Empty. Catalog Count IS the free stock; emit exactly Count
     // entries, skipping synthetic GUIDs currently occupied by placed instances of this entry.
     std::unordered_map<uint32, uint32> placedCountByEntry;
     for (auto const& [decorGuid, decor] : _placedDecor)
@@ -3385,7 +3365,7 @@ void Housing::PopulateStarterFixtures()
         uint32 compID = sHousingMgr.GetDefaultFixtureForType(fixtureType, _houseType, _houseSize);
         if (!compID)
         {
-            TC_LOG_ERROR("housing", "Housing::PopulateStarterFixtures: No default component for type={} wmo={} size={} — skipping",
+            TC_LOG_ERROR("housing", "Housing::PopulateStarterFixtures: No default component for type={} wmo={} size={} - skipping",
                 fixtureType, _houseType, _houseSize);
             continue;
         }

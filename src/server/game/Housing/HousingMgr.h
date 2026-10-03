@@ -294,9 +294,6 @@ public:
     // Name generation
     std::string GenerateNeighborhoodName(uint32 neighborhoodMapId) const;
 
-    // Level-based limits
-    uint32 GetMaxDecorForLevel(uint32 level) const;
-
     // Budget accessors (WeightCost-based)
     uint32 GetQuestForLevel(uint32 level) const;
     // Cumulative lifetime Favor needed to unlock `level` (retail C_Housing.GetHouseLevelFavorForLevel).

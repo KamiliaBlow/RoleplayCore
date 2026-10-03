@@ -604,12 +604,6 @@ std::string HousingMgr::GenerateNeighborhoodName(uint32 neighborhoodMapId) const
     return Trinity::StringFormat("{}-{}-{}", id1, id2, id3);
 }
 
-uint32 HousingMgr::GetMaxDecorForLevel(uint32 level) const
-{
-    // MaxDecorCount not in HouseLevelData DB2; use fallback formula
-    return level * 25;
-}
-
 uint32 HousingMgr::GetQuestForLevel(uint32 level) const
 {
     HouseLevelData const* levelData = GetLevelData(level);

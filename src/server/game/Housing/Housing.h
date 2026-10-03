@@ -208,7 +208,6 @@ public:
     HousingResult ResetDecor(uint8 scope, uint32* outRemoved = nullptr);
     PlacedDecor const* GetPlacedDecor(ObjectGuid decorGuid) const;
     std::vector<PlacedDecor const*> GetAllPlacedDecor() const;
-    uint32 GetDecorCount() const { return static_cast<uint32>(_placedDecor.size()); }
 
     // Room operations
     HousingResult PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 orientation, bool mirrored, ObjectGuid* outRoomGuid = nullptr, int32 gridX = 0, int32 gridY = 0, int32 floorIndex = 0);
@@ -294,7 +293,6 @@ public:
     void AddLevel(uint32 amount);
     void AddFavor(uint64 amount, HousingFavorUpdateSource source = HOUSING_FAVOR_SOURCE_UNKNOWN, bool emitUpdate = true);
     uint64 GetFavor64() const { return _favor64; }
-    uint32 GetMaxDecorCount() const;
 
     // Budget tracking (WeightCost-based)
     uint32 GetInteriorDecorWeightUsed() const { return _interiorDecorWeightUsed; }

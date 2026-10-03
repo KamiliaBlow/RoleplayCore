@@ -163,45 +163,8 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
         } while (memberFixtures->NextRow());
     }
 
-    // Placed decor for occupied plots (exterior spawns at preload; interior serves visitors).
-    if (memberDecor)
-    {
-        do
-        {
-            Field* d = memberDecor->Fetch();
-            //   0      1            2            3     4     5     6     7     8     9       10     11        12        13       14        15      16            17           18
-            // id, ownerGuid, houseDecorId, posX, posY, posZ, rotX, rotY, rotZ, rotW, scale, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked, placementTime, sourceType, sourceValue
-            ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(d[1].GetUInt64());
-            PlotInfo* plot = GetPlotByOwner(ownerGuid);
-            if (!plot)
-                continue;
-
-            Housing::PlacedDecor decor;
-            // realmId must match Housing::LoadFromDB; the client keys decor GUIDs by it.
-            decor.Guid          = ObjectGuidFactory::CreateHousing(/*subType*/ 1, /*realmId*/ sRealmList->GetCurrentRealmId().Realm, d[2].GetUInt32(), d[0].GetUInt64());
-            decor.DecorEntryId  = d[2].GetUInt32();
-            decor.PosX          = d[3].GetFloat();
-            decor.PosY          = d[4].GetFloat();
-            decor.PosZ          = d[5].GetFloat();
-            decor.RotationX     = d[6].GetFloat();
-            decor.RotationY     = d[7].GetFloat();
-            decor.RotationZ     = d[8].GetFloat();
-            decor.RotationW     = d[9].GetFloat();
-            decor.Scale         = d[10].GetFloat();
-            decor.DyeSlots[0]   = d[11].GetUInt32();
-            decor.DyeSlots[1]   = d[12].GetUInt32();
-            decor.DyeSlots[2]   = d[13].GetUInt32();
-            if (uint64 roomCounter = d[14].GetUInt64())
-                decor.RoomGuid  = ObjectGuidFactory::CreateHousing(/*subType*/ 2, /*realmId*/ 0, /*arg2*/ 0, roomCounter);
-            decor.Locked        = d[15].GetUInt8() != 0;
-            decor.PlacementTime = static_cast<time_t>(d[16].GetUInt64());
-            decor.SourceType    = d[17].GetUInt8();
-            decor.SourceValue   = d[18].GetString();
-            plot->Decor.push_back(std::move(decor));
-        } while (memberDecor->NextRow());
-    }
-
     // Interior room layout per owner, spawned for visitors entering their house.
+    // Loaded before decor so decor RoomGuids can resolve against the owner's room instances.
     if (memberRooms)
     {
         do
@@ -239,6 +202,51 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
             Housing::LoadComponentStyles(room, r[22].GetString());
             plot->Rooms.push_back(std::move(room));
         } while (memberRooms->NextRow());
+    }
+
+    // Placed decor for occupied plots (exterior spawns at preload; interior serves visitors).
+    if (memberDecor)
+    {
+        do
+        {
+            Field* d = memberDecor->Fetch();
+            //   0      1            2            3     4     5     6     7     8     9       10     11        12        13       14        15      16            17           18
+            // id, ownerGuid, houseDecorId, posX, posY, posZ, rotX, rotY, rotZ, rotW, scale, dyeSlot0, dyeSlot1, dyeSlot2, roomGuid, locked, placementTime, sourceType, sourceValue
+            ObjectGuid ownerGuid = ObjectGuid::Create<HighGuid::Player>(d[1].GetUInt64());
+            PlotInfo* plot = GetPlotByOwner(ownerGuid);
+            if (!plot)
+                continue;
+
+            Housing::PlacedDecor decor;
+            // realmId must match Housing::LoadFromDB; the client keys decor GUIDs by it.
+            decor.Guid          = ObjectGuidFactory::CreateHousing(/*subType*/ 1, /*realmId*/ sRealmList->GetCurrentRealmId().Realm, d[2].GetUInt32(), d[0].GetUInt64());
+            decor.DecorEntryId  = d[2].GetUInt32();
+            decor.PosX          = d[3].GetFloat();
+            decor.PosY          = d[4].GetFloat();
+            decor.PosZ          = d[5].GetFloat();
+            decor.RotationX     = d[6].GetFloat();
+            decor.RotationY     = d[7].GetFloat();
+            decor.RotationZ     = d[8].GetFloat();
+            decor.RotationW     = d[9].GetFloat();
+            decor.Scale         = d[10].GetFloat();
+            decor.DyeSlots[0]   = d[11].GetUInt32();
+            decor.DyeSlots[1]   = d[12].GetUInt32();
+            decor.DyeSlots[2]   = d[13].GetUInt32();
+            // Same resolution as Housing::LoadFromDB: a counter matching no room instance
+            // (exterior decor stores the plot base-room identity) means exterior — leave empty.
+            if (uint64 roomCounter = d[14].GetUInt64())
+                for (Housing::Room const& room : plot->Rooms)
+                    if (room.Guid.GetCounter() == roomCounter)
+                    {
+                        decor.RoomGuid = room.Guid;
+                        break;
+                    }
+            decor.Locked        = d[15].GetUInt8() != 0;
+            decor.PlacementTime = static_cast<time_t>(d[16].GetUInt64());
+            decor.SourceType    = d[17].GetUInt8();
+            decor.SourceValue   = d[18].GetString();
+            plot->Decor.push_back(std::move(decor));
+        } while (memberDecor->NextRow());
     }
 
     return true;
