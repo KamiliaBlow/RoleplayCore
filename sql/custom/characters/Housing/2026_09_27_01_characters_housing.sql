@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS `character_housing_decor` (
   `sourceValue` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Source context (spell ID, item GUID, etc.)',
   `petGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'Battle pet counter bound to this decor slot (0 = none), HighGuid::BattlePet',
   `petFlag` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Client-sent flag accompanying the pet binding (CMSG_HOUSING_DECOR_SET_PET)',
+  `parentDecorGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'Counter of the decor this item is stacked on (0 = none)',
   PRIMARY KEY (`ownerGuid`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

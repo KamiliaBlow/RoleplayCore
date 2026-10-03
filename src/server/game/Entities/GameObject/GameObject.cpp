@@ -4399,6 +4399,13 @@ void GameObject::InitHousingDecorData(ObjectGuid decorGuid, ObjectGuid houseGuid
         IsInWorld(), m_entityFragments.Count);
 }
 
+void GameObject::SetHousingDecorAttachParent(ObjectGuid attachParent)
+{
+    auto posData = m_values.ModifyValue(&GameObject::m_mirroredPositionData)
+        .ModifyValue(&UF::MirroredPositionData::PositionData);
+    SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachParentGUID), attachParent);
+}
+
 void GameObject::InitHousingDecorMirroredPosition(Position const& localPos, QuaternionData const& localRot,
     float localScale, ObjectGuid attachParent, uint8 attachFlags /*= 3*/)
 {

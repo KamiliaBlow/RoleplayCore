@@ -292,6 +292,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     for (auto const& [rGuid, r] : _rooms)
         roomGuidByDbId[rGuid.GetCounter()] = rGuid;
 
+    // The parent reference stores only its counter; the entry id lives in the parent's own GUID.
+    std::vector<std::pair<ObjectGuid, uint64>> pendingParents;
+
     if (decor)
     {
         do
@@ -336,12 +339,24 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             if (uint64 petCounter = fields[18].GetUInt64())
                 placed.PetGuid = ObjectGuid::Create<HighGuid::BattlePet>(petCounter);
             placed.PetFlag = fields[19].GetUInt8();
+            if (uint64 parentCounter = fields[20].GetUInt64())
+                pendingParents.emplace_back(placed.Guid, parentCounter);
 
             uint64 expected = s_nextDecorDbId.load();
             while (decorDbId >= expected && !s_nextDecorDbId.compare_exchange_weak(expected, decorDbId + 1))
                 ;
         } while (decor->NextRow());
     }
+
+    // Resolve stacked-decor parents now that every GUID is known.
+    for (auto const& [childGuid, parentCounter] : pendingParents)
+        if (auto itr = _placedDecor.find(childGuid); itr != _placedDecor.end())
+            for (auto const& [candidateGuid, candidate] : _placedDecor)
+                if (candidateGuid.GetCounter() == parentCounter)
+                {
+                    itr->second.ParentDecorGuid = candidateGuid;
+                    break;
+                }
 
     // Load fixtures
     if (fixtures)
@@ -508,6 +523,7 @@ static void BindDecorInsert(CharacterDatabasePreparedStatement* stmt, ObjectGuid
     stmt->setString(index++, decor.SourceValue);
     stmt->setUInt64(index++, decor.PetGuid.IsEmpty() ? 0 : decor.PetGuid.GetCounter());
     stmt->setUInt8(index++, decor.PetFlag);
+    stmt->setUInt64(index++, decor.ParentDecorGuid.IsEmpty() ? 0 : decor.ParentDecorGuid.GetCounter());
 }
 
 void Housing::SaveToDB(CharacterDatabaseTransaction trans)
@@ -830,7 +846,8 @@ static float GetDecorInitialScale(uint32 decorEntryId)
 }
 
 HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntryId, float x, float y, float z,
-    float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid, float scale)
+    float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid, float scale,
+    ObjectGuid parentDecorGuid /*= ObjectGuid::Empty*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -915,6 +932,11 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     decor.Scale = std::isfinite(scale) && scale >= MIN_DECOR_SCALE ? std::min(scale, MAX_DECOR_SCALE) : GetDecorInitialScale(decorEntryId);
     decor.DyeSlots = {};
     decor.RoomGuid = roomGuid;
+    decor.ParentDecorGuid = parentDecorGuid;
+    // A stack never crosses rooms: the child belongs to the parent's room regardless of the packet.
+    if (!parentDecorGuid.IsEmpty())
+        if (auto parentItr = _placedDecor.find(parentDecorGuid); parentItr != _placedDecor.end())
+            decor.RoomGuid = parentItr->second.RoomGuid;
     decor.PlacementTime = GameTime::GetGameTime();
     // Inherit acquisition source from catalog entry
     decor.SourceType = catalogItr->second.SourceType;
@@ -1074,8 +1096,33 @@ HousingResult Housing::PlaceDecor(uint32 decorEntryId, float x, float y, float z
     return HOUSING_RESULT_SUCCESS;
 }
 
+namespace
+{
+    // Hamilton product out * in that order: applying (a then b) in world frame is b * a.
+    QuaternionData QuatMultiply(QuaternionData const& a, QuaternionData const& b)
+    {
+        return QuaternionData(
+            a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+            a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+            a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z);
+    }
+
+    void RotateByQuat(float& x, float& y, float& z, QuaternionData const& q)
+    {
+        float const tx = 2.0f * (q.y * z - q.z * y);
+        float const ty = 2.0f * (q.z * x - q.x * z);
+        float const tz = 2.0f * (q.x * y - q.y * x);
+        x += q.w * tx + (q.y * tz - q.z * ty);
+        y += q.w * ty + (q.z * tx - q.x * tz);
+        z += q.w * tz + (q.x * ty - q.y * tx);
+    }
+}
+
 HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z,
-    float rotX, float rotY, float rotZ, float rotW, float scale /*= 1.0f*/)
+    float rotX, float rotY, float rotZ, float rotW, float scale /*= 1.0f*/,
+    ObjectGuid parentDecorGuid /*= ObjectGuid::Empty*/,
+    std::vector<ObjectGuid>* movedChildren /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -1112,6 +1159,19 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     NormalizeDecorRotation(rotX, rotY, rotZ, rotW);
 
     PlacedDecor& decor = itr->second;
+
+    // A stacked move carries the children: the rigid transform the parent underwent (delta rotation
+    // about its old position plus the translation) is applied to every item standing on it.
+    Position const oldPos(decor.PosX, decor.PosY, decor.PosZ);
+    QuaternionData const oldRot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
+    QuaternionData const newRot(rotX, rotY, rotZ, rotW);
+    QuaternionData const invOldRot(-oldRot.x, -oldRot.y, -oldRot.z, oldRot.w);
+    QuaternionData const stackRotation = QuatMultiply(newRot, invOldRot);
+
+    // The client's AttachParentGuid is the full truth: empty means the drop broke the stack link.
+    bool const parentChanged = parentDecorGuid != decor.ParentDecorGuid;
+    if (parentChanged)
+        decor.ParentDecorGuid = parentDecorGuid;
     decor.PosX = x;
     decor.PosY = y;
     decor.PosZ = z;
@@ -1135,11 +1195,75 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     stmt->setUInt64(9, decorGuid.GetCounter());
     CharacterDatabase.Execute(stmt);
 
+    if (parentChanged)
+    {
+        CharacterDatabasePreparedStatement* parentStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_PARENT);
+        parentStmt->setUInt64(0, decor.ParentDecorGuid.GetCounter());
+        parentStmt->setUInt64(1, _ownerGuid.GetCounter());
+        parentStmt->setUInt64(2, decorGuid.GetCounter());
+        CharacterDatabase.Execute(parentStmt);
+    }
+
+    // Transform the stack level by level: each child rides its own parent's old->new placement.
+    struct StackLevel
+    {
+        ObjectGuid ParentGuid;
+        Position OldParentPos;
+        Position NewParentPos;
+    };
+    std::vector<StackLevel> levels = { { decorGuid, oldPos, Position(x, y, z) } };
+    while (!levels.empty())
+    {
+        StackLevel level = levels.back();
+        levels.pop_back();
+
+        for (auto& [childGuid, child] : _placedDecor)
+        {
+            if (child.ParentDecorGuid != level.ParentGuid)
+                continue;
+
+            float dx = child.PosX - level.OldParentPos.GetPositionX();
+            float dy = child.PosY - level.OldParentPos.GetPositionY();
+            float dz = child.PosZ - level.OldParentPos.GetPositionZ();
+            RotateByQuat(dx, dy, dz, stackRotation);
+
+            Position const childOldPos(child.PosX, child.PosY, child.PosZ);
+            child.PosX = level.NewParentPos.GetPositionX() + dx;
+            child.PosY = level.NewParentPos.GetPositionY() + dy;
+            child.PosZ = level.NewParentPos.GetPositionZ() + dz;
+
+            QuaternionData const childRot(child.RotationX, child.RotationY, child.RotationZ, child.RotationW);
+            QuaternionData const turned = QuatMultiply(stackRotation, childRot);
+            child.RotationX = turned.x;
+            child.RotationY = turned.y;
+            child.RotationZ = turned.z;
+            child.RotationW = turned.w;
+
+            CharacterDatabasePreparedStatement* childStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_DECOR_POSITION);
+            childStmt->setFloat(0, child.PosX);
+            childStmt->setFloat(1, child.PosY);
+            childStmt->setFloat(2, child.PosZ);
+            childStmt->setFloat(3, child.RotationX);
+            childStmt->setFloat(4, child.RotationY);
+            childStmt->setFloat(5, child.RotationZ);
+            childStmt->setFloat(6, child.RotationW);
+            childStmt->setFloat(7, child.Scale);
+            childStmt->setUInt64(8, _ownerGuid.GetCounter());
+            childStmt->setUInt64(9, childGuid.GetCounter());
+            CharacterDatabase.Execute(childStmt);
+
+            if (movedChildren)
+                movedChildren->push_back(childGuid);
+            levels.push_back({ childGuid, childOldPos, Position(child.PosX, child.PosY, child.PosZ) });
+        }
+    }
+
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
+HousingResult Housing::RemoveDecor(ObjectGuid decorGuid,
+    std::vector<std::pair<ObjectGuid, std::pair<uint8, std::string>>>* removedChildren /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -1178,7 +1302,70 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid)
         catEntry.SourceValue = itr->second.SourceValue;
     }
 
+    // Removing a stack's root returns everything standing on it to storage as well.
+    std::vector<ObjectGuid> descendants;
+    {
+        std::vector<ObjectGuid> level = { decorGuid };
+        while (!level.empty())
+        {
+            ObjectGuid parent = level.back();
+            level.pop_back();
+            for (auto& [childGuid, child] : _placedDecor)
+                if (child.ParentDecorGuid == parent)
+                {
+                    descendants.push_back(childGuid);
+                    level.push_back(childGuid);
+                }
+        }
+    }
+
     _placedDecor.erase(itr);
+
+    for (ObjectGuid childGuid : descendants)
+    {
+        auto childItr = _placedDecor.find(childGuid);
+        if (childItr == _placedDecor.end())
+            continue;
+
+        uint32 const childEntryId = childItr->second.DecorEntryId;
+        uint8 const childSourceType = childItr->second.SourceType;
+        std::string const childSourceValue = childItr->second.SourceValue;
+        uint32 const childWeight = sHousingMgr.GetDecorWeightCost(childEntryId);
+        if (IsExteriorDecorPlacement(childItr->second.RoomGuid))
+            _exteriorDecorWeightUsed = _exteriorDecorWeightUsed > childWeight ? _exteriorDecorWeightUsed - childWeight : 0;
+        else
+            _interiorDecorWeightUsed = _interiorDecorWeightUsed > childWeight ? _interiorDecorWeightUsed - childWeight : 0;
+
+        CatalogEntry& childCat = _catalog[childEntryId];
+        childCat.DecorEntryId = childEntryId;
+        childCat.Count++;
+        if (childSourceType != DECOR_SOURCE_STANDARD || !childSourceValue.empty())
+        {
+            childCat.SourceType = childSourceType;
+            childCat.SourceValue = childSourceValue;
+        }
+
+        _placedDecor.erase(childItr);
+
+        CharacterDatabasePreparedStatement* childDel = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_DECOR_SINGLE);
+        childDel->setUInt64(0, _ownerGuid.GetCounter());
+        childDel->setUInt64(1, childGuid.GetCounter());
+        CharacterDatabase.Execute(childDel);
+
+        CharacterDatabasePreparedStatement* childCatStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_CATALOG_COUNT);
+        childCatStmt->setUInt32(0, _catalog[childEntryId].Count);
+        childCatStmt->setUInt64(1, _ownerGuid.GetCounter());
+        childCatStmt->setUInt32(2, childEntryId);
+        CharacterDatabase.Execute(childCatStmt);
+
+        if (_storagePopulated && _owner->GetSession())
+            _owner->GetSession()->GetBattlenetAccount().RemoveHousingDecorStorageEntry(childGuid);
+
+        _owner->UpdateCriteria(CriteriaType::RemoveDecor, childEntryId);
+
+        if (removedChildren)
+            removedChildren->emplace_back(childGuid, std::pair<uint8, std::string>(childSourceType, childSourceValue));
+    }
 
     // Immediate persist for crash safety
     {
@@ -1557,15 +1744,21 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     return HOUSING_RESULT_SUCCESS;
 }
 
-void Housing::SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orientation)
+void Housing::SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orientation, int32 floorIndex /*= INT32_MIN*/)
 {
     constexpr float QUARTER_TURN = 1.57079632679f;
+    constexpr float FLOOR_HEIGHT = 12.0f;
     int32 const oldX = room.GridX;
     int32 const oldY = room.GridY;
+    int32 const oldFloor = room.FloorIndex;
+    if (floorIndex == INT32_MIN)
+        floorIndex = room.FloorIndex;
     float const turn = float(int32(orientation) - int32(room.Orientation)) * QUARTER_TURN;
+    float const floorShift = float(floorIndex - oldFloor) * FLOOR_HEIGHT;
 
     room.GridX = gridX;
     room.GridY = gridY;
+    room.FloorIndex = floorIndex;
     room.Orientation = orientation;
     PersistRoomToDB(room.Guid, room);
 
@@ -1593,6 +1786,7 @@ void Housing::SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orie
         float const dy = decor.PosY - fromY;
         decor.PosX = toX + dx * cosT - dy * sinT;
         decor.PosY = toY + dx * sinT + dy * cosT;
+        decor.PosZ += floorShift;
 
         // q' = rotZ(turn) * q
         float const qx = decor.RotationX, qy = decor.RotationY, qz = decor.RotationZ, qw = decor.RotationW;
@@ -1935,7 +2129,8 @@ Housing::Room const* Housing::FindStairwellPartner(Room const& room) const
     return nullptr;
 }
 
-HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, ObjectGuid swapRoomGuid, uint32 /*swapSlotIndex*/)
+HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, uint32 sourceDoorComponentId,
+    uint32 targetDoorComponentId)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -1944,37 +2139,123 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, Object
     if (itr == _rooms.end())
         return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-    // If swapping with another room
-    if (!swapRoomGuid.IsEmpty())
-    {
-        auto swapItr = _rooms.find(swapRoomGuid);
-        if (swapItr == _rooms.end())
-            return HOUSING_RESULT_ROOM_NOT_FOUND;
+    auto targetItr = _rooms.find(targetRoomGuid);
+    if (targetItr == _rooms.end() || targetItr == itr)
+        return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-        // Swap slot indices
-        uint32 tempSlot = itr->second.SlotIndex;
-        itr->second.SlotIndex = swapItr->second.SlotIndex;
-        swapItr->second.SlotIndex = tempSlot;
+    Room& room = itr->second;
+    Room const& target = targetItr->second;
+    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
+    if (!roomData || roomData->IsBaseRoom())
+        return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
-        PersistRoomToDB(roomGuid, itr->second);
-        PersistRoomToDB(swapRoomGuid, swapItr->second);
-    }
-    else
+    // Re-hang the room on a free door of the target, the drop the editor made; keep the heading it
+    // had, then try the rest. FitRoomToDoor ignores the moved room's own current cells; when the
+    // client named the door it dropped the room by, only that door may dock.
+    std::vector<Room const*> rooms = GetRooms();
+
+    // Retail's "leaf rooms" rule: the move must orphan nothing — the mover's own parent link is
+    // allowed to re-hang, but every other room has to stay reachable from the base room.
+    if (!IsRoomGraphConnectedWithout(roomGuid))
+        return HOUSING_RESULT_INVALID_ROOM_LAYOUT;
+
+    // Commit the re-hang: the mover's stairwell half travels along on the same floor delta.
+    auto place = [&](int32 gridX, int32 gridY, int32 floorIndex, uint32 orientation) -> HousingResult
     {
-        // Check that target slot is not occupied
-        for (auto const& [guid, room] : _rooms)
+        int32 const floorDelta = floorIndex - room.FloorIndex;
+        ObjectGuid partnerGuid;
+        int32 partnerFloor = 0;
+        if (Room const* partner = FindStairwellPartner(room))
         {
-            if (guid != roomGuid && room.SlotIndex == newSlotIndex)
-                return HOUSING_RESULT_PLOT_NOT_FOUND;
+            partnerGuid = partner->Guid;
+            partnerFloor = partner->FloorIndex + floorDelta;
         }
 
-        itr->second.SlotIndex = newSlotIndex;
+        SetRoomPlacement(room, gridX, gridY, orientation, floorIndex);
+        if (!partnerGuid.IsEmpty())
+            SetRoomPlacement(_rooms[partnerGuid], gridX, gridY, orientation, partnerFloor);
+        return HOUSING_RESULT_SUCCESS;
+    };
 
-        PersistRoomToDB(roomGuid, itr->second);
+    // Wall doors first, keeping the heading the room had, then trying the rest. The client names
+    // both sides of the docking in the move packet — the moved room's door and the target's door —
+    // so the named target door is tried first (passes 0-1) before any door is considered (passes
+    // 2-3); the source door is honoured on even passes. FitRoomToDoor ignores the mover's own cells.
+    std::vector<RoomDoor> const targetDoors = GetRoomDoors(target);
+
+    // A drop onto the target's stairwell opening names a vertical door: skip the wall-door search
+    // and dock straight there.
+    bool namedIsVertical = false;
+    for (RoomDoor const& door : targetDoors)
+        if (targetDoorComponentId && door.ComponentId == targetDoorComponentId && door.IsVertical())
+            namedIsVertical = true;
+
+    if (!namedIsVertical)
+    {
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            bool const honourDoor = pass % 2 == 0;
+            bool const namedDoorOnly = pass < 2;
+            for (uint32 leading = 0; leading < 4; ++leading)
+            {
+                uint32 const orientation = (room.Orientation + leading) % 4;
+                for (RoomDoor const& door : targetDoors)
+                {
+                    if (door.IsVertical())
+                        continue;
+                    if (namedDoorOnly && targetDoorComponentId && door.ComponentId != targetDoorComponentId)
+                        continue;
+
+                    int32 gridX = 0, gridY = 0;
+                    if (!FitRoomToDoor(rooms, room.RoomEntryId, target.FloorIndex, door, orientation, roomGuid, gridX, gridY))
+                        continue;
+
+                    if (honourDoor && sourceDoorComponentId)
+                    {
+                        bool doorDocks = false;
+                        for (RoomDoor const& placed : GetRoomDoors(room.RoomEntryId, float(gridX), float(gridY), orientation))
+                            if (placed.ComponentId == sourceDoorComponentId && !placed.IsVertical()
+                                && int32(std::lround(placed.X)) == int32(std::lround(door.X))
+                                && int32(std::lround(placed.Y)) == int32(std::lround(door.Y)))
+                            {
+                                doorDocks = true;
+                                break;
+                            }
+                        if (!doorDocks)
+                            continue;
+                    }
+
+                    if (gridX == room.GridX && gridY == room.GridY && target.FloorIndex == room.FloorIndex
+                        && orientation == room.Orientation)
+                        return HOUSING_RESULT_SUCCESS;
+
+                    return place(gridX, gridY, target.FloorIndex, orientation);
+                }
+            }
+        }
     }
 
-    SyncUpdateFields();
-    return HOUSING_RESULT_SUCCESS;
+    // Stairwell openings come last (unless the client named one): a room docking there goes
+    // straight above/below the target, in its heading.
+    for (RoomDoor const& door : targetDoors)
+    {
+        if (!door.IsVertical())
+            continue;
+        if (targetDoorComponentId && door.ComponentId != targetDoorComponentId && namedIsVertical)
+            continue;
+
+        int32 const floorIndex = target.FloorIndex + door.DirZ;
+        if (!RoomFits(rooms, room.RoomEntryId, target.GridX, target.GridY, floorIndex, target.Orientation, roomGuid))
+            continue;
+
+        if (target.GridX == room.GridX && target.GridY == room.GridY && floorIndex == room.FloorIndex
+            && target.Orientation == room.Orientation)
+            return HOUSING_RESULT_SUCCESS;
+
+        return place(target.GridX, target.GridY, floorIndex, target.Orientation);
+    }
+
+    return HOUSING_RESULT_ROOM_PLACEMENT_OUT_OF_BOUNDS;
 }
 
 ObjectGuid Housing::FindBaseRoomGuid() const
@@ -2880,6 +3161,35 @@ HousingResult Housing::CheckInteriorDecorBounds(ObjectGuid roomGuid, float x, fl
     }
 
     return anyBounds ? HOUSING_RESULT_BOUNDS_FAILURE_ROOM : HOUSING_RESULT_SUCCESS;
+}
+
+
+ObjectGuid Housing::FindRoomGuidAtPosition(float x, float y, float z) const
+{
+    NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID);
+    if (!interior)
+        return ObjectGuid::Empty;
+
+    constexpr float TOLERANCE = 1.0f;
+    for (auto const& [guid, room] : _rooms)
+    {
+        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
+        RoomWmoDataEntry const* bounds = roomData && roomData->RoomWmoDataID
+            ? sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID) : nullptr;
+        if (!bounds)
+            continue;
+
+        constexpr float QUARTER_TURN = 1.57079632679f;
+        Position const roomPos(interior->Origin[0] + float(room.GridX), interior->Origin[1] + float(room.GridY),
+            interior->Origin[2] + float(room.FloorIndex) * 12.0f, float(room.Orientation) * QUARTER_TURN);
+        Position const local = HousingWorldToRoomLocal(roomPos, Position(x, y, z));
+        if (local.GetPositionX() >= bounds->BoundingBoxMinX - TOLERANCE && local.GetPositionX() <= bounds->BoundingBoxMaxX + TOLERANCE
+            && local.GetPositionY() >= bounds->BoundingBoxMinY - TOLERANCE && local.GetPositionY() <= bounds->BoundingBoxMaxY + TOLERANCE
+            && local.GetPositionZ() >= bounds->BoundingBoxMinZ - TOLERANCE && local.GetPositionZ() <= bounds->BoundingBoxMaxZ + TOLERANCE)
+            return guid;
+    }
+
+    return ObjectGuid::Empty;
 }
 
 bool Housing::IsExteriorDecorPlacement(ObjectGuid roomGuid)

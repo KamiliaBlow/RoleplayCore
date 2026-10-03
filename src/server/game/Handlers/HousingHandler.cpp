@@ -898,6 +898,16 @@ void WorldSession::HandleHousingDecorSetEditMode(WorldPackets::Housing::HousingD
     }
 }
 
+
+// A stacked-decor parent: the client sends the decor it placed the item on as the attach parent.
+static ObjectGuid DecorStackParentFrom(ObjectGuid attachParentGuid)
+{
+    if (attachParentGuid.GetHigh() == HighGuid::Housing
+        && uint32((attachParentGuid.GetRawValue(1) >> 53) & 0x1F) == 1)
+        return attachParentGuid;
+    return ObjectGuid::Empty;
+}
+
 void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPlace const& housingDecorPlace)
 {
     Player* player = GetPlayer();
@@ -970,23 +980,31 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
     float posY = housingDecorPlace.Position.Pos.GetPositionY();
     float posZ = housingDecorPlace.Position.Pos.GetPositionZ();
 
-    // Empty RoomGuid on the interior map: assign to the first visual room.
+    // Empty RoomGuid on the interior map: the room whose footprint contains the drop
+    // position — "first visual room" mislabels cross-room drops and skews stacked-decor yaw.
     ObjectGuid roomGuid = housingDecorPlace.RoomGuid;
     if (roomGuid.IsEmpty() && dynamic_cast<HouseInteriorMap*>(player->GetMap()))
     {
-        for (Housing::Room const* room : housing->GetRooms())
-        {
-            HouseRoomData const* rd = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
-            if (rd && !rd->IsBaseRoom())
+        roomGuid = housing->FindRoomGuidAtPosition(
+            housingDecorPlace.Position.Pos.GetPositionX(),
+            housingDecorPlace.Position.Pos.GetPositionY(),
+            housingDecorPlace.Position.Pos.GetPositionZ());
+    
+        if (roomGuid.IsEmpty())
+            for (Housing::Room const* room : housing->GetRooms())
             {
-                roomGuid = room->Guid;
-                break;
+                HouseRoomData const* rd = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
+                if (rd && !rd->IsBaseRoom())
+                {
+                    roomGuid = room->Guid;
+                    break;
+                }
             }
-        }
     }
-
+    
     HousingResult result = housing->PlaceDecorWithGuid(housingDecorPlace.DecorGuid, decorEntryId,
-        posX, posY, posZ, rotX, rotY, rotZ, rotW, roomGuid, housingDecorPlace.Scale);
+        posX, posY, posZ, rotX, rotY, rotZ, rotW, roomGuid, housingDecorPlace.Scale,
+        DecorStackParentFrom(housingDecorPlace.AttachParentGuid));
 
     // Response must precede the MeshObject CREATE or the preview snaps to camera.
     WorldPackets::Housing::HousingDecorPlaceResponse response;
@@ -1071,8 +1089,25 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
 
     float scale = housingDecorMove.Scale;
 
+    ObjectGuid previousParent;
+    if (auto const* placedDecor = housing->GetPlacedDecor(housingDecorMove.DecorGuid))
+        previousParent = placedDecor->ParentDecorGuid;
+
+    std::vector<ObjectGuid> movedChildren;
     HousingResult result = housing->MoveDecor(housingDecorMove.DecorGuid,
-        posX, posY, posZ, rotX, rotY, rotZ, rotW, scale);
+        posX, posY, posZ, rotX, rotY, rotZ, rotW, scale,
+        DecorStackParentFrom(housingDecorMove.AttachParentGuid), &movedChildren);
+
+    // A changed AttachParentGuid (including a broken stack link) must re-anchor the object before
+    // its transform update, or the local offset converts against the stale parent.
+    bool const attachmentChanged = result == HOUSING_RESULT_SUCCESS
+        && previousParent != DecorStackParentFrom(housingDecorMove.AttachParentGuid);
+    if (attachmentChanged)
+        if (auto const* placedDecor = housing->GetPlacedDecor(housingDecorMove.DecorGuid))
+            if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+                interiorMap->UpdateDecorAttachment(*placedDecor);
+            else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+                housingMap->UpdateDecorAttachment(housing->GetPlotIndex(), *placedDecor);
 
     // Update decor MeshObject position + scale on the map
     if (result == HOUSING_RESULT_SUCCESS)
@@ -1080,9 +1115,25 @@ void WorldSession::HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMov
         Position newPos(posX, posY, posZ);
         QuaternionData newRot(rotX, rotY, rotZ, rotW);
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
             housingMap->UpdateDecorPosition(housing->GetPlotIndex(), housingDecorMove.DecorGuid, newPos, newRot, scale);
+            for (ObjectGuid childGuid : movedChildren)
+                if (Housing::PlacedDecor const* child = housing->GetPlacedDecor(childGuid))
+                    housingMap->UpdateDecorPosition(housing->GetPlotIndex(), childGuid,
+                        Position(child->PosX, child->PosY, child->PosZ),
+                        QuaternionData(child->RotationX, child->RotationY, child->RotationZ, child->RotationW),
+                        child->Scale);
+        }
         else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+        {
             interiorMap->UpdateDecorPosition(housingDecorMove.DecorGuid, newPos, newRot, scale);
+            for (ObjectGuid childGuid : movedChildren)
+                if (Housing::PlacedDecor const* child = housing->GetPlacedDecor(childGuid))
+                    interiorMap->UpdateDecorPosition(childGuid,
+                        Position(child->PosX, child->PosY, child->PosZ),
+                        QuaternionData(child->RotationX, child->RotationY, child->RotationZ, child->RotationW),
+                        child->Scale);
+        }
     }
 
     WorldPackets::Housing::HousingDecorMoveResponse response;
@@ -1139,20 +1190,31 @@ void WorldSession::HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorR
         removedSourceValue = placedDecor->SourceValue;
     }
 
-    HousingResult result = housing->RemoveDecor(decorGuid);
+    std::vector<std::pair<ObjectGuid, std::pair<uint8, std::string>>> removedChildren;
+    HousingResult result = housing->RemoveDecor(decorGuid, &removedChildren);
 
     // Despawn the decor GO from the map and update Account entity
     if (result == HOUSING_RESULT_SUCCESS)
     {
         // Support both exterior (HousingMap) and interior (HouseInteriorMap)
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
+        {
             housingMap->DespawnDecorItem(plotIndex, decorGuid);
+            for (auto const& [childGuid, source] : removedChildren)
+                housingMap->DespawnDecorItem(plotIndex, childGuid);
+        }
         else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+        {
             interiorMap->DespawnDecorItem(decorGuid);
+            for (auto const& [childGuid, source] : removedChildren)
+                interiorMap->DespawnDecorItem(childGuid);
+        }
 
         // RemoveDecor deletes the storage entry; re-add with HouseGUID=Empty to return it to storage.
         Battlenet::Account& account = GetBattlenetAccount();
         account.SetHousingDecorStorageEntry(decorGuid, ObjectGuid::Empty, removedSourceType, removedSourceValue);
+        for (auto const& [childGuid, source] : removedChildren)
+            account.SetHousingDecorStorageEntry(childGuid, ObjectGuid::Empty, source.first, source.second);
         account.SendUpdateToPlayer(player);
     }
 
@@ -2418,6 +2480,15 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
             std::vector<Housing::Room const*> rooms = housing->GetRooms();
             interiorMap->SpawnRoomMeshObjects(housing, faction);
             interiorMap->RefreshRoomDoors(rooms, faction);
+
+            // The layout editor rebuilds door pins on room-entity VALUES updates (the same nudge
+            // RotateRoom sends); a brand-new room entity has only received a CREATE so far.
+            if (Housing::Room const* added = housing->GetRoom(newRoomGuid))
+            {
+                interiorMap->UpdateRoomPlacement(*added);
+                if (Housing::Room const* partner = housing->FindStairwellPartner(*added))
+                    interiorMap->UpdateRoomPlacement(*partner);
+            }
         }
     }
 
@@ -2575,17 +2646,20 @@ void WorldSession::HandleHousingRoomRotate(WorldPackets::Housing::HousingRoomRot
 
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        // A values update of the room's transform plus new meshes only for changed door slots.
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
+            // The turned room must arrive whole again: the client bakes mesh transforms from the room
+            // entity at mesh-create time (a churned door wall created before the entity turns renders
+            // on the wrong side), and only a fresh entity create rebuilds the editor's layout entry
+            // and door pins. Door connections of the neighbourhoods refresh after, from stored data.
+            int32 faction = housing->GetNeighborhoodFaction();
             if (Housing::Room const* room = housing->GetRoom(housingRoomRotate.RoomGuid))
             {
-                interiorMap->UpdateRoomPlacement(*room);
+                interiorMap->RespawnRoomVisuals(*room, faction, housing->GetHouseGuid(), housing);
                 if (Housing::Room const* partner = housing->FindStairwellPartner(*room))
-                    interiorMap->UpdateRoomPlacement(*partner);
+                    interiorMap->RespawnRoomVisuals(*partner, faction, housing->GetHouseGuid(), housing);
             }
 
-            int32 faction = housing->GetNeighborhoodFaction();
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
         }
     }
@@ -2615,15 +2689,35 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
         return;
     }
 
-    HousingResult result = housing->MoveRoom(housingRoomMoveRoom.RoomGuid, housingRoomMoveRoom.TargetSlotIndex,
-        housingRoomMoveRoom.TargetGuid, housingRoomMoveRoom.FloorIndex);
+    // TargetSlotIndex/FloorIndex are the two sides of the docking the client dropped: the moved
+    // room's door component and the target room's door component.
+    HousingResult result = housing->MoveRoom(housingRoomMoveRoom.RoomGuid, housingRoomMoveRoom.TargetGuid,
+        housingRoomMoveRoom.TargetSlotIndex, housingRoomMoveRoom.FloorIndex);
 
     WorldPackets::Housing::HousingRoomUpdateResponse response;
     response.Result = static_cast<uint8>(result);
     response.RoomGuid = housingRoomMoveRoom.RoomGuid;
     SendPacket(response.Write());
 
-    // RefreshInteriorRoomVisuals crashes on same-GUID DESTROY+CREATE; the response alone updates the layout.
+    if (result == HOUSING_RESULT_SUCCESS)
+    {
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+        {
+            // The moved room re-hangs on the target's door: respawn it whole at the new placement
+            // (the client never re-reads an entity's transform for existing meshes) and refresh the
+            // passages on both sides. Destroys are immediate direct packets, so they cannot overlap
+            // the creates issued in the same call.
+            int32 faction = housing->GetNeighborhoodFaction();
+            if (Housing::Room const* room = housing->GetRoom(housingRoomMoveRoom.RoomGuid))
+            {
+                interiorMap->RespawnRoomVisuals(*room, faction, housing->GetHouseGuid(), housing);
+                if (Housing::Room const* partner = housing->FindStairwellPartner(*room))
+                    interiorMap->RespawnRoomVisuals(*partner, faction, housing->GetHouseGuid(), housing);
+            }
+
+            interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
+        }
+    }
 }
 
 void WorldSession::HandleHousingRoomSetComponentTheme(WorldPackets::Housing::HousingRoomSetComponentTheme const& housingRoomSetComponentTheme)

@@ -249,6 +249,14 @@ void MeshObject::UpdateLocalTransform(Position const& pos, QuaternionData const&
     SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::ScaleLocalSpace), scale);
 }
 
+void MeshObject::SetAttachParentGUID(ObjectGuid attachParent)
+{
+    _attachParentGUID = attachParent;
+    auto posData = m_values.ModifyValue(&MeshObject::m_mirroredPositionData)
+        .ModifyValue(&UF::MirroredPositionData::PositionData);
+    SetUpdateFieldValue(posData.ModifyValue(&UF::MirroredMeshObjectData::AttachParentGUID), attachParent);
+}
+
 void MeshObject::UpdateExteriorComponentID(int32 id)
 {
     if (!m_housingFixtureData.has_value())

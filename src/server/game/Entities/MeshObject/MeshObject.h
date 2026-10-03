@@ -46,6 +46,7 @@ public:
 
     int32 GetFileDataID() const { return m_meshObjectData->FileDataID; }
     ObjectGuid const& GetAttachParentGUID() const { return _attachParentGUID; }
+    void SetAttachParentGUID(ObjectGuid attachParent);
     QuaternionData const& GetLocalRotation() const { return _rotationLocalSpace; }
     Position const& GetLocalPosition() const { return _positionLocalSpace; }
     float GetLocalScale() const { return _scaleLocalSpace; }

@@ -682,6 +682,49 @@ void HouseInteriorMap::UpdateRoomPlacement(Housing::Room const& room)
     }
 }
 
+void HouseInteriorMap::RespawnRoomVisuals(Housing::Room const& room, int32 factionRestriction, ObjectGuid houseGuid,
+    Housing* housing)
+{
+    if (auto meshItr = _roomMeshObjects.find(room.Guid); meshItr != _roomMeshObjects.end())
+    {
+        for (ObjectGuid const& meshGuid : meshItr->second)
+            if (MeshObject* mesh = GetMeshObject(meshGuid))
+            {
+                mesh->DestroyForNearbyPlayers();
+                RemoveFromMap(mesh, true);
+            }
+        _roomMeshObjects.erase(meshItr);
+    }
+
+    for (auto it = _roomEntities.begin(); it != _roomEntities.end(); ++it)
+    {
+        if (HousingRoomEntity* entity = *it; entity && entity->IsInWorld() && entity->GetGUID() == room.Guid)
+        {
+            entity->DestroyForNearbyPlayers();
+            RemoveFromMap(entity, true);
+            _roomEntities.erase(it);
+            break;
+        }
+    }
+
+    SpawnRoomMeshObjectsFromList({ &room }, factionRestriction, houseGuid);
+
+    // Decor bakes its world transform at spawn just like room meshes; re-arrive it with the room.
+    if (housing)
+    {
+        std::vector<Housing::PlacedDecor> roomDecor;
+        for (auto const& [decorGuid, decor] : housing->GetPlacedDecorMap())
+            if (decor.RoomGuid == room.Guid)
+            {
+                if (_decorGuidToObjGuid.contains(decorGuid))
+                    DespawnDecorItem(decorGuid);
+                roomDecor.push_back(decor);
+            }
+
+        SpawnInteriorDecorFromList(roomDecor, houseGuid);
+    }
+}
+
 bool HouseInteriorMap::IsInsideAnyRoom(Position const& pos, std::vector<Housing::Room const*> const& rooms) const
 {
     constexpr float TOLERANCE = 0.5f;
@@ -825,8 +868,51 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
             meshGuids.empty() ? "EMPTY" : meshGuids[0].ToString());
     }
 
-    for (Housing::PlacedDecor const& decor : placedDecor)
+    // Spawn order: an item snapped onto another decor needs its parent's object to exist first.
+    std::vector<Housing::PlacedDecor const*> spawnQueue;
     {
+        std::unordered_set<ObjectGuid> batchGuids;
+        for (Housing::PlacedDecor const& decor : placedDecor)
+            batchGuids.insert(decor.Guid);
+
+        std::unordered_set<ObjectGuid> spawned;
+        std::vector<Housing::PlacedDecor const*> pending;
+        for (Housing::PlacedDecor const& decor : placedDecor)
+            pending.push_back(&decor);
+
+        while (!pending.empty())
+        {
+            bool progressed = false;
+            for (auto pendingItr = pending.begin(); pendingItr != pending.end();)
+            {
+                Housing::PlacedDecor const& decor = **pendingItr;
+                bool const parentReady = decor.ParentDecorGuid.IsEmpty()
+                    || !batchGuids.contains(decor.ParentDecorGuid)
+                    || spawned.contains(decor.ParentDecorGuid);
+                if (!parentReady)
+                {
+                    ++pendingItr;
+                    continue;
+                }
+
+                spawnQueue.push_back(&decor);
+                spawned.insert(decor.Guid);
+                pendingItr = pending.erase(pendingItr);
+                progressed = true;
+            }
+            if (!progressed)
+            {
+                // Broken chains (missing parent rows): spawn anyway; the anchor falls back to the room.
+                for (Housing::PlacedDecor const* decor : pending)
+                    spawnQueue.push_back(decor);
+                break;
+            }
+        }
+    }
+
+    for (Housing::PlacedDecor const* decorPtr : spawnQueue)
+    {
+        Housing::PlacedDecor const& decor = *decorPtr;
         HouseDecorData const* decorData = sHousingMgr.GetHouseDecorData(decor.DecorEntryId);
         if (!decorData)
         {
@@ -885,9 +971,49 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
         Position worldPos(worldX, worldY, worldZ);
         Position localPos = roomEntityGuid.IsEmpty() ? worldPos : HousingWorldToRoomLocal(roomWorldPos, worldPos);
         // Mirrored rotation must be in the room frame (worldRot = roomRot ⊗ localRot on the client).
-        QuaternionData const localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
+        QuaternionData localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
         float decorScale = decor.Scale > 0.01f ? decor.Scale : 1.0f;
         uint8 attachFlags = roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3);
+
+        // Parenting lives in the position data: an item snapped onto another decor attaches to that
+        // decor's own client object with a parent-relative offset, so editor drags carry it along.
+        ObjectGuid attachObjectGuid = roomEntityGuid;
+        if (!decor.ParentDecorGuid.IsEmpty())
+            if (auto parentObjItr = _decorGuidToObjGuid.find(decor.ParentDecorGuid); parentObjItr != _decorGuidToObjGuid.end())
+            {
+                QuaternionData parentLocalRot;
+                Position parentWorldPos;
+                bool parentIsGo = false;
+                bool parentResolved = false;
+                if (MeshObject* parentMesh = GetMeshObject(parentObjItr->second))
+                {
+                    parentLocalRot = parentMesh->GetLocalRotation();
+                    parentWorldPos = parentMesh->GetPosition();
+                    parentResolved = true;
+                }
+                else if (GameObject* parentGo = GetGameObject(parentObjItr->second))
+                {
+                    parentLocalRot = parentGo->GetLocalRotation();
+                    parentWorldPos = parentGo->GetPosition();
+                    parentIsGo = true;
+                    parentResolved = true;
+                }
+
+                if (parentResolved)
+                {
+                    // GO decor stores its rotation world-frame, mesh decor in its attach frame (the
+                    // room); and a mesh/GO Position orientation is always 0, so the anchor's world
+                    // yaw must be set explicitly or the child's offset lands rotated away.
+                    float parentWorldYaw = 2.0f * std::atan2(parentLocalRot.z, parentLocalRot.w);
+                    if (!parentIsGo)
+                        parentWorldYaw += roomWorldPos.GetOrientation();
+                    parentWorldPos.SetOrientation(parentWorldYaw);
+                    attachObjectGuid = parentObjItr->second;
+                    localPos = HousingWorldToRoomLocal(parentWorldPos, worldPos);
+                    localRot = HousingWorldRotationToRoomLocal(parentWorldYaw, rot);
+                    _decorAttachParentObj[decor.Guid] = attachObjectGuid;
+                }
+            }
 
         // Functional decor branch (real GameObject — chair, chest, mailbox, etc.)
         bool spawnedAsGo = false;
@@ -910,7 +1036,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                         roomEntityGuid, decor.SourceType, decor.SourceValue);
                     go->SetHousingDecorDyeSlots(decor.DyeSlots);
                     RestoreDecorPetBinding(go, decor.Guid, decor.PetGuid, decor.PetFlag);
-                    go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
+                    go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, attachObjectGuid, attachFlags);
 
                     if (AddToMap(go))
                     {
@@ -952,7 +1078,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
 
         // HouseDecor.ModelType 2 = WMO (interior walls, pillars, doorways); sent as an M2 the client crashes loading it.
         MeshObject* mesh = MeshObject::CreateMeshObject(this, localPos, localRot, decorScale,
-            fileDataID, /*isWMO*/ decorData->ModelType == HOUSE_DECOR_MODEL_TYPE_WMO, roomEntityGuid, attachFlags, &worldPos);
+            fileDataID, /*isWMO*/ decorData->ModelType == HOUSE_DECOR_MODEL_TYPE_WMO, attachObjectGuid, attachFlags, &worldPos);
 
         if (!mesh)
         {
@@ -1054,9 +1180,48 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
     Position worldPos(worldX, worldY, worldZ);
     Position localPos = roomEntityGuid.IsEmpty() ? worldPos : HousingWorldToRoomLocal(roomWorldPos, worldPos);
     // Mirrored rotation must be in the room frame (worldRot = roomRot ⊗ localRot on the client).
-    QuaternionData const localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
+    QuaternionData localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
     float decorScale = decor.Scale > 0.01f ? decor.Scale : 1.0f;
     uint8 attachFlags = roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3);
+
+    // Snapped decor anchors to the parent decor's client object (see SpawnInteriorDecorFromList).
+    ObjectGuid attachObjectGuid = roomEntityGuid;
+    if (!decor.ParentDecorGuid.IsEmpty())
+        if (auto parentObjItr = _decorGuidToObjGuid.find(decor.ParentDecorGuid); parentObjItr != _decorGuidToObjGuid.end())
+        {
+            QuaternionData parentLocalRot;
+            Position parentWorldPos;
+            bool parentIsGo = false;
+            bool parentResolved = false;
+            if (MeshObject* parentMesh = GetMeshObject(parentObjItr->second))
+            {
+                parentLocalRot = parentMesh->GetLocalRotation();
+                parentWorldPos = parentMesh->GetPosition();
+                parentResolved = true;
+            }
+            else if (GameObject* parentGo = GetGameObject(parentObjItr->second))
+            {
+                parentLocalRot = parentGo->GetLocalRotation();
+                parentWorldPos = parentGo->GetPosition();
+                parentIsGo = true;
+                parentResolved = true;
+            }
+
+            if (parentResolved)
+            {
+                // GO decor stores its rotation world-frame, mesh decor in its attach frame (the
+                // room); and a mesh/GO Position orientation is always 0, so the anchor's world
+                // yaw must be set explicitly or the child's offset lands rotated away.
+                float parentWorldYaw = 2.0f * std::atan2(parentLocalRot.z, parentLocalRot.w);
+                if (!parentIsGo)
+                    parentWorldYaw += roomWorldPos.GetOrientation();
+                parentWorldPos.SetOrientation(parentWorldYaw);
+                attachObjectGuid = parentObjItr->second;
+                localPos = HousingWorldToRoomLocal(parentWorldPos, worldPos);
+                localRot = HousingWorldRotationToRoomLocal(parentWorldYaw, rot);
+                _decorAttachParentObj[decor.Guid] = attachObjectGuid;
+            }
+        }
 
     // Functional decor: spawn a real GameObject so it stays interactive.
     if (decorData->GameObjectID > 0)
@@ -1078,7 +1243,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
                     roomEntityGuid, decor.SourceType, decor.SourceValue);
                 go->SetHousingDecorDyeSlots(decor.DyeSlots);
                 RestoreDecorPetBinding(go, decor.Guid, decor.PetGuid, decor.PetFlag);
-                go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, roomEntityGuid, attachFlags);
+                go->InitHousingDecorMirroredPosition(localPos, localRot, decorScale, attachObjectGuid, attachFlags);
 
                 if (AddToMap(go))
                 {
@@ -1111,7 +1276,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
 
     // HouseDecor.ModelType 2 = WMO (interior walls, pillars, doorways); sent as an M2 the client crashes loading it.
     MeshObject* mesh = MeshObject::CreateMeshObject(this, localPos, localRot, decorScale,
-        fileDataID, /*isWMO*/ decorData->ModelType == HOUSE_DECOR_MODEL_TYPE_WMO, roomEntityGuid, attachFlags, &worldPos);
+        fileDataID, /*isWMO*/ decorData->ModelType == HOUSE_DECOR_MODEL_TYPE_WMO, attachObjectGuid, attachFlags, &worldPos);
 
     if (!mesh)
         return;
@@ -1215,26 +1380,117 @@ void HouseInteriorMap::RestoreDecorPetBinding(WorldObject* obj, ObjectGuid decor
                 ApplyDecorPetBinding(obj, decorGuid, petGuid, pet->PacketInfo.CreatureID, pet->PacketInfo.Name, petBehavior);
 }
 
+void HouseInteriorMap::UpdateDecorAttachment(Housing::PlacedDecor const& decor)
+{
+    auto objItr = _decorGuidToObjGuid.find(decor.Guid);
+    if (objItr == _decorGuidToObjGuid.end())
+        return;
+
+    ObjectGuid attachObjectGuid = decor.RoomGuid;
+    if (!decor.ParentDecorGuid.IsEmpty())
+        if (auto parentItr = _decorGuidToObjGuid.find(decor.ParentDecorGuid); parentItr != _decorGuidToObjGuid.end())
+            attachObjectGuid = parentItr->second;
+
+    if (attachObjectGuid == decor.RoomGuid)
+        _decorAttachParentObj.erase(decor.Guid);
+    else
+        _decorAttachParentObj[decor.Guid] = attachObjectGuid;
+
+    if (attachObjectGuid == decor.RoomGuid && attachObjectGuid.IsEmpty())
+        return;
+
+    if (GameObject* go = GetGameObject(objItr->second))
+        go->SetHousingDecorAttachParent(attachObjectGuid);
+    else if (MeshObject* mesh = GetMeshObject(objItr->second))
+        mesh->SetAttachParentGUID(attachObjectGuid);
+}
+
 void HouseInteriorMap::UpdateDecorPosition(ObjectGuid decorGuid, Position const& pos, QuaternionData const& rot, float scale /*= 1.0f*/)
 {
     auto itr = _decorGuidToObjGuid.find(decorGuid);
     if (itr == _decorGuidToObjGuid.end())
         return;
 
-    // The client renders decor from its room-relative transform (FMirroredPositionData_C), so that has to move too.
-    auto toLocal = [this](ObjectGuid roomGuid, Position const& worldPos)
+    // The client renders decor from its attach-relative transform (FMirroredPositionData_C): room-relative
+    // normally, parent-decor-relative for snapped stacks.
+    // GO decor stores its rotation world-frame, mesh decor in its attach frame (its own room —
+    // a stacked child's attach GUID names the parent object, so the room is taken from the parent).
+    auto anchorFor = [this](ObjectGuid decorGuid, Position& anchorPos, float& anchorLocalYaw,
+        bool& anchorIsGo, ObjectGuid& anchorRoomGuid) -> bool
     {
+        auto attachItr = _decorAttachParentObj.find(decorGuid);
+        if (attachItr == _decorAttachParentObj.end())
+            return false;
+
+        QuaternionData localRot;
+        if (MeshObject* parentMesh = GetMeshObject(attachItr->second))
+        {
+            anchorPos = parentMesh->GetPosition();
+            localRot = parentMesh->GetLocalRotation();
+            anchorRoomGuid = parentMesh->GetAttachParentGUID();
+        }
+        else if (GameObject* parentGo = GetGameObject(attachItr->second))
+        {
+            anchorPos = parentGo->GetPosition();
+            localRot = parentGo->GetLocalRotation();
+            anchorIsGo = true;
+        }
+        else
+            return false;
+
+        anchorLocalYaw = 2.0f * std::atan2(localRot.z, localRot.w);
+        return true;
+    };
+
+    auto toLocal = [this, &anchorFor, decorGuid](ObjectGuid roomGuid, Position const& worldPos)
+    {
+        float roomYaw = 0.0f;
+        for (HousingRoomEntity const* re : _roomEntities)
+            if (re && re->GetGUID() == roomGuid)
+                roomYaw = re->GetOrientation();
+
+        Position anchorPos;
+        float anchorLocalYaw = 0.0f;
+        bool anchorIsGo = false;
+        ObjectGuid anchorRoomGuid;
+        if (anchorFor(decorGuid, anchorPos, anchorLocalYaw, anchorIsGo, anchorRoomGuid))
+        {
+            float anchorRoomYaw = 0.0f;
+            for (HousingRoomEntity const* re : _roomEntities)
+                if (re && re->GetGUID() == anchorRoomGuid)
+                    anchorRoomYaw = re->GetOrientation();
+
+            // Same rule as the spawn path: the anchor carries the parent's world yaw.
+            anchorPos.SetOrientation(anchorIsGo ? anchorLocalYaw : anchorRoomYaw + anchorLocalYaw);
+            return HousingWorldToRoomLocal(anchorPos, worldPos);
+        }
         for (HousingRoomEntity const* re : _roomEntities)
             if (re && re->GetGUID() == roomGuid)
                 return HousingWorldToRoomLocal(re->GetPosition(), worldPos);
         return worldPos;
     };
-    auto toLocalRot = [this](ObjectGuid roomGuid, QuaternionData const& worldRot)
+    auto toLocalRot = [this, &anchorFor, decorGuid](ObjectGuid roomGuid, QuaternionData const& worldRot)
     {
+        // A stack never crosses rooms: the parent's stored rotation is room-frame, so its world yaw
+        // is its own yaw plus the child's room orientation.
+        float roomYaw = 0.0f;
         for (HousingRoomEntity const* re : _roomEntities)
             if (re && re->GetGUID() == roomGuid)
-                return HousingWorldRotationToRoomLocal(re->GetOrientation(), worldRot);
-        return worldRot;
+                roomYaw = re->GetOrientation();
+
+        Position anchorPos;
+        float anchorLocalYaw = 0.0f;
+        bool anchorIsGo = false;
+        ObjectGuid anchorRoomGuid;
+        if (anchorFor(decorGuid, anchorPos, anchorLocalYaw, anchorIsGo, anchorRoomGuid))
+        {
+            float anchorRoomYaw = 0.0f;
+            for (HousingRoomEntity const* re : _roomEntities)
+                if (re && re->GetGUID() == anchorRoomGuid)
+                    anchorRoomYaw = re->GetOrientation();
+            return HousingWorldRotationToRoomLocal(anchorIsGo ? anchorLocalYaw : anchorRoomYaw + anchorLocalYaw, worldRot);
+        }
+        return HousingWorldRotationToRoomLocal(roomYaw, worldRot);
     };
 
     ObjectGuid objGuid = itr->second;
@@ -1284,7 +1540,7 @@ void HouseInteriorMap::DespawnDecorItem(ObjectGuid decorGuid)
         mesh->AddObjectToRemoveList();
 
     _decorGuidToObjGuid.erase(itr);
-
+    _decorAttachParentObj.erase(decorGuid);
 }
 
 bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)

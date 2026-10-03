@@ -77,6 +77,7 @@ public:
         std::string SourceValue;
         ObjectGuid PetGuid;         // battle-pet bound to this decor slot (empty = none)
         uint8 PetFlag = 0;          // client-sent flag accompanying the pet binding
+        ObjectGuid ParentDecorGuid; // decor this item is stacked on (empty = none; client groups moves by it)
     };
 
     struct Room
@@ -187,18 +188,28 @@ public:
     void CancelPendingPlacement(ObjectGuid decorGuid);
     // scale: what the client placed with (HouseDecor InitialScale unless the player resized it); <= 0 means InitialScale.
     HousingResult PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntryId, float x, float y, float z,
-        float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid, float scale);
+        float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid, float scale,
+        ObjectGuid parentDecorGuid = ObjectGuid::Empty);
     HousingResult PlaceDecor(uint32 decorEntryId, float x, float y, float z,
         float rotX, float rotY, float rotZ, float rotW, ObjectGuid roomGuid);
+    // movedChildren (optional) receives the stacked decor transformed along with the moved item.
     HousingResult MoveDecor(ObjectGuid decorGuid, float x, float y, float z,
-        float rotX, float rotY, float rotZ, float rotW, float scale = 1.0f);
-    HousingResult RemoveDecor(ObjectGuid decorGuid);
+        float rotX, float rotY, float rotZ, float rotW, float scale = 1.0f,
+        ObjectGuid parentDecorGuid = ObjectGuid::Empty,
+        std::vector<ObjectGuid>* movedChildren = nullptr);
+    // removedChildren (optional) receives the stacked decor returned to storage along with the item
+    // (guid + acquisition source for its storage entry).
+    HousingResult RemoveDecor(ObjectGuid decorGuid,
+        std::vector<std::pair<ObjectGuid, std::pair<uint8, std::string>>>* removedChildren = nullptr);
     // Exterior (yard-budget) placements: empty RoomGuid or the plot's base/exterior room identity; every budget path classifies through this.
     static bool IsExteriorDecorPlacement(ObjectGuid roomGuid);
     // Interior origin for interior decor; the owner's position (must stand on the plot) for plot decor.
     Position GetDecorPlacementAnchor(ObjectGuid roomGuid) const;
     // Interior decor must end up inside one of the house's rooms (RoomWmoData bounding box).
     HousingResult CheckInteriorDecorBounds(ObjectGuid roomGuid, float x, float y, float z) const;
+
+    // The room whose footprint contains the position (room GUIDs arrive empty from the client).
+    ObjectGuid FindRoomGuidAtPosition(float x, float y, float z) const;
     // consumeDyes: take one DyeColor.ItemID per newly dyed slot (player dyeing; blueprint imports pass false).
     HousingResult CommitDecorDyes(ObjectGuid decorGuid, std::array<uint32, MAX_HOUSING_DYE_SLOTS> const& dyeSlots, bool consumeDyes = true);
     HousingResult SetDecorLocked(ObjectGuid decorGuid, bool locked);
@@ -213,7 +224,7 @@ public:
     HousingResult PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 orientation, bool mirrored, ObjectGuid* outRoomGuid = nullptr, int32 gridX = 0, int32 gridY = 0, int32 floorIndex = 0);
     HousingResult RemoveRoom(ObjectGuid roomGuid);
     HousingResult RotateRoom(ObjectGuid roomGuid, bool clockwise);
-    HousingResult MoveRoom(ObjectGuid roomGuid, uint32 newSlotIndex, ObjectGuid swapRoomGuid, uint32 swapSlotIndex);
+    HousingResult MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, uint32 sourceDoorComponentId, uint32 targetDoorComponentId);
     HousingResult ApplyRoomTheme(ObjectGuid roomGuid, uint32 themeSetId, std::vector<uint32> const& optionIds);
     HousingResult ApplyRoomMaterial(ObjectGuid roomGuid, uint32 textureId, int32 colorOverride, std::vector<uint32> const& optionIds);
     HousingResult SetDoorType(ObjectGuid roomGuid, uint32 doorTypeId, uint8 doorSlot);
@@ -368,7 +379,7 @@ private:
     // Room budget cost at this spot: the upper half of a stairwell is free, the stairwell was paid for once.
     uint32 GetRoomWeightCost(uint32 roomEntryId, int32 gridX, int32 gridY, int32 floorIndex, ObjectGuid self) const;
     // Re-places a room (grid position + orientation) and carries its placed decor along. Persists both.
-    void SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orientation);
+    void SetRoomPlacement(Room& room, int32 gridX, int32 gridY, uint32 orientation, int32 floorIndex = INT32_MIN);
 
     // Immediate DB persistence helpers
     void PersistRoomToDB(ObjectGuid roomGuid, Room const& room);

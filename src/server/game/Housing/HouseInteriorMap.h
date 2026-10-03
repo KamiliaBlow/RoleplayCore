@@ -89,6 +89,19 @@ public:
     /// Move/turn a spawned room entity to its stored placement (its meshes and decor follow on the client).
     void UpdateRoomPlacement(Housing::Room const& room);
 
+    /// Re-point a decor's attachment to its current parent (parent decor object, or the room once the
+    /// stack link is gone); call before UpdateDecorPosition so the local transform uses the fresh anchor.
+    void UpdateDecorAttachment(Housing::PlacedDecor const& decor);
+
+    /// Despawn and re-spawn one room's entity, meshes and decor. The client bakes each mesh's world
+    /// transform from the room entity at mesh-create time and never re-reads it, so a turned or moved
+    /// room must arrive whole again — and the fresh entity create is what rebuilds the editor's layout
+    /// entry and door pins. Decor objects bake the same way and must re-arrive with the room.
+    /// Destroys go out as immediate direct packets (the door-slot churn ordering) so they cannot
+    /// overlap the creates issued in the same call.
+    void RespawnRoomVisuals(Housing::Room const& room, int32 factionRestriction, ObjectGuid houseGuid,
+        Housing* housing);
+
     /// True when the position lies inside one of the rooms (its RoomWmoData box, on its floor).
     bool IsInsideAnyRoom(Position const& pos, std::vector<Housing::Room const*> const& rooms) const;
 
@@ -171,6 +184,7 @@ private:
 
     /// Decor GUID → visual object GUID (for despawning individual decor items)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToObjGuid;
+    std::unordered_map<ObjectGuid, ObjectGuid> _decorAttachParentObj;         // decorGuid -> parent decor's client object (snapped stacks)
 
     /// Decor GUID → companion battle pet creature GUID (CAN_ATTACH_PET decor)
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToPetSummon;
