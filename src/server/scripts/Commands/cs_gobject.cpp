@@ -132,7 +132,7 @@ public:
         Player* player = handler->GetSession()->GetPlayer();
         Map* map = player->GetMap();
 
-        GameObject* object = GameObject::CreateGameObject(objectInfo->entry, map, *player, QuaternionData::fromEulerAnglesZYX(player->GetOrientation(), 0.0f, 0.0f), 255, GO_STATE_READY);
+        GameObject* object = GameObject::CreateGameObject(objectInfo->entry, map, *player, QuaternionData::fromOrientation(player->GetOrientation()), 255, GO_STATE_READY);
         if (!object)
             return false;
 
@@ -176,7 +176,7 @@ public:
             return false;
         }
 
-        if (GameObject* tempGob = player->SummonGameObject(objectId, *player, QuaternionData::fromEulerAnglesZYX(player->GetOrientation(), 0.0f, 0.0f), spawntm))
+        if (GameObject* tempGob = player->SummonGameObject(objectId, *player, QuaternionData::fromOrientation(player->GetOrientation(), 0.0f, 0.0f), spawntm))
         {
             player->SetLastTargetedGO(tempGob->GetGUID().GetCounter());
             return true;

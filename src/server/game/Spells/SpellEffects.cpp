@@ -3077,7 +3077,7 @@ void Spell::EffectSummonObjectWild()
 
     Map* map = target->GetMap();
     Position pos = Position(x, y, z, o);
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(o, 0.f, 0.f);
+    QuaternionData rot = QuaternionData::fromOrientation(o);
     GameObject* go = GameObject::CreateGameObject(effectInfo->MiscValue, map, pos, rot, 255, GO_STATE_READY);
     if (!go)
         return;
@@ -3340,7 +3340,7 @@ void Spell::EffectDuel()
         caster->GetPositionZ(),
         caster->GetOrientation()
     };
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(pos.GetOrientation(), 0.f, 0.f);
+    QuaternionData rot = QuaternionData::fromOrientation(pos.GetOrientation());
 
     GameObject* go = GameObject::CreateGameObject(effectInfo->MiscValue, map, pos, rot, 0, GO_STATE_READY);
     if (!go)
@@ -3691,7 +3691,7 @@ void Spell::EffectSummonObject()
 
     Map* map = m_caster->GetMap();
     Position pos = Position(x, y, z, o);
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(o, 0.f, 0.f);
+    QuaternionData rot = QuaternionData::fromOrientation(o);
 
     GameObject* go = GameObject::CreateGameObject(effectInfo->MiscValue, map, pos, rot, 255, GO_STATE_READY);
     if (!go)
@@ -4563,7 +4563,7 @@ void Spell::EffectTransmitted()
         unitCaster->GetPosition(fx, fy, fz, fo);
 
     Position pos = { fx, fy, fz, fo };
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(fo, 0.f, 0.f);
+    QuaternionData rot = QuaternionData::fromOrientation(fo);
 
     GameObject* go = GameObject::CreateGameObject(name_id, cMap, pos, rot, 255, GO_STATE_READY);
     if (!go)
@@ -5412,7 +5412,7 @@ void Spell::EffectSummonPersonalGameObject()
 
     Map* map = m_caster->GetMap();
     Position pos = Position(x, y, z, o);
-    QuaternionData rot = QuaternionData::fromEulerAnglesZYX(o, 0.f, 0.f);
+    QuaternionData rot = QuaternionData::fromOrientation(o);
     GameObject* go = GameObject::CreateGameObject(goId, map, pos, rot, 255, GO_STATE_READY);
 
     if (!go)
