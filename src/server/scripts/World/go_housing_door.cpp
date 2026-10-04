@@ -224,8 +224,21 @@ public:
             if (Housing* housing = player->GetHousing())
                 housing->SetInInterior(true);
 
+            // Arrival anchors to the owner's placed front door - entering players appear by it
+            // wherever it was moved. Without a resolvable housing (offline owner) the fixed
+            // entry hall spawn stands in.
+            ObjectGuid const ownerGuid = plotInfo && !plotInfo->OwnerGuid.IsEmpty() ? plotInfo->OwnerGuid : player->GetGUID();
+            Housing const* ownerHousing = player->GetHousingByOwner(ownerGuid);
+            if (!ownerHousing)
+                if (Player* ownerPlayer = ObjectAccessor::FindConnectedPlayer(ownerGuid))
+                    ownerHousing = ownerPlayer->GetHousingByOwner(ownerGuid);
+
+            Position const entryPos = ownerHousing
+                ? ownerHousing->GetInteriorEntryPosition()
+                : Position(INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
+
             if (!player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
-                INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O))
+                entryPos.GetPositionX(), entryPos.GetPositionY(), entryPos.GetPositionZ(), entryPos.GetOrientation()))
             {
                 TC_LOG_ERROR("housing", "go_housing_door: TeleportTo FAILED - player {} to map {} from plot {}",
                     player->GetGUID().ToString(), HOUSE_INTERIOR_MAP_ID, plotIndex);

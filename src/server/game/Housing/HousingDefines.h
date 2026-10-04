@@ -799,6 +799,7 @@ static constexpr uint32 MAX_HOUSING_DECOR_PER_ROOM      = 50;
 static constexpr uint32 MAX_HOUSING_ROOMS_PER_HOUSE     = 20;
 static constexpr uint32 MAX_HOUSING_DYE_SLOTS           = 3;
 static constexpr uint32 MAX_NEIGHBORHOOD_PLOTS          = 55;
+static constexpr uint32 HOUSING_EXPANSION_FREE_PLOTS    = 5;    // spawn a new public neighborhood when free plots drop to this
 static constexpr uint32 MAX_NEIGHBORHOOD_MANAGERS       = 5;
 static constexpr uint32 MAX_PENDING_INVITES             = 20;
 static constexpr uint8  INVALID_PLOT_INDEX              = 255;
@@ -931,6 +932,14 @@ static constexpr float HOUSE_INTERIOR_FLOOR_HEIGHT = 12.0f;
 // Interior front-door GameObjects, picked by faction in HouseInteriorMap (not reachable from ExteriorComponent).
 static constexpr uint8 HOUSE_DECOR_MODEL_TYPE_WMO = 2; // HouseDecor.ModelType: interior walls, pillars, doorways
 
+static constexpr uint32 STARTER_DOOR_DECOR_ID_ALLIANCE = 9144;   // Founders' Front Door (GO 575017)
+static constexpr uint32 STARTER_DOOR_DECOR_ID_HORDE    = 10952;  // Thornwind Front Door (GO 587318)
+
+// Both starter doors are granted to every house; the placed one anchors the interior entry point.
+inline bool IsStarterDoorDecor(uint32 decorEntryId)
+{
+    return decorEntryId == STARTER_DOOR_DECOR_ID_ALLIANCE || decorEntryId == STARTER_DOOR_DECOR_ID_HORDE;
+}
 static constexpr uint32 INTERIOR_DOOR_GO_ALLIANCE = 575017; // displayId 113554
 static constexpr uint32 INTERIOR_DOOR_GO_HORDE    = 587318;
 

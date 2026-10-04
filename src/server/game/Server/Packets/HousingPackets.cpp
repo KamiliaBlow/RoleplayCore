@@ -580,6 +580,9 @@ WorldPacket const* HousingRoomSetLayoutEditModeResponse::Write()
 
 WorldPacket const* HousingRoomAddResponse::Write()
 {
+    // Retail carries the new room's GUID first (10-byte sniff); without it the client never
+    // registers the room in its owned-house project - the layout budget and pins go stale.
+    _worldPacket << RoomGuid;
     _worldPacket << PlayerGuid;
     _worldPacket << uint8(Result);
 

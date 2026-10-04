@@ -16,6 +16,8 @@
  */
 
 #include "NeighborhoodMgr.h"
+
+#include "StringConvert.h"
 #include "DB2Stores.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -254,6 +256,39 @@ void NeighborhoodMgr::DeleteNeighborhood(ObjectGuid neighborhoodGuid)
     _neighborhoodsByCounter.erase(it->first.GetCounter());
     _neighborhoods.erase(it);
 
+}
+
+bool NeighborhoodMgr::SetNeighborhoodOwner(Neighborhood& neighborhood, ObjectGuid newOwnerGuid)
+{
+    // Guild neighborhoods belong to their guild; a charter transfer does not apply.
+    if (neighborhood.GetGuildId())
+        return false;
+
+    ObjectGuid oldOwnerGuid = neighborhood.GetOwnerGuid();
+    if (newOwnerGuid.IsEmpty() || newOwnerGuid == oldOwnerGuid)
+        return false;
+
+    // One charter neighborhood per character.
+    if (Neighborhood* existing = GetNeighborhoodByOwner(newOwnerGuid))
+        if (existing != &neighborhood)
+            return false;
+
+    if (!neighborhood.ReassignOwner(newOwnerGuid))
+        return false;
+
+    // Re-key the ownership registry.
+    _ownerToNeighborhood.erase(oldOwnerGuid);
+    _ownerToNeighborhood[newOwnerGuid] = neighborhood.GetGuid();
+    return true;
+}
+
+Neighborhood* NeighborhoodMgr::FindNeighborhoodByName(std::string_view name)
+{
+    for (auto const& [guid, neighborhood] : _neighborhoods)
+        if (StringEqualI(neighborhood->GetName(), name))
+            return neighborhood.get();
+
+    return nullptr;
 }
 
 Neighborhood* NeighborhoodMgr::GetNeighborhood(ObjectGuid neighborhoodGuid)
@@ -803,7 +838,9 @@ void NeighborhoodMgr::RegenerateNeighborhoodNames()
 
 void NeighborhoodMgr::CheckAndExpandNeighborhoods()
 {
-    // Spawn a new public neighborhood once a faction's are all at or above 50% usage.
+    // Spawn a new public neighborhood once a faction's public supply drops to
+    // HOUSING_EXPANSION_FREE_PLOTS free plots or fewer, so walk-in buyers always have somewhere
+    // to settle without being accepted into a guild or private neighborhood.
     std::unordered_map<int32, std::vector<Neighborhood*>> factionNeighborhoods;
     for (auto const& [guid, neighborhood] : _neighborhoods)
     {
@@ -811,24 +848,20 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
             factionNeighborhoods[neighborhood->GetFactionRestriction()].push_back(neighborhood.get());
     }
 
-    for (auto const& [faction, neighborhoods] : factionNeighborhoods)
+    for (auto& [faction, neighborhoods] : factionNeighborhoods)
     {
         if (faction == NEIGHBORHOOD_FACTION_NONE)
             continue;
 
-        bool hasCapacity = false;
+        uint32 freePlots = 0;
         for (Neighborhood* neighborhood : neighborhoods)
         {
             // Plots or membership, whichever is the tighter bottleneck.
             uint32 usage = std::max(neighborhood->GetOccupiedPlotCount(), neighborhood->GetMemberCount());
-            if (usage < MAX_NEIGHBORHOOD_PLOTS / 2)
-            {
-                hasCapacity = true;
-                break;
-            }
+            freePlots += usage < MAX_NEIGHBORHOOD_PLOTS ? MAX_NEIGHBORHOOD_PLOTS - usage : 0;
         }
 
-        if (hasCapacity)
+        if (freePlots > HOUSING_EXPANSION_FREE_PLOTS)
             continue;
 
         uint32 targetMapId = 0;
@@ -858,7 +891,14 @@ void NeighborhoodMgr::CheckAndExpandNeighborhoods()
         ObjectGuid systemOwner = ObjectGuid::Create<HighGuid::Housing>(HOUSING_GUID_SUBTYPE_NEIGHBORHOOD, sRealmList->GetCurrentRealmId().Realm,
             static_cast<uint32>(neighborhoods.size()), uint64(0));
 
-        CreateNeighborhood(systemOwner, name, targetMapId, faction, /*isPublic*/ true);
+        Neighborhood* spawned = CreateNeighborhood(systemOwner, name, targetMapId, faction, /*isPublic*/ true);
+        if (spawned)
+        {
+            TC_LOG_INFO("housing", "CheckAndExpandNeighborhoods: spawned public neighborhood '{}' for faction {} "
+                "(free plots had dropped to {})", name, faction, freePlots);
+            // Keep the just-spawned neighborhood in the loop so repeated checks also scale.
+            neighborhoods.push_back(spawned);
+        }
     }
 }
 

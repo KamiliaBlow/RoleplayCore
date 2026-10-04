@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cmath>
 #include <map>
+#include <unordered_set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -279,6 +280,8 @@ public:
         uint32 orientation, ObjectGuid ignoreRoom, int32& gridX, int32& gridY);
     // Stairwells are two stacked rooms at one XY; returns the other half, or nullptr.
     Room const* FindStairwellPartner(Room const& room) const;
+    // The whole stack of stairwell halves in one column (same cell, contiguous floors), bottom first.
+    std::vector<Room const*> GetStairwellColumn(Room const& room) const;
 
     // Fixture operations
     HousingResult SelectFixtureOption(uint32 fixturePointId, uint32 optionId, std::vector<uint32>* removedHookIDs = nullptr);
@@ -302,6 +305,7 @@ public:
 
     // House level and favor
     void AddLevel(uint32 amount);
+    void SetLevel(uint32 level);
     void AddFavor(uint64 amount, HousingFavorUpdateSource source = HOUSING_FAVOR_SOURCE_UNKNOWN, bool emitUpdate = true);
     uint64 GetFavor64() const { return _favor64; }
 
@@ -365,6 +369,12 @@ public:
     bool IsStoragePopulated() const { return _storagePopulated; }
     void ResetStoragePopulated() { _storagePopulated = false; }
 
+    // Houses from before the door grant get the front door placed into the entry hall once;
+    // a door already placed or withdrawn to storage is never re-placed. Returns the placed row.
+    PlacedDecor const* EnsureStarterDoorPlaced();
+    // Interior arrival point: anchored to the placed front door, entry hall origin without one.
+    Position GetInteriorEntryPosition() const;
+
     // Fills the account's FHousingStorage_C with the decor of every house of the account, on demand (REQUEST_STORAGE / edit mode).
     void PopulateCatalogStorageEntries();
     void PopulateOwnStorageEntries();
@@ -376,6 +386,7 @@ private:
     // Room connectivity helpers
     ObjectGuid FindBaseRoomGuid() const;
     bool IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const;
+    bool IsRoomGraphConnectedWithout(std::unordered_set<ObjectGuid> const& excludeRoomGuids) const;
     // Room budget cost at this spot: the upper half of a stairwell is free, the stairwell was paid for once.
     uint32 GetRoomWeightCost(uint32 roomEntryId, int32 gridX, int32 gridY, int32 floorIndex, ObjectGuid self) const;
     // Re-places a room (grid position + orientation) and carries its placed decor along. Persists both.

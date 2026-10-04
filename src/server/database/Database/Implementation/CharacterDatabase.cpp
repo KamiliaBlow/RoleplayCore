@@ -1029,6 +1029,8 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_INS_NEIGHBORHOOD, "INSERT INTO neighborhoods (guid, name, neighborhoodMapId, ownerGuid, factionRestriction, isPublic, createTime, guildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_BOTH);
     PrepareStatement(CHAR_REP_NEIGHBORHOOD, "REPLACE INTO neighborhoods (guid, name, neighborhoodMapId, ownerGuid, factionRestriction, isPublic, createTime, guildId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_PUBLIC, "UPDATE neighborhoods SET isPublic = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_UPD_NEIGHBORHOOD_OWNER, "UPDATE neighborhoods SET ownerGuid = ? WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_CHARACTER_GUID_RACE_BY_NAME, "SELECT guid, race FROM characters WHERE name = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_NAME, "UPDATE neighborhoods SET name = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD, "DELETE FROM neighborhoods WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_NEIGHBORHOOD_MEMBERS, "SELECT nm.playerGuid, nm.role, nm.joinTime, nm.plotIndex, ch.houseId, c.account, ch.houseLevel, ch.favor, ch.houseName, ch.houseType, ch.settingsFlags, ch.posX, ch.posY, ch.posZ, ch.facing FROM neighborhood_members nm LEFT JOIN character_housing ch ON nm.playerGuid = ch.guid LEFT JOIN characters c ON nm.playerGuid = c.guid WHERE nm.neighborhoodGuid = ?", CONNECTION_SYNCH);
@@ -1041,7 +1043,6 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_MEMBERS, "DELETE FROM neighborhood_members WHERE neighborhoodGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_DEL_NEIGHBORHOOD_MEMBER, "DELETE FROM neighborhood_members WHERE neighborhoodGuid = ? AND playerGuid = ?", CONNECTION_BOTH);
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_PLOT, "UPDATE neighborhood_members SET plotIndex = ? WHERE neighborhoodGuid = ? AND playerGuid = ?", CONNECTION_ASYNC);
-    PrepareStatement(CHAR_UPD_NEIGHBORHOOD_OWNER, "UPDATE neighborhoods SET ownerGuid = ? WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE, "UPDATE neighborhood_members SET role = ? WHERE neighborhoodGuid = ? AND playerGuid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_NEIGHBORHOOD_INVITES, "SELECT inviteeGuid, inviterGuid, inviteTime FROM neighborhood_invites WHERE neighborhoodGuid = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_INS_NEIGHBORHOOD_INVITE, "INSERT INTO neighborhood_invites (neighborhoodGuid, inviteeGuid, inviterGuid, inviteTime) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);

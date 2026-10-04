@@ -1002,6 +1002,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomAddResponse() : ServerPacket(SMSG_HOUSING_ROOM_ADD_RESPONSE) { }
         WorldPacket const* Write() override;
+        ObjectGuid RoomGuid;
         // PlayerGuid is edit context, not the new room's GUID.
         ObjectGuid PlayerGuid;
         uint8 Result = 0;

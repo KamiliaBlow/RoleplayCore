@@ -981,7 +981,7 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
     float posZ = housingDecorPlace.Position.Pos.GetPositionZ();
 
     // Empty RoomGuid on the interior map: the room whose footprint contains the drop
-    // position — "first visual room" mislabels cross-room drops and skews stacked-decor yaw.
+    // position - "first visual room" mislabels cross-room drops and skews stacked-decor yaw.
     ObjectGuid roomGuid = housingDecorPlace.RoomGuid;
     if (roomGuid.IsEmpty() && dynamic_cast<HouseInteriorMap*>(player->GetMap()))
     {
@@ -1396,7 +1396,7 @@ void WorldSession::BuildHousingAccountEntitiesUpdate(UpdateData* data, Player* p
         build(GetHousingPlayerHouseEntity());
 }
 
-void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& housingDecorRequestStorage)
+void WorldSession::HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& /*housingDecorRequestStorage*/)
 {
     Player* player = GetPlayer();
     if (!player)
@@ -2392,6 +2392,7 @@ void WorldSession::HandleHousingRoomAdd(WorldPackets::Housing::HousingRoomAdd co
         // Sniff order: the response goes out before the new room's objects.
         WorldPackets::Housing::HousingRoomAddResponse response;
         response.Result = static_cast<uint8>(placeResult);
+        response.RoomGuid = newRoomGuid;
         response.PlayerGuid = player->GetGUID(); // Player GUID, not room GUID
         SendPacket(response.Write());
     });
@@ -2404,6 +2405,9 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
     // The new room is turned so the first of its doors that can face the picked door does, doors meeting.
     int32 gridX = 0, gridY = 0, floorIndex = 0;
     uint32 orientation = 0;
+    // A ceiling pin ("expand stairwell up") extends the tower by ONE half; only a wall-door
+    // drop places the initial lower+upper pair (retail add batch creates exactly two entities).
+    bool ceilingExpansion = false;
     HousingResult placement = HOUSING_RESULT_ROOM_NOT_FOUND;
 
     if (Housing::Room const* source = housing->GetRoom(sourceRoomGuid))
@@ -2440,12 +2444,27 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
             if (comps && std::any_of(comps->begin(), comps->end(),
                 [&](RoomComponentData const& c) { return c.ID == targetDoorComponentID && std::abs(c.OffsetPos[2]) > 1.0f; }))
             {
-                gridX = source->GridX;
-                gridY = source->GridY;
-                floorIndex = source->FloorIndex + 1;
-                orientation = source->Orientation;
-                placement = Housing::RoomFits(rooms, houseRoomID, gridX, gridY, floorIndex, orientation)
-                    ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_ROOM_PLACEMENT_OUT_OF_BOUNDS;
+                // One upper half per opening: a room already docked above the source blocks the add
+                // (without this, expand clicks stack stairwell halves floor over floor).
+                bool openingOccupied = false;
+                for (Housing::RoomDoor const& sourceDoor : Housing::GetRoomDoors(*source))
+                    if (sourceDoor.IsVertical() && sourceDoor.DirZ > 0
+                        && Housing::FindRoomAtDoor(rooms, *source, sourceDoor))
+                    {
+                        openingOccupied = true;
+                        break;
+                    }
+
+                if (!openingOccupied)
+                {
+                    ceilingExpansion = true;
+                    gridX = source->GridX;
+                    gridY = source->GridY;
+                    floorIndex = source->FloorIndex + 1;
+                    orientation = source->Orientation;
+                    placement = Housing::RoomFits(rooms, houseRoomID, gridX, gridY, floorIndex, orientation)
+                        ? HOUSING_RESULT_SUCCESS : HOUSING_RESULT_ROOM_PLACEMENT_OUT_OF_BOUNDS;
+                }
             }
         }
 
@@ -2464,9 +2483,12 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
 
     if (result == HOUSING_RESULT_SUCCESS)
     {
-        // A stairwell is two room entities stacked at one XY: the lower drops its ceiling, the upper its floor and stairs.
+        // A stairwell placed through a wall door is two room entities stacked at one XY: the lower
+        // drops its ceiling, the upper its floor and stairs. A ceiling expansion grows the existing
+        // tower by one half only - the doubled creation here inflated the client's room list and
+        // made the tower impossible to remove.
         HouseRoomData const* addedRoom = sHousingMgr.GetHouseRoomData(houseRoomID);
-        if (addedRoom && addedRoom->HasStairs())
+        if (addedRoom && addedRoom->HasStairs() && !ceilingExpansion)
         {
             housing->PlaceRoom(houseRoomID, nextSlot + 1,
                 orientation, /*mirrored*/ false, nullptr, gridX, gridY, floorIndex + 1);
@@ -2485,9 +2507,11 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
             // RotateRoom sends); a brand-new room entity has only received a CREATE so far.
             if (Housing::Room const* added = housing->GetRoom(newRoomGuid))
             {
-                interiorMap->UpdateRoomPlacement(*added);
-                if (Housing::Room const* partner = housing->FindStairwellPartner(*added))
-                    interiorMap->UpdateRoomPlacement(*partner);
+                std::vector<Housing::Room const*> column = housing->GetStairwellColumn(*added);
+                if (column.empty())
+                    column.push_back(added);
+                for (Housing::Room const* half : column)
+                    interiorMap->UpdateRoomPlacement(*half);
             }
         }
     }
@@ -2528,57 +2552,35 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
             roomDecorGuids.push_back(decor->Guid);
     }
 
-    // Stairwells are stacked pairs; remove the partner too or the survivor orphans future removals.
-    ObjectGuid pairedRoomGuid;
+    // A stairwell half goes away together with every half stacked ABOVE it; the halves below
+    // keep standing. Removal runs top-down so each half's "upper is free" refund telescopes
+    // into exactly one stairwell charge for the whole column.
+    std::vector<ObjectGuid> columnAboveGuids;
+    if (Housing::Room const* clicked = housing->GetRoom(housingRoomRemove.RoomGuid))
     {
-        auto itr = housing->GetRoomsMap().find(housingRoomRemove.RoomGuid);
-        if (itr != housing->GetRoomsMap().end())
+        std::vector<Housing::Room const*> column = housing->GetStairwellColumn(*clicked);
+        if (column.empty())
+            column.push_back(clicked);
+
+        for (Housing::Room const* half : column)
         {
-            Housing::Room const& rm = itr->second;
-            HouseRoomData const* rd = sHousingMgr.GetHouseRoomData(rm.RoomEntryId);
-            if (rd && rd->HasStairs())
-            {
-                for (auto const& [gGuid, gRm] : housing->GetRoomsMap())
-                {
-                    if (gGuid == housingRoomRemove.RoomGuid) continue;
-                    if (gRm.GridX != rm.GridX || gRm.GridY != rm.GridY) continue;
-                    if (std::abs(gRm.FloorIndex - rm.FloorIndex) != 1) continue;
-                    HouseRoomData const* gRd = sHousingMgr.GetHouseRoomData(gRm.RoomEntryId);
-                    if (gRd && gRd->HasStairs())
-                    {
-                        pairedRoomGuid = gGuid;
-                        break;
-                    }
-                }
-            }
+            if (half->FloorIndex < clicked->FloorIndex)
+                continue;
+            columnAboveGuids.push_back(half->Guid);
+            if (half->Guid != housingRoomRemove.RoomGuid)
+                for (auto const* decor : housing->GetAllPlacedDecor())
+                    if (decor && decor->RoomGuid == half->Guid)
+                        roomDecorGuids.push_back(decor->Guid);
         }
     }
 
-    // Collect decor and despawn info for the paired room BEFORE removal
-    std::vector<ObjectGuid> pairedDecorGuids;
-    if (!pairedRoomGuid.IsEmpty())
-    {
-        for (auto const* decor : housing->GetAllPlacedDecor())
-            if (decor && decor->RoomGuid == pairedRoomGuid)
-                pairedDecorGuids.push_back(decor->Guid);
-    }
-
-    // Remove the upper half first so the lower half's cost is refunded exactly once.
-    HousingResult result;
-    Housing::Room const* mainRoom = housing->GetRoom(housingRoomRemove.RoomGuid);
-    Housing::Room const* pairedRoom = pairedRoomGuid.IsEmpty() ? nullptr : housing->GetRoom(pairedRoomGuid);
-    if (mainRoom && pairedRoom && pairedRoom->FloorIndex < mainRoom->FloorIndex)
-    {
+    // Remove the upper halves first so the lower half's cost is refunded exactly once.
+    HousingResult result = HOUSING_RESULT_SUCCESS;
+    if (columnAboveGuids.empty())
         result = housing->RemoveRoom(housingRoomRemove.RoomGuid);
-        if (result == HOUSING_RESULT_SUCCESS)
-            housing->RemoveRoom(pairedRoomGuid);
-    }
     else
-    {
-        if (pairedRoom)
-            housing->RemoveRoom(pairedRoomGuid);
-        result = housing->RemoveRoom(housingRoomRemove.RoomGuid);
-    }
+        for (auto it = columnAboveGuids.rbegin(); it != columnAboveGuids.rend() && result == HOUSING_RESULT_SUCCESS; ++it)
+            result = housing->RemoveRoom(*it);
 
     WorldPackets::Housing::HousingRoomRemoveResponse response;
     response.Result = static_cast<uint8>(result);
@@ -2593,13 +2595,10 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
             // Despawn decor visuals
             for (ObjectGuid const& decorGuid : roomDecorGuids)
                 interiorMap->DespawnDecorItem(decorGuid);
-            for (ObjectGuid const& decorGuid : pairedDecorGuids)
-                interiorMap->DespawnDecorItem(decorGuid);
 
-            // Despawn room entities (including paired stairwell partner, if any)
-            interiorMap->DespawnRoomEntities(housingRoomRemove.RoomGuid);
-            if (!pairedRoomGuid.IsEmpty())
-                interiorMap->DespawnRoomEntities(pairedRoomGuid);
+            // Despawn room entities (the whole removed column)
+            for (ObjectGuid const& columnGuid : columnAboveGuids)
+                interiorMap->DespawnRoomEntities(columnGuid);
 
             // The neighbours' walls on the removed room's side close again
             int32 faction = housing->GetNeighborhoodFaction();
@@ -2655,9 +2654,11 @@ void WorldSession::HandleHousingRoomRotate(WorldPackets::Housing::HousingRoomRot
             int32 faction = housing->GetNeighborhoodFaction();
             if (Housing::Room const* room = housing->GetRoom(housingRoomRotate.RoomGuid))
             {
-                interiorMap->RespawnRoomVisuals(*room, faction, housing->GetHouseGuid(), housing);
-                if (Housing::Room const* partner = housing->FindStairwellPartner(*room))
-                    interiorMap->RespawnRoomVisuals(*partner, faction, housing->GetHouseGuid(), housing);
+                std::vector<Housing::Room const*> column = housing->GetStairwellColumn(*room);
+                if (column.empty())
+                    column.push_back(room);
+                for (Housing::Room const* half : column)
+                    interiorMap->RespawnRoomVisuals(*half, faction, housing->GetHouseGuid(), housing);
             }
 
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
@@ -2710,9 +2711,11 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
             int32 faction = housing->GetNeighborhoodFaction();
             if (Housing::Room const* room = housing->GetRoom(housingRoomMoveRoom.RoomGuid))
             {
-                interiorMap->RespawnRoomVisuals(*room, faction, housing->GetHouseGuid(), housing);
-                if (Housing::Room const* partner = housing->FindStairwellPartner(*room))
-                    interiorMap->RespawnRoomVisuals(*partner, faction, housing->GetHouseGuid(), housing);
+                std::vector<Housing::Room const*> column = housing->GetStairwellColumn(*room);
+                if (column.empty())
+                    column.push_back(room);
+                for (Housing::Room const* half : column)
+                    interiorMap->RespawnRoomVisuals(*half, faction, housing->GetHouseGuid(), housing);
             }
 
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
@@ -3921,7 +3924,7 @@ void WorldSession::HandleHousingSvcsGetHouseFinderNeighborhood(WorldPackets::Hou
     // Do NOT refill the Housing/4 mirror here; it would repaint the current neighborhood's pins with this one's houses.
 }
 
-void WorldSession::HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& housingSvcsGetBnetFriendNeighborhoods)
+void WorldSession::HandleHousingSvcsGetBnetFriendNeighborhoods(WorldPackets::Housing::HousingSvcsGetBnetFriendNeighborhoods const& /*housingSvcsGetBnetFriendNeighborhoods*/)
 {
     Player* player = GetPlayer();
     if (!player)

@@ -122,6 +122,9 @@ public:
     // Management
     void SetName(std::string const& name);
     void SetPublic(bool isPublic);
+    /// Immediate ownership reassignment for GM/command flows (no pending-transfer handshake):
+    /// demotes the old owner to resident, promotes or enlists the new owner, persists ownerGuid.
+    bool ReassignOwner(ObjectGuid newOwnerGuid);
     HousingResult AddManager(ObjectGuid playerGuid);
     HousingResult RemoveManager(ObjectGuid playerGuid);
     HousingResult InviteResident(ObjectGuid inviterGuid, ObjectGuid inviteeGuid);

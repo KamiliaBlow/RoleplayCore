@@ -326,6 +326,71 @@ void Neighborhood::SetName(std::string const& name)
 
 }
 
+bool Neighborhood::ReassignOwner(ObjectGuid newOwnerGuid)
+{
+    if (newOwnerGuid.IsEmpty() || newOwnerGuid == _ownerGuid)
+        return false;
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+    // Demote the current owner to a resident.
+    for (Member& member : _members)
+        if (member.PlayerGuid == _ownerGuid && member.Role != NEIGHBORHOOD_ROLE_RESIDENT)
+        {
+            member.Role = NEIGHBORHOOD_ROLE_RESIDENT;
+            CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
+            stmt->setUInt8(0, member.Role);
+            stmt->setUInt64(1, _guid.GetCounter());
+            stmt->setUInt64(2, member.PlayerGuid.GetCounter());
+            trans->Append(stmt);
+            break;
+        }
+
+    // The new owner becomes a member with the OWNER role (promoted in place if already a resident).
+    bool newOwnerIsMember = false;
+    for (Member& member : _members)
+        if (member.PlayerGuid == newOwnerGuid)
+        {
+            newOwnerIsMember = true;
+            if (member.Role != NEIGHBORHOOD_ROLE_OWNER)
+            {
+                member.Role = NEIGHBORHOOD_ROLE_OWNER;
+                CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_MEMBER_ROLE);
+                stmt->setUInt8(0, member.Role);
+                stmt->setUInt64(1, _guid.GetCounter());
+                stmt->setUInt64(2, newOwnerGuid.GetCounter());
+                trans->Append(stmt);
+            }
+            break;
+        }
+
+    if (!newOwnerIsMember)
+    {
+        Member& member = _members.emplace_back();
+        member.PlayerGuid = newOwnerGuid;
+        member.Role = NEIGHBORHOOD_ROLE_OWNER;
+        member.JoinTime = static_cast<uint32>(GameTime::GetGameTime());
+        member.PlotIndex = INVALID_PLOT_INDEX;
+
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_NEIGHBORHOOD_MEMBER);
+        stmt->setUInt64(0, _guid.GetCounter());
+        stmt->setUInt64(1, newOwnerGuid.GetCounter());
+        stmt->setUInt8(2, member.Role);
+        stmt->setUInt32(3, member.JoinTime);
+        stmt->setUInt8(4, member.PlotIndex);
+        trans->Append(stmt);
+    }
+
+    _ownerGuid = newOwnerGuid;
+    CharacterDatabasePreparedStatement* ownerStmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_NEIGHBORHOOD_OWNER);
+    ownerStmt->setUInt64(0, _ownerGuid.GetCounter());
+    ownerStmt->setUInt64(1, _guid.GetCounter());
+    trans->Append(ownerStmt);
+
+    CharacterDatabase.CommitTransaction(trans);
+    return true;
+}
+
 void Neighborhood::SetPublic(bool isPublic)
 {
     _isPublic = isPublic;

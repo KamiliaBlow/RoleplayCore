@@ -51,6 +51,7 @@ public:
 
     /// Get the Housing data for the owner (needed for room/decor state).
     Housing* GetOwnerHousing();
+    Housing* GetOwnerHousing() const;
     // The house belongs to the player's account (the owner or another character of the same account).
     bool IsHouseOwnerAccount(Player const* player) const;
 
@@ -106,7 +107,9 @@ public:
     bool IsInsideAnyRoom(Position const& pos, std::vector<Housing::Room const*> const& rooms) const;
 
     /// Where the house puts people: the entry hall at the interior origin (SMSG_NEW_WORLD on entry).
-    Position GetEntryPosition() const { return Position(_originX, _originY, _originZ, 0.0f); }
+    /// Where entering players appear: the placed starter door decor's position when it exists,
+    /// else the entry hall origin.
+    Position GetEntryPosition() const;
 
     /// Spawn all placed decor for the owner's house on the interior map.
     void SpawnInteriorDecor(Housing* housing);
@@ -190,7 +193,6 @@ private:
     std::unordered_map<ObjectGuid, ObjectGuid> _decorGuidToPetSummon;
 
     /// Map-owned interior exit door GO (persists across owner leave/re-entry)
-    ObjectGuid _doorGoGuid;
 
     /// HousingRoomEntity instances (objectType=18, Housing/2 GUIDs) for the layout editor
     std::vector<HousingRoomEntity*> _roomEntities;

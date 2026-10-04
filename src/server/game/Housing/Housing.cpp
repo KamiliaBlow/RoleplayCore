@@ -905,6 +905,12 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
     if (catalogItr == _catalog.end() || catalogItr->second.Count == 0)
         return HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE;
 
+    // Only one exterior door decor may be placed per house.
+    if (IsStarterDoorDecor(decorEntryId))
+        for (auto const& [placedGuid, placed] : _placedDecor)
+            if (IsStarterDoorDecor(placed.DecorEntryId))
+                return HOUSING_RESULT_INVALID_DECOR_ITEM;
+
     // Client-supplied GUID (no matching pending placement): refuse an occupied GUID and advance the generator past it.
     if (_placedDecor.contains(decorGuid))
         return HOUSING_RESULT_INVALID_DECOR_ITEM;
@@ -1683,8 +1689,10 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
 
     // A room turns a quarter per step, skipping headings where any room attached to it would lose its door.
     std::vector<Room const*> rooms = GetRooms();
-    Room const* partner = FindStairwellPartner(room);
-    ObjectGuid const partnerGuid = partner ? partner->Guid : ObjectGuid::Empty;
+    // A stairwell turns as its whole column of stacked halves.
+    std::vector<Room const*> column = GetStairwellColumn(room);
+    if (column.empty())
+        column.push_back(&room);
 
     auto attachedRooms = [](Room const& r, std::vector<Room const*> const& layout)
     {
@@ -1700,8 +1708,9 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
         return std::all_of(before.begin(), before.end(), [&](ObjectGuid const& guid) { return std::find(after.begin(), after.end(), guid) != after.end(); });
     };
 
-    std::vector<ObjectGuid> const attachedBefore = attachedRooms(room, rooms);
-    std::vector<ObjectGuid> const partnerAttachedBefore = partner ? attachedRooms(*partner, rooms) : std::vector<ObjectGuid>();
+    std::vector<std::vector<ObjectGuid>> attachedBefore;
+    for (Room const* half : column)
+        attachedBefore.push_back(attachedRooms(*half, rooms));
 
     int32 const gridX = room.GridX;
     int32 const gridY = room.GridY;
@@ -1710,23 +1719,39 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     for (uint32 step = 1; step < 4 && !placed; ++step)
     {
         uint32 const candidate = clockwise ? (room.Orientation + 4 - step) % 4 : (room.Orientation + step) % 4;
-        if (!RoomFits(rooms, room.RoomEntryId, gridX, gridY, room.FloorIndex, candidate, roomGuid))
-            continue;
-        if (partner && !RoomFits(rooms, partner->RoomEntryId, gridX, gridY, partner->FloorIndex, candidate, partnerGuid))
+
+        bool allFit = true;
+        for (Room const* half : column)
+            if (!RoomFits(rooms, half->RoomEntryId, gridX, gridY, half->FloorIndex, candidate, half->Guid))
+            {
+                allFit = false;
+                break;
+            }
+        if (!allFit)
             continue;
 
-        Room turned = room;
-        turned.Orientation = candidate;
-        Room turnedPartner = partner ? *partner : Room();
-        turnedPartner.Orientation = candidate;
+        std::vector<Room> turned;
+        for (Room const* half : column)
+        {
+            turned.push_back(*half);
+            turned.back().Orientation = candidate;
+        }
 
         std::vector<Room const*> layout;
         for (Room const* r : rooms)
-            layout.push_back(r->Guid == roomGuid ? &turned : (partner && r->Guid == partnerGuid ? &turnedPartner : r));
+        {
+            Room const* replacement = r;
+            for (Room& turnedRoom : turned)
+                if (turnedRoom.Guid == r->Guid)
+                    replacement = &turnedRoom;
+            layout.push_back(replacement);
+        }
 
-        if (!keepsAll(attachedBefore, attachedRooms(turned, layout)))
-            continue;
-        if (partner && !keepsAll(partnerAttachedBefore, attachedRooms(turnedPartner, layout)))
+        bool keepsEveryDoor = true;
+        for (size_t i = 0; i < column.size() && keepsEveryDoor; ++i)
+            if (!keepsAll(attachedBefore[i], attachedRooms(turned[i], layout)))
+                keepsEveryDoor = false;
+        if (!keepsEveryDoor)
             continue;
 
         orientation = candidate;
@@ -1736,9 +1761,8 @@ HousingResult Housing::RotateRoom(ObjectGuid roomGuid, bool clockwise)
     if (!placed)
         return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
-    SetRoomPlacement(room, gridX, gridY, orientation);
-    if (partner)
-        SetRoomPlacement(_rooms[partnerGuid], gridX, gridY, orientation);
+    for (Room const* half : column)
+        SetRoomPlacement(_rooms[half->Guid], gridX, gridY, orientation);
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -2129,6 +2153,35 @@ Housing::Room const* Housing::FindStairwellPartner(Room const& room) const
     return nullptr;
 }
 
+std::vector<Housing::Room const*> Housing::GetStairwellColumn(Room const& room) const
+{
+    std::vector<Room const*> column;
+    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
+    if (!roomData || !roomData->HasStairs())
+        return column;
+
+    auto halfAtFloor = [&](int32 floorIndex) -> Room const*
+    {
+        for (auto const& [guid, other] : _rooms)
+        {
+            if (other.GridX != room.GridX || other.GridY != room.GridY || other.FloorIndex != floorIndex)
+                continue;
+            HouseRoomData const* otherData = sHousingMgr.GetHouseRoomData(other.RoomEntryId);
+            if (otherData && otherData->HasStairs())
+                return &other;
+        }
+        return nullptr;
+    };
+
+    column.push_back(&room);
+    while (Room const* above = halfAtFloor(column.back()->FloorIndex + 1))
+        column.push_back(above);
+    while (Room const* below = halfAtFloor(column.front()->FloorIndex - 1))
+        column.insert(column.begin(), below);
+
+    return column;
+}
+
 HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, uint32 sourceDoorComponentId,
     uint32 targetDoorComponentId)
 {
@@ -2145,40 +2198,56 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, 
 
     Room& room = itr->second;
     Room const& target = targetItr->second;
+    // Retail moves the base room too (dump 18-21-27: HouseRoomID 46 moved onto an adjacent room's
+    // door, Success) - only rotation is base-restricted. The orphan check below keeps the rest of
+    // the layout intact: rooms hanging off the base must survive its move, otherwise the drop is
+    // rejected like any non-leaf move.
     HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
-    if (!roomData || roomData->IsBaseRoom())
+    if (!roomData)
         return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Re-hang the room on a free door of the target, the drop the editor made; keep the heading it
     // had, then try the rest. FitRoomToDoor ignores the moved room's own current cells; when the
     // client named the door it dropped the room by, only that door may dock.
-    std::vector<Room const*> rooms = GetRooms();
-
-    // Retail's "leaf rooms" rule: the move must orphan nothing — the mover's own parent link is
-    // allowed to re-hang, but every other room has to stay reachable from the base room.
-    if (!IsRoomGraphConnectedWithout(roomGuid))
+    // Retail's "leaf rooms" rule: the move must orphan nothing - the mover's own parent link is
+    // allowed to re-hang, but every other room has to stay reachable from the base room. A
+    // stairwell moves as its whole column, so the entire column is excluded from the check and
+    // from the fit-search layout.
+    std::vector<Room const*> column = GetStairwellColumn(room);
+    if (column.empty())
+        column.push_back(&room);
+    std::unordered_set<ObjectGuid> columnGuids{ roomGuid };
+    for (Room const* half : column)
+        columnGuids.insert(half->Guid);
+    if (!IsRoomGraphConnectedWithout(columnGuids))
         return HOUSING_RESULT_INVALID_ROOM_LAYOUT;
 
-    // Commit the re-hang: the mover's stairwell half travels along on the same floor delta.
+    std::vector<Room const*> fitRooms;
+    for (Room const* r : GetRooms())
+        if (!columnGuids.count(r->Guid))
+            fitRooms.push_back(r);
+
+    // Every half's landing cell must be free at the destination, not just the mover's.
+    auto columnFits = [&](int32 gridX, int32 gridY, int32 floorIndex, uint32 orientation)
+    {
+        int32 const floorDelta = floorIndex - room.FloorIndex;
+        for (Room const* half : column)
+            if (!RoomFits(fitRooms, half->RoomEntryId, gridX, gridY, half->FloorIndex + floorDelta, orientation, half->Guid))
+                return false;
+        return true;
+    };
+
+    // Commit the re-hang: every stairwell half of the column travels along on the same floor delta.
     auto place = [&](int32 gridX, int32 gridY, int32 floorIndex, uint32 orientation) -> HousingResult
     {
         int32 const floorDelta = floorIndex - room.FloorIndex;
-        ObjectGuid partnerGuid;
-        int32 partnerFloor = 0;
-        if (Room const* partner = FindStairwellPartner(room))
-        {
-            partnerGuid = partner->Guid;
-            partnerFloor = partner->FloorIndex + floorDelta;
-        }
-
-        SetRoomPlacement(room, gridX, gridY, orientation, floorIndex);
-        if (!partnerGuid.IsEmpty())
-            SetRoomPlacement(_rooms[partnerGuid], gridX, gridY, orientation, partnerFloor);
+        for (Room const* half : column)
+            SetRoomPlacement(_rooms[half->Guid], gridX, gridY, orientation, half->FloorIndex + floorDelta);
         return HOUSING_RESULT_SUCCESS;
     };
 
     // Wall doors first, keeping the heading the room had, then trying the rest. The client names
-    // both sides of the docking in the move packet — the moved room's door and the target's door —
+    // both sides of the docking in the move packet - the moved room's door and the target's door -
     // so the named target door is tried first (passes 0-1) before any door is considered (passes
     // 2-3); the source door is honoured on even passes. FitRoomToDoor ignores the mover's own cells.
     std::vector<RoomDoor> const targetDoors = GetRoomDoors(target);
@@ -2207,7 +2276,7 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, 
                         continue;
 
                     int32 gridX = 0, gridY = 0;
-                    if (!FitRoomToDoor(rooms, room.RoomEntryId, target.FloorIndex, door, orientation, roomGuid, gridX, gridY))
+                    if (!FitRoomToDoor(fitRooms, room.RoomEntryId, target.FloorIndex, door, orientation, roomGuid, gridX, gridY))
                         continue;
 
                     if (honourDoor && sourceDoorComponentId)
@@ -2229,6 +2298,9 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, 
                         && orientation == room.Orientation)
                         return HOUSING_RESULT_SUCCESS;
 
+                    if (!columnFits(gridX, gridY, target.FloorIndex, orientation))
+                        continue;
+
                     return place(gridX, gridY, target.FloorIndex, orientation);
                 }
             }
@@ -2245,12 +2317,15 @@ HousingResult Housing::MoveRoom(ObjectGuid roomGuid, ObjectGuid targetRoomGuid, 
             continue;
 
         int32 const floorIndex = target.FloorIndex + door.DirZ;
-        if (!RoomFits(rooms, room.RoomEntryId, target.GridX, target.GridY, floorIndex, target.Orientation, roomGuid))
+        if (!RoomFits(fitRooms, room.RoomEntryId, target.GridX, target.GridY, floorIndex, target.Orientation, roomGuid))
             continue;
 
         if (target.GridX == room.GridX && target.GridY == room.GridY && floorIndex == room.FloorIndex
             && target.Orientation == room.Orientation)
             return HOUSING_RESULT_SUCCESS;
+
+        if (!columnFits(target.GridX, target.GridY, floorIndex, target.Orientation))
+            continue;
 
         return place(target.GridX, target.GridY, floorIndex, target.Orientation);
     }
@@ -2272,24 +2347,45 @@ ObjectGuid Housing::FindBaseRoomGuid() const
 
 bool Housing::IsRoomGraphConnectedWithout(ObjectGuid excludeRoomGuid) const
 {
-    // If only the excluded room would remain (or nothing), the graph is trivially connected
-    if (_rooms.size() <= 2)
+    // A stairwell half is excluded together with its partner (a pair rises and falls as one).
+    std::unordered_set<ObjectGuid> excluded{ excludeRoomGuid };
+    if (Room const* excludedRoom = GetRoom(excludeRoomGuid))
+        if (Room const* partner = FindStairwellPartner(*excludedRoom))
+            excluded.insert(partner->Guid);
+
+    return IsRoomGraphConnectedWithout(excluded);
+}
+
+bool Housing::IsRoomGraphConnectedWithout(std::unordered_set<ObjectGuid> const& excludeRoomGuids) const
+{
+    // If at most one room would remain (or nothing), the graph is trivially connected
+    if (_rooms.size() <= excludeRoomGuids.size() + 1)
         return true;
 
-    // Find the base room as BFS start
+    // Find the BFS start: the base room, or - when the base room itself is excluded
+    // (retail allows moving it) - any remaining room; a single connected component is the criterion.
     ObjectGuid baseRoomGuid = FindBaseRoomGuid();
-    if (baseRoomGuid.IsEmpty() || baseRoomGuid == excludeRoomGuid)
-        return false; // No base room available after exclusion
+    if (baseRoomGuid.IsEmpty())
+        return false;
+    if (excludeRoomGuids.count(baseRoomGuid))
+    {
+        for (auto const& [guid, room] : _rooms)
+            if (!excludeRoomGuids.count(guid))
+            {
+                baseRoomGuid = guid;
+                break;
+            }
+        if (excludeRoomGuids.count(baseRoomGuid))
+            return false; // nothing remains
+    }
 
-    // Remaining rooms (the stairwell half stacked on the removed room goes with it)
+    // Remaining rooms (the excluded set goes away as one unit)
     std::vector<Room const*> remaining;
-    Room const* excluded = GetRoom(excludeRoomGuid);
-    Room const* excludedPartner = excluded ? FindStairwellPartner(*excluded) : nullptr;
     for (auto const& [guid, room] : _rooms)
-        if (guid != excludeRoomGuid && (!excludedPartner || guid != excludedPartner->Guid))
+        if (!excludeRoomGuids.count(guid))
             remaining.push_back(&room);
 
-    // BFS from the base room through rooms whose doors meet, plus the two halves of each stairwell
+    // BFS from the base room through rooms whose doors meet, plus the halves of each stairwell
     std::unordered_set<ObjectGuid> visited;
     std::queue<Room const*> queue;
 
@@ -3015,6 +3111,23 @@ std::vector<Housing::CatalogEntry const*> Housing::GetCatalogEntries() const
     return result;
 }
 
+void Housing::SetLevel(uint32 level)
+{
+    level = std::clamp(level, 1u, MAX_HOUSE_LEVEL);
+    if (level == _level)
+        return;
+
+    _level = level;
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_UPD_CHARACTER_HOUSING_LEVEL_FAVOR);
+    stmt->setUInt32(0, _level);
+    stmt->setUInt32(1, _favor);
+    stmt->setUInt64(2, _ownerGuid.GetCounter());
+    CharacterDatabase.Execute(stmt);
+
+    SyncUpdateFields();
+}
+
 void Housing::AddLevel(uint32 amount)
 {
     uint32 newLevel = std::min(_level + amount, MAX_HOUSE_LEVEL);
@@ -3040,7 +3153,7 @@ void Housing::AddLevel(uint32 amount)
     SendLevelFavorUpdate(int32(_level), -1);
 }
 
-void Housing::AddFavor(uint64 amount, HousingFavorUpdateSource source /*= HOUSING_FAVOR_SOURCE_UNKNOWN*/, bool emitUpdate /*= true*/)
+void Housing::AddFavor(uint64 amount, HousingFavorUpdateSource /*source*/ /*= HOUSING_FAVOR_SOURCE_UNKNOWN*/, bool emitUpdate /*= true*/)
 {
     _favor64 += amount;
     _favor = static_cast<uint32>(std::min<uint64>(_favor64, std::numeric_limits<uint32>::max()));
@@ -3280,6 +3393,88 @@ void Housing::SyncUpdateFields()
         GetMaxRoomBudget(),
         GetMaxFixtureBudget()
     );
+}
+
+Housing::PlacedDecor const* Housing::EnsureStarterDoorPlaced()
+{
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        if (IsStarterDoorDecor(decor.DecorEntryId))
+            return nullptr;
+
+    // The owner withdrew the door to storage on purpose - a relog must not re-place it
+    // (the withdrawn copy stayed in storage while a second door spawned at the default wall: a dupe).
+    for (auto const& [entryId, entry] : _catalog)
+        if (IsStarterDoorDecor(entryId))
+            return nullptr;
+
+    uint32 const doorDecorId = GetNeighborhoodFaction() == NEIGHBORHOOD_FACTION_HORDE
+        ? STARTER_DOOR_DECOR_ID_HORDE : STARTER_DOOR_DECOR_ID_ALLIANCE;
+
+    Room const* entryRoom = nullptr;
+    for (auto const& [guid, room] : _rooms)
+        if (room.SlotIndex == 0)
+        {
+            entryRoom = &room;
+            break;
+        }
+
+    NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID);
+    if (!entryRoom || !interior)
+    {
+        TC_LOG_ERROR("housing", "StarterDoor: entry hall or interior data missing for house {} (entryRoom={})",
+            _houseGuid.ToString(), entryRoom ? "yes" : "no");
+        return nullptr;
+    }
+
+    // Default spot: the entry hall's door wall, in the room's current frame.
+    constexpr float QUARTER_TURN = 1.57079632679f;
+    Position const roomPos(interior->Origin[0] + float(entryRoom->GridX), interior->Origin[1] + float(entryRoom->GridY),
+        interior->Origin[2] + float(entryRoom->FloorIndex) * HOUSE_INTERIOR_FLOOR_HEIGHT,
+        float(entryRoom->Orientation) * QUARTER_TURN);
+    float const cosY = std::cos(roomPos.GetOrientation());
+    float const sinY = std::sin(roomPos.GetOrientation());
+    float const wx = roomPos.GetPositionX() + cosY * -2.52f - sinY * 0.006f;
+    float const wy = roomPos.GetPositionY() + sinY * -2.52f + cosY * 0.006f;
+    float const wz = roomPos.GetPositionZ() + 0.02f;
+
+    // A granted copy PlaceDecor can consume; on failure the grant never happened.
+    CatalogEntry& grant = _catalog[doorDecorId];
+    grant.DecorEntryId = doorDecorId;
+    grant.Count = 1;
+    grant.SourceType = DECOR_SOURCE_DEFERRED; // mirrors the loader's starter catalog fixup
+
+    if (PlaceDecor(doorDecorId, wx, wy, wz, 0.0f, 0.0f, 0.0f, 1.0f, entryRoom->Guid) != HOUSING_RESULT_SUCCESS)
+    {
+        _catalog.erase(doorDecorId);
+        TC_LOG_ERROR("housing", "StarterDoor: failed to place decor {} for house {}",
+            doorDecorId, _houseGuid.ToString());
+        return nullptr;
+    }
+
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        if (decor.DecorEntryId == doorDecorId)
+            return &decor;
+
+    return nullptr;
+}
+
+Position Housing::GetInteriorEntryPosition() const
+{
+    // Arrivals anchor to the placed front door: wherever the owner moved it, entering players
+    // appear by it, facing into the house. Without one (never placed or withdrawn) the entry
+    // hall origin stands in.
+    for (auto const& [decorGuid, decor] : _placedDecor)
+        if (IsStarterDoorDecor(decor.DecorEntryId))
+        {
+            QuaternionData const rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
+            return Position(decor.PosX, decor.PosY, decor.PosZ,
+                2.0f * std::atan2(rot.z, rot.w) + float(M_PI));
+        }
+
+    if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
+        return Position(interior->Origin[0], interior->Origin[1], interior->Origin[2], 0.0f);
+
+    return Position();
 }
 
 void Housing::PopulateCatalogStorageEntries()
