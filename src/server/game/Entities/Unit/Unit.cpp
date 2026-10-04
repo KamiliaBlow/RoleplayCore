@@ -3027,10 +3027,10 @@ void Unit::_UpdateAutoRepeatSpell()
 
     // check "realtime" interrupts
     // don't cancel spells which are affected by a SPELL_AURA_CAST_WHILE_WALKING effect
-    if ((isMoving() && m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->CheckMovement() != SPELL_CAST_OK) || IsNonMeleeSpellCast(false, false, true, autoRepeatSpellInfo->Id == 75))
+    if ((isMoving() && m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->CheckMovement() != SPELL_CAST_OK) || IsNonMeleeSpellCast(false, false, true, autoRepeatSpellInfo->IsAutoShot()))
     {
         // cancel wand shoot
-        if (autoRepeatSpellInfo->Id != 75)
+        if (!autoRepeatSpellInfo->IsAutoShot())
             InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
         return;
     }
@@ -3042,7 +3042,7 @@ void Unit::_UpdateAutoRepeatSpell()
         SpellCastResult result = m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->CheckCast(true);
         if (result != SPELL_CAST_OK)
         {
-            if (autoRepeatSpellInfo->Id != 75)
+            if (!autoRepeatSpellInfo->IsAutoShot())
                 InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
             else if (GetTypeId() == TYPEID_PLAYER)
                 Spell::SendCastResult(ToPlayer(), autoRepeatSpellInfo, m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->m_SpellVisual, m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->m_castId, result);
@@ -3104,7 +3104,7 @@ void Unit::SetCurrentCastSpell(Spell* pSpell)
             if (m_currentSpells[CURRENT_AUTOREPEAT_SPELL])
             {
                 // break autorepeat if not Auto Shot
-                if (m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->GetSpellInfo()->Id != 75)
+                if (!m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->GetSpellInfo()->IsAutoShot())
                     InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
             }
             if (pSpell->GetCastTime() > 0)
@@ -3126,7 +3126,7 @@ void Unit::SetCurrentCastSpell(Spell* pSpell)
 
                 // it also does break autorepeat if not Auto Shot
                 if (m_currentSpells[CURRENT_AUTOREPEAT_SPELL] &&
-                    m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->GetSpellInfo()->Id != 75)
+                    !m_currentSpells[CURRENT_AUTOREPEAT_SPELL]->GetSpellInfo()->IsAutoShot())
                     InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
 
                 AddUnitState(UNIT_STATE_CASTING);
@@ -3140,7 +3140,7 @@ void Unit::SetCurrentCastSpell(Spell* pSpell)
                 m_currentSpells[CSpellType]->setState(SPELL_STATE_FINISHED);
 
             // only Auto Shoot does not break anything
-            if (pSpell->GetSpellInfo()->Id != 75)
+            if (!pSpell->GetSpellInfo()->IsAutoShot())
             {
                 // generic autorepeats break generic non-delayed and channeled non-delayed spells
                 InterruptSpell(CURRENT_GENERIC_SPELL, false);
@@ -5454,7 +5454,7 @@ void Unit::UpdateStatBuffModForClient(Stats stat)
 void Unit::SetCreateStat(Stats stat, float val)
 {
     UnitMods const unitMod = static_cast<UnitMods>(UNIT_MOD_STAT_START + AsUnderlyingType(stat));
-    HandleStatFlatModifier(unitMod, BASE_VALUE, val, true);
+    SetStatFlatModifier(unitMod, BASE_VALUE, val);
 }
 
 float Unit::GetCreateStat(Stats stat) const
@@ -11213,15 +11213,35 @@ void Unit::ApplyCastTimePercentMod(float val, bool apply)
     if (val > 0.f)
     {
         ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModCastingSpeed), val, !apply);
-        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModSpellHaste), val, !apply);
-        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModHasteRegen), val, !apply);
     }
     else
     {
         ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModCastingSpeed), -val, apply);
-        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModSpellHaste), -val, apply);
-        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModHasteRegen), -val, apply);
+        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModCastingSpeedNeg), -val, apply);
     }
+}
+
+void Unit::ApplySpellHastePercentMod(float val, bool apply)
+{
+    if (val > 0.f)
+        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModSpellHaste), val, !apply);
+    else
+        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModSpellHaste), -val, apply);
+}
+
+void Unit::ApplyHasteRegenPercentMod(float val, bool apply)
+{
+    if (val > 0.f)
+        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModHasteRegen), val, !apply);
+    else if (val < 0.0f)
+        ApplyPercentModUpdateFieldValue(m_values.ModifyValue(&Unit::m_unitData).ModifyValue(&UF::UnitData::ModHasteRegen), -val, apply);
+    else
+        return;
+
+    if (Player* player = ToPlayer())
+        for (Powers power : GetPowerTypes())
+            if (sDB2Manager.GetPowerTypeEntry(power)->GetFlags().HasFlag(PowerTypeFlags::RegenAffectedByHaste))
+                player->UpdatePowerRegen(power);
 }
 
 void Unit::UpdateAuraForGroup()

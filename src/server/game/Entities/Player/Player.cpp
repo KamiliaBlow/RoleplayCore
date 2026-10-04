@@ -172,122 +172,6 @@ enum PlayerSpells
 
 static uint32 corpseReclaimDelay[MAX_DEATH_COUNT] = { 30, 60, 120 };
 
-void MirrorTimer::SetValue(int32 value)
-{
-    if (IsActive() && value != GetValue())
-        m_flags |= MirrorTimerFlags::Changed;
-
-    m_value = value;
-}
-
-void MirrorTimer::SetMaxValue(int32 maxValue)
-{
-    if (!maxValue)
-        Stop();
-
-    if (!IsActive())
-        return;
-
-    if (maxValue != GetMaxValue())
-        m_flags |= MirrorTimerFlags::Changed;
-
-    m_maxValue = maxValue;
-    SetValue(std::min(GetValue(), GetMaxValue()));
-}
-
-void MirrorTimer::SetScale(int32 scale)
-{
-    if (!scale)
-        return SetPaused(true);
-
-    if (IsActive() && scale != GetScale())
-        m_flags |= MirrorTimerFlags::Changed;
-
-    m_scale = scale;
-}
-
-void MirrorTimer::SetPaused(bool state)
-{
-    if (IsActive() && state != IsPaused())
-        m_flags |= MirrorTimerFlags::PausedChanged;
-
-    if (state)
-        m_flags |= MirrorTimerFlags::Paused;
-    else
-        m_flags &= ~MirrorTimerFlags::Paused;
-}
-
-void MirrorTimer::Start(int32 maxValue, int32 spellId)
-{
-    if (m_scale < 0)
-    {
-        m_value = maxValue;
-        m_maxValue = maxValue;
-        m_spellId = spellId;
-        m_flags |= MirrorTimerFlags::Changed;
-        m_expiredTick.SetPeriodic(ExpiredTickPeriod, ExpiredTickPeriod);
-    }
-    else
-        Stop();
-}
-
-void MirrorTimer::Start(int32 value, int32 maxValue, int32 spellId)
-{
-    Start(maxValue, spellId);
-
-    if (IsActive())
-        m_value = value;
-}
-
-void MirrorTimer::Stop()
-{
-    if (!IsActive())
-        return;
-
-    m_value = 0;
-    m_maxValue = 0;
-    m_flags = MirrorTimerFlags::Changed;
-}
-
-MirrorTimer::UpdateResult MirrorTimer::Update(uint32 diff)
-{
-    if (!IsActive() || IsPaused())
-        return UpdateResult::Inactive;
-
-    int32 delta = int32(diff) * GetScale();
-
-    if (delta < 0)      // Timer running out
-    {
-        if (GetValue() > -delta)
-        {
-            m_value += delta;
-            return UpdateResult::Decreased;
-        }
-
-        if (!m_value)   // subsequent ticks after expiration
-        {
-            if (!m_expiredTick.Update(diff))
-                return UpdateResult::DecreasedExpired;
-        }
-        else
-            m_value = 0;
-
-        return UpdateResult::ExpiredTicked;
-    }
-    else                // Timer regenerating
-    {
-        if (GetValue() + delta < GetMaxValue())
-        {
-            m_value += delta;
-            m_expiredTick.SetPeriodic(ExpiredTickPeriod, ExpiredTickPeriod);
-        }
-        else
-            Stop();
-
-        return UpdateResult::Regenerated;
-    }
-}
-
 Player::Player(WorldSession* session) : Unit(true), m_sceneMgr(this)
 {
     m_objectTypeId = TYPEID_PLAYER;
@@ -2511,6 +2395,7 @@ void Player::InitStatsForLevel(bool reapplyMods)
 
     // set default cast time multiplier
     SetModCastingSpeed(1.0f);
+    SetModCastingSpeedNeg(1.0f);
     SetModSpellHaste(1.0f);
     SetModHaste(1.0f);
     SetModRangedHaste(1.0f);
@@ -5512,6 +5397,7 @@ void Player::UpdateRating(CombatRating cr)
             float const multiplier = GetRatingMultiplier(cr);
             float const oldVal = ApplyRatingDiminishing(cr, oldRating * multiplier);
             float const newVal = ApplyRatingDiminishing(cr, amount * multiplier);
+            int32 highestOtherRating = 0;
             switch (cr)
             {
                 case CR_HASTE_MELEE:
@@ -5519,19 +5405,29 @@ void Player::UpdateRating(CombatRating cr)
                     ApplyAttackTimePercentMod(OFF_ATTACK, oldVal, false);
                     ApplyAttackTimePercentMod(BASE_ATTACK, newVal, true);
                     ApplyAttackTimePercentMod(OFF_ATTACK, newVal, true);
-                    if (GetClass() == CLASS_DEATH_KNIGHT)
-                        UpdatePowerRegen(POWER_RUNES);
+                    highestOtherRating = std::max({ m_activePlayerData->CombatRatings[CR_HASTE_RANGED], m_activePlayerData->CombatRatings[CR_HASTE_SPELL] });
                     break;
                 case CR_HASTE_RANGED:
                     ApplyAttackTimePercentMod(RANGED_ATTACK, oldVal, false);
                     ApplyAttackTimePercentMod(RANGED_ATTACK, newVal, true);
+                    highestOtherRating = std::max(m_activePlayerData->CombatRatings[CR_HASTE_MELEE], m_activePlayerData->CombatRatings[CR_HASTE_SPELL]);
                     break;
                 case CR_HASTE_SPELL:
                     ApplyCastTimePercentMod(oldVal, false);
+                    ApplySpellHastePercentMod(oldVal, false);
                     ApplyCastTimePercentMod(newVal, true);
+                    ApplySpellHastePercentMod(newVal, true);
+                    highestOtherRating = std::max(m_activePlayerData->CombatRatings[CR_HASTE_MELEE], m_activePlayerData->CombatRatings[CR_HASTE_RANGED]);
                     break;
                 default:
                     break;
+            }
+            float oldHasteRegenVal = ApplyRatingDiminishing(cr, std::max(oldRating, highestOtherRating) * multiplier);
+            float newHasteRegenVal = ApplyRatingDiminishing(cr, std::max(amount, highestOtherRating) * multiplier);
+            if (oldHasteRegenVal != newHasteRegenVal)
+            {
+                ApplyHasteRegenPercentMod(oldHasteRegenVal, false);
+                ApplyHasteRegenPercentMod(newHasteRegenVal, true);
             }
             break;
         }
@@ -18365,12 +18261,12 @@ void Player::SendQuestReward(Quest const* quest, Creature const* questGiver, uin
         if (questGiver->IsGossip())
             packet.LaunchGossip = quest->HasFlag(QUEST_FLAGS_LAUNCH_GOSSIP_COMPLETE);
 
-        if (questGiver->IsQuestGiver())
-            packet.LaunchQuest = (GetQuestDialogStatus(questGiver) & ~QuestGiverStatusFutureMask) != QuestGiverStatus::None;
-
         if (!quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
             if (Quest const* rewardQuest = GetNextQuest(questGiver, quest))
                 packet.UseQuestReward = CanTakeQuest(rewardQuest, false);
+
+        if (questGiver->IsQuestGiver())
+            packet.LaunchQuest = !packet.UseQuestReward && (GetQuestDialogStatus(questGiver) & ~QuestGiverStatusFutureMask) != QuestGiverStatus::None;
     }
 
     packet.HideChatMessage = hideChatMessage;
@@ -28631,24 +28527,14 @@ uint8 Player::GetRunesState() const
 
 uint32 Player::GetRuneBaseCooldown() const
 {
-    double cooldown = RUNE_BASE_COOLDOWN;
+    PowerTypeEntry const* powerType = sDB2Manager.GetPowerTypeEntry(POWER_RUNES);
+    float regen = powerType->RegenPeace;
 
-    AuraEffectList const& regenAura = GetAuraEffectsByType(SPELL_AURA_MOD_POWER_REGEN_PERCENT);
-    for (AuraEffectList::const_iterator i = regenAura.begin();i != regenAura.end(); ++i)
-        if ((*i)->GetMiscValue() == POWER_RUNES)
-            cooldown *= 1.0 - (*i)->GetAmount() / 100.0;
+    uint32 powerIndex = GetPowerIndex(POWER_RUNES);
+    if (powerIndex <= MAX_POWERS_PER_CLASS)
+        regen += m_unitData->PowerRegenFlatModifier[powerIndex];
 
-    // Runes cooldown are now affected by player's haste from equipment ...
-    float hastePct = GetRatingBonusValue(CR_HASTE_MELEE);
-
-    // ... and some auras.
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE);
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE_2);
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE_3);
-
-    cooldown *= 1.0f - (hastePct / 100.0f);
-
-    return static_cast<float>(cooldown);
+    return 1.0f / regen * uint32(IN_MILLISECONDS);
 }
 
 void Player::SetRuneCooldown(uint8 index, uint32 cooldown)
