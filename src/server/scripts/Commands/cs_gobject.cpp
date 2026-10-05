@@ -176,7 +176,7 @@ public:
             return false;
         }
 
-        if (GameObject* tempGob = player->SummonGameObject(objectId, *player, QuaternionData::fromOrientation(player->GetOrientation(), 0.0f, 0.0f), spawntm))
+        if (GameObject* tempGob = player->SummonGameObject(objectId, *player, QuaternionData::fromEulerAnglesZYX(player->GetOrientation(), 0.0f, 0.0f), spawntm))
         {
             player->SetLastTargetedGO(tempGob->GetGUID().GetCounter());
             return true;
