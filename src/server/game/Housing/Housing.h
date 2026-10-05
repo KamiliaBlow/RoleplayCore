@@ -374,6 +374,9 @@ public:
     PlacedDecor const* EnsureStarterDoorPlaced();
     // Interior arrival point: anchored to the placed front door, entry hall origin without one.
     Position GetInteriorEntryPosition() const;
+    // Same arrival math over caller-supplied rooms; serves visitors to an offline owner
+    // whose house only exists as the Neighborhood PlotInfo snapshot.
+    static Position ComputeInteriorEntryPosition(PlacedDecor const& door, std::vector<Room const*> const& rooms);
 
     // Fills the account's FHousingStorage_C with the decor of every house of the account, on demand (REQUEST_STORAGE / edit mode).
     void PopulateCatalogStorageEntries();

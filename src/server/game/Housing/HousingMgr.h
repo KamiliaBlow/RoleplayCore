@@ -20,6 +20,7 @@
 
 #include "Define.h"
 #include "HousingDefines.h"
+#include "Neighborhood.h"
 #include "ObjectGuid.h"
 #include "Optional.h"
 #include "Position.h"
@@ -267,6 +268,11 @@ public:
     Position GetDefaultHousePosition(NeighborhoodPlotData const& plot) const;
     /// Where a housing teleport lands on a plot: TeleportPosition, facing CornerstoneRotation.Z.
     static WorldLocation GetPlotTeleportLocation(uint32 worldMapId, NeighborhoodPlotData const& plot);
+    /// Where leaving a house drops a player: by the host's front door (house position + door
+    /// hook + exit point); the plot's TeleportPosition cornerstone stands in without door data.
+    /// An offline host's door data comes from the PlotInfo mirror.
+    void GetHouseExitPosition(Housing const* exitHousing, NeighborhoodPlotData const& plot,
+        Neighborhood::PlotInfo const* plotInfo, Position& exit) const;
     /// Destination of a housing teleport spell (SPELL_HOUSING_TELEPORT_HOME / _VISIT_HOUSE) while it is being cast.
     struct PendingPlotTeleport
     {
@@ -366,6 +372,8 @@ public:
     bool CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGuid, uint32 settingsFlags, bool isInterior) const;
     // May this visitor save the house as a blueprint; nobody but the owner unless the owner opted in.
     bool CanVisitorExportBlueprint(Player const* visitor, ObjectGuid ownerGuid, uint32 settingsFlags) const;
+    // Friendship is one-directional here: a visitor is a friend when the OWNER's list has them.
+    bool IsFriendOfOwner(Player const* visitor, ObjectGuid ownerGuid) const;
 
     // Validation
     HousingResult ValidateDecorPlacement(uint32 decorId, Position const& pos, Position const& anchor, uint32 houseLevel) const;

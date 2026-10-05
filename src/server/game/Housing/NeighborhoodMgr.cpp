@@ -768,7 +768,8 @@ void NeighborhoodMgr::MigrateWrongFactionResidents()
 
 void NeighborhoodMgr::RegenerateNeighborhoodNames()
 {
-    // Public names are "ID1-ID2-ID3" NeighborhoodNameGen entry tokens; regenerate invalid ones.
+    // Machine-generated names are "ID1-ID2-ID3" NeighborhoodNameGen tokens; regenerate one only
+    // when its own tokens went stale in DB2. Anything else is a custom name and stays as-is.
     uint32 regenerated = 0;
     for (auto& [guid, neighborhood] : _neighborhoods)
     {
@@ -776,7 +777,6 @@ void NeighborhoodMgr::RegenerateNeighborhoodNames()
             continue;
 
         std::string const& name = neighborhood->GetName();
-        bool needsRegeneration = false;
 
         std::vector<std::string> tokens;
         std::string token;
@@ -794,28 +794,21 @@ void NeighborhoodMgr::RegenerateNeighborhoodNames()
         if (!token.empty())
             tokens.push_back(token);
 
-        if (tokens.size() != 3)
-        {
-            needsRegeneration = true;
-        }
-        else
-        {
-            for (std::string const& t : tokens)
+        bool const machineGenerated = tokens.size() == 3 && std::all_of(tokens.begin(), tokens.end(),
+            [](std::string const& t)
             {
-                if (t.empty() || !std::all_of(t.begin(), t.end(), [](char c) { return c >= '0' && c <= '9'; }))
-                {
-                    needsRegeneration = true;
-                    break;
-                }
+                return !t.empty() && std::all_of(t.begin(), t.end(), [](char c) { return c >= '0' && c <= '9'; });
+            });
+        if (!machineGenerated)
+            continue;
 
-                uint32 entryId = std::stoul(t);
-                if (!sNeighborhoodNameGenStore.LookupEntry(entryId))
-                {
-                    needsRegeneration = true;
-                    break;
-                }
+        bool needsRegeneration = false;
+        for (std::string const& t : tokens)
+            if (!sNeighborhoodNameGenStore.LookupEntry(std::stoul(t)))
+            {
+                needsRegeneration = true;
+                break;
             }
-        }
 
         if (!needsRegeneration)
             continue;

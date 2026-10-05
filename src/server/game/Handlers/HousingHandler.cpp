@@ -550,25 +550,37 @@ void WorldSession::LeaveHouseInterior()
     }
     SendPacket(statusResponse.Write());
 
-    // Teleport back to the neighborhood map at the plot's visitor landing point.
+    // Teleport back to the plot of the house being left - the host's plot for a visitor.
     uint32 worldMapId = 0;
     uint8 plotIndex = housing ? housing->GetPlotIndex() : INVALID_PLOT_INDEX;
     uint32 neighborhoodMapId = 0;
-
+    ObjectGuid const hostGuid = interiorMap ? interiorMap->GetOwnerGuid() : player->GetGUID();
     if (interiorMap)
-    {
-        worldMapId = interiorMap->GetSourceNeighborhoodMapId();
         plotIndex = interiorMap->GetSourcePlotIndex();
-    }
 
-    // The exit route belongs to the house being LEFT (the host's for a visitor); exitHousing may be null.
-    Housing const* exitHousing = housing;
-    if (isVisit && interiorMap)
-    {
-        exitHousing = nullptr;
-        if (Player* owner = ObjectAccessor::FindPlayer(interiorMap->GetOwnerGuid()))
-            exitHousing = owner->GetHousing();
-    }
+    // The exit route belongs to the house being LEFT (the host's for a visitor); resolved the
+    // same way the door does, with the PlotInfo mirror covering an offline host.
+    Housing const* exitHousing = player->GetHousingByOwner(hostGuid);
+    if (!exitHousing)
+        if (Player* owner = ObjectAccessor::FindPlayer(hostGuid))
+            exitHousing = owner->GetHousingByOwner(hostGuid);
+
+    // Several neighborhoods share one world map; the right instance is the one whose GUID counter it carries.
+    uint32 neighborhoodId = 0;
+    NeighborhoodPlotData const* plotData = nullptr;
+    Neighborhood::PlotInfo const* hostPlotInfo = nullptr;
+    for (Neighborhood* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(hostGuid))
+        for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+            if (plot.OwnerGuid == hostGuid && plot.IsOccupied())
+            {
+                neighborhoodId = static_cast<uint32>(nbh->GetGuid().GetCounter());
+                worldMapId = sHousingMgr.GetWorldMapIdByNeighborhoodMapId(nbh->GetNeighborhoodMapID());
+                hostPlotInfo = &plot;
+                for (NeighborhoodPlotData const* candidate : sHousingMgr.GetPlotsForMap(nbh->GetNeighborhoodMapID()))
+                    if (candidate->PlotIndex == static_cast<int32>(plot.PlotIndex))
+                        plotData = candidate;
+                break;
+            }
 
     // Fallback: resolve from the Housing object's neighborhood GUID
     if (worldMapId == 0 && exitHousing)
@@ -590,109 +602,27 @@ void WorldSession::LeaveHouseInterior()
         return;
     }
 
-    // Resolve the NeighborhoodMapId for the world map to look up plot data
-    if (neighborhoodMapId == 0)
-        neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(worldMapId);
-
-    // Exit position: house center + door hook offset + exit point offset.
-    float exitX = 0.0f, exitY = 0.0f, exitZ = 0.0f, exitO = 0.0f;
-    bool foundExitPoint = false;
-
-    if (neighborhoodMapId != 0)
+    // Exit position: by the front door of the house being left; the neighborhood center without plot data.
+    Position exit;
+    if (plotData)
+        sHousingMgr.GetHouseExitPosition(exitHousing, *plotData, hostPlotInfo, exit);
+    else
     {
-        std::vector<NeighborhoodPlotData const*> const& plots = sHousingMgr.GetPlotsForMap(neighborhoodMapId);
-        for (NeighborhoodPlotData const* plot : plots)
-        {
-            if (plot->PlotIndex != static_cast<int32>(plotIndex))
-                continue;
-
-            // The house's default spot (same as SpawnHouseForPlot)
-            Position const defaultSpot = sHousingMgr.GetDefaultHousePosition(*plot);
-            float hx = defaultSpot.GetPositionX();
-            float hy = defaultSpot.GetPositionY();
-            float hz = defaultSpot.GetPositionZ();
-            float hFacing = defaultSpot.GetOrientation();
-
-            // Without an exitHousing the door hook is unresolvable; fall through to TeleportPosition.
-            std::unordered_map<uint32, uint32> fixtureOverrides;
-            std::vector<ExteriorComponentHookEntry const*> const* baseHooks = nullptr;
-            if (exitHousing)
-            {
-                fixtureOverrides = exitHousing->GetFixtureOverrideMap();
-                baseHooks = sHousingMgr.GetHooksOnComponent(static_cast<uint32>(exitHousing->GetCoreExteriorComponentID()));
-            }
-            if (baseHooks)
-            {
-                for (ExteriorComponentHookEntry const* hook : *baseHooks)
-                {
-                    if (!hook || hook->ExteriorComponentTypeID != HOUSING_FIXTURE_TYPE_DOOR)
-                        continue;
-                    auto ovrItr = fixtureOverrides.find(hook->ID);
-                    if (ovrItr == fixtureOverrides.end())
-                        continue;
-
-                    // House position + hook offset + exit point offset in door space; hook yaw is stored clockwise.
-                    if (exitHousing->HasCustomPosition())
-                    {
-                        Position const custom = exitHousing->GetHousePosition();
-                        hx = custom.GetPositionX();
-                        hy = custom.GetPositionY();
-                        hFacing = custom.GetOrientation();
-                    }
-                    // The house stands on the plot pad; DB2 HousePosition Z (and a client-sent Z) can lie below it.
-                    if (GameObjectsEntry const* plotGo = sGameObjectsStore.LookupEntry(plot->PlotGameObjectID))
-                        hz = plotGo->Pos.Z;
-
-                    float const doorYaw = -hook->Rotation[2] * static_cast<float>(M_PI / 180.0);
-                    float localX = hook->Position[0];
-                    float localY = hook->Position[1];
-                    float localZ = hook->Position[2];
-                    if (ExteriorComponentExitPointEntry const* exitPt = sHousingMgr.GetExitPoint(ovrItr->second))
-                    {
-                        localX += exitPt->Position[0] * std::cos(doorYaw) - exitPt->Position[1] * std::sin(doorYaw);
-                        localY += exitPt->Position[0] * std::sin(doorYaw) + exitPt->Position[1] * std::cos(doorYaw);
-                        localZ += exitPt->Position[2];
-                    }
-
-                    float cosFacing = std::cos(hFacing);
-                    float sinFacing = std::sin(hFacing);
-                    exitX = hx + localX * cosFacing - localY * sinFacing;
-                    exitY = hy + localX * sinFacing + localY * cosFacing;
-                    exitZ = hz + localZ;
-                    exitO = Position::NormalizeOrientation(hFacing + doorYaw);
-                    foundExitPoint = true;
-                    break;
-                }
-            }
-
-            // Fallback: use plot's TeleportPosition if no door exit point found
-            if (!foundExitPoint)
-            {
-                exitX = plot->TeleportPosition[0];
-                exitY = plot->TeleportPosition[1];
-                exitZ = plot->TeleportPosition[2];
-                exitO = plot->TeleportFacing;
-                foundExitPoint = true;
-            }
-            break;
-        }
-    }
-
-    if (!foundExitPoint)
-    {
-        // Last resort: use neighborhood center
-        NeighborhoodMapData const* mapData = sHousingMgr.GetNeighborhoodMapData(neighborhoodMapId);
-        if (mapData)
-        {
-            exitX = mapData->Origin[0];
-            exitY = mapData->Origin[1];
-            exitZ = mapData->Origin[2];
-        }
+        neighborhoodMapId = neighborhoodMapId ? neighborhoodMapId : sHousingMgr.GetNeighborhoodMapIdByWorldMap(worldMapId);
+        if (NeighborhoodMapData const* mapData = sHousingMgr.GetNeighborhoodMapData(neighborhoodMapId))
+            exit = Position(mapData->Origin[0], mapData->Origin[1], mapData->Origin[2], 0.0f);
         TC_LOG_WARN("housing", "CMSG_HOUSE_INTERIOR_LEAVE_HOUSE: No exit point for plotIndex {}, "
             "using neighborhood center", plotIndex);
     }
 
-    player->TeleportTo(worldMapId, exitX, exitY, exitZ, exitO);
+    if (!neighborhoodId || !sMapMgr->FindOrCreateHousingMap(worldMapId, neighborhoodId))
+    {
+        player->TeleportTo(player->m_homebind);
+        return;
+    }
+
+    player->TeleportTo(TeleportLocation{ .Location = WorldLocation(worldMapId, exit.GetPositionX(), exit.GetPositionY(),
+        exit.GetPositionZ(), exit.GetOrientation()), .InstanceId = neighborhoodId });
 }
 
 // Decor System
@@ -4144,7 +4074,9 @@ void WorldSession::HandleHousingHouseStatus(WorldPackets::Housing::HousingHouseS
                     {
                         response.HouseGuid = plot.HouseGuid;
                         response.AccountGuid = plot.OwnerBnetGuid;
-                        response.OwnerPlayerGuid = ObjectGuid::Empty;
+                        // A visitor needs the host named or the client skips its guest UI; the account's
+                        // own characters get the owner-less retail form.
+                        response.OwnerPlayerGuid = interiorMap->IsHouseOwnerAccount(player) ? ObjectGuid::Empty : plot.OwnerGuid;
                         response.Status = 0;
                         if (Housing const* ownerHousing = player->GetHousingByOwner(plot.OwnerGuid))
                             response.EditModeFlags = ownerHousing->GetEditModeStatusFlags();

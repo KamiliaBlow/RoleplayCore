@@ -3464,56 +3464,64 @@ Housing::PlacedDecor const* Housing::EnsureStarterDoorPlaced()
     return nullptr;
 }
 
+Position Housing::ComputeInteriorEntryPosition(PlacedDecor const& decor, std::vector<Room const*> const& rooms)
+{
+    // Arrive inside the room the door hangs on, facing away from it: a turned door
+    // owns a yaw that would spawn arrivals behind its wall.
+    constexpr float ENTRY_STEP_INTO_ROOM = 3.0f;
+    constexpr float WALL_TOLERANCE = 3.0f;
+    if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
+    {
+        Room const* best = nullptr;
+        float bestDist = 0.0f;
+        for (Room const* room : rooms)
+        {
+            HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
+            RoomWmoDataEntry const* bounds = roomData && roomData->RoomWmoDataID
+                ? sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID) : nullptr;
+            if (!bounds)
+                continue;
+
+            float const dist = std::hypot(decor.PosX - (interior->Origin[0] + float(room->GridX)),
+                decor.PosY - (interior->Origin[1] + float(room->GridY)));
+            float const reach = std::max({ std::abs(bounds->BoundingBoxMinX), bounds->BoundingBoxMaxX,
+                std::abs(bounds->BoundingBoxMinY), bounds->BoundingBoxMaxY }) + WALL_TOLERANCE;
+            if (dist <= reach && (!best || dist < bestDist))
+            {
+                best = room;
+                bestDist = dist;
+            }
+        }
+
+        if (best && bestDist > 0.1f)
+        {
+            float const dirX = (interior->Origin[0] + float(best->GridX) - decor.PosX) / bestDist;
+            float const dirY = (interior->Origin[1] + float(best->GridY) - decor.PosY) / bestDist;
+            return Position(decor.PosX + ENTRY_STEP_INTO_ROOM * dirX,
+                decor.PosY + ENTRY_STEP_INTO_ROOM * dirY, decor.PosZ,
+                std::atan2(dirY, dirX));
+        }
+    }
+
+    // Without a room to lean on, the door's own yaw decides.
+    QuaternionData const rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
+    float const arrivalYaw = Position::NormalizeOrientation(2.0f * std::atan2(rot.z, rot.w) + float(M_PI));
+    return Position(decor.PosX - ENTRY_STEP_INTO_ROOM * std::cos(arrivalYaw),
+        decor.PosY - ENTRY_STEP_INTO_ROOM * std::sin(arrivalYaw), decor.PosZ, arrivalYaw);
+}
+
 Position Housing::GetInteriorEntryPosition() const
 {
     // Arrivals anchor to the placed front door: wherever the owner moved it, entering players
     // appear by it. Without one (never placed or withdrawn) the entry hall origin stands in.
-    constexpr float ENTRY_STEP_INTO_ROOM = 3.0f;
-    constexpr float WALL_TOLERANCE = 3.0f;
+    std::vector<Room const*> rooms;
+    rooms.reserve(_rooms.size());
+    for (auto const& [guid, room] : _rooms)
+        rooms.push_back(&room);
+
     for (auto const& [decorGuid, decor] : _placedDecor)
         if (IsStarterDoorDecor(decor.DecorEntryId))
-        {
-            // Arrive inside the room the door hangs on, facing away from it: a turned door
-            // owns a yaw that would spawn arrivals behind its wall.
-            if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
-            {
-                Room const* best = nullptr;
-                float bestDist = 0.0f;
-                for (auto const& [guid, room] : _rooms)
-                {
-                    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
-                    RoomWmoDataEntry const* bounds = roomData && roomData->RoomWmoDataID
-                        ? sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID) : nullptr;
-                    if (!bounds)
-                        continue;
-
-                    float const dist = std::hypot(decor.PosX - (interior->Origin[0] + float(room.GridX)),
-                        decor.PosY - (interior->Origin[1] + float(room.GridY)));
-                    float const reach = std::max({ std::abs(bounds->BoundingBoxMinX), bounds->BoundingBoxMaxX,
-                        std::abs(bounds->BoundingBoxMinY), bounds->BoundingBoxMaxY }) + WALL_TOLERANCE;
-                    if (dist <= reach && (!best || dist < bestDist))
-                    {
-                        best = &room;
-                        bestDist = dist;
-                    }
-                }
-
-                if (best && bestDist > 0.1f)
-                {
-                    float const dirX = (interior->Origin[0] + float(best->GridX) - decor.PosX) / bestDist;
-                    float const dirY = (interior->Origin[1] + float(best->GridY) - decor.PosY) / bestDist;
-                    return Position(decor.PosX + ENTRY_STEP_INTO_ROOM * dirX,
-                        decor.PosY + ENTRY_STEP_INTO_ROOM * dirY, decor.PosZ,
-                        std::atan2(dirY, dirX));
-                }
-            }
-
-            // Without a room to lean on, the door's own yaw decides.
-            QuaternionData const rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
-            float const arrivalYaw = Position::NormalizeOrientation(2.0f * std::atan2(rot.z, rot.w) + float(M_PI));
-            return Position(decor.PosX - ENTRY_STEP_INTO_ROOM * std::cos(arrivalYaw),
-                decor.PosY - ENTRY_STEP_INTO_ROOM * std::sin(arrivalYaw), decor.PosZ, arrivalYaw);
-        }
+            return ComputeInteriorEntryPosition(decor, rooms);
 
     if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
         return Position(interior->Origin[0], interior->Origin[1], interior->Origin[2], 0.0f);

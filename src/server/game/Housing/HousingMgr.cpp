@@ -485,6 +485,85 @@ WorldLocation HousingMgr::GetPlotTeleportLocation(uint32 worldMapId, Neighborhoo
         plot.CornerstoneRotation[2]);
 }
 
+void HousingMgr::GetHouseExitPosition(Housing const* exitHousing, NeighborhoodPlotData const& plot,
+    Neighborhood::PlotInfo const* plotInfo, Position& exit) const
+{
+    // The house's default spot (same as SpawnHouseForPlot)
+    Position const defaultSpot = GetDefaultHousePosition(plot);
+    float hx = defaultSpot.GetPositionX();
+    float hy = defaultSpot.GetPositionY();
+    float hz = defaultSpot.GetPositionZ();
+    float hFacing = defaultSpot.GetOrientation();
+    Optional<Position> customSpot;
+
+    std::unordered_map<uint32, uint32> fixtureOverrides;
+    uint32 coreComponentID = 0;
+
+    if (exitHousing)
+    {
+        fixtureOverrides = exitHousing->GetFixtureOverrideMap();
+        coreComponentID = static_cast<uint32>(exitHousing->GetCoreExteriorComponentID());
+        if (exitHousing->HasCustomPosition())
+            customSpot = exitHousing->GetHousePosition();
+    }
+    else if (plotInfo && plotInfo->HouseType != 0)
+    {
+        // Offline host: the PlotInfo mirror carries the fixtures and the moved house position.
+        fixtureOverrides = plotInfo->Fixtures;
+        for (auto const& [pointId, optionId] : plotInfo->Fixtures)
+            if (optionId == 0)
+                if (ExteriorComponentEntry const* comp = sExteriorComponentStore.LookupEntry(pointId))
+                    if (comp->ParentComponentID == 0 && comp->HouseExteriorWmoDataID == static_cast<int32>(plotInfo->HouseType))
+                    {
+                        coreComponentID = pointId;
+                        break;
+                    }
+        customSpot = plotInfo->HousePosition;
+    }
+
+    if (std::vector<ExteriorComponentHookEntry const*> const* baseHooks = coreComponentID
+        ? GetHooksOnComponent(coreComponentID) : nullptr)
+        for (ExteriorComponentHookEntry const* hook : *baseHooks)
+        {
+            if (!hook || hook->ExteriorComponentTypeID != HOUSING_FIXTURE_TYPE_DOOR)
+                continue;
+            auto ovrItr = fixtureOverrides.find(hook->ID);
+            if (ovrItr == fixtureOverrides.end())
+                continue;
+
+            // House position + hook offset + exit point offset in door space; hook yaw is stored clockwise.
+            if (customSpot)
+            {
+                hx = customSpot->GetPositionX();
+                hy = customSpot->GetPositionY();
+                hFacing = customSpot->GetOrientation();
+            }
+            // The house stands on the plot pad; DB2 HousePosition Z (and a client-sent Z) can lie below it.
+            if (GameObjectsEntry const* plotGo = sGameObjectsStore.LookupEntry(plot.PlotGameObjectID))
+                hz = plotGo->Pos.Z;
+
+            float const doorYaw = -hook->Rotation[2] * static_cast<float>(M_PI / 180.0);
+            float localX = hook->Position[0];
+            float localY = hook->Position[1];
+            float localZ = hook->Position[2];
+            if (ExteriorComponentExitPointEntry const* exitPt = GetExitPoint(ovrItr->second))
+            {
+                localX += exitPt->Position[0] * std::cos(doorYaw) - exitPt->Position[1] * std::sin(doorYaw);
+                localY += exitPt->Position[0] * std::sin(doorYaw) + exitPt->Position[1] * std::cos(doorYaw);
+                localZ += exitPt->Position[2];
+            }
+
+            float cosFacing = std::cos(hFacing);
+            float sinFacing = std::sin(hFacing);
+            exit = Position(hx + localX * cosFacing - localY * sinFacing,
+                hy + localX * sinFacing + localY * cosFacing, hz + localZ,
+                Position::NormalizeOrientation(hFacing + doorYaw));
+            return;
+        }
+
+    exit = Position(plot.TeleportPosition[0], plot.TeleportPosition[1], plot.TeleportPosition[2], plot.TeleportFacing);
+}
+
 void HousingMgr::SetPendingPlotTeleport(ObjectGuid playerGuid, WorldLocation const& dest, uint32 neighborhoodId)
 {
     std::lock_guard<std::mutex> lock(_pendingPlotTeleportsLock);
@@ -722,8 +801,7 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
 
     if (settingsFlags & friendsFlag)
     {
-        // Friends are mutual on retail — visitor's social manager has the same record.
-        if (visitor->GetSocial() && visitor->GetSocial()->HasFriend(ownerGuid))
+        if (IsFriendOfOwner(visitor, ownerGuid))
             return true;
     }
 
@@ -734,6 +812,24 @@ bool HousingMgr::CanVisitorAccessPlot(Player const* visitor, ObjectGuid ownerGui
             if (nbh->IsMember(visitor->GetGUID()))
                 return true;
     }
+
+    return false;
+}
+
+bool HousingMgr::IsFriendOfOwner(Player const* visitor, ObjectGuid ownerGuid) const
+{
+    if (!visitor)
+        return false;
+
+    if (Player* owner = ObjectAccessor::FindPlayer(ownerGuid))
+        return owner->GetSocial() && owner->GetSocial()->HasFriend(visitor->GetGUID());
+
+    // Offline owner: read the row straight from their social storage.
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SOCIAL_FLAGS);
+    stmt->setUInt64(0, ownerGuid.GetCounter());
+    stmt->setUInt64(1, visitor->GetGUID().GetCounter());
+    if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
+        return ((*result)[0].GetUInt8() & SOCIAL_FLAG_FRIEND) != 0;
 
     return false;
 }
@@ -762,7 +858,7 @@ bool HousingMgr::CanVisitorExportBlueprint(Player const* visitor, ObjectGuid own
             return true;
     }
 
-    if ((settingsFlags & HOUSE_SETTING_BLUEPRINT_EXPORT_FRIENDS) && visitor->GetSocial() && visitor->GetSocial()->HasFriend(ownerGuid))
+    if ((settingsFlags & HOUSE_SETTING_BLUEPRINT_EXPORT_FRIENDS) && IsFriendOfOwner(visitor, ownerGuid))
         return true;
 
     if (settingsFlags & HOUSE_SETTING_BLUEPRINT_EXPORT_NEIGHBORS)

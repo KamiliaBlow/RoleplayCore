@@ -178,7 +178,8 @@ bool Neighborhood::LoadFromDB(PreparedQueryResult neighborhood, PreparedQueryRes
                 continue;
 
             Housing::Room room;
-            room.Guid             = ObjectGuidFactory::CreateHousing(/*subType*/ 2, /*realmId*/ 0, /*arg2*/ 0, r[1].GetUInt64());
+            // arg2 is the raw houseRoomId, bit-identical to Housing::LoadFromDB's room GUID key
+            room.Guid         = ObjectGuidFactory::CreateHousing(/*subType*/ 2, /*realmId*/ 0, /*arg2*/ r[2].GetUInt32(), r[1].GetUInt64());
             room.RoomEntryId      = r[2].GetUInt32();
             room.SlotIndex        = r[3].GetUInt32();
             room.GridX            = r[4].GetInt32();

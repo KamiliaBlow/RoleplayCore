@@ -90,12 +90,18 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
         return;
     }
 
-    float exitX = exitPlot->TeleportPosition[0];
-    float exitY = exitPlot->TeleportPosition[1];
-    float exitZ = exitPlot->TeleportPosition[2];
+    // Same landing spot as the "Leave House" button: by the host's front door, cornerstone as fallback.
+    Housing const* exitHousing = player->GetHousingByOwner(houseOwner);
+    if (!exitHousing)
+        if (Player* ownerPlayer = ObjectAccessor::FindPlayer(houseOwner))
+            exitHousing = ownerPlayer->GetHousingByOwner(houseOwner);
+
+    Position exit;
+    sHousingMgr.GetHouseExitPosition(exitHousing, *exitPlot, nbh->GetPlotInfo(ownerPlotIndex), exit);
 
     TC_LOG_DEBUG("housing", "go_housing_door: Teleporting {} from interior (owner {}) to map {} plot {} at ({:.1f},{:.1f},{:.1f})",
-        player->GetGUID().ToString(), houseOwner.ToString(), destMapId, ownerPlotIndex, exitX, exitY, exitZ);
+        player->GetGUID().ToString(), houseOwner.ToString(), destMapId, ownerPlotIndex,
+        exit.GetPositionX(), exit.GetPositionY(), exit.GetPositionZ());
 
     // Several neighborhoods share a world map; the house's own one is the instance whose id is its GUID counter.
     uint32 const neighborhoodId = static_cast<uint32>(nbh->GetGuid().GetCounter());
@@ -105,8 +111,8 @@ static void TeleportOutOfHouseInterior(Player* player, HouseInteriorMap* interio
         return;
     }
 
-    player->TeleportTo(TeleportLocation{ .Location = WorldLocation(destMapId, exitX, exitY, exitZ, player->GetOrientation()),
-        .InstanceId = neighborhoodId });
+    player->TeleportTo(TeleportLocation{ .Location = WorldLocation(destMapId, exit.GetPositionX(), exit.GetPositionY(),
+        exit.GetPositionZ(), exit.GetOrientation()), .InstanceId = neighborhoodId });
 }
 
 // Housing front door GO (entry 602702): teleports the player to the house's interior instance.
@@ -225,17 +231,30 @@ public:
                 housing->SetInInterior(true);
 
             // Arrival anchors to the owner's placed front door - entering players appear by it
-            // wherever it was moved. Without a resolvable housing (offline owner) the fixed
-            // entry hall spawn stands in.
+            // wherever it was moved. An offline owner's house still exists as the PlotInfo
+            // snapshot; without a door there either, the fixed entry hall spawn stands in.
             ObjectGuid const ownerGuid = plotInfo && !plotInfo->OwnerGuid.IsEmpty() ? plotInfo->OwnerGuid : player->GetGUID();
             Housing const* ownerHousing = player->GetHousingByOwner(ownerGuid);
             if (!ownerHousing)
                 if (Player* ownerPlayer = ObjectAccessor::FindConnectedPlayer(ownerGuid))
                     ownerHousing = ownerPlayer->GetHousingByOwner(ownerGuid);
 
-            Position const entryPos = ownerHousing
-                ? ownerHousing->GetInteriorEntryPosition()
-                : Position(INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
+            Position entryPos(INTERIOR_SPAWN_X, INTERIOR_SPAWN_Y, INTERIOR_SPAWN_Z, INTERIOR_SPAWN_O);
+            if (ownerHousing)
+                entryPos = ownerHousing->GetInteriorEntryPosition();
+            else if (plotInfo)
+            {
+                std::vector<Housing::Room const*> snapshotRooms;
+                for (Housing::Room const& room : plotInfo->Rooms)
+                    snapshotRooms.push_back(&room);
+
+                for (Housing::PlacedDecor const& decor : plotInfo->Decor)
+                    if (IsStarterDoorDecor(decor.DecorEntryId))
+                    {
+                        entryPos = Housing::ComputeInteriorEntryPosition(decor, snapshotRooms);
+                        break;
+                    }
+            }
 
             if (!player->TeleportTo(HOUSE_INTERIOR_MAP_ID,
                 entryPos.GetPositionX(), entryPos.GetPositionY(), entryPos.GetPositionZ(), entryPos.GetOrientation()))

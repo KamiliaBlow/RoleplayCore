@@ -169,6 +169,7 @@ void WorldSession::SendMirrorVars()
         { "shop2Enabled"sv, "0"sv },
         { "bpayStoreEnable"sv, "0"sv },
         { "recentAlliesEnabledClient"sv, "0"sv },
+        { "legacyFriendSystemEnabledClient"sv, "1"sv },
         { "browserEnabled"sv, "0"sv },
         { "advFlyKeyboardMinTurnFactor"sv, "1"sv },
         { "advFlyKeyboardMaxTurnFactor"sv, "1"sv },
