@@ -51,14 +51,15 @@ public:
         {
             { "create", HandleCharterCreateCommand, rbac::RBAC_PERM_COMMAND_HOUSING_CHARTER_CREATE, Console::No },
             { "set",    charterSetCommandTable },
-            { "delete", HandleCharterDeleteCommand, rbac::RBAC_PERM_COMMAND_HOUSING_CHARTER_DELETE,  Console::No },
+            { "delete", HandleCharterDeleteCommand, rbac::RBAC_PERM_COMMAND_HOUSING_CHARTER_DELETE, Console::No },
         };
 
         static ChatCommandTable housingCommandTable =
         {
-            { "set",     HandleSetCommand,          rbac::RBAC_PERM_COMMAND_HOUSING,                 Console::No },
-            { "delete",  HandleDeleteCommand,       rbac::RBAC_PERM_COMMAND_HOUSING_DELETE,          Console::No },
-            { "charter", charterCommandTable },
+            { "set level", HandleSetCommand,     rbac::RBAC_PERM_COMMAND_HOUSING,        Console::No },
+            { "rewards",   HandleRewardsCommand, rbac::RBAC_PERM_COMMAND_HOUSING,        Console::No },
+            { "delete",    HandleDeleteCommand,  rbac::RBAC_PERM_COMMAND_HOUSING_DELETE, Console::No },
+            { "charter",   charterCommandTable },
         };
 
         static ChatCommandTable commandTable =
@@ -74,7 +75,7 @@ private:
     {
         if (level < 1 || level > MAX_HOUSE_LEVEL)
         {
-            handler->PSendSysMessage("Level must be between 1 and {}.", MAX_HOUSE_LEVEL);
+            handler->PSendSysMessage("Level must be between 1 and %u.", MAX_HOUSE_LEVEL);
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -84,13 +85,33 @@ private:
         Housing* housing = owner->GetHousing();
         if (!housing || housing->GetHouseGuid().IsEmpty())
         {
-            handler->PSendSysMessage("{} has no house.", target ? target->GetName() : "You");
+            handler->PSendSysMessage("%s has no house.", target ? target->GetName() : "You");
             handler->SetSentErrorMessage(true);
             return false;
         }
 
         housing->SetLevel(level);
-        handler->PSendSysMessage("House level of {} set to {}.", owner->GetName(), level);
+        // AddLevel grants these on the favor grind; do the same here.
+        housing->GrantLevelAwards(2, level);
+        handler->PSendSysMessage("House level of %s set to %u.", owner->GetName(), level);
+        return true;
+    }
+
+    static bool HandleRewardsCommand(ChatHandler* handler)
+    {
+        Player* target = handler->getSelectedPlayer();
+        Player* owner = target ? target : handler->GetSession()->GetPlayer();
+        Housing* housing = owner->GetHousing();
+        if (!housing || housing->GetHouseGuid().IsEmpty())
+        {
+            handler->PSendSysMessage("%s has no house.", target ? target->GetName() : "You");
+            handler->SetSentErrorMessage(true);
+            return false;
+        }
+
+        // Re-grant past stale rewarded markers left by wiped house tables.
+        housing->GrantLevelAwards(2, housing->GetLevel(), true);
+        handler->PSendSysMessage("Level rewards of %s's house (level %u) re-granted.", owner->GetName(), housing->GetLevel());
         return true;
     }
 
@@ -101,34 +122,32 @@ private:
         Housing* housing = owner->GetHousing();
         if (!housing || housing->GetHouseGuid().IsEmpty())
         {
-            handler->PSendSysMessage("{} has no house.", target ? target->GetName() : "You");
+            handler->PSendSysMessage("%s has no house.", target ? target->GetName() : "You");
             handler->SetSentErrorMessage(true);
             return false;
         }
 
         housing->Delete();
-        handler->PSendSysMessage("House of {} deleted.", owner->GetName());
+        handler->PSendSysMessage("House of %s deleted.", owner->GetName());
         return true;
     }
 
-    // First non-system neighborhood map for the player's faction (the maps charters use).
+    // The faction's drawn neighborhood map: without a texture kit the client has no UiMap for
+    // it and the house finder's map fails to open.
     static uint32 PickNeighborhoodMapId(Player* player)
     {
         uint32 wantBit = player->GetTeamId() == TEAM_ALLIANCE
             ? NEIGHBORHOOD_MAP_FLAG_ALLIANCE_PURCHASABLE : NEIGHBORHOOD_MAP_FLAG_HORDE_PURCHASABLE;
-
-        uint32 fallback = 0;
         for (auto const& [id, data] : sHousingMgr.GetAllNeighborhoodMapData())
         {
             if (!(data.Flags & wantBit))
                 continue;
-            if (!(data.Flags & NEIGHBORHOOD_MAP_FLAG_CAN_SYSTEM_GENERATE))
-                return id;
-            if (!fallback)
-                fallback = id;
+            if (!data.UiTextureKitID)
+                continue;
+            return id;
         }
 
-        return fallback;
+        return 0;
     }
 
     static bool HandleCharterCreateCommand(ChatHandler* handler, Tail tailName)
@@ -136,7 +155,7 @@ private:
         std::string name(tailName);
         if (name.empty() || name.size() > HOUSING_MAX_NAME_LENGTH)
         {
-            handler->PSendSysMessage("Name must be 1-{} characters.", HOUSING_MAX_NAME_LENGTH);
+            handler->PSendSysMessage("Name must be 1-%u characters.", HOUSING_MAX_NAME_LENGTH);
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -162,7 +181,7 @@ private:
             return false;
         }
 
-        handler->PSendSysMessage("Neighborhood \"{}\" created (private).", neighborhood->GetName());
+        handler->PSendSysMessage("Neighborhood \"%s\" created (private).", neighborhood->GetName());
         return true;
     }
 
@@ -188,7 +207,7 @@ private:
         Neighborhood* neighborhood = sNeighborhoodMgr.FindNeighborhoodByName(name);
         if (!neighborhood)
         {
-            handler->PSendSysMessage("Neighborhood \"{}\" not found.", name);
+            handler->PSendSysMessage("Neighborhood \"%s\" not found.", name);
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -197,7 +216,7 @@ private:
         if (StringEqualI(type, "public"))
         {
             neighborhood->SetPublic(true);
-            handler->PSendSysMessage("Neighborhood \"{}\" is now public.", neighborhood->GetName());
+            handler->PSendSysMessage("Neighborhood \"%s\" is now public.", neighborhood->GetName());
             return true;
         }
 
@@ -211,7 +230,7 @@ private:
             }
 
             neighborhood->SetPublic(false);
-            handler->PSendSysMessage("Neighborhood \"{}\" is now private.", neighborhood->GetName());
+            handler->PSendSysMessage("Neighborhood \"%s\" is now private.", neighborhood->GetName());
             return true;
         }
 
@@ -269,7 +288,7 @@ private:
             PreparedQueryResult result = CharacterDatabase.Query(lookupStmt);
             if (!result)
             {
-                handler->PSendSysMessage("Character \"{}\" not found.", name);
+                handler->PSendSysMessage("Character \"%s\" not found.", name);
                 handler->SetSentErrorMessage(true);
                 return false;
             }
@@ -292,7 +311,7 @@ private:
             case NEIGHBORHOOD_FACTION_ALLIANCE:
                 if (newOwnerTeam != TEAM_ALLIANCE)
                 {
-                    handler->PSendSysMessage("{} cannot own an Alliance neighborhood.", name);
+                    handler->PSendSysMessage("%s cannot own an Alliance neighborhood.", name);
                     handler->SetSentErrorMessage(true);
                     return false;
                 }
@@ -300,7 +319,7 @@ private:
             case NEIGHBORHOOD_FACTION_HORDE:
                 if (newOwnerTeam != TEAM_HORDE)
                 {
-                    handler->PSendSysMessage("{} cannot own a Horde neighborhood.", name);
+                    handler->PSendSysMessage("%s cannot own a Horde neighborhood.", name);
                     handler->SetSentErrorMessage(true);
                     return false;
                 }
@@ -311,12 +330,12 @@ private:
 
         if (!sNeighborhoodMgr.SetNeighborhoodOwner(*neighborhood, newOwnerGuid))
         {
-            handler->PSendSysMessage("Failed to transfer \"{}\" (the character may already own a neighborhood).", neighborhood->GetName());
+            handler->PSendSysMessage("Failed to transfer \"%s\" (the character may already own a neighborhood).", neighborhood->GetName());
             handler->SetSentErrorMessage(true);
             return false;
         }
 
-        handler->PSendSysMessage("Neighborhood \"{}\" transferred to {}.", neighborhood->GetName(), name);
+        handler->PSendSysMessage("Neighborhood \"%s\" transferred to %s.", neighborhood->GetName(), name);
         return true;
     }
 
@@ -333,7 +352,7 @@ private:
         Neighborhood* neighborhood = sNeighborhoodMgr.FindNeighborhoodByName(name);
         if (!neighborhood)
         {
-            handler->PSendSysMessage("Neighborhood \"{}\" not found.", name);
+            handler->PSendSysMessage("Neighborhood \"%s\" not found.", name);
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -374,7 +393,7 @@ private:
         ObjectGuid neighborhoodGuid = neighborhood->GetGuid();
         sNeighborhoodMgr.DeleteNeighborhood(neighborhoodGuid);
 
-        handler->PSendSysMessage("Neighborhood \"{}\" deleted ({} house(s) removed).", name, deleted);
+        handler->PSendSysMessage("Neighborhood \"%s\" deleted (%u house(s) removed).", name, deleted);
         return true;
     }
 };

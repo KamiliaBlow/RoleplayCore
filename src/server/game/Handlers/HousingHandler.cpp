@@ -54,6 +54,7 @@
 #include "World.h"
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace
 {
@@ -90,6 +91,38 @@ namespace
         }
 
         return false;
+    }
+
+    struct StairHalfCell
+    {
+        int32 GridX;
+        int32 GridY;
+        int32 FloorIndex;
+    };
+
+    // Rebuild stairwell halves whose vertical neighbours changed: their hidden ceiling, floor
+    // and flight pieces were assembled for the old neighbours. skip holds halves just respawned.
+    void RespawnChangedStairNeighbours(HouseInteriorMap* interiorMap, Housing* housing,
+        std::vector<StairHalfCell> const& changedCells, std::unordered_set<ObjectGuid> const& skip)
+    {
+        for (Housing::Room const* room : housing->GetRooms())
+        {
+            if (skip.contains(room->Guid))
+                continue;
+
+            HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room->RoomEntryId);
+            if (!roomData || !roomData->HasStairs())
+                continue;
+
+            for (StairHalfCell const& cell : changedCells)
+                if (cell.GridX == room->GridX && cell.GridY == room->GridY
+                    && std::abs(cell.FloorIndex - room->FloorIndex) == 1)
+                {
+                    interiorMap->RespawnRoomVisuals(*room, housing->GetNeighborhoodFaction(),
+                        housing->GetHouseGuid(), housing);
+                    break;
+                }
+        }
     }
 
     // Despawns everything, frees the plot, drops membership and deletes rows; returns the destroyed house GUID.
@@ -2501,6 +2534,14 @@ HousingResult WorldSession::AddHousingRoomAtDoor(Housing* housing, ObjectGuid so
             // Spawn the new rooms, then open the attached wall on the other side.
             std::vector<Housing::Room const*> rooms = housing->GetRooms();
             interiorMap->SpawnRoomMeshObjects(housing, faction);
+
+            // The half below an extension keeps its ceiling unless rebuilt: incremental spawn
+            // skips rooms that already have entities.
+            if (ceilingExpansion)
+                if (Housing::Room const* added = housing->GetRoom(newRoomGuid))
+                    RespawnChangedStairNeighbours(interiorMap, housing,
+                        { { added->GridX, added->GridY, added->FloorIndex } }, { newRoomGuid });
+
             interiorMap->RefreshRoomDoors(rooms, faction);
 
             // The layout editor rebuilds door pins on room-entity VALUES updates (the same nudge
@@ -2556,6 +2597,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
     // keep standing. Removal runs top-down so each half's "upper is free" refund telescopes
     // into exactly one stairwell charge for the whole column.
     std::vector<ObjectGuid> columnAboveGuids;
+    std::vector<StairHalfCell> removedCells;
     if (Housing::Room const* clicked = housing->GetRoom(housingRoomRemove.RoomGuid))
     {
         std::vector<Housing::Room const*> column = housing->GetStairwellColumn(*clicked);
@@ -2567,6 +2609,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
             if (half->FloorIndex < clicked->FloorIndex)
                 continue;
             columnAboveGuids.push_back(half->Guid);
+            removedCells.push_back({ half->GridX, half->GridY, half->FloorIndex });
             if (half->Guid != housingRoomRemove.RoomGuid)
                 for (auto const* decor : housing->GetAllPlacedDecor())
                     if (decor && decor->RoomGuid == half->Guid)
@@ -2600,12 +2643,35 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
             for (ObjectGuid const& columnGuid : columnAboveGuids)
                 interiorMap->DespawnRoomEntities(columnGuid);
 
-            // The neighbours' walls on the removed room's side close again
             int32 faction = housing->GetNeighborhoodFaction();
+
+            // The column's new top regains its ceiling.
+            RespawnChangedStairNeighbours(interiorMap, housing, removedCells, {});
+
+            // The neighbours' walls on the removed room's side close again
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);
 
+            // A half's bounding box reaches past its own storey, so IsInsideAnyRoom keeps
+            // claiming a player standing over the removed floors: drop them one storey below
+            // the cut instead of letting them fall through the shaft.
+            bool relocated = false;
+            if (!removedCells.empty())
+                if (NeighborhoodMapData const* interiorData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
+                {
+                    constexpr float FLOOR_HEIGHT = 12.0f;
+                    int32 const lowestRemovedFloor = removedCells.front().FloorIndex;
+                    int32 const playerFloor = int32(std::floor((player->GetPositionZ() - interiorData->Origin[2]) / FLOOR_HEIGHT));
+                    if (lowestRemovedFloor > 0 && playerFloor >= lowestRemovedFloor)
+                    {
+                        player->NearTeleportTo(player->GetPositionX(), player->GetPositionY(),
+                            interiorData->Origin[2] + FLOOR_HEIGHT * float(lowestRemovedFloor - 1) + 1.0f,
+                            player->GetOrientation());
+                        relocated = true;
+                    }
+                }
+
             // Standing in the removed room: teleport back to the entry hall.
-            if (!interiorMap->IsInsideAnyRoom(player->GetPosition(), housing->GetRooms()))
+            if (!relocated && !interiorMap->IsInsideAnyRoom(player->GetPosition(), housing->GetRooms()))
                 player->NearTeleportTo(interiorMap->GetEntryPosition());
         }
     }
@@ -2692,6 +2758,12 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
 
     // TargetSlotIndex/FloorIndex are the two sides of the docking the client dropped: the moved
     // room's door component and the target room's door component.
+    // The mover's cells before the re-hang, for the stairwell neighbour rebuild below.
+    std::vector<StairHalfCell> oldCells;
+    if (Housing::Room const* moved = housing->GetRoom(housingRoomMoveRoom.RoomGuid))
+        for (Housing::Room const* half : housing->GetStairwellColumn(*moved))
+            oldCells.push_back({ half->GridX, half->GridY, half->FloorIndex });
+
     HousingResult result = housing->MoveRoom(housingRoomMoveRoom.RoomGuid, housingRoomMoveRoom.TargetGuid,
         housingRoomMoveRoom.TargetSlotIndex, housingRoomMoveRoom.FloorIndex);
 
@@ -2716,6 +2788,15 @@ void WorldSession::HandleHousingRoomMoveRoom(WorldPackets::Housing::HousingRoomM
                     column.push_back(room);
                 for (Housing::Room const* half : column)
                     interiorMap->RespawnRoomVisuals(*half, faction, housing->GetHouseGuid(), housing);
+
+                std::unordered_set<ObjectGuid> rebuilt{ housingRoomMoveRoom.RoomGuid };
+                std::vector<StairHalfCell> changedCells = oldCells;
+                for (Housing::Room const* half : column)
+                {
+                    rebuilt.insert(half->Guid);
+                    changedCells.push_back({ half->GridX, half->GridY, half->FloorIndex });
+                }
+                RespawnChangedStairNeighbours(interiorMap, housing, changedCells, rebuilt);
             }
 
             interiorMap->RefreshRoomDoors(housing->GetRooms(), faction);

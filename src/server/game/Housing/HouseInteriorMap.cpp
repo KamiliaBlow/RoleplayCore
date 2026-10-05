@@ -505,7 +505,8 @@ HousingRoomEntity* HouseInteriorMap::FindRoomEntity(ObjectGuid roomGuid) const
 
 bool HouseInteriorMap::IsComponentHidden(std::vector<Housing::Room const*> const& rooms, Housing::Room const& room, RoomComponentData const& comp)
 {
-    // The lower stairwell half has no ceiling, the upper one no floor and no stairs (open shaft between them).
+    // A stairwell column is an open shaft: halves hide the ceiling while a half sits above
+    // and the floor and flight while one sits below.
     HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
     if (!roomData || !roomData->HasStairs())
         return false;
@@ -707,7 +708,12 @@ void HouseInteriorMap::RespawnRoomVisuals(Housing::Room const& room, int32 facti
         }
     }
 
-    SpawnRoomMeshObjectsFromList({ &room }, factionRestriction, houseGuid);
+    // Spawn from the live room list so component hiding and doorway looks see the half's
+    // neighbours; rooms that still have entities are skipped inside.
+    if (housing)
+        SpawnRoomMeshObjectsFromList(housing->GetRooms(), factionRestriction, houseGuid);
+    else
+        SpawnRoomMeshObjectsFromList({ &room }, factionRestriction, houseGuid);
 
     // Decor bakes its world transform at spawn just like room meshes; re-arrive it with the room.
     if (housing)

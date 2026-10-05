@@ -171,8 +171,9 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
             room.GridX = fields[3].GetInt32();
             room.GridY = fields[4].GetInt32();
             room.FloorIndex = fields[5].GetInt32();
-            // Backward compat: old grid index (0-20) -> yards
-            if (room.GridX >= 0 && room.GridX <= 20 && room.GridX == static_cast<int32>(room.SlotIndex) && room.SlotIndex > 0)
+            // Backward compat: old grid index (0-20, no Y and no floor stored) -> yards
+            if (room.GridX >= 0 && room.GridX <= 20 && room.GridX == static_cast<int32>(room.SlotIndex) && room.SlotIndex > 0
+                && room.GridY == 0 && room.FloorIndex == 0)
                 room.GridX = static_cast<int32>(room.SlotIndex) * static_cast<int32>(HOUSING_ROOM_GRID_SPACING);
             // Backward compat: FloorIndex was once stored as a yard offset; convert legacy multiples of 12 to floor numbers
             if (room.FloorIndex >= 12 && (room.FloorIndex % 12) == 0)
@@ -3126,6 +3127,7 @@ void Housing::SetLevel(uint32 level)
     CharacterDatabase.Execute(stmt);
 
     SyncUpdateFields();
+    SendLevelFavorUpdate(int32(_level), -1);
 }
 
 void Housing::AddLevel(uint32 amount)
@@ -3172,13 +3174,17 @@ void Housing::AddFavor(uint64 amount, HousingFavorUpdateSource /*source*/ /*= HO
         SendLevelFavorUpdate(-1, int32(_favor));
 }
 
-void Housing::GrantLevelAwards(uint32 fromLevel, uint32 toLevel)
+void Housing::GrantLevelAwards(uint32 fromLevel, uint32 toLevel, bool force /*= false*/)
 {
     // HouseLevelData.QuestID is a hidden award quest whose RewardSpell grants the room/decor for the level.
     for (uint32 level = std::max<uint32>(fromLevel, 2); level <= toLevel; ++level)
     {
         uint32 const questId = sHousingMgr.GetQuestForLevel(level);
-        if (!questId || _owner->IsQuestRewarded(questId))
+        if (!questId)
+            continue;
+
+        // force re-grants past the one-per-account marker
+        if (!force && _owner->IsQuestRewarded(questId))
             continue;
 
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
@@ -3461,14 +3467,52 @@ Housing::PlacedDecor const* Housing::EnsureStarterDoorPlaced()
 Position Housing::GetInteriorEntryPosition() const
 {
     // Arrivals anchor to the placed front door: wherever the owner moved it, entering players
-    // appear by it, facing into the house. Without one (never placed or withdrawn) the entry
-    // hall origin stands in.
+    // appear by it. Without one (never placed or withdrawn) the entry hall origin stands in.
+    constexpr float ENTRY_STEP_INTO_ROOM = 3.0f;
+    constexpr float WALL_TOLERANCE = 3.0f;
     for (auto const& [decorGuid, decor] : _placedDecor)
         if (IsStarterDoorDecor(decor.DecorEntryId))
         {
+            // Arrive inside the room the door hangs on, facing away from it: a turned door
+            // owns a yaw that would spawn arrivals behind its wall.
+            if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
+            {
+                Room const* best = nullptr;
+                float bestDist = 0.0f;
+                for (auto const& [guid, room] : _rooms)
+                {
+                    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
+                    RoomWmoDataEntry const* bounds = roomData && roomData->RoomWmoDataID
+                        ? sRoomWmoDataStore.LookupEntry(roomData->RoomWmoDataID) : nullptr;
+                    if (!bounds)
+                        continue;
+
+                    float const dist = std::hypot(decor.PosX - (interior->Origin[0] + float(room.GridX)),
+                        decor.PosY - (interior->Origin[1] + float(room.GridY)));
+                    float const reach = std::max({ std::abs(bounds->BoundingBoxMinX), bounds->BoundingBoxMaxX,
+                        std::abs(bounds->BoundingBoxMinY), bounds->BoundingBoxMaxY }) + WALL_TOLERANCE;
+                    if (dist <= reach && (!best || dist < bestDist))
+                    {
+                        best = &room;
+                        bestDist = dist;
+                    }
+                }
+
+                if (best && bestDist > 0.1f)
+                {
+                    float const dirX = (interior->Origin[0] + float(best->GridX) - decor.PosX) / bestDist;
+                    float const dirY = (interior->Origin[1] + float(best->GridY) - decor.PosY) / bestDist;
+                    return Position(decor.PosX + ENTRY_STEP_INTO_ROOM * dirX,
+                        decor.PosY + ENTRY_STEP_INTO_ROOM * dirY, decor.PosZ,
+                        std::atan2(dirY, dirX));
+                }
+            }
+
+            // Without a room to lean on, the door's own yaw decides.
             QuaternionData const rot(decor.RotationX, decor.RotationY, decor.RotationZ, decor.RotationW);
-            return Position(decor.PosX, decor.PosY, decor.PosZ,
-                2.0f * std::atan2(rot.z, rot.w) + float(M_PI));
+            float const arrivalYaw = Position::NormalizeOrientation(2.0f * std::atan2(rot.z, rot.w) + float(M_PI));
+            return Position(decor.PosX - ENTRY_STEP_INTO_ROOM * std::cos(arrivalYaw),
+                decor.PosY - ENTRY_STEP_INTO_ROOM * std::sin(arrivalYaw), decor.PosZ, arrivalYaw);
         }
 
     if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))

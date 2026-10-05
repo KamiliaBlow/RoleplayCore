@@ -320,8 +320,8 @@ public:
     uint32 GetMaxFixtureBudget() const;
     void RecalculateBudgets();
 
-    // Rewards of HouseLevelData levels fromLevel..toLevel not granted yet (award quest RewardSpell).
-    void GrantLevelAwards(uint32 fromLevel, uint32 toLevel);
+    // Rewards of HouseLevelData levels fromLevel..toLevel not granted yet; force bypasses the one-per-account marker.
+    void GrantLevelAwards(uint32 fromLevel, uint32 toLevel, bool force = false);
     // SMSG_HOUSING_SVCS_UPDATE_HOUSES_LEVEL_FAVOR for this house; -1 = unchanged.
     void SendLevelFavorUpdate(int32 level, int32 favor) const;
 
