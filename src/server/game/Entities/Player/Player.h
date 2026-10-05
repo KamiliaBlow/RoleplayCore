@@ -85,6 +85,7 @@ class DynamicObject;
 class Garrison;
 class Group;
 class Guild;
+class Housing;
 class Item;
 class LootRoll;
 class LootStore;
@@ -1042,6 +1043,11 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_PERKS_PURCHASES,
     PLAYER_LOGIN_QUERY_LOAD_PERKS_FROZEN,
     PLAYER_LOGIN_QUERY_LOAD_PERKS_MILESTONES,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_DECOR,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES,
+    PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -3056,6 +3062,32 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void CreateGarrison(uint32 garrSiteId);
         void DeleteGarrison();
         Garrison* GetGarrison() const { return _garrison.get(); }
+        // House-visit teleport target: set by the door GO script, consumed by MapManager. Empty = own interior.
+        void SetHouseVisitTarget(ObjectGuid ownerGuid) { _houseVisitTargetOwner = ownerGuid; }
+        ObjectGuid GetHouseVisitTarget() const { return _houseVisitTargetOwner; }
+        void ClearHouseVisitTarget() { _houseVisitTargetOwner = ObjectGuid::Empty; }
+
+        void CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex);
+        void DeleteHousing(ObjectGuid neighborhoodGuid);
+        Housing* GetHousing() const;
+        Housing* GetHousingForNeighborhood(ObjectGuid neighborhoodGuid) const;
+        // Houses belong to the account: _housings also holds the other characters' houses.
+        Housing* GetHousingByOwner(ObjectGuid ownerGuid) const;
+        Housing* GetHousingByHouseGuid(ObjectGuid houseGuid) const;
+        std::vector<Housing const*> GetAllHousings() const;
+        void SetHousingEditorModeUpdateField(uint8 mode);
+        void UpdateHousingMapId(ObjectGuid houseGuid, int32 mapId);
+        void UpdateInitiativeFavor(uint32 favor);
+        void UpdateHousingLevelFavor(ObjectGuid houseGuid, uint32 level, uint32 favor);
+
+        // Writes PlayerHouseInfoComponentData.CurrentHouse (empty on plot-leave); the client tracks plot occupancy from it.
+        void SetCurrentHouse(ObjectGuid houseGuid);
+
+        // The housing tutorial runs while Housing.TutorialsEnabled is set and the character has
+        // not rewarded the whole HOUSING_TUTORIAL_QUEST_CHAIN.
+        bool HousingTutorialChainComplete() const;
+        // Updates housingTutorialsEnabled in GLOBAL_CONFIG_CACHE and re-sends the account data timestamps.
+        void UpdateHousingTutorialCVars();
 
         bool IsAdvancedCombatLoggingEnabled() const { return _advancedCombatLoggingEnabled; }
         void SetAdvancedCombatLogging(bool enabled) { _advancedCombatLoggingEnabled = enabled; }
@@ -3152,6 +3184,14 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void AddIllusionBlock(uint32 blockValue) { AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::TransmogIllusions)) = blockValue; }
         void AddIllusionFlag(uint32 slot, uint32 flag) { SetUpdateFieldFlagValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::TransmogIllusions, slot), flag); }
 
+        // Account-wide HouseRoom collection (ActivePlayerData::HouseRooms, one bit per HouseRoom ID).
+        bool HasHouseRoom(uint32 houseRoomId) const;
+        void LearnHouseRoom(uint32 houseRoomId);
+
+        // Account-wide house type collection (ActivePlayerData::HouseTypes, one bit per HouseExteriorWmoData ID).
+        bool HasHouseType(uint32 houseExteriorWmoDataId) const;
+        void LearnHouseType(uint32 houseExteriorWmoDataId);
+
         void AddWarbandScenesBlock(uint32 blockValue) { AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::WarbandScenes)) = blockValue; }
         void AddWarbandScenesFlag(uint32 slot, uint32 flag) { SetUpdateFieldFlagValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::WarbandScenes, slot), flag); }
 
@@ -3234,6 +3274,12 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         UF::UpdateField<UF::PlayerData, int32(WowCS::EntityFragment::CGObject), TYPEID_PLAYER> m_playerData;
         UF::UpdateField<UF::ActivePlayerData, int32(WowCS::EntityFragment::CGObject), TYPEID_ACTIVE_PLAYER> m_activePlayerData;
+
+        // Housing entity fragment (optional - only set when player has housing data)
+        UF::OptionalUpdateField<UF::PlayerHouseInfoComponentData, int32(WowCS::EntityFragment::PlayerHouseInfoComponent_C), 0> m_playerHouseInfoComponentData;
+
+        // Initiative entity fragment (optional - initiative/endeavor state for UI)
+        UF::OptionalUpdateField<UF::PlayerInitiativeComponentData, int32(WowCS::EntityFragment::PlayerInitiativeComponent_C), 0> m_playerInitiativeComponentData;
 
         void SetAreaSpiritHealer(Creature* creature);
         ObjectGuid const& GetSpiritHealerGUID() const { return _areaSpiritHealerGUID; }
@@ -3338,6 +3384,13 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void _LoadCurrency(PreparedQueryResult result);
         void _LoadCUFProfiles(PreparedQueryResult result);
         void _LoadPlayerData(PreparedQueryResult elementsResult, PreparedQueryResult flagsResult);
+        void _LoadHouseRooms();
+        void _LoadAccountHousings();
+        void SetHouseRoomBit(uint32 houseRoomId);
+        void _LoadHouseTypes();
+        void SetHouseTypeBit(uint32 houseExteriorWmoDataId);
+        std::vector<uint32> m_houseRoomCollection;   // for the login SMSG_ACCOUNT_ROOM_COLLECTION_UPDATE
+        bool m_houseRoomCollectionSent = false;
         void _LoadCharacterBankTabSettings(PreparedQueryResult result);
         void _LoadAccountBankTabSettings();
         void _LoadAccountBankItems(uint32 timeDiff);
@@ -3618,6 +3671,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         };
         Optional<PendingArchaeologyFind> _pendingArchaeologyFind;
         std::unordered_map<uint32 /*researchSiteId*/, std::pair<float, float>> _researchSiteFindLocations;
+        ObjectGuid _houseVisitTargetOwner;
 
         uint32 _activeCheats;
 
@@ -3627,6 +3681,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         uint64 _lastTargetedGO2;
 
         std::unique_ptr<Garrison> _garrison;
+        std::vector<std::unique_ptr<Housing>> _housings;
 
         bool _advancedCombatLoggingEnabled;
 

@@ -140,7 +140,7 @@ void AreaTrigger::PlaySpellVisual(uint32 spellVisualId) const
     SendMessageToSet(packet.Write(), false);
 }
 
-bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData /*= nullptr*/, Unit* caster /*= nullptr*/, Unit* target /*= nullptr*/, SpellCastVisual spellVisual /*= { 0, 0 }*/, SpellInfo const* spellInfo /*= nullptr*/, Spell* spell /*= nullptr*/, AuraEffect const* aurEff /*= nullptr*/)
+bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration, AreaTriggerSpawn const* spawnData /*= nullptr*/, Unit* caster /*= nullptr*/, Unit* target /*= nullptr*/, SpellCastVisual spellVisual /*= { 0, 0 }*/, SpellInfo const* spellInfo /*= nullptr*/, Spell* spell /*= nullptr*/, AuraEffect const* aurEff /*= nullptr*/, bool addToMap /*= true*/)
 {
     _targetGuid = target ? target->GetGUID() : ObjectGuid::Empty;
     _aurEff = aurEff;
@@ -325,7 +325,7 @@ bool AreaTrigger::Create(AreaTriggerCreatePropertiesId areaTriggerCreateProperti
 
     UpdateShape();
 
-    if (!IsStaticSpawn())
+    if (!IsStaticSpawn() && addToMap)
     {
         if (!GetMap()->AddToMap(this))
         {
@@ -354,6 +354,48 @@ AreaTrigger* AreaTrigger::CreateAreaTrigger(AreaTriggerCreatePropertiesId areaTr
     }
 
     return at;
+}
+
+AreaTrigger* AreaTrigger::CreateStaticAreaTrigger(AreaTriggerCreatePropertiesId areaTriggerCreatePropertiesId, Map* map, Position const& pos, int32 duration /*= -1*/, bool addToMap /*= true*/)
+{
+    AreaTrigger* at = new AreaTrigger();
+    if (!at->Create(areaTriggerCreatePropertiesId, map, pos, duration, nullptr, nullptr, nullptr, { 0, 0 }, nullptr, nullptr, nullptr, addToMap))
+    {
+        delete at;
+        return nullptr;
+    }
+
+    return at;
+}
+
+namespace
+{
+    constexpr int32 HousingPlotSpellForVisuals = 1282351;
+    constexpr int32 HousingPlotSpellXSpellVisualId = 510142;
+    constexpr uint32 HousingPlotExtraScaleParameterCurve = 0x3F800001;
+}
+
+// 12.0.5 removed the per-AT FHousingPlotAreaTrigger_C fragment; this only sets the AT's own visual fields.
+void AreaTrigger::InitHousingPlotVisuals()
+{
+    auto areaTriggerData = m_values.ModifyValue(&AreaTrigger::m_areaTriggerData);
+
+    // the spell doesn't exist in sSpellMgr, so force these values
+    if (*m_areaTriggerData->SpellForVisuals == 0)
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellForVisuals), HousingPlotSpellForVisuals);
+    if (m_areaTriggerData->SpellVisual->SpellXSpellVisualID == 0)
+        SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::SpellVisual).ModifyValue(&UF::SpellCastVisual::SpellXSpellVisualID), HousingPlotSpellXSpellVisualId);
+
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+        .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_0), int32(0));
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::PeriodModifier)
+        .ModifyValue(&UF::AreaTriggerActionSetPeriodModifier::Field_4), 1.0f);
+
+    // flatten terrain / remove grass within the plot boundary
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+        .ModifyValue(&UF::OverrideCurve::ParameterCurve), HousingPlotExtraScaleParameterCurve);
+    SetUpdateFieldValue(areaTriggerData.ModifyValue(&UF::AreaTriggerData::ExtraScaleCurve)
+        .ModifyValue(&UF::OverrideCurve::OverrideActive), true);
 }
 
 ObjectGuid AreaTrigger::CreateNewMovementForceId(Map* map, uint32 areaTriggerId)
@@ -1028,8 +1070,9 @@ void AreaTrigger::HandleUnitEnter(Unit* unit)
 
         player->UpdateQuestObjectiveProgress(QUEST_OBJECTIVE_AREA_TRIGGER_ENTER, GetEntry(), 1);
 
-        if (GetTemplate() && GetTemplate()->ActionSetId)
-            player->UpdateCriteria(CriteriaType::EnterAreaTriggerWithActionSet, GetTemplate()->ActionSetId);
+        if (AreaTriggerTemplate const* areaTriggerTemplate = GetTemplate())
+            if (areaTriggerTemplate->ActionSetId)
+                player->UpdateCriteria(CriteriaType::EnterAreaTriggerWithActionSet, areaTriggerTemplate->ActionSetId);
     }
 
     DoActions(unit);
@@ -1059,8 +1102,9 @@ void AreaTrigger::HandleUnitExitInternal(Unit* unit, AreaTriggerExitReason exitM
         {
             player->UpdateQuestObjectiveProgress(QUEST_OBJECTIVE_AREA_TRIGGER_EXIT, GetEntry(), 1);
 
-            if (GetTemplate() && GetTemplate()->ActionSetId)
-                player->UpdateCriteria(CriteriaType::LeaveAreaTriggerWithActionSet, GetTemplate()->ActionSetId);
+            if (AreaTriggerTemplate const* areaTriggerTemplate = GetTemplate())
+                if (areaTriggerTemplate->ActionSetId)
+                    player->UpdateCriteria(CriteriaType::LeaveAreaTriggerWithActionSet, areaTriggerTemplate->ActionSetId);
         }
     }
 

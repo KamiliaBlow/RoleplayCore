@@ -48,6 +48,389 @@ struct AchievementEntry
     int32 LegacyAfterTimeEvent;                                     // category changes clientside to Legacy after this TimeEvent is passed
 };
 
+// One rectangle of a room's floor footprint on the layout grid; round and cross-shaped rooms have several
+struct RoomGridLineEntry
+{
+    DBCPosition3D Offset;
+    uint32 ID;
+    float SizeX;
+    float SizeY;
+    uint32 RoomWmoDataID;                    // ParentIndexField
+};
+
+struct RoomWmoDataEntry
+{
+    uint32 ID;
+    float BoundingBoxMinX;
+    float BoundingBoxMinY;
+    float BoundingBoxMinZ;
+    float BoundingBoxMaxX;
+    float BoundingBoxMaxY;
+    float BoundingBoxMaxZ;
+    float Height;
+};
+
+struct RoomComponentTextureEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 Type;
+    int32 FileDataID;
+    int32 Flags;
+    int32 UiOrder;
+    uint32 RoomComponentID;                 // ParentIndexField
+};
+
+struct RoomComponentEntry
+{
+    DBCPosition3D OffsetPos;
+    DBCPosition3D OffsetRot;
+    uint32 ID;
+    int32 RoomWmoDataID;
+    int32 ModelFileDataID;
+    uint8 Type;
+    int32 MeshStyleFilterID;
+    uint8 ConnectionType;
+    int32 Flags;
+};
+
+struct RoomComponentOptionTextureEntry
+{
+    uint32 ID;
+    int32 RoomComponentOptionID;
+    int32 RoomComponentTextureID;
+    int32 Flags;
+};
+
+struct RoomComponentOptionEntry
+{
+    uint32 ID;
+    uint8 Type;
+    uint8 SubType;
+    int32 ModelFileDataID;
+    int32 RoomComponentID;
+    int32 MeshStyleFilterID;
+    int32 HouseThemeID;
+    int32 Flags;
+};
+
+struct NeighborhoodPlotEntry
+{
+    uint64 Cost;
+    char const* Name;
+    DBCPosition3D HousePosition;
+    DBCPosition3D HouseRotation;
+    DBCPosition3D CornerstonePosition;
+    DBCPosition3D CornerstoneRotation;
+    DBCPosition3D TeleportPosition;
+    uint32 ID;
+    uint32 NeighborhoodMapID;
+    int32 Field_010;
+    int32 CornerstoneGameObjectID;
+    int32 PlotIndex;
+    int32 WorldState;
+    int32 PlotGameObjectID;
+    float TeleportFacing;                    // facing angle at TeleportPosition
+    int32 Field_016;
+};
+
+struct NeighborhoodNameGenEntry
+{
+    uint32 ID;
+    LocalizedString Prefix;
+    LocalizedString Middle;
+    LocalizedString Suffix;
+    uint32 NeighborhoodMapID;
+};
+
+struct NeighborhoodMapEntry
+{
+    DBCPosition3D Position;
+    uint32 ID;
+    int32 MapID;
+    float EntryRotation;
+    uint32 UiTextureKitID;
+    int32 Flags;
+};
+
+struct NeighborhoodInitiativeEntry
+{
+    LocalizedString Name;
+    LocalizedString Description;
+    uint32 ID;
+    int32 InitiativeType;
+    int32 Duration;
+    int32 RequiredParticipants;
+    int32 RewardCurrencyID;
+};
+
+struct InitiativeXTaskEntry
+{
+    uint32 ID;
+    int32 InitiativeTaskID;
+    int32 SortOrder;
+    uint32 NeighborhoodInitiativeID;        // ParentIndexField
+};
+
+struct InitiativeTaskEntry
+{
+    LocalizedString TaskName;
+    LocalizedString Description;
+    uint32 ID;
+    int32 CriteriaTreeID;
+    int32 QuestID;
+    int32 ProgressContributionAmount;
+    int32 RepetitionContributionDampeningCurve;
+    int32 Supersedes;
+    int32 Field_8;                           // WoWDBDefs: Field_12_0_0_63534_008
+};
+
+struct InitiativeRewardXMilestoneEntry
+{
+    uint32 ID;
+    int32 InitiativeRewardID;
+    uint32 InitiativeMilestoneID;           // ParentIndexField
+};
+
+struct InitiativeRewardEntry
+{
+    int64 Money;
+    LocalizedString Title;
+    LocalizedString Description;
+    uint32 ID;
+    int32 DecorID;
+    int32 DecorQuantity;
+    int32 Field_6;                           // WoWDBDefs: Field_12_0_0_63534_006
+    int32 Favor;
+    int32 RewardQuestID;
+};
+
+struct InitiativeMilestoneEntry
+{
+    uint32 ID;
+    int32 MilestoneOrderIndex;
+    float RequiredContributionAmount;
+    int32 Field_3;                           // WoWDBDefs: Field_12_0_0_63534_003
+    uint32 NeighborhoodInitiativeID;         // ParentIndexField
+};
+
+struct InitiativeCycleEntry
+{
+    uint32 ID;
+    int32 RewardGroupID;            // Unknown FK (values 600-2607), not NeighborhoodInitiative
+    int32 CycleIndex;
+    int32 StartDay;
+    int32 HouseXPCap;
+    int32 InitiativeID;                      // FK -> NeighborhoodInitiative.ID
+};
+
+struct InitiativeCyclePriorityEntry
+{
+    uint32 ID;
+    int32 Priority;
+    int32 Weight;
+    int32 Flags;
+    uint32 InitiativeCycleID;               // ParentIndexField
+};
+
+struct HouseThemeEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 Flags;
+    int32 ParentThemeID;
+};
+
+struct HouseRoomEntry
+{
+    // 12.1.0 client meta places Name before ID and appends a trailing SortPriority field
+    LocalizedString Name;
+    uint32 ID;
+    int8 Size;
+    int32 Flags;
+    int32 Field_002;
+    int32 RoomWmoDataID;
+    int32 UiTextureAtlasElementID;
+    int32 WeightCost;
+    int32 ItemID;
+    int32 SortPriority;
+};
+
+struct HouseLevelRewardInfoEntry
+{
+    LocalizedString Name;
+    LocalizedString Description;
+    uint32 ID;
+    int32 HouseLevelDataID;
+    int32 Field_4;                           // WoWDBDefs: Field_12_0_0_63967_004
+    int32 IconFileDataID;
+};
+
+struct HouseLevelDataEntry
+{
+    uint32 ID;
+    int32 Level;
+    int32 QuestID;
+    int32 Field_12_0_7_67808_003;           // added in 12.0.7, unnamed in all sources
+};
+
+struct HouseExteriorWmoDataEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 Flags;
+    int32 Field_003;
+    int32 Field_004;
+};
+
+struct HouseDecorThemeSetEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int32 ThemeID;
+    int32 IconFileDataID;
+};
+
+struct HouseDecorEntry
+{
+    LocalizedString Name;
+    DBCPosition3D InitialRotation;
+    uint32 ID;
+    int32 GameObjectID;
+    int32 Flags;
+    uint8 Type;
+    uint8 ModelType;
+    int32 ModelFileDataID;
+    int32 ThumbnailFileDataID;
+    int32 WeightCost;
+    int32 ItemID;
+    float InitialScale;
+    int32 FirstAcquisitionBonus;             // house XP gained on first acquisition (per Lua API)
+    int32 OrderIndex;
+    int8 Size;                               // HousingCatalogEntrySize
+    int32 StartingQuantity;
+    int32 UiModelSceneID;
+};
+
+struct HouseDecorMaterialEntry
+{
+    uint32 ID;
+    uint64 WMOMaterialReference;
+    int32 MaterialTextureIndex;
+    int32 HouseThemeID;
+    int32 TextureAFileDataID;
+    int32 TextureBFileDataID;
+};
+
+struct ExteriorComponentXGroupEntry
+{
+    uint32 ID;
+    int32 ExteriorComponentGroupID;
+    int32 ExteriorComponentID;
+};
+
+struct ExteriorComponentTypeEntry
+{
+    uint32 ID;
+    LocalizedString Name;
+    int32 ParentComponentType;
+};
+
+struct ExteriorComponentEntry
+{
+    // HouseExteriorWmoDataID is the ParentIndexField and sits mid-record, right after Size
+    LocalizedString Name;
+    std::array<float, 3> Position;
+    uint32 ID;
+    uint8 Size;
+    uint32 HouseExteriorWmoDataID;          // ParentIndexField - must be unsigned
+    int32 ParentComponentID;                // references another ExteriorComponent (0 for defaults)
+    int32 ModelFileDataID;
+    int32 Flags;                            // 0x1 IsDefaultFixture, 0x2 UnlockedByDefault
+    uint8 Field_7;                          // unknown (always 1)
+    uint8 Type;                             // references ExteriorComponentType
+    int32 Field_9;
+    int32 GameObjectID;
+    int32 Field_11;                         // WoWDBDefs: Field_11_2_7_64044_011
+    int32 ItemID;                           // references Item.ID - component can be sold/earned as an item, like HouseDecor.ItemID
+};
+
+struct ExteriorComponentHookEntry
+{
+    std::array<float, 3> Position;
+    std::array<float, 3> Rotation;
+    uint32 ID;
+    int32 ExteriorComponentTypeID;
+    uint32 ExteriorComponentID;             // ParentIndexField
+};
+
+struct ExteriorComponentGroupXHookEntry
+{
+    uint32 ID;
+    uint32 ExteriorComponentGroupID;        // ParentIndexField
+    int32 ExteriorComponentHookID;
+};
+
+struct ExteriorComponentGroupEntry
+{
+    std::array<float, 3> Position;
+    uint32 ID;
+    uint32 HouseExteriorWmoDataID;          // ParentIndexField
+};
+
+struct ExteriorComponentExitPointEntry
+{
+    std::array<float, 3> Position;
+    std::array<float, 3> Rotation;
+    uint32 ID;
+    uint32 ExteriorComponentID;             // ParentIndexField
+};
+
+struct DyeColorEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    uint32 DyeColorCategoryID;               // ParentIndexField - must be unsigned
+    int32 GradientTextureIndex;
+    int32 ItemID;
+    int32 SwatchColorStart;
+    int32 SwatchColorEnd;
+    int32 SortOrder;
+};
+
+struct DecorXDecorSubcategoryEntry
+{
+    uint32 ID;
+    uint32 HouseDecorID;
+    int32 DecorSubcategoryID;
+};
+
+struct DecorSubcategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 UiTextureAtlasElementID;
+    int32 DecorCategoryID;
+    int32 OrderIndex;
+};
+
+struct DecorDyeSlotEntry
+{
+    uint32 ID;
+    int32 DyeColorCategoryID;
+    int32 HouseDecorID;                      // nullable
+    int32 OrderIndex;
+    int32 Channel;
+};
+
+struct DecorCategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+    int32 UiTextureAtlasElementID;
+    int32 OrderIndex;
+};
+
 struct Achievement_CategoryEntry
 {
     LocalizedString Name;
@@ -1644,6 +2027,19 @@ struct CurvePointEntry
     uint32 OrderIndex;
 };
 
+struct DataTagXHouseDecorRecordEntry
+{
+    uint32 ID;
+    int32 DataTagID;
+    int32 HouseDecorID;
+};
+
+struct DyeColorCategoryEntry
+{
+    LocalizedString Name;
+    uint32 ID;
+};
+
 struct DestructibleModelDataEntry
 {
     uint32 ID;
@@ -2374,6 +2770,15 @@ struct HolidaysEntry
     std::array<uint32, MAX_HOLIDAY_DATES> Date;                     // dates in unix time starting at January, 1, 2000
     std::array<uint8, MAX_HOLIDAY_DURATIONS> CalendarFlags;
     std::array<int32, 3> TextureFileDataID;
+};
+
+struct HouseEntry
+{
+    uint32 ID;
+    char const* InternalName;
+    int32 HouseTypeID;
+    int32 MapID;
+    int32 Flags;
 };
 
 struct ImportPriceArmorEntry
@@ -3139,7 +3544,7 @@ struct MapEntry
 
     bool IsDungeon() const { return (InstanceType == MAP_INSTANCE || InstanceType == MAP_RAID || InstanceType == MAP_SCENARIO) && !IsGarrison(); }
     bool IsNonRaidDungeon() const { return InstanceType == MAP_INSTANCE; }
-    bool Instanceable() const { return InstanceType == MAP_INSTANCE || InstanceType == MAP_RAID || InstanceType == MAP_BATTLEGROUND || InstanceType == MAP_ARENA || InstanceType == MAP_SCENARIO; }
+    bool Instanceable() const { return InstanceType == MAP_INSTANCE || InstanceType == MAP_RAID || InstanceType == MAP_BATTLEGROUND || InstanceType == MAP_ARENA || InstanceType == MAP_SCENARIO || InstanceType == MAP_HOUSE_INTERIOR || InstanceType == MAP_HOUSE_NEIGHBORHOOD; }
     bool IsRaid() const { return InstanceType == MAP_RAID; }
     bool IsBattleground() const { return InstanceType == MAP_BATTLEGROUND; }
     bool IsBattleArena() const { return InstanceType == MAP_ARENA; }
@@ -3183,6 +3588,8 @@ struct MapEntry
     bool IsDynamicDifficultyMap() const { return GetFlags().HasFlag(MapFlags::DynamicDifficulty); }
     bool IsFlexLocking() const { return GetFlags().HasFlag(MapFlags::FlexibleRaidLocking); }
     bool IsGarrison() const { return GetFlags().HasFlag(MapFlags::Garrison); }
+    bool IsNeighborhood() const { return InstanceType == MAP_HOUSE_NEIGHBORHOOD; }
+    bool IsHouseInterior() const { return InstanceType == MAP_HOUSE_INTERIOR; }
     bool IsSplitByFaction() const
     {
         return ID == 609 || // Acherus (DeathKnight Start)

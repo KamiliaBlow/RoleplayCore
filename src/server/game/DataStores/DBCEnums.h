@@ -800,9 +800,9 @@ enum class CriteriaType : int16
     ReachRenownLevel                               = 261,
     LearnTaxiNode                                  = 262,
 
-    PlaceDecor                                     = 270, /*NYI*/ // Place any decor
-    RemoveDecor                                    = 271, /*NYI*/ // Remove any decor
-    CollectUniqueDecor                             = 272, /*NYI*/ // Collect Unique Decor
+    PlaceDecor                                     = 270, // Place any decor
+    RemoveDecor                                    = 271, // Remove any decor
+    CollectUniqueDecor                             = 272, // Collect Unique Decor
 
     Count                                          = 284
 };
@@ -2102,7 +2102,7 @@ enum class ModifierTreeType : int32
 
     PlayerMoneyIsRelOp                                                  = 417, // Player money is {RelOp} {#Amount}
 
-    PlayerHousesCountEqualOrGreaterThan                                 = 419, /*NYI*/ // Player has at least {#Amount} houses
+    PlayerHousesCountEqualOrGreaterThan                                 = 419, // Player has at least {#Amount} houses
 };
 
 enum class ModifierTreeOperator : int8

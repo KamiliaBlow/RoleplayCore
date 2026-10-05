@@ -753,6 +753,12 @@ enum RBACPermissions
     RBAC_PERM_COMMAND_QUEST_OBJECTIVE_COMPLETE               = 883,
     RBAC_PERM_COMMAND_BG_START                               = 884,
     RBAC_PERM_COMMAND_BG_STOP                                = 885,
+    RBAC_PERM_COMMAND_HOUSING                                = 886,
+    RBAC_PERM_COMMAND_HOUSING_SET_LEVEL                      = 887,
+    RBAC_PERM_COMMAND_HOUSING_DELETE                         = 888,
+    RBAC_PERM_COMMAND_HOUSING_CHARTER_CREATE                 = 889,
+    RBAC_PERM_COMMAND_HOUSING_CHARTER_TYPE                   = 890,
+    RBAC_PERM_COMMAND_HOUSING_CHARTER_DELETE                 = 891,
     //
     // IF YOU ADD NEW PERMISSIONS, ADD THEM IN 3.3.5 BRANCH AS WELL!
     //

@@ -4347,6 +4347,12 @@ bool IsInterruptFlagIgnoredForSpell(SpellAuraInterruptFlags flag, Unit const* un
                     return true;
             }
             break;
+        case SpellAuraInterruptFlags::EnterWorld:
+            // A stored teleport return point must survive the far teleport it was stored for.
+            if (Player const* player = unit->ToPlayer())
+                if (!player->GetSession()->PlayerLoading() && auraSpellInfo->HasAura(SPELL_AURA_STORE_TELEPORT_RETURN_POINT))
+                    return true;
+            break;
         default:
             break;
     }
@@ -5680,7 +5686,7 @@ void Unit::RemoveAllAreaTriggers(AreaTriggerRemoveReason reason /*= AreaTriggerR
 {
     for (AreaTrigger* at : AreaTriggerList(std::move(m_areaTrigger)))
     {
-        if (reason == AreaTriggerRemoveReason::UnitDespawn && at->GetTemplate()->ActionSetFlags.HasFlag(AreaTriggerActionSetFlag::DontDespawnWithCreator))
+        if (reason == AreaTriggerRemoveReason::UnitDespawn && at->GetTemplate() && at->GetTemplate()->ActionSetFlags.HasFlag(AreaTriggerActionSetFlag::DontDespawnWithCreator))
             continue;
 
         at->Remove();

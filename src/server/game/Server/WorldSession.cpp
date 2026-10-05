@@ -34,12 +34,16 @@
 #include "Guild.h"
 #include "ClubStreamHistoryMgr.h"
 #include "GuildMgr.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include "Hyperlinks.h"
 #include "IpAddress.h"
 #include "Log.h"
 #include "Map.h"
 #include "Metric.h"
 #include "MiscPackets.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvPMgr.h"
 #include "PacketUtilities.h"
@@ -121,6 +125,8 @@ WorldSession::WorldSession(uint32 id, std::string&& name, uint32 battlenetAccoun
     _accountId(id),
     _accountName(std::move(name)),
     _battlenetAccount(new Battlenet::Account(this, ObjectGuid::Create<HighGuid::BNetAccount>(battlenetAccountId), std::move(battlenetAccountEmail))),
+    _housingPlayerHouseEntity(new HousingPlayerHouseEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/3, /*arg1*/sRealmList->GetCurrentRealmId().Realm, /*arg2*/7, /*arg3*/battlenetAccountId))),
+    _housingNeighborhoodMirrorEntity(new HousingNeighborhoodMirrorEntity(this, ObjectGuid::Create<HighGuid::Housing>(/*subType*/4, /*arg1*/sRealmList->GetCurrentRealmId().Realm, /*arg2*/0, /*arg3*/battlenetAccountId))),
     m_accountExpansion(expansion),
     m_expansion(std::min<uint8>(expansion, sWorld->getIntConfig(CONFIG_EXPANSION))),
     _os(std::move(os)),
@@ -716,6 +722,10 @@ void WorldSession::LogoutPlayer(bool save)
 
         //! Call script hook before deletion
         sScriptMgr->OnPlayerLogout(_player);
+
+        // ... and offline again.
+        for (Neighborhood const* neighborhood : sNeighborhoodMgr.GetNeighborhoodsForPlayer(_player->GetGUID()))
+            neighborhood->BroadcastMemberStatus(_player->GetGUID(), false);
 
         TC_METRIC_EVENT("player_events", "Logout", _player->GetName());
 

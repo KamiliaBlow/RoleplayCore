@@ -170,15 +170,93 @@ void WorldSession::SendMirrorVars()
         { "bpayStoreEnable"sv, "0"sv },
         { "recentAlliesEnabledClient"sv, "0"sv },
         { "browserEnabled"sv, "0"sv },
-        { "housingEnableCreateGuildNeighborhood"sv, "0"sv },
-        { "housingEnableDeleteHouse"sv, "0"sv },
-        { "housingServiceEnabled"sv, "0"sv },
-        { "housingEnableMoveHouse"sv, "0"sv },
-        { "housingEnableCreateCharterNeighborhood"sv, "0"sv },
-        { "housingEnableBuyHouse"sv, "0"sv },
-        { "housingMarketEnabled"sv, "0"sv },
         { "advFlyKeyboardMinTurnFactor"sv, "1"sv },
         { "advFlyKeyboardMaxTurnFactor"sv, "1"sv },
+        // Housing game rules; enable flags are read from worldserver config
+        { "performHousingExpansionCheckClient"sv, "1"sv },
+        { "housingServiceEnabled"sv, "1"sv },
+        { "housingEnableBuyHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_BUY_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableDeleteHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_DELETE_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableMoveHouse"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_MOVE_HOUSE) ? "1"sv : "0"sv },
+        { "housingEnableCreateCharterNeighborhood"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD) ? "1"sv : "0"sv },
+        { "housingEnableCreateGuildNeighborhood"sv, sWorld->getBoolConfig(CONFIG_HOUSING_ENABLE_CREATE_GUILD_NEIGHBORHOOD) ? "1"sv : "0"sv },
+        // Market
+        { "housingMarketEnabled"sv, "1"sv },
+        { "housingMarketShopEnabled"sv, "1"sv },
+        { "housingMarketCartFullRemoveEnabled"sv, "1"sv },
+        // the client gates C_HousingBlueprint feature/import/export availability on these
+        { "housingBlueprintsEnabled"sv, "1"sv },
+        { "housingBlueprintImportEnabled"sv, "1"sv },
+        { "housingBlueprintExportEnabled"sv, "1"sv },
+        // Neighborhood & exterior
+        { "housingExteriorTypeByNeighborhoodFactionRestriction"sv, "1"sv },
+        { "minNeighborhoodGroupMembers"sv, "3"sv },
+        // Decoration limits
+        { "housingBasicDecor_MaxPreviewLimit"sv, "100"sv },
+        { "housingCatalog_CartSizeLimit"sv, "20"sv },
+        // Decor scale limits
+        { "housingExpertDecor_Scale_Indoor_Min"sv, "0.200000"sv },
+        { "housingExpertDecor_Scale_Indoor_Max"sv, "2.000000"sv },
+        { "housingExpertDecor_Scale_Outdoor_Min"sv, "0.200000"sv },
+        { "housingExpertDecor_Scale_Outdoor_Max"sv, "2.000000"sv },
+        // Screenshot report thresholds
+        { "housingDecorReportScreenshotFacingDotThreshold"sv, "0.500000"sv },
+        { "housingDecorReportScreenshotDistanceThreshold"sv, "150.000000"sv },
+        // the client gates HOUSING_MARKET_* telemetry CMSGs on these throttles
+        { "housingMarketViewInStoreTelemThrottle"sv, "5"sv },
+        { "housingMarketViewBundleTelemThrottle"sv, "10"sv },
+        { "housingMarketAddToCartTelemThrottle"sv, "15"sv },
+        { "housingMarketClearCartTelemThrottle"sv, "5"sv },
+        { "housingMarketRemoveFromCartTelemThrottle"sv, "20"sv },
+        { "housingMarketThrottleTimePeriodMs"sv, "10000"sv },
+        // situation flags for the client's situation state machine
+        { "enableAutomaticSituations"sv, "1"sv },
+        { "enableManualSituations"sv, "1"sv },
+        { "enableTransmogUpdateSituation"sv, "1"sv },
+        // Transmog system flags - the client gates parts of the transmog UI on these
+        { "transmogEnableSystem"sv, "1"sv },
+        { "transmogAllowArtifactOverride"sv, "1"sv },
+        { "transmogAllowCanUseEverChanges"sv, "0"sv },
+        { "transmogEnableOutfitPurchases"sv, "1"sv },
+        { "transmogEnableOutfitSlotChanges"sv, "1"sv },
+        // remaining vars mirror retail where they drive client behaviour; Blizzard service URLs are skipped
+        { "damageMeterCacheEnabled"sv, "1"sv },
+        { "damageMeterProcessingEnabled"sv, "1"sv },
+        // Addon chat restrictions - affects WHISPER/GROUP addon message routing
+        { "addonChatRestrictionsEnabled"sv, "1"sv },
+        { "addonChatRestrictionsEnabledForOutgoingAddonMessages"sv, "1"sv },
+        // Lua resource caps - the client throttles AddOn resources by these; keep retail's values
+        { "limitedLuaResourcesEnabled"sv, "0"sv },
+        { "limitedLuaResourcesAddonCapacityAnim"sv, "5000"sv },
+        { "limitedLuaResourcesAddonCapacityAnimGroup"sv, "2000"sv },
+        { "limitedLuaResourcesAddonCapacityFont"sv, "300"sv },
+        { "limitedLuaResourcesAddonCapacityFontString"sv, "5000"sv },
+        { "limitedLuaResourcesAddonCapacityFrame"sv, "10000"sv },
+        { "limitedLuaResourcesAddonCapacityTexture"sv, "40000"sv },
+        { "limitedLuaResourcesAddonCapacityTimer"sv, "500"sv },
+        { "limitedLuaResourcesGlobalCapacityAnim"sv, "50000"sv },
+        { "limitedLuaResourcesGlobalCapacityAnimGroup"sv, "20000"sv },
+        { "limitedLuaResourcesGlobalCapacityFont"sv, "3000"sv },
+        { "limitedLuaResourcesGlobalCapacityFontString"sv, "50000"sv },
+        { "limitedLuaResourcesGlobalCapacityFrame"sv, "100000"sv },
+        { "limitedLuaResourcesGlobalCapacityTexture"sv, "400000"sv },
+        { "limitedLuaResourcesGlobalCapacityTimer"sv, "500"sv },
+        // Lua script throttling - bucket limits per second / burst
+        { "luaScriptBucketThrottleEnabled"sv, "1"sv },
+        { "luaScriptBucketThrottleMaxMsBurstNormal"sv, "20000"sv },
+        { "luaScriptBucketThrottleMaxMsBurstRestricted"sv, "1000"sv },
+        { "luaScriptBucketThrottleMaxMsPerSecondNormal"sv, "2000"sv },
+        { "luaScriptBucketThrottleMaxMsPerSecondRestricted"sv, "500"sv },
+        // Hardcore mode throttling - not used but sent for parity
+        { "hardcoreScriptThrottlingEnabled"sv, "0"sv },
+        // PvP training grounds - the PvP duel area feature
+        { "pvpTrainingGroundsEnabledClient"sv, "0"sv },
+        // Recent allies request throttle
+        { "recentAlliesRequestDataThrottle"sv, "5000"sv },
+        // LFG text filters
+        { "enableEndgameEditRestrictionsForLFGText"sv, "1"sv },
+        // Disabled game modes (retail passes an empty string; keep empty)
+        { "disabledGamemodes"sv, ""sv },
     };
 
     WorldPackets::System::MirrorVars variables;

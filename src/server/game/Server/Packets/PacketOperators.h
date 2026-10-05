@@ -20,6 +20,8 @@
 
 #include "ByteBuffer.h"
 #include "Optional.h"
+#include <algorithm>
+#include <cstddef>
 #include <memory>
 
 namespace WorldPackets
@@ -210,6 +212,27 @@ namespace WorldPackets
 
     template<AsWritable Underlying, ContainerReadable<Underlying> Container>
     inline SizeReaderWriter<Underlying, Container> Size(Container& value) { return { value }; }
+
+    // bounded element count: client-provided lengths must not drive huge allocations
+    template<AsWritable Underlying, ContainerReadable<Underlying> Container>
+    struct BoundedSizeReaderWriter : SizeWriter<Underlying, Container>
+    {
+        friend inline ByteBuffer& operator>>(ByteBuffer& data, BoundedSizeReaderWriter const& size)
+        {
+            Underlying temp;
+            data >> temp;
+
+            std::size_t const remaining = data.size() > data.rpos() ? data.size() - data.rpos() : 0;
+            const_cast<Container&>(size.Value).resize(std::min<std::size_t>(std::size_t(temp), remaining));
+            return data;
+        }
+    };
+
+    template<AsWritable Underlying, ContainerWritable<Underlying> Container>
+    inline SizeWriter<Underlying, Container> BoundedSize(Container const& value) { return { value }; }
+
+    template<AsWritable Underlying, ContainerReadable<Underlying> Container>
+    inline BoundedSizeReaderWriter<Underlying, Container> BoundedSize(Container& value) { return { value }; }
 
     template<uint32 BitCount, ContainerWritable<uint32> Container>
     struct BitsSizeWriter

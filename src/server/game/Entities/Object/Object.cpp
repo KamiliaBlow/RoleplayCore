@@ -58,6 +58,7 @@
 #include "ElunaEventMgr.h"
 #endif
 #include <sstream>
+#include <algorithm>
 
 constexpr float VisibilityDistances[AsUnderlyingType(VisibilityDistanceType::Max)] =
 {
@@ -135,9 +136,54 @@ void Object::BuildEntityFragmentsForValuesUpdateForPlayerWithMask(ByteBuffer& da
     data << uint8(contentsChangedMask);
 }
 
+void Object::SetHousingDecorDyeSlots(std::array<uint32, 3> const& dyeSlots)
+{
+    if (!m_housingDecorData.has_value())
+        return;
+
+    // Retail: the decor's FHousingDecor_C PersistedData gets HasDyeSlots + DyeSlots when dyed.
+    auto persistedRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::PersistedData, 0);
+    if (std::ranges::any_of(dyeSlots, [](uint32 dye) { return dye != 0; }))
+        SetUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::DyeSlots, 0)
+            .ModifyValue(&UF::DecorDyeSlots::DyeColorID), { int32(dyeSlots[0]), int32(dyeSlots[1]), int32(dyeSlots[2]) });
+    else
+        RemoveOptionalUpdateFieldValue(persistedRef.ModifyValue(&UF::DecorStoragePersistedData::DyeSlots));
+}
+
+void Object::SetHousingDecorPet(ObjectGuid battlePetGuid, uint32 creatureId, std::string petName, uint8 petBehavior,
+    ObjectGuid spawnedPet /*= ObjectGuid::Empty*/)
+{
+    if (!m_housingDecorData.has_value())
+        return;
+
+    // Retail: binding a battle pet to CAN_ATTACH_PET decor fills FHousingDecor_C.PetInfo;
+    // an empty GUID clears the optional. SpawnGroup stays empty (no spawn-group linkage).
+    if (battlePetGuid.IsEmpty())
+    {
+        RemoveOptionalUpdateFieldValue(m_values.ModifyValue(&Object::m_housingDecorData, 0)
+            .ModifyValue(&UF::HousingDecorData::PetInfo));
+        return;
+    }
+
+    auto petRef = m_values.ModifyValue(&Object::m_housingDecorData, 0)
+        .ModifyValue(&UF::HousingDecorData::PetInfo, 0);
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::BattlePetGUID), battlePetGuid);
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::CreatureID), creatureId);
+    if (!petName.empty())
+        SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::PetName), std::move(petName));
+    SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::PetBehavior), petBehavior);
+    if (!spawnedPet.IsEmpty())
+        SetUpdateFieldValue(petRef.ModifyValue(&UF::DecorPetInfo::SpawnedPet), spawnedPet);
+}
+
 void Object::ClearValuesChangesMask()
 {
     m_values.ClearChangesMask(&Object::m_objectData);
+    m_values.ClearChangesMask(&Object::m_housingDecorData);
+    m_values.ClearChangesMask(&Object::m_housingRoomData);
+    m_values.ClearChangesMask(&Object::m_housingRoomComponentMeshData);
+    m_values.ClearChangesMask(&Object::m_housingFixtureData);
 }
 
 void Object::BuildValuesUpdateWithFlag(UF::UpdateFieldFlag /*flags*/, ByteBuffer& data, Player const* /*target*/) const

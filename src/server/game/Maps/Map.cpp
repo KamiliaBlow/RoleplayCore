@@ -24,6 +24,8 @@
 #include "ChatPackets.h"
 #include "Conversation.h"
 #include "DB2Stores.h"
+#include "HousingDecorEntity.h"
+#include "HousingRoomEntity.h"
 #include "DatabaseEnv.h"
 #include "DynamicTree.h"
 #include "DynamicMMapTileBuilder.h"
@@ -38,6 +40,7 @@
 #include "InstanceScenario.h"
 #include "InstanceScript.h"
 #include "Log.h"
+#include "MeshObject.h"
 #include "MMapManager.h"
 #include "MapManager.h"
 #include "MapUtils.h"
@@ -69,6 +72,9 @@
 #include "WorldSession.h"
 #include "WorldStateMgr.h"
 #include "WorldStatePackets.h"
+#include "Account.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPlayerHouseEntity.h"
 #include <boost/heap/fibonacci_heap.hpp>
 #include <sstream>
 
@@ -430,13 +436,33 @@ bool Map::AddPlayerToMap(Player* player, bool initPlayer /*= true*/)
     player->SetMap(this);
     player->AddToWorld();
 
+    // Session-scoped entities (BNet account, Housing/3, Housing/4): forget them here so SendInitSelf re-creates them.
+    ObjectGuid bnetAccountGuid = player->GetSession()->GetBattlenetAccount().GetGUID();
+    ObjectGuid houseEntityGuid = player->GetSession()->HasHousingPlayerHouseEntity() ? player->GetSession()->GetHousingPlayerHouseEntity().GetGUID() : ObjectGuid::Empty;
+    ObjectGuid mirrorEntityGuid = player->GetSession()->HasHousingNeighborhoodMirrorEntity() ? player->GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID() : ObjectGuid::Empty;
+
     if (initPlayer)
+    {
+        player->m_clientGUIDs.erase(bnetAccountGuid);
+        player->m_clientGUIDs.erase(houseEntityGuid);
+        player->m_clientGUIDs.erase(mirrorEntityGuid);
         SendInitSelf(player);
+    }
 
     SendInitTransports(player);
 
     if (initPlayer)
+    {
+        // Keep the marks SendInitSelf just created so the visibility-set rebuild does not send them twice.
         player->m_clientGUIDs.clear();
+
+        if (!bnetAccountGuid.IsEmpty())
+            player->m_clientGUIDs.insert(bnetAccountGuid);
+        if (!houseEntityGuid.IsEmpty())
+            player->m_clientGUIDs.insert(houseEntityGuid);
+        if (!mirrorEntityGuid.IsEmpty() && GetEntry()->IsNeighborhood())
+            player->m_clientGUIDs.insert(mirrorEntityGuid);
+    }
 
     player->UpdateObjectVisibility(false);
     PhasingHandler::SendToPlayer(player);
@@ -2360,6 +2386,9 @@ void Map::ApplyDynamicModeRespawnScaling(WorldObject const* obj, ObjectGuid::Low
 bool Map::ShouldBeSpawnedOnGridLoad(SpawnObjectType type, ObjectGuid::LowType spawnId) const
 {
     ASSERT(SpawnData::TypeHasData(type));
+    if (IsSpawnSuppressed(type, spawnId))
+        return false;
+
     // check if the object is on its respawn timer
     if (GetRespawnTime(type, spawnId))
         return false;
@@ -2724,6 +2753,12 @@ void Map::RemoveAllObjectsInRemoveList()
                 obj->ToCreature()->CleanupsBeforeDelete();
                 RemoveFromMap(obj->ToCreature(), true);
                 break;
+            case TYPEID_MESH_OBJECT:
+                RemoveFromMap(obj->ToMeshObject(), true);
+                break;
+            case TYPEID_HOUSING_ENTITY:
+                RemoveFromMap(static_cast<HousingRoomEntity*>(obj), true);
+                break;
             default:
                 TC_LOG_ERROR("maps", "Non-grid object (TypeId: {}) is in grid object remove list, ignored.", obj->GetTypeId());
                 break;
@@ -2903,6 +2938,9 @@ template TC_GAME_API bool Map::AddToMap(DynamicObject*);
 template TC_GAME_API bool Map::AddToMap(AreaTrigger*);
 template TC_GAME_API bool Map::AddToMap(SceneObject*);
 template TC_GAME_API bool Map::AddToMap(Conversation*);
+template TC_GAME_API bool Map::AddToMap(MeshObject*);
+template TC_GAME_API bool Map::AddToMap(HousingRoomEntity*);
+template TC_GAME_API bool Map::AddToMap(HousingDecorEntity*);
 
 template TC_GAME_API void Map::RemoveFromMap(Corpse*, bool);
 template TC_GAME_API void Map::RemoveFromMap(Creature*, bool);
@@ -2911,6 +2949,9 @@ template TC_GAME_API void Map::RemoveFromMap(DynamicObject*, bool);
 template TC_GAME_API void Map::RemoveFromMap(AreaTrigger*, bool);
 template TC_GAME_API void Map::RemoveFromMap(SceneObject*, bool);
 template TC_GAME_API void Map::RemoveFromMap(Conversation*, bool);
+template TC_GAME_API void Map::RemoveFromMap(MeshObject*, bool);
+template TC_GAME_API void Map::RemoveFromMap(HousingRoomEntity*, bool);
+template TC_GAME_API void Map::RemoveFromMap(HousingDecorEntity*, bool);
 
 /* ******* Dungeon Instance Maps ******* */
 
@@ -3481,6 +3522,11 @@ bool Map::IsGarrison() const
     return i_mapEntry && i_mapEntry->IsGarrison();
 }
 
+bool Map::IsHouseInterior() const
+{
+    return i_mapEntry && i_mapEntry->IsHouseInterior();
+}
+
 bool Map::IsAlwaysActive() const
 {
     return IsBattlegroundOrArena();
@@ -3627,6 +3673,16 @@ SceneObject* Map::GetSceneObject(ObjectGuid const& guid)
 Conversation* Map::GetConversation(ObjectGuid const& guid)
 {
     return _objectsStore.Find<Conversation>(guid);
+}
+
+MeshObject* Map::GetMeshObject(ObjectGuid const& guid)
+{
+    return _objectsStore.Find<MeshObject>(guid);
+}
+
+HousingRoomEntity* Map::GetHousingRoomEntity(ObjectGuid const& guid)
+{
+    return _objectsStore.Find<HousingRoomEntity>(guid);
 }
 
 Player* Map::GetPlayer(ObjectGuid const& guid)
@@ -4200,4 +4256,4 @@ std::string InstanceMap::GetDebugInfo() const
     return sstr.str();
 }
 
-template struct TC_GAME_API TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation>;
+template struct TC_GAME_API TypeListContainer<MapStoredObjectsUnorderedMap, Creature, GameObject, DynamicObject, Pet, Corpse, AreaTrigger, SceneObject, Conversation, MeshObject, HousingRoomEntity, HousingDecorEntity>;
