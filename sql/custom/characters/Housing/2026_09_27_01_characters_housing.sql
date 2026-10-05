@@ -27,104 +27,109 @@ CREATE TABLE IF NOT EXISTS `account_housing_house_type` (
   PRIMARY KEY (`bnetAccountId`,`houseExteriorWmoDataId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `character_housing` (
-  `guid` bigint unsigned NOT NULL COMMENT 'Player GUID',
-  `houseId` int unsigned NOT NULL DEFAULT '0' COMMENT 'House DB2 entry ID',
-  `neighborhoodGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'FK to neighborhoods.guid',
-  `plotIndex` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Plot within neighborhood (0..MAX_NEIGHBORHOOD_PLOTS-1)',
-  `houseLevel` int unsigned NOT NULL DEFAULT '1' COMMENT 'Current upgrade level',
-  `favor` int unsigned NOT NULL DEFAULT '0' COMMENT 'Accumulated favor currency',
-  `settingsFlags` int unsigned NOT NULL DEFAULT '0' COMMENT 'Bitmask of HouseSettingsFlags',
-  `exteriorLocked` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Whether exterior editing is locked (1=locked, 0=unlocked)',
-  `houseSize` tinyint unsigned NOT NULL DEFAULT '2' COMMENT 'HousingFixtureSize: 1=Any, 2=Small, 3=Medium, 4=Large',
-  `houseType` int unsigned NOT NULL DEFAULT '0' COMMENT 'HouseExteriorWmoData DB2 entry ID (architectural style)',
-  `createTime` int unsigned NOT NULL DEFAULT '0' COMMENT 'Unix timestamp of house creation',
-  `posX` float NOT NULL DEFAULT '0' COMMENT 'House X position on plot',
-  `posY` float NOT NULL DEFAULT '0' COMMENT 'House Y position on plot',
-  `posZ` float NOT NULL DEFAULT '0' COMMENT 'House Z position on plot',
-  `facing` float NOT NULL DEFAULT '0' COMMENT 'House facing angle on plot',
-  `houseName` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Player-set house display name',
-  `houseDescription` varchar(256) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Player-set house description',
-  PRIMARY KEY (`guid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing`;
+CREATE TABLE `character_housing`  (
+  `guid` bigint UNSIGNED NOT NULL COMMENT 'Player GUID',
+  `houseId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'House DB2 entry ID',
+  `neighborhoodGuid` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'FK to neighborhoods.guid',
+  `plotIndex` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Plot within neighborhood (0..MAX_NEIGHBORHOOD_PLOTS-1)',
+  `houseLevel` int UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Current upgrade level',
+  `favor` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Accumulated favor currency',
+  `settingsFlags` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Bitmask of HouseSettingsFlags',
+  `exteriorLocked` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Whether exterior editing is locked (1=locked, 0=unlocked)',
+  `houseSize` tinyint UNSIGNED NOT NULL DEFAULT 2 COMMENT 'HousingFixtureSize: 1=Any, 2=Small, 3=Medium, 4=Large',
+  `houseType` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'HouseExteriorWmoData DB2 entry ID (architectural style)',
+  `createTime` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of house creation',
+  `posX` float NOT NULL DEFAULT 0 COMMENT 'House X position on plot',
+  `posY` float NOT NULL DEFAULT 0 COMMENT 'House Y position on plot',
+  `posZ` float NOT NULL DEFAULT 0 COMMENT 'House Z position on plot',
+  `facing` float NOT NULL DEFAULT 0 COMMENT 'House facing angle on plot',
+  `houseName` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Player-set house display name',
+  `houseDescription` varchar(256) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Player-set house description',
+  PRIMARY KEY (`guid`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
-CREATE TABLE IF NOT EXISTS `character_housing_catalog` (
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'Player GUID (account-wide tracking)',
-  `houseDecorId` int unsigned NOT NULL COMMENT 'HouseDecor DB2 entry ID',
-  `quantity` int unsigned NOT NULL DEFAULT '1' COMMENT 'Number of this decor owned/available',
-  `acquiredTime` int unsigned NOT NULL DEFAULT '0' COMMENT 'Unix timestamp when first acquired',
-  `sourceType` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'DecorSourceType: 0=Standard, 3=Deferred, 5=Spell, 6=Item',
-  `sourceValue` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Source context (spell ID, item GUID, etc.)',
-  PRIMARY KEY (`ownerGuid`,`houseDecorId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing_catalog`;
+CREATE TABLE `character_housing_catalog`  (
+  `ownerGuid` int NOT NULL DEFAULT 0,
+  `houseDecorId` int UNSIGNED NOT NULL COMMENT 'HouseDecor DB2 entry ID',
+  `quantity` decimal(54, 0) NULL DEFAULT NULL,
+  `sourceType` tinyint UNSIGNED NULL DEFAULT NULL COMMENT 'DecorSourceType: 0=Standard, 3=Deferred, 5=Spell, 6=Item',
+  `sourceValue` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT 'Source context (spell ID, item GUID, etc.)',
+  PRIMARY KEY (`ownerGuid`, `houseDecorId`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci ROW_FORMAT = Dynamic;
 
-CREATE TABLE IF NOT EXISTS `character_housing_decor` (
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'FK to character_housing.guid',
-  `id` bigint unsigned NOT NULL COMMENT 'Decor instance ID (unique per owner)',
-  `houseDecorId` int unsigned NOT NULL COMMENT 'HouseDecor DB2 entry ID',
-  `posX` float NOT NULL DEFAULT '0' COMMENT 'X position in room/house coordinates',
-  `posY` float NOT NULL DEFAULT '0' COMMENT 'Y position in room/house coordinates',
-  `posZ` float NOT NULL DEFAULT '0' COMMENT 'Z position in room/house coordinates',
-  `rotX` float NOT NULL DEFAULT '0' COMMENT 'Quaternion rotation X component',
-  `rotY` float NOT NULL DEFAULT '0' COMMENT 'Quaternion rotation Y component',
-  `rotZ` float NOT NULL DEFAULT '0' COMMENT 'Quaternion rotation Z component',
-  `rotW` float NOT NULL DEFAULT '1' COMMENT 'Quaternion rotation W component',
-  `scale` float NOT NULL DEFAULT '1',
-  `dyeSlot0` int unsigned NOT NULL DEFAULT '0' COMMENT 'Dye color ID for slot 0',
-  `dyeSlot1` int unsigned NOT NULL DEFAULT '0' COMMENT 'Dye color ID for slot 1',
-  `dyeSlot2` int unsigned NOT NULL DEFAULT '0' COMMENT 'Dye color ID for slot 2',
-  `roomGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'FK to character_housing_rooms.id (0 = outdoor/unassigned)',
-  `locked` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Whether the decor item is locked in place (1=locked, 0=unlocked)',
-  `placementTime` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'Unix timestamp when decor was placed (for refund window)',
-  `sourceType` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'DecorSourceType: 0=Standard, 3=Deferred, 5=Spell, 6=Item',
-  `sourceValue` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Source context (spell ID, item GUID, etc.)',
-  `petGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'Battle pet counter bound to this decor slot (0 = none), HighGuid::BattlePet',
-  `petFlag` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Client-sent flag accompanying the pet binding (CMSG_HOUSING_DECOR_SET_PET)',
-  `parentDecorGuid` bigint unsigned NOT NULL DEFAULT '0' COMMENT 'Counter of the decor this item is stacked on (0 = none)',
-  PRIMARY KEY (`ownerGuid`,`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing_decor`;
+CREATE TABLE `character_housing_decor`  (
+  `ownerGuid` bigint UNSIGNED NOT NULL COMMENT 'FK to character_housing.guid',
+  `id` bigint UNSIGNED NOT NULL COMMENT 'Decor instance ID (unique per owner)',
+  `houseDecorId` int UNSIGNED NOT NULL COMMENT 'HouseDecor DB2 entry ID',
+  `posX` float NOT NULL DEFAULT 0 COMMENT 'X position in room/house coordinates',
+  `posY` float NOT NULL DEFAULT 0 COMMENT 'Y position in room/house coordinates',
+  `posZ` float NOT NULL DEFAULT 0 COMMENT 'Z position in room/house coordinates',
+  `rotX` float NOT NULL DEFAULT 0 COMMENT 'Quaternion rotation X component',
+  `rotY` float NOT NULL DEFAULT 0 COMMENT 'Quaternion rotation Y component',
+  `rotZ` float NOT NULL DEFAULT 0 COMMENT 'Quaternion rotation Z component',
+  `rotW` float NOT NULL DEFAULT 1 COMMENT 'Quaternion rotation W component',
+  `scale` float NOT NULL DEFAULT 1,
+  `dyeSlot0` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Dye color ID for slot 0',
+  `dyeSlot1` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Dye color ID for slot 1',
+  `dyeSlot2` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Dye color ID for slot 2',
+  `roomGuid` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'FK to character_housing_rooms.id (0 = outdoor/unassigned)',
+  `locked` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Whether the decor item is locked in place (1=locked, 0=unlocked)',
+  `placementTime` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Unix timestamp when decor was placed (for refund window)',
+  `sourceType` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'DecorSourceType: 0=Standard, 3=Deferred, 5=Spell, 6=Item',
+  `sourceValue` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT 'Source context (spell ID, item GUID, etc.)',
+  `petGuid` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Battle pet counter bound to this decor slot (0 = none), HighGuid::BattlePet',
+  `petFlag` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Client-sent flag accompanying the pet binding (CMSG_HOUSING_DECOR_SET_PET)',
+  `parentDecorGuid` bigint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Counter of the decor this item is stacked on (0 = none)',
+  PRIMARY KEY (`ownerGuid`, `id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
-CREATE TABLE IF NOT EXISTS `character_housing_fixtures` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'Unique fixture assignment ID',
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'FK to character_housing.guid',
-  `fixturePointId` int unsigned NOT NULL COMMENT 'Predefined fixture point identifier',
-  `fixtureOptionId` int unsigned NOT NULL DEFAULT '0' COMMENT 'Selected fixture option (0 = default)',
-  PRIMARY KEY (`id`),
-  KEY `idx_owner` (`ownerGuid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing_fixtures`;
+CREATE TABLE `character_housing_fixtures`  (
+  `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Unique fixture assignment ID',
+  `ownerGuid` bigint UNSIGNED NOT NULL COMMENT 'FK to character_housing.guid',
+  `fixturePointId` int UNSIGNED NOT NULL COMMENT 'Predefined fixture point identifier',
+  `fixtureOptionId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Selected fixture option (0 = default)',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_owner`(`ownerGuid` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 5474 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
-CREATE TABLE IF NOT EXISTS `character_housing_ignored_neighborhood` (
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'Player character GUID counter',
-  `neighborhoodGuid` bigint unsigned NOT NULL COMMENT 'Ignored neighborhood GUID counter',
-  PRIMARY KEY (`ownerGuid`,`neighborhoodGuid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing_ignored_neighborhood`;
+CREATE TABLE `character_housing_ignored_neighborhood`  (
+  `ownerGuid` bigint UNSIGNED NOT NULL COMMENT 'Player character GUID counter',
+  `neighborhoodGuid` bigint UNSIGNED NOT NULL COMMENT 'Ignored neighborhood GUID counter',
+  PRIMARY KEY (`ownerGuid`, `neighborhoodGuid`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
-CREATE TABLE IF NOT EXISTS `character_housing_rooms` (
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'FK to character_housing.guid',
-  `id` bigint unsigned NOT NULL COMMENT 'Room instance ID (unique per owner)',
-  `houseRoomId` int unsigned NOT NULL COMMENT 'HouseRoom DB2 entry ID',
-  `slotIndex` int unsigned NOT NULL DEFAULT '0' COMMENT 'Room slot within the house layout',
-  `gridX` int NOT NULL DEFAULT '0',
-  `gridY` int NOT NULL DEFAULT '0',
-  `floorIndex` int NOT NULL DEFAULT '0',
-  `orientation` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Room rotation orientation value',
-  `mirrored` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Boolean: 1 = room layout is mirrored',
-  `themeId` int unsigned NOT NULL DEFAULT '0' COMMENT 'Visual theme applied to the room',
-  `wallTextureId` int unsigned NOT NULL DEFAULT '0' COMMENT 'RoomComponentTexture ID for walls',
-  `floorTextureId` int unsigned NOT NULL DEFAULT '0' COMMENT 'RoomComponentTexture ID for floors',
-  `ceilingTextureId` int unsigned NOT NULL DEFAULT '0' COMMENT 'RoomComponentTexture ID for ceilings',
-  `colorOverride` int NOT NULL DEFAULT '-1' COMMENT 'Color override for materials (-1 = default)',
-  `doorTypeId` int unsigned NOT NULL DEFAULT '0' COMMENT 'Door type for the room',
-  `doorSlot` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Door slot index within the room',
-  `ceilingTypeId` int unsigned NOT NULL DEFAULT '0' COMMENT 'Ceiling type for the room',
-  `ceilingSlot` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Ceiling slot index within the room',
-  `wallThemeId` int unsigned NOT NULL DEFAULT '0',
-  `floorThemeId` int unsigned NOT NULL DEFAULT '0',
-  `ceilingThemeId` int unsigned NOT NULL DEFAULT '0',
-  `doorTypes` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-  `componentStyles` varchar(1024) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-  PRIMARY KEY (`ownerGuid`,`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `character_housing_rooms`;
+CREATE TABLE `character_housing_rooms`  (
+  `ownerGuid` bigint UNSIGNED NOT NULL COMMENT 'FK to character_housing.guid',
+  `id` bigint UNSIGNED NOT NULL COMMENT 'Room instance ID (unique per owner)',
+  `houseRoomId` int UNSIGNED NOT NULL COMMENT 'HouseRoom DB2 entry ID',
+  `slotIndex` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Room slot within the house layout',
+  `gridX` int NOT NULL DEFAULT 0,
+  `gridY` int NOT NULL DEFAULT 0,
+  `floorIndex` int NOT NULL DEFAULT 0,
+  `orientation` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Room rotation orientation value',
+  `mirrored` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Boolean: 1 = room layout is mirrored',
+  `themeId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Visual theme applied to the room',
+  `wallTextureId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'RoomComponentTexture ID for walls',
+  `floorTextureId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'RoomComponentTexture ID for floors',
+  `ceilingTextureId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'RoomComponentTexture ID for ceilings',
+  `colorOverride` int NOT NULL DEFAULT -1 COMMENT 'Color override for materials (-1 = default)',
+  `doorTypeId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Door type for the room',
+  `doorSlot` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Door slot index within the room',
+  `ceilingTypeId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Ceiling type for the room',
+  `ceilingSlot` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Ceiling slot index within the room',
+  `wallThemeId` int UNSIGNED NOT NULL DEFAULT 0,
+  `floorThemeId` int UNSIGNED NOT NULL DEFAULT 0,
+  `ceilingThemeId` int UNSIGNED NOT NULL DEFAULT 0,
+  `doorTypes` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `componentStyles` varchar(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  PRIMARY KEY (`ownerGuid`, `id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
 CREATE TABLE IF NOT EXISTS `neighborhood_charter_signatures` (
   `charterId` bigint unsigned NOT NULL COMMENT 'FK to neighborhood_charters.id',
@@ -211,17 +216,18 @@ CREATE TABLE IF NOT EXISTS `neighborhood_members` (
   KEY `idx_player` (`playerGuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `neighborhoods` (
-  `guid` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'Unique neighborhood instance ID',
-  `name` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Neighborhood display name (max HOUSING_MAX_NAME_LENGTH)',
-  `neighborhoodMapId` int unsigned NOT NULL COMMENT 'NeighborhoodMap DB2 entry ID',
-  `ownerGuid` bigint unsigned NOT NULL COMMENT 'Player GUID of the neighborhood founder/owner',
-  `factionRestriction` int NOT NULL DEFAULT '0' COMMENT 'NeighborhoodFactionRestriction: 0=None, 1=Horde, 2=Alliance',
-  `isPublic` tinyint unsigned NOT NULL DEFAULT '0' COMMENT 'Boolean: 1 = publicly listed and joinable',
-  `createTime` int unsigned NOT NULL DEFAULT '0' COMMENT 'Unix timestamp of neighborhood creation',
-  `guildId` int unsigned NOT NULL DEFAULT '0' COMMENT 'M8: owning guild id for guild neighborhoods (0 = not guild-linked)',
-  PRIMARY KEY (`guid`),
-  KEY `idx_owner` (`ownerGuid`),
-  KEY `idx_map` (`neighborhoodMapId`),
-  KEY `idx_guild` (`guildId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP TABLE IF EXISTS `neighborhoods`;
+CREATE TABLE `neighborhoods`  (
+  `guid` bigint UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'Unique neighborhood instance ID',
+  `name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Neighborhood display name (max HOUSING_MAX_NAME_LENGTH)',
+  `neighborhoodMapId` int UNSIGNED NOT NULL COMMENT 'NeighborhoodMap DB2 entry ID',
+  `ownerGuid` bigint UNSIGNED NOT NULL COMMENT 'Player GUID of the neighborhood founder/owner',
+  `factionRestriction` int NOT NULL DEFAULT 0 COMMENT 'NeighborhoodFactionRestriction: 0=None, 1=Horde, 2=Alliance',
+  `isPublic` tinyint UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Boolean: 1 = publicly listed and joinable',
+  `createTime` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Unix timestamp of neighborhood creation',
+  `guildId` int UNSIGNED NOT NULL DEFAULT 0 COMMENT 'M8: owning guild id for guild neighborhoods (0 = not guild-linked)',
+  PRIMARY KEY (`guid`) USING BTREE,
+  INDEX `idx_owner`(`ownerGuid` ASC) USING BTREE,
+  INDEX `idx_map`(`neighborhoodMapId` ASC) USING BTREE,
+  INDEX `idx_guild`(`guildId` ASC) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 4 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
