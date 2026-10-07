@@ -70,6 +70,7 @@
 #include "TransmogMgr.h"
 #include "Util.h"
 #include "World.h"
+#include "WorldSocket.h"
 #include <boost/circular_buffer.hpp>
 #include <sstream>
 
@@ -1679,6 +1680,17 @@ void WorldSession::HandlePlayerLoginOpcode(WorldPackets::Character::PlayerLogin&
 
 void WorldSession::HandleContinuePlayerLogin()
 {
+    if (GetPlayer() && _worldRedirectStage == WorldRedirectStage::AwaitReconnect)
+    {
+        _worldRedirectStage = WorldRedirectStage::AwaitCommsAck;
+
+        WorldPacket suspendComms(SMSG_SUSPEND_COMMS, 4);
+        suspendComms << uint32(_worldRedirectSuspendSerial);
+        if (std::shared_ptr<WorldSocket> oldSocket = _worldRedirectOldSocket)
+            oldSocket->SendPacket(suspendComms);
+        return;
+    }
+
     if (!PlayerLoading() || GetPlayer())
     {
         KickPlayer("WorldSession::HandleContinuePlayerLogin incorrect player state when logging in");

@@ -892,8 +892,9 @@ DEFINE_ENUM_FLAG(BagSlotFlags);
 
 enum NewWorldReason
 {
-    NEW_WORLD_NORMAL    = 16,   // Normal map change
-    NEW_WORLD_SEAMLESS  = 21,   // Teleport to another map without a loading screen, used for outdoor scenarios
+    NEW_WORLD_REDIRECT   = 6,    // In-world ConnectTo transfer (every retail housing hop carries this reason)
+    NEW_WORLD_NORMAL     = 16,   // Normal map change
+    NEW_WORLD_SEAMLESS   = 21,   // Teleport to another map without a loading screen, used for outdoor scenarios
 };
 
 enum InstanceResetWarningType

@@ -42,6 +42,7 @@
 #include "Map.h"
 #include "Metric.h"
 #include "MiscPackets.h"
+#include "MovementPackets.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectMgr.h"
@@ -377,6 +378,29 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
     /// (or they've been idling in character select)
     if (IsConnectionIdle() && !HasPermission(rbac::RBAC_PERM_IGNORE_IDLE_CONNECTION))
         m_Socket[CONNECTION_TYPE_REALM]->CloseSocket();
+
+    // Retail paces the redirect phases: ~350ms from the suspend-token ack to ConnectTo and
+    // from the comms resume to NewWorld. An unpaced release races the client's post-reconnect
+    // world rebuild (a race the housing editor widens, its client state outlives the transfer).
+    switch (_worldRedirectStage)
+    {
+        case WorldRedirectStage::DelayConnectTo:
+            if (std::chrono::steady_clock::now() >= _worldRedirectDeadline)
+            {
+                _worldRedirectStage = WorldRedirectStage::AwaitReconnect;
+                SendConnectToSelf();
+            }
+            break;
+        case WorldRedirectStage::DelayNewWorld:
+            if (std::chrono::steady_clock::now() >= _worldRedirectDeadline)
+            {
+                _worldRedirectStage = WorldRedirectStage::None;
+                SendWorldRedirectNewWorld();
+            }
+            break;
+        default:
+            break;
+    }
 
     ///- Retrieve packets from the receive queue and call the appropriate handlers
     /// not process packets if socket already closed
@@ -968,6 +992,62 @@ void WorldSession::SendConnectToHomeRealm(uint32 homeRealmId, ObjectGuid::LowTyp
     connectTo.Con = CONNECTION_TYPE_INSTANCE;
 
     SendPacket(connectTo.Write());
+}
+
+void WorldSession::SendConnectToSelf()
+{
+    std::shared_ptr<Realm const> realm = sRealmList->GetCurrentRealm();
+    if (!realm)
+    {
+        KickPlayer("WorldSession::SendConnectToSelf current realm not found");
+        return;
+    }
+
+    _instanceConnectKey.Fields.AccountId = GetAccountId();
+    _instanceConnectKey.Fields.ConnectionType = CONNECTION_TYPE_INSTANCE;
+    _instanceConnectKey.Fields.Key = urand(0, 0x7FFFFFFF);
+
+    WorldPackets::Auth::ConnectTo connectTo;
+    connectTo.Key = _instanceConnectKey.Raw;
+    connectTo.NativeRealmAddress = realm->Id.GetAddress();
+    // retail tags in-world redirects with a per-session counter (43, 73, 103...; the login
+    // serial is rejected in world) and suspend-comms later echoes this serial + 4
+    connectTo.Serial = static_cast<WorldPackets::Auth::ConnectToSerial>(_worldRedirectSerial);
+    _worldRedirectSuspendSerial = _worldRedirectSerial + 4;
+    _worldRedirectSerial += 30;
+    connectTo.Key3 = 5;
+
+    WorldPackets::Auth::ConnectTo::ConnectPayload& payload = connectTo.Payload.emplace_back();
+    payload.Port = realm->Port;
+    boost::system::error_code ignored_error;
+    WriteConnectToAddress(payload, realm->GetAddressForClient(Trinity::Net::make_address(GetRemoteAddress(), ignored_error)));
+
+    connectTo.Con = CONNECTION_TYPE_INSTANCE;
+
+    // Retail emits in-world redirects on the realm connection - the client's control channel -
+    // exactly like the login-time instance attach
+    SendPacket(connectTo.Write());
+}
+
+void WorldSession::SendWorldRedirectNewWorld()
+{
+    Player* player = GetPlayer();
+    if (!player)
+        return;
+
+    TeleportLocation const& loc = player->GetTeleportDest();
+
+    WorldPackets::Movement::NewWorld packet;
+    packet.MapID = loc.Location.GetMapId();
+    packet.Loc.Pos = loc.Location;
+    packet.Reason = NEW_WORLD_REDIRECT;
+    packet.Counter = player->GetNewWorldCounter();
+
+    // Retail releases in-world transfers on the world connection, not the realm-routed form
+    if (std::shared_ptr<WorldSocket> worldSocket = m_Socket[CONNECTION_TYPE_INSTANCE])
+        worldSocket->SendPacket(*packet.Write());
+    else
+        SendPacket(packet.Write());
 }
 
 void WorldSession::BeginRealmTransferLogin(ObjectGuid::LowType characterGuid)

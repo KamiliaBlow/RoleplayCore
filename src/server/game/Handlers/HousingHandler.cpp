@@ -38,6 +38,7 @@
 #include "Log.h"
 #include "MapManager.h"
 #include "MeshObject.h"
+#include "MiscPackets.h"
 #include "MovementPackets.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
@@ -302,6 +303,10 @@ namespace
     void StartHousingPlotTeleport(Player* player, uint32 spellId, WorldLocation const& dest, Neighborhood const* neighborhood)
     {
         uint32 const neighborhoodId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+        // A plot teleport leaving an interior is a world redirect, same as the door/button exits.
+        if (dynamic_cast<HouseInteriorMap*>(player->GetMap()))
+            player->GetSession()->RequestWorldRedirect();
+
         if (!sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
         {
             if (sMapMgr->FindOrCreateHousingMap(dest.GetMapId(), neighborhoodId))
@@ -620,6 +625,10 @@ void WorldSession::LeaveHouseInterior()
         player->TeleportTo(player->m_homebind);
         return;
     }
+
+    // Retail runs the interior exit as a world redirect (the client re-auths and rebuilds
+    // its world state), which also clears editor state a plain world port would keep.
+    RequestWorldRedirect();
 
     player->TeleportTo(TeleportLocation{ .Location = WorldLocation(worldMapId, exit.GetPositionX(), exit.GetPositionY(),
         exit.GetPositionZ(), exit.GetOrientation()), .InstanceId = neighborhoodId });
@@ -2275,9 +2284,23 @@ void WorldSession::HandleHousingRoomSetLayoutEditMode(WorldPackets::Housing::Hou
 
     housing->SetEditorMode(housingRoomSetLayoutEditMode.Active ? HOUSING_EDITOR_MODE_LAYOUT : HOUSING_EDITOR_MODE_NONE);
 
-    // Roots the player with gravity off for the blueprint view (spell 1263316); SetEditorMode drops it on exit.
     if (housingRoomSetLayoutEditMode.Active)
+    {
         player->CastSpell(player, SPELL_HOUSING_ROOM_EDIT_MODE_AURA, true);
+    }
+    else
+    {
+        player->ClearUnitState(UNIT_STATE_STUNNED | UNIT_STATE_ROOT);
+        player->RemoveUnitMovementFlag(MOVEMENTFLAG_ROOT | MOVEMENTFLAG_DISABLE_GRAVITY);
+
+        WorldPackets::Movement::MoveSetCompoundState compoundState;
+        compoundState.MoverGUID = player->GetGUID();
+        compoundState.StateChanges.emplace_back(SMSG_MOVE_UNROOT, player->m_movementCounter++);
+        compoundState.StateChanges.emplace_back(SMSG_MOVE_ENABLE_GRAVITY, player->m_movementCounter++);
+        SendPacket(compoundState.Write());
+
+        player->SetPlayHoverAnim(false);
+    }
 
     // Layout mode sets PACIFIED, NO_ACTIONS and full silence alongside EditorMode.
     if (housingRoomSetLayoutEditMode.Active)

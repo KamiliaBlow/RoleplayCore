@@ -1443,6 +1443,8 @@ class TC_GAME_API WorldSession
 
         void SendConnectToInstance(WorldPackets::Auth::ConnectToSerial serial);
         void SendConnectToHomeRealm(uint32 homeRealmId, ObjectGuid::LowType characterGuid);
+        void SendConnectToSelf();
+        void SendWorldRedirectNewWorld();
         void BeginRealmTransferLogin(ObjectGuid::LowType characterGuid);
         void HandleContinuePlayerLogin();
         void AbortLogin(WorldPackets::Character::LoginFailureReason reason);
@@ -1584,6 +1586,7 @@ class TC_GAME_API WorldSession
         void HandleMoveWorldportAckOpcode(WorldPackets::Movement::WorldPortResponse& packet);
         void HandleMoveWorldportAck();                // for server-side calls
         void HandleSuspendTokenResponse(WorldPackets::Movement::SuspendTokenResponse& suspendTokenResponse);
+        void HandleSuspendCommsAck(WorldPackets::Null& /*null*/);
 
         // Validates that correct unit is moved, coords are in valid range and movement flags
         bool ValidateMovementInfo(Unit const* mover, MovementInfo* mi) const;
@@ -1740,6 +1743,8 @@ class TC_GAME_API WorldSession
         void HandleHousingFixtureSetHouseType(WorldPackets::Housing::HousingFixtureSetHouseType const& housingFixtureSetHouseType);
 
         void LeaveHouseInterior();
+        /// Divert the next far teleport into a redirect to our own world connection.
+        void RequestWorldRedirect() { _worldRedirectStage = WorldRedirectStage::Pending; }
         HousingResult AddHousingRoomAtDoor(Housing* housing, ObjectGuid sourceRoomGuid, uint32 targetDoorComponentID, uint32 houseRoomID, ObjectGuid* outRoomGuid,
             std::function<void(HousingResult)> const& onPlaced = nullptr);
         // Rebuilds everything spawned for this house on the map the player is on after a blueprint import.
@@ -2460,6 +2465,23 @@ class TC_GAME_API WorldSession
 
         ConnectToKey _instanceConnectKey;
         ObjectGuid::LowType _realmTransferCharacterGuid = 0; // character selected before a cross-realm handoff, entered into the world after the session resume
+
+        static constexpr std::chrono::milliseconds WorldRedirectPhaseDelay{ 350 };
+        enum class WorldRedirectStage : uint8
+        {
+            None,
+            Pending,        // the next far teleport diverts at the suspend-token stage
+            DelayConnectTo, // suspend-token acked, pacing the ConnectTo like retail before sending it
+            AwaitReconnect, // redirect sent, waiting for the client to re-auth and attach
+            AwaitCommsAck,  // suspend-comms sent on the old socket, waiting for the ack
+            AwaitQueuedEnd, // comms resumed on the new socket, waiting to release the transfer
+            DelayNewWorld   // comms resumed, pacing the NewWorld release like retail
+        };
+        WorldRedirectStage _worldRedirectStage = WorldRedirectStage::None;
+        uint32 _worldRedirectSerial = 43;        // retail per-session redirect counter, +30 per redirect
+        uint32 _worldRedirectSuspendSerial = 47; // retail suspend-comms echoes the redirect serial + 4
+        std::shared_ptr<WorldSocket> _worldRedirectOldSocket; // pre-redirect world socket, receives suspend-comms
+        std::chrono::steady_clock::time_point _worldRedirectDeadline; // expiry of the current retail pacing delay
 
         // Client's last-used PlotIndex from OpenCornerstoneUI, cached for the subsequent BuyHouse CMSG.
         uint32 _lastClientPlotIndex = 0;

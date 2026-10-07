@@ -672,7 +672,16 @@ void Housing::SetEditorMode(HousingEditorMode mode)
         if (context != HOUSE_EDITING_CONTEXT_DECOR)
             _owner->RemoveAurasDueToSpell(SPELL_HOUSING_EDIT_MODE_AURA);
         if (context != HOUSE_EDITING_CONTEXT_ROOM)
+        {
+            // The removal itself restores root/gravity through the aura's effects; the flag
+            // checks below only matter for an aura that is missing from the DB.
             _owner->RemoveAurasDueToSpell(SPELL_HOUSING_ROOM_EDIT_MODE_AURA);
+
+            if (_owner->HasUnitState(UNIT_STATE_ROOT))
+                _owner->SetControlled(false, UNIT_STATE_ROOT);
+            if (_owner->IsGravityDisabled())
+                _owner->SetDisableGravity(false);
+        }
     }
 }
 
