@@ -2509,6 +2509,16 @@ void ScriptMgr::OnMovieComplete(Player* player, uint32 movieId)
     FOREACH_SCRIPT(PlayerScript)->OnMovieComplete(player, movieId);
 }
 
+void ScriptMgr::OnPlayerHousingDecorAdd(Player* player, uint32 decorEntryId)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnPlayerHousingDecorAdd(player, decorEntryId);
+}
+
+void ScriptMgr::OnPlayerHousingDecorRemove(Player* player, uint32 decorEntryId)
+{
+    FOREACH_SCRIPT(PlayerScript)->OnPlayerHousingDecorRemove(player, decorEntryId);
+}
+
 void ScriptMgr::OnPlayerChoiceResponse(WorldObject* object, Player* player, PlayerChoice const* choice, PlayerChoiceResponse const* response, uint16 clientIdentifier)
 {
     ASSERT(choice);
@@ -3560,6 +3570,14 @@ void PlayerScript::OnPlayerRepop(Player* /*player*/)
 }
 
 void PlayerScript::OnMovieComplete(Player* /*player*/, uint32 /*movieId*/)
+{
+}
+
+void PlayerScript::OnPlayerHousingDecorAdd(Player* /*player*/, uint32 /*decorEntryId*/)
+{
+}
+
+void PlayerScript::OnPlayerHousingDecorRemove(Player* /*player*/, uint32 /*decorEntryId*/)
 {
 }
 

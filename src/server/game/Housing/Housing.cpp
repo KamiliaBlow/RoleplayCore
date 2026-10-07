@@ -30,6 +30,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "RealmList.h"
+#include "ScriptMgr.h"
 #include "StringConvert.h"
 #include "StringFormat.h"
 #include "Util.h"
@@ -989,6 +990,7 @@ HousingResult Housing::PlaceDecorWithGuid(ObjectGuid decorGuid, uint32 decorEntr
 
     // CriteriaType::PlaceDecor (270); miscValue1 = HouseDecor entry so decor-scoped conditions can discriminate.
     _owner->UpdateCriteria(CriteriaType::PlaceDecor, decorEntryId);
+    sScriptMgr->OnPlayerHousingDecorAdd(_owner, decorEntryId);
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -1378,6 +1380,7 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid,
             _owner->GetSession()->GetBattlenetAccount().RemoveHousingDecorStorageEntry(childGuid);
 
         _owner->UpdateCriteria(CriteriaType::RemoveDecor, childEntryId);
+        sScriptMgr->OnPlayerHousingDecorRemove(_owner, childEntryId);
 
         if (removedChildren)
             removedChildren->emplace_back(childGuid, std::pair<uint8, std::string>(childSourceType, childSourceValue));
@@ -1405,6 +1408,7 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid,
 
     // CriteriaType::RemoveDecor (271, "Remove any decor"); miscValue1 = the HouseDecor entry removed.
     _owner->UpdateCriteria(CriteriaType::RemoveDecor, decorEntryId);
+    sScriptMgr->OnPlayerHousingDecorRemove(_owner, decorEntryId);
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
