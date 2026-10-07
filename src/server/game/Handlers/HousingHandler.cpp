@@ -2606,9 +2606,11 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
 
             // A half's bounding box reaches past its own storey, so IsInsideAnyRoom keeps
             // claiming a player standing over the removed floors: drop them one storey below
-            // the cut instead of letting them fall through the shaft.
+            // the cut instead of letting them fall through the shaft. The layout editor roots
+            // the player with gravity off, so while it is open there is no fall to prevent -
+            // the drop only applies to a RoomRemove arriving outside the editor.
             bool relocated = false;
-            if (!removedCells.empty())
+            if (housing->GetEditorMode() != HOUSING_EDITOR_MODE_LAYOUT && !removedCells.empty())
                 if (NeighborhoodMapData const* interiorData = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
                 {
                     constexpr float FLOOR_HEIGHT = 12.0f;
