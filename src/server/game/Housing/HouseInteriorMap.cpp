@@ -270,7 +270,7 @@ MeshObject* HouseInteriorMap::CreateRoomComponentMesh(Housing::Room const& room,
     compRot.z = cx * cy * sz - sx * sy * cz;
     compRot.w = cx * cy * cz + sx * sy * sz;
 
-    // RoomWmoData → Geobox bounds
+    // RoomWmoData -> Geobox bounds
     float geoMinX = -35.0f, geoMinY = -30.0f, geoMinZ = -1.01f;
     float geoMaxX =  35.0f, geoMaxY =  30.0f, geoMaxZ = 125.01f;
     HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(room.RoomEntryId);
@@ -340,7 +340,7 @@ MeshObject* HouseInteriorMap::CreateRoomComponentMesh(Housing::Room const& room,
     }
 
     PhasingHandler::InitDbPhaseShift(componentMesh->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
-    // Sniff: Field_20 = option Type, RoomComponentTypeParam = option variant (739 → 2, 366 → 1, 329 → 0).
+    // Sniff: Field_20 = option Type, RoomComponentTypeParam = option variant (739 -> 2, 366 -> 1, 329 -> 0).
     componentMesh->InitHousingRoomComponentData(room.Guid,
         roomComponentOptionID, static_cast<int32>(comp.ID),
         comp.Type, static_cast<int32>(option->SubType), static_cast<uint8>(option->Type),
@@ -356,7 +356,7 @@ void HouseInteriorMap::SpawnRoomMeshObjectsFromList(std::vector<Housing::Room co
     if (rooms.empty())
     {
         TC_LOG_ERROR("housing", "HouseInteriorMap::SpawnRoomMeshObjects: No rooms to spawn for owner {} "
-            "(new house — rooms will appear when placed via editor)",
+            "(new house - rooms will appear when placed via editor)",
             _owner.ToString());
         return;
     }
@@ -862,7 +862,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
     uint32 exteriorSkipped = 0;
     uint32 totalDecor = uint32(placedDecor.size());
 
-    TC_LOG_ERROR("housing", "HouseInteriorMap::SpawnInteriorDecor: Starting — totalDecor={} "
+    TC_LOG_ERROR("housing", "HouseInteriorMap::SpawnInteriorDecor: Starting - totalDecor={} "
         "_roomMeshObjects entries={} owner={}",
         totalDecor, uint32(_roomMeshObjects.size()), _owner.ToString());
 
@@ -976,7 +976,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
 
         Position worldPos(worldX, worldY, worldZ);
         Position localPos = roomEntityGuid.IsEmpty() ? worldPos : HousingWorldToRoomLocal(roomWorldPos, worldPos);
-        // Mirrored rotation must be in the room frame (worldRot = roomRot ⊗ localRot on the client).
+        // Mirrored rotation must be in the room frame (worldRot = roomRot x localRot on the client).
         QuaternionData localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
         float decorScale = decor.Scale > 0.01f ? decor.Scale : 1.0f;
         uint8 attachFlags = roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3);
@@ -1021,7 +1021,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                 }
             }
 
-        // Functional decor branch (real GameObject — chair, chest, mailbox, etc.)
+        // Functional decor branch (real GameObject - chair, chest, mailbox, etc.)
         bool spawnedAsGo = false;
         if (decorData->GameObjectID > 0)
         {
@@ -1037,7 +1037,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                 {
                     PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
                     go->SetObjectScale(decorScale);
-                    // Template default flags — keep CHAIR/CHEST/MAILBOX interactive behavior.
+                    // Template default flags - keep CHAIR/CHEST/MAILBOX interactive behavior.
                     go->InitHousingDecorData(decor.Guid, houseGuid, decor.Locked ? 1 : 0,
                         roomEntityGuid, decor.SourceType, decor.SourceValue);
                     go->SetHousingDecorDyeSlots(decor.DyeSlots);
@@ -1185,7 +1185,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
 
     Position worldPos(worldX, worldY, worldZ);
     Position localPos = roomEntityGuid.IsEmpty() ? worldPos : HousingWorldToRoomLocal(roomWorldPos, worldPos);
-    // Mirrored rotation must be in the room frame (worldRot = roomRot ⊗ localRot on the client).
+    // Mirrored rotation must be in the room frame (worldRot = roomRot x localRot on the client).
     QuaternionData localRot = roomEntityGuid.IsEmpty() ? rot : HousingWorldRotationToRoomLocal(roomWorldPos.GetOrientation(), rot);
     float decorScale = decor.Scale > 0.01f ? decor.Scale : 1.0f;
     uint8 attachFlags = roomEntityGuid.IsEmpty() ? uint8(0) : uint8(3);
@@ -1434,7 +1434,7 @@ void HouseInteriorMap::UpdateDecorPosition(ObjectGuid decorGuid, Position const&
 
     // The client renders decor from its attach-relative transform (FMirroredPositionData_C): room-relative
     // normally, parent-decor-relative for snapped stacks.
-    // GO decor stores its rotation world-frame, mesh decor in its attach frame (its own room —
+    // GO decor stores its rotation world-frame, mesh decor in its attach frame (its own room -
     // a stacked child's attach GUID names the parent object, so the room is taken from the parent).
     auto anchorFor = [this](ObjectGuid decorGuid, Position& anchorPos, float& anchorLocalYaw,
         bool& anchorIsGo, ObjectGuid& anchorRoomGuid) -> bool
@@ -1644,8 +1644,8 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
 
         // The player stays where the transfer put them: the entry hall at the interior origin.
 
-        TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: PRE-SPAWNED rooms+decor+storage "
-            "(%u rooms, %u decor) before Map::AddPlayerToMap",
+        TC_LOG_DEBUG("housing", "HouseInteriorMap::AddPlayerToMap: PRE-SPAWNED rooms+decor+storage "
+            "({} rooms, {} decor) before Map::AddPlayerToMap",
             uint32(_roomMeshObjects.size()), uint32(_decorGuidToObjGuid.size()));
     }
 
@@ -1654,7 +1654,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
     if (IsHouseOwnerAccount(player))
         _loadingPlayer = nullptr;
 
-    TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: Map::AddPlayerToMap returned {} for player={}",
+    TC_LOG_DEBUG("housing", "HouseInteriorMap::AddPlayerToMap: Map::AddPlayerToMap returned {} for player={}",
         result, player->GetGUID().ToString());
 
     if (result)
@@ -1679,7 +1679,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
             if (IsHouseOwnerAccount(player) && !ownerPreSpawn)
             {
                 // Force a fresh spawn on login (stale fragment formats); safe only while the arriving
-                // owner has received no entities yet — leave the rooms standing when others are present.
+                // owner has received no entities yet - leave the rooms standing when others are present.
                 bool spawnRooms = true;
                 if (_roomsSpawned)
                 {
@@ -1776,7 +1776,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                     // No plot AreaTrigger, plot-enter auras or CurrentHouse inside the house.
 
                     // Starter door: houses from before the door grant get one placed into the entry
-                    // hall once. It is normal placed decor from here on — the owner can move or
+                    // hall once. It is normal placed decor from here on - the owner can move or
                     // withdraw it freely, and the interior entry point (GetEntryPosition) anchors
                     // to its live position.
                     {
@@ -1797,7 +1797,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
                         }
                     }
 
-                    TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Complete — "
+                    TC_LOG_ERROR("housing", "HouseInteriorMap deferred: Complete - "
                         "HouseInfo+Status+Perms+Auras+Account+Initiative+PlotAT+ENTER_PLOT+Door for {}",
                         playerGuid.ToString());
                 }, Milliseconds(500));
@@ -1805,7 +1805,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         }
         else
         {
-            TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: NO HOUSING for player {} — "
+            TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: NO HOUSING for player {} - "
                 "cannot spawn rooms/decor", player->GetGUID().ToString());
         }
 
