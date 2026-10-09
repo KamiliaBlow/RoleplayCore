@@ -239,8 +239,10 @@ namespace WorldPackets
                  * @brief   Initialize the struct with values from QueryResult
                  *
                  * @param   fields         Field set of CharacterDatabaseStatements::CHAR_SEL_ENUM
+                 * @param   virtualRealmAddress  address of the realm the character belongs to; 0 = this realm
+                 * @param   homeRealmId          realmlist id of the character's home realm for cross-realm entries; 0 = this realm
                  */
-                CharacterInfoBasic(Field const* fields);
+                CharacterInfoBasic(Field const* fields, uint32 virtualRealmAddress = 0, uint32 homeRealmId = 0);
 
                 ObjectGuid Guid;
                 uint32 VirtualRealmAddress = 0;
@@ -307,7 +309,7 @@ namespace WorldPackets
 
             struct CharacterInfo
             {
-                CharacterInfo(Field const* fields);
+                CharacterInfo(Field const* fields, uint32 virtualRealmAddress = 0, uint32 homeRealmId = 0);
 
                 CharacterInfoBasic Basic;
                 CharacterRestrictionAndMailData RestrictionsAndMails;
@@ -315,7 +317,7 @@ namespace WorldPackets
 
             struct RegionwideCharacterListEntry
             {
-                RegionwideCharacterListEntry(Field const* fields);
+                RegionwideCharacterListEntry(Field const* fields, uint32 virtualRealmAddress = 0, uint32 homeRealmId = 0);
 
                 CharacterInfoBasic Basic;
                 uint64 Money = 0;

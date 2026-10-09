@@ -26,6 +26,8 @@
 #include "Log.h"
 #include "Map.h"
 #include "MapManager.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "NPCHandler.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -38,9 +40,28 @@
 
 void WorldSession::BuildNameQueryData(ObjectGuid guid, WorldPackets::Query::NameCacheLookupResult& lookupData)
 {
-    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
-
     lookupData.Player = guid;
+
+    // Housing GUIDs (HighGuid::Housing, type 55) are resolved via HouseData
+    // instead of the player name cache. The client's NameCacheLookupResult
+    // structure includes an Optional<HouseLookupData> field for this purpose.
+    if (guid.GetHigh() == HighGuid::Housing)
+    {
+        Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhood(guid);
+        if (neighborhood && !neighborhood->GetName().empty())
+        {
+            lookupData.Result = RESPONSE_SUCCESS;
+            lookupData.HouseData.emplace();
+            lookupData.HouseData->Guid = guid;
+            // GetName() returns const std::string& with stable lifetime
+            lookupData.HouseData->Name = neighborhood->GetName();
+        }
+        else
+            lookupData.Result = RESPONSE_FAILURE;
+        return;
+    }
+
+    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
 
     lookupData.Data.emplace();
     if (lookupData.Data->Initialize(guid, player))

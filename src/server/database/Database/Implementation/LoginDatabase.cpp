@@ -198,15 +198,16 @@ void LoginDatabaseConnection::DoPrepareStatements()
         "ON DUPLICATE KEY UPDATE isFavorite = VALUES(isFavorite)", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_UPD_BNET_WARBAND_SCENE, "UPDATE battlenet_account_warband_scenes SET isFavorite = ?, hasFanfare = ? WHERE battlenetAccountId = ? AND warbandSceneId = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_DEL_BNET_WARBAND_SCENE, "DELETE FROM battlenet_account_warband_scenes WHERE battlenetAccountId = ? AND warbandSceneId = ?", CONNECTION_ASYNC);
-    PrepareStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUPS, "SELECT id, orderIndex, name, warbandSceneId, flags FROM account_warband_groups WHERE accountId = ? AND realmId = ? ORDER BY orderIndex", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUPS, "SELECT id, orderIndex, name, warbandSceneId, flags FROM account_warband_groups WHERE accountId = ? ORDER BY orderIndex", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP, "INSERT INTO account_warband_groups (id, accountId, realmId, orderIndex, name, warbandSceneId, flags) VALUES (?, ?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
     /* id is deterministic (1) so that a default-group insert racing an account's pending
        CMSG_SETUP_WARBAND_GROUPS transaction collapses into the existing row instead of
        creating a second group. */
     PrepareStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP_DEFAULT, "INSERT INTO account_warband_groups (id, accountId, realmId, orderIndex, name, warbandSceneId, flags) VALUES (1, ?, ?, 0, ?, 1, 1) "
         "ON DUPLICATE KEY UPDATE id = id", CONNECTION_ASYNC);
-    PrepareStatement(LOGIN_DEL_ACCOUNT_WARBAND_GROUPS, "DELETE FROM account_warband_groups WHERE accountId = ? AND realmId = ?", CONNECTION_ASYNC);
-    PrepareStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUP_MEMBERS, "SELECT groupId, characterGuid, placementId, type FROM account_warband_group_members WHERE accountId = ? AND realmId = ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_DEL_ACCOUNT_WARBAND_GROUPS, "DELETE FROM account_warband_groups WHERE accountId = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_DEL_ACCOUNT_WARBAND_MEMBER, "DELETE FROM account_warband_group_members WHERE accountId = ? AND characterGuid = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_WARBAND_GROUP_MEMBERS, "SELECT groupId, characterGuid, placementId, type FROM account_warband_group_members WHERE accountId = ?", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_INS_ACCOUNT_WARBAND_GROUP_MEMBER, "INSERT INTO account_warband_group_members (accountId, realmId, groupId, characterGuid, placementId, type) VALUES (?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
 
     PrepareStatement(LOGIN_SEL_BNET_PLAYER_DATA_ELEMENTS_ACCOUNT, "SELECT playerDataElementAccountId, floatValue, int64Value FROM battlenet_account_player_data_element WHERE battlenetAccountId = ?", CONNECTION_ASYNC);
@@ -215,6 +216,22 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_SEL_BNET_PLAYER_DATA_FLAGS_ACCOUNT, "SELECT storageIndex, mask FROM battlenet_account_player_data_flag WHERE battlenetAccountId = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_DEL_BNET_PLAYER_DATA_FLAGS_ACCOUNT, "DELETE FROM battlenet_account_player_data_flag WHERE battlenetAccountId = ? AND storageIndex = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_INS_BNET_PLAYER_DATA_FLAGS_ACCOUNT, "INSERT INTO battlenet_account_player_data_flag (battlenetAccountId, storageIndex, mask) VALUES (?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_DATA_GLOBAL, "SELECT type, time, data FROM account_data_global WHERE accountId = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_REP_ACCOUNT_DATA_GLOBAL, "REPLACE INTO account_data_global (accountId, type, time, data) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_INS_ACCOUNT_REALM_TRANSFER, "REPLACE INTO account_realm_transfer (accountId, connectKey, characterGuid, createTime) VALUES (?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_REALM_TRANSFER, "SELECT characterGuid, connectKey FROM account_realm_transfer WHERE accountId = ? AND createTime >= ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_DEL_ACCOUNT_REALM_TRANSFER, "DELETE FROM account_realm_transfer WHERE accountId = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_REALM_HANDOFF, "SELECT a.username, a.session_key_bnet, a.battlenet_account, a.expansion, a.mutetime, a.os, a.timezone_offset, a.client_build, a.locale, IFNULL(a.recruiter, 0), "
+        "COALESCE((SELECT MAX(SecurityLevel) FROM account_access aa WHERE aa.AccountID = a.id AND aa.RealmID IN (-1, ?)), 0), COALESCE(ba.email, '') "
+        "FROM account a LEFT JOIN battlenet_accounts ba ON ba.id = a.battlenet_account WHERE a.id = ? AND LENGTH(a.session_key_bnet) = 40", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_BANK_ITEM_SOURCES, "SELECT bag, slot, item, sourceRealm FROM account_bank_item WHERE battlenetAccountId = ? ORDER BY bag ASC, slot ASC", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_BANK_TAB_SETTINGS, "SELECT tabId, name, icon, description, depositFlags FROM account_bank_tab_settings WHERE battlenetAccountId = ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_DEL_ACCOUNT_BANK_TAB_SETTINGS, "DELETE FROM account_bank_tab_settings WHERE battlenetAccountId = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_INS_ACCOUNT_BANK_TAB_SETTINGS, "INSERT INTO account_bank_tab_settings (battlenetAccountId, tabId, name, icon, description, depositFlags) VALUES (?, ?, ?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_ACCOUNT_BANK_COINAGE, "SELECT coinage FROM account_bank_coinage WHERE battlenetAccountId = ?", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_DEL_ACCOUNT_BANK_ITEMS_BY_BNET, "DELETE FROM account_bank_item WHERE battlenetAccountId = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_REP_ACCOUNT_BANK_ITEM, "REPLACE INTO account_bank_item (battlenetAccountId, bag, slot, item, sourceRealm) VALUES (?, ?, ?, ?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_REP_ACCOUNT_BANK_COINAGE, "REPLACE INTO account_bank_coinage (battlenetAccountId, coinage) VALUES (?, ?)", CONNECTION_ASYNC);
 }
 
 LoginDatabaseConnection::LoginDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags) : MySQLConnection(connInfo, connectionFlags)

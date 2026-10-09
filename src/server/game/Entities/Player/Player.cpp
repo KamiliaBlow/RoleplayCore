@@ -77,6 +77,17 @@
 #include "GameTime.h"
 #include "Guild.h"
 #include "GuildMgr.h"
+#include "HouseInteriorMap.h"
+#include "Housing.h"
+#include "HousingDefines.h"
+#include "HousingMap.h"
+#include "HousingMgr.h"
+#include "HousingMirrorEntity.h"
+#include "HousingNeighborhoodMirrorEntity.h"
+#include "HousingPackets.h"
+#include "HousingPlayerHouseEntity.h"
+#include "HousingRoomEntity.h"
+#include "InitiativeManager.h"
 #include "InstanceLockMgr.h"
 #include "InstancePackets.h"
 #include "InstanceScript.h"
@@ -94,9 +105,12 @@
 #include "MailPackets.h"
 #include "MapManager.h"
 #include "MapUtils.h"
+#include "MeshObject.h"
 #include "MiscPackets.h"
 #include "MotionMaster.h"
 #include "MovementPackets.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
@@ -244,9 +258,8 @@ Player::Player(WorldSession* session) : Unit(true), m_sceneMgr(this)
     m_DailyQuestChanged = false;
     m_lastDailyQuestTime = 0;
 
-    m_MirrorTimer.fill(DISABLED_MIRROR_TIMER);
+    m_environmentalDamageTimer = 1 * IN_MILLISECONDS;
     m_MirrorTimerFlags = UNDERWATER_NONE;
-    m_MirrorTimerFlagsLast = UNDERWATER_NONE;
 
     m_hostileReferenceCheckTimer = 0;
     m_drunkTimer = 0;
@@ -622,22 +635,19 @@ bool Player::StoreNewItemInBestSlots(uint32 itemId, uint32 amount, ItemContext c
     return false;
 }
 
-void Player::SendMirrorTimer(MirrorTimerType Type, uint32 MaxValue, uint32 CurrentValue, int32 Regen)
+void Player::SendMirrorTimer(MirrorTimerType type, int32 value, int32 maxValue, int32 scale, int32 spellId, bool paused)
 {
-    if (int(MaxValue) == DISABLED_MIRROR_TIMER)
-    {
-        if (int(CurrentValue) != DISABLED_MIRROR_TIMER)
-            StopMirrorTimer(Type);
-        return;
-    }
-
-    SendDirectMessage(WorldPackets::Misc::StartMirrorTimer(Type, CurrentValue, MaxValue, Regen, 0, false).Write());
+    SendDirectMessage(WorldPackets::Misc::StartMirrorTimer(type, value, maxValue, scale, spellId, paused).Write());
 }
 
-void Player::StopMirrorTimer(MirrorTimerType Type)
+void Player::PauseMirrorTimer(MirrorTimerType type, bool paused)
 {
-    m_MirrorTimer[Type] = DISABLED_MIRROR_TIMER;
-    SendDirectMessage(WorldPackets::Misc::StopMirrorTimer(Type).Write());
+    SendDirectMessage(WorldPackets::Misc::PauseMirrorTimer(type, paused).Write());
+}
+
+void Player::StopMirrorTimer(MirrorTimerType type)
+{
+    SendDirectMessage(WorldPackets::Misc::StopMirrorTimer(type).Write());
 }
 
 bool Player::IsImmuneToEnvironmentalDamage() const
@@ -709,60 +719,57 @@ uint32 Player::EnvironmentalDamage(EnviromentalDamage type, uint32 damage)
     return final_damage;
 }
 
-int32 Player::getMaxTimer(MirrorTimerType timer) const
+int32 Player::GetMirrorTimerMaxValue(MirrorTimerType type) const
 {
-    switch (timer)
+    switch (type)
     {
-        if (sConfigMgr->GetBoolDefault("fatigue.enabled", true)) // If "fatigue.enabled" is enabled
-        {
-        case FATIGUE_TIMER:
+        case MIRROR_TIMER_FATIGUE:
             return MINUTE * IN_MILLISECONDS;
-        }
-        case BREATH_TIMER:
+        case MIRROR_TIMER_BREATH:
+            return std::max(int32(3 * MINUTE * IN_MILLISECONDS * GetTotalAuraMultiplier(SPELL_AURA_MOD_WATER_BREATHING)), 1);
+        case MIRROR_TIMER_FEIGN_DEATH:
         {
-            if (!IsAlive() || HasAuraType(SPELL_AURA_WATER_BREATHING) || GetSession()->GetSecurity() >= AccountTypes(sWorld->getIntConfig(CONFIG_DISABLE_BREATHING)))
-                return DISABLED_MIRROR_TIMER;
-
-            int32 UnderWaterTime = 3 * MINUTE * IN_MILLISECONDS;
-            UnderWaterTime *= GetTotalAuraMultiplier(SPELL_AURA_MOD_WATER_BREATHING);
-            return UnderWaterTime;
-        }
-        case FIRE_TIMER:
-        {
-            if (!IsAlive())
-                return DISABLED_MIRROR_TIMER;
-            return 1 * IN_MILLISECONDS;
+            AuraEffectList const& feignDeathAuras = GetAuraEffectsByType(SPELL_AURA_FEIGN_DEATH);
+            return feignDeathAuras.empty() ? 0
+                : std::ranges::max(feignDeathAuras, {}, [](AuraEffect const* aurEff) { return aurEff->GetBase()->GetDuration(); })->GetBase()->GetMaxDuration();
         }
         default:
             return 0;
     }
 }
 
-void Player::UpdateMirrorTimers()
-{
-    // Desync flags for update on next HandleDrowning
-    if (m_MirrorTimerFlags)
-        m_MirrorTimerFlagsLast = ~m_MirrorTimerFlags;
-}
-
-void Player::StopMirrorTimers()
-{
-    StopMirrorTimer(FATIGUE_TIMER);
-    StopMirrorTimer(BREATH_TIMER);
-    StopMirrorTimer(FIRE_TIMER);
-}
-
 bool Player::IsMirrorTimerActive(MirrorTimerType type) const
 {
-    return m_MirrorTimer[type] == getMaxTimer(type);
+    return m_mirrorTimers[type].IsActive();
 }
 
-void Player::HandleDrowning(uint32 time_diff)
+void Player::UpdateMirrorTimers(uint32 diff)
 {
-    if (!m_MirrorTimerFlags)
-        return;
+    auto shouldMirrorTimerBeActive = [this](MirrorTimerType type)
+    {
+        switch (type)
+        {
+            case MIRROR_TIMER_FATIGUE:
+                if (!sConfigMgr->GetBoolDefault("fatigue.enabled", true)) // If "fatigue.enabled" is disabled the fatigue timer never activates
+                    return false;
+                if (!IsAlive() && !HasPlayerFlag(PLAYER_FLAGS_GHOST))
+                    return false;
+                return ((m_MirrorTimerFlags & UNDERWATER_INDARKWATER) != 0
+                    || m_mirrorTimers[type].GetValue() < m_mirrorTimers[type].GetMaxValue());
+            case MIRROR_TIMER_BREATH:
+                if (!IsAlive() || GetSession()->GetSecurity() >= AccountTypes(sWorld->getIntConfig(CONFIG_DISABLE_BREATHING)))
+                    return false;
+                return ((m_MirrorTimerFlags & UNDERWATER_INWATER) != 0
+                    || HasAuraType(SPELL_AURA_FORCE_BREATH_BAR)
+                    || m_mirrorTimers[type].GetValue() < m_mirrorTimers[type].GetMaxValue());
+            case MIRROR_TIMER_FEIGN_DEATH:
+                return HasAuraType(SPELL_AURA_FEIGN_DEATH);
+            default:
+                return false;
+        }
+    };
 
-    auto getEnvironmentalDamage = [&](EnviromentalDamage damageType)
+    auto getEnvironmentalDamage = [this](EnviromentalDamage damageType)
     {
         uint8 damagePercent = 10;
         if (damageType == DAMAGE_DROWNING || damageType == DAMAGE_EXHAUSTED)
@@ -776,118 +783,87 @@ void Player::HandleDrowning(uint32 time_diff)
         return damage;
     };
 
-    // In water
-    if (m_MirrorTimerFlags & UNDERWATER_INWATER)
+    for (MirrorTimerType type = MIRROR_TIMER_FATIGUE; type < m_mirrorTimers.size(); type = MirrorTimerType(type + 1))
     {
-        // Breath timer not activated - activate it
-        if (m_MirrorTimer[BREATH_TIMER] == DISABLED_MIRROR_TIMER)
+        MirrorTimer& timer = m_mirrorTimers[type];
+        bool isActive = timer.IsActive();
+        bool shouldBeActive = shouldMirrorTimerBeActive(type);
+        if (isActive)
         {
-            m_MirrorTimer[BREATH_TIMER] = getMaxTimer(BREATH_TIMER);
-            SendMirrorTimer(BREATH_TIMER, m_MirrorTimer[BREATH_TIMER], m_MirrorTimer[BREATH_TIMER], -1);
-        }
-        else                                                              // If activated - do tick
-        {
-            m_MirrorTimer[BREATH_TIMER] -= time_diff;
-            // Timer limit - need deal damage
-            if (m_MirrorTimer[BREATH_TIMER] < 0)
+            if (shouldBeActive)
             {
-                m_MirrorTimer[BREATH_TIMER] += 1 * IN_MILLISECONDS;
-                // Calculate and deal damage
-                uint32 damage = getEnvironmentalDamage(DAMAGE_DROWNING);
-                EnvironmentalDamage(DAMAGE_DROWNING, damage);
-            }
-            else if (!(m_MirrorTimerFlagsLast & UNDERWATER_INWATER))      // Update time in client if need
-                SendMirrorTimer(BREATH_TIMER, getMaxTimer(BREATH_TIMER), m_MirrorTimer[BREATH_TIMER], -1);
-        }
-    }
-    else if (m_MirrorTimer[BREATH_TIMER] != DISABLED_MIRROR_TIMER)        // Regen timer
-    {
-        int32 UnderWaterTime = getMaxTimer(BREATH_TIMER);
-        // Need breath regen
-        m_MirrorTimer[BREATH_TIMER] += 10 * time_diff;
-        if (m_MirrorTimer[BREATH_TIMER] >= UnderWaterTime || !IsAlive())
-            StopMirrorTimer(BREATH_TIMER);
-        else if (m_MirrorTimerFlagsLast & UNDERWATER_INWATER)
-            SendMirrorTimer(BREATH_TIMER, UnderWaterTime, m_MirrorTimer[BREATH_TIMER], 10);
-    }
-
-    // In dark water
-    if (sConfigMgr->GetBoolDefault("fatigue.enabled", true)) // If "fatigue.enabled" is enabled
-    {
-        if (m_MirrorTimerFlags & UNDERWATER_INDARKWATER)
-        {
-            // Fatigue timer not activated - activate it
-            if (m_MirrorTimer[FATIGUE_TIMER] == DISABLED_MIRROR_TIMER)
-            {
-                m_MirrorTimer[FATIGUE_TIMER] = getMaxTimer(FATIGUE_TIMER);
-                SendMirrorTimer(FATIGUE_TIMER, m_MirrorTimer[FATIGUE_TIMER], m_MirrorTimer[FATIGUE_TIMER], -1);
+                if (timer.Update(diff) == MirrorTimer::UpdateResult::ExpiredTicked)
+                {
+                    // do env damage tick
+                    switch (type)
+                    {
+                        case MIRROR_TIMER_FATIGUE:
+                            if (IsAlive())                                    // Calculate and deal damage
+                                EnvironmentalDamage(DAMAGE_EXHAUSTED, getEnvironmentalDamage(DAMAGE_EXHAUSTED));
+                            else if (HasPlayerFlag(PLAYER_FLAGS_GHOST))       // Teleport ghost to graveyard
+                                RepopAtGraveyard();
+                            break;
+                        case MIRROR_TIMER_BREATH:
+                            EnvironmentalDamage(DAMAGE_DROWNING, getEnvironmentalDamage(DAMAGE_DROWNING));
+                            break;
+                        default:
+                            break;
+                    }
+                }
             }
             else
+                timer.Stop();
+        }
+        else if (shouldBeActive)
+        {
+            switch (type)
             {
-                m_MirrorTimer[FATIGUE_TIMER] -= time_diff;
-                // Timer limit - need deal damage or teleport ghost to graveyard
-                if (m_MirrorTimer[FATIGUE_TIMER] < 0)
+                case MIRROR_TIMER_FATIGUE:
+                case MIRROR_TIMER_BREATH:
+                    timer.Start(GetMirrorTimerMaxValue(type), 0);
+                    break;
+                case MIRROR_TIMER_FEIGN_DEATH:
                 {
-                    m_MirrorTimer[FATIGUE_TIMER] += 1 * IN_MILLISECONDS;
-                    if (IsAlive())                                            // Calculate and deal damage
-                    {
-                        uint32 damage = getEnvironmentalDamage(DAMAGE_EXHAUSTED);
-                        EnvironmentalDamage(DAMAGE_EXHAUSTED, damage);
-                    }
-                    else if (HasPlayerFlag(PLAYER_FLAGS_GHOST))       // Teleport ghost to graveyard
-                        RepopAtGraveyard();
+                    Aura const* longestFeign = std::ranges::max(GetAuraEffectsByType(SPELL_AURA_FEIGN_DEATH), {}, [](AuraEffect const* aurEff) { return aurEff->GetBase()->GetDuration(); })->GetBase();
+                    timer.Start(longestFeign->GetDuration(), longestFeign->GetMaxDuration(), longestFeign->GetId());
+                    break;
                 }
-                else if (!(m_MirrorTimerFlagsLast & UNDERWATER_INDARKWATER))
-                    SendMirrorTimer(FATIGUE_TIMER, getMaxTimer(FATIGUE_TIMER), m_MirrorTimer[FATIGUE_TIMER], -1);
+                default:
+                    break;
             }
         }
-        else if (m_MirrorTimer[FATIGUE_TIMER] != DISABLED_MIRROR_TIMER)       // Regen timer
+
+        if (timer.IsChanged())
         {
-            int32 DarkWaterTime = getMaxTimer(FATIGUE_TIMER);
-            m_MirrorTimer[FATIGUE_TIMER] += 10 * time_diff;
-            if (m_MirrorTimer[FATIGUE_TIMER] >= DarkWaterTime || !IsAlive())
-                StopMirrorTimer(FATIGUE_TIMER);
-            else if (m_MirrorTimerFlagsLast & UNDERWATER_INDARKWATER)
-                SendMirrorTimer(FATIGUE_TIMER, DarkWaterTime, m_MirrorTimer[FATIGUE_TIMER], 10);
+            if (timer.IsActive())
+                SendMirrorTimer(type, timer.GetValue(), timer.GetMaxValue(), timer.GetScale(), timer.GetSpellId(), timer.IsPaused());
+            else
+                StopMirrorTimer(type);
         }
+        else if (timer.IsPausedChanged())
+            PauseMirrorTimer(type, timer.IsPaused());
+
+        timer.ClearChanged();
     }
 
-    if (m_MirrorTimerFlags & (UNDERWATER_INLAVA /*| UNDERWATER_INSLIME*/) && !(_lastLiquid && _lastLiquid->SpellID))
+    if (m_MirrorTimerFlags & (UNDERWATER_INLAVA /*| UNDERWATER_INSLIME*/) && !(_lastLiquid && _lastLiquid->SpellID) && IsAlive())
     {
-        // Breath timer not activated - activate it
-        if (m_MirrorTimer[FIRE_TIMER] == DISABLED_MIRROR_TIMER)
-            m_MirrorTimer[FIRE_TIMER] = getMaxTimer(FIRE_TIMER);
-        else
+        m_environmentalDamageTimer -= diff;
+        if (m_environmentalDamageTimer < 0)
         {
-            m_MirrorTimer[FIRE_TIMER] -= time_diff;
-            if (m_MirrorTimer[FIRE_TIMER] < 0)
-            {
-                m_MirrorTimer[FIRE_TIMER] += 1 * IN_MILLISECONDS;
-                // Calculate and deal damage
-                uint32 damage = getEnvironmentalDamage(DAMAGE_LAVA);
-                if (m_MirrorTimerFlags & UNDERWATER_INLAVA)
-                    EnvironmentalDamage(DAMAGE_LAVA, damage);
-                // need to skip Slime damage in Undercity,
-                // maybe someone can find better way to handle environmental damage
-                //else if (m_zoneUpdateId != 1497)
-                //    EnvironmentalDamage(DAMAGE_SLIME, damage);
-            }
+            m_environmentalDamageTimer += 1 * IN_MILLISECONDS;
+            // Calculate and deal damage
+            uint32 damage = getEnvironmentalDamage(DAMAGE_LAVA);
+            if (m_MirrorTimerFlags & UNDERWATER_INLAVA)
+                EnvironmentalDamage(DAMAGE_LAVA, damage);
+            // need to skip Slime damage in Undercity,
+            // maybe someone can find better way to handle environmental damage
+            //else if (m_zoneUpdateId != 1497)
+            //    EnvironmentalDamage(DAMAGE_SLIME, damage);
         }
     }
     else
-        m_MirrorTimer[FIRE_TIMER] = DISABLED_MIRROR_TIMER;
-
-    // Recheck timers flag
-    m_MirrorTimerFlags &= ~UNDERWATER_EXIST_TIMERS;
-    for (uint8 i = 0; i < MAX_TIMERS; ++i)
-    {
-        if (m_MirrorTimer[i] != DISABLED_MIRROR_TIMER)
-        {
-            m_MirrorTimerFlags |= UNDERWATER_EXIST_TIMERS;
-            break;
-        }
-    }
-    m_MirrorTimerFlagsLast = m_MirrorTimerFlags;
+        m_environmentalDamageTimer = 1 * IN_MILLISECONDS;
 }
 
 ///The player sobers by 1% every 9 seconds
@@ -1083,7 +1059,7 @@ void Player::Update(uint32 p_time)
     }
 
     //Handle Water/drowning
-    HandleDrowning(p_time);
+    UpdateMirrorTimers(p_time);
 
     // Played time
     if (now > m_Last_tick)
@@ -1571,6 +1547,10 @@ void Player::AddToWorld()
             m_items[i]->AddToWorld();
 
     GetSession()->GetBattlenetAccount().AddToWorld();
+    if (GetSession()->HasHousingPlayerHouseEntity())
+        GetSession()->GetHousingPlayerHouseEntity().AddToWorld();
+    if (GetSession()->HasHousingNeighborhoodMirrorEntity())
+        GetSession()->GetHousingNeighborhoodMirrorEntity().AddToWorld();
 }
 
 void Player::RemoveFromWorld()
@@ -1592,6 +1572,10 @@ void Player::RemoveFromWorld()
         sBattlefieldMgr->HandlePlayerLeaveZone(this, m_zoneUpdateId);
     }
 
+    if (GetSession()->HasHousingNeighborhoodMirrorEntity())
+        GetSession()->GetHousingNeighborhoodMirrorEntity().RemoveFromWorld();
+    if (GetSession()->HasHousingPlayerHouseEntity())
+        GetSession()->GetHousingPlayerHouseEntity().RemoveFromWorld();
     GetSession()->GetBattlenetAccount().RemoveFromWorld();
 
     // Remove items from world before self - player must be found in Item::RemoveFromObjectUpdate
@@ -2436,6 +2420,7 @@ void Player::InitStatsForLevel(bool reapplyMods)
 
     // set default cast time multiplier
     SetModCastingSpeed(1.0f);
+    SetModCastingSpeedNeg(1.0f);
     SetModSpellHaste(1.0f);
     SetModHaste(1.0f);
     SetModRangedHaste(1.0f);
@@ -2634,18 +2619,12 @@ void Player::AddMail(Mail* mail)
 void Player::SendMailResult(uint64 mailId, MailResponseType mailAction, MailResponseResult mailError, uint32 equipError, ObjectGuid::LowType itemGuid, uint32 itemCount) const
 {
     WorldPackets::Mail::MailCommandResult result;
-
     result.MailID = mailId;
     result.Command = mailAction;
     result.ErrorCode = mailError;
-
-    if (mailError == MAIL_ERR_EQUIP_ERROR)
-        result.BagResult = equipError;
-    else if (mailAction == MAIL_ITEM_TAKEN)
-    {
-        result.AttachID = itemGuid;
-        result.QtyInInventory = itemCount;
-    }
+    result.BagResult = equipError;
+    result.AttachID = itemGuid;
+    result.QtyInInventory = itemCount;
     SendDirectMessage(result.Write());
 }
 
@@ -2654,7 +2633,6 @@ void Player::SendNewMail() const
     // deliver undelivered mail
     WorldPackets::Mail::NotifyReceivedMail notify;
     notify.Delay = 0.0f;
-
     SendDirectMessage(notify.Write());
 }
 
@@ -3605,7 +3583,97 @@ void Player::BuildCreateUpdateBlockForPlayer(UpdateData* data, Player* target) c
             if (item)
                 item->BuildCreateUpdateBlockForPlayer(data, target);
 
-        GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
+        // Housing session entities and per-plot proxies must ride every self create block; the client drops them on each map transfer.
+        if (!target->HaveAtClient(&GetSession()->GetBattlenetAccount()))
+            GetSession()->GetBattlenetAccount().BuildCreateUpdateBlockForPlayer(data, target);
+        if (!target->HaveAtClient(&GetSession()->GetHousingPlayerHouseEntity()) && GetSession()->CanSeeHousingPlayerHouseEntity())
+            GetSession()->GetHousingPlayerHouseEntity().BuildCreateUpdateBlockForPlayer(data, target);
+        Map const* map = FindMap();
+        if (map && map->GetEntry()->IsNeighborhood() && !target->HaveAtClient(&GetSession()->GetHousingNeighborhoodMirrorEntity()))
+            GetSession()->GetHousingNeighborhoodMirrorEntity().BuildCreateUpdateBlockForPlayer(data, target);
+
+        if (GetMap() && (GetMap()->IsHouseInterior() || (GetMap()->GetEntry() && GetMap()->GetEntry()->IsNeighborhood())))
+        {
+            uint8 ownPlotIndex = INVALID_PLOT_INDEX;
+            if (Housing const* ownHousing = GetHousing())
+                ownPlotIndex = ownHousing->GetPlotIndex();
+
+            uint32 proxyCount = 0;
+            uint32 mirrorCount = 0;
+            uint32 skipOwn = 0;
+            uint32 skipEmpty = 0;
+            uint32 skipUnoccupied = 0;
+            HousingMap* hmap = dynamic_cast<HousingMap*>(GetMap());
+            Neighborhood const* nbh = hmap ? hmap->GetNeighborhood() : nullptr;
+            if (nbh)
+            {
+                for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                {
+                    if (!plot.IsOccupied())
+                    {
+                        ++skipUnoccupied;
+                        continue;
+                    }
+                    if (plot.PlotIndex == ownPlotIndex)
+                    {
+                        ++skipOwn;
+                        continue;
+                    }
+                    if (plot.HouseGuid.IsEmpty())
+                    {
+                        ++skipEmpty;
+                        continue;
+                    }
+
+                    uint32 bnetId = static_cast<uint32>(plot.OwnerBnetGuid.GetCounter());
+                    ObjectGuid mirrorGuid = hmap->GetHouseMirrorGuid(plot.PlotIndex);
+                    if (mirrorGuid.IsEmpty())
+                        mirrorGuid = hmap->MakeHouseMirrorGuid(plot.PlotIndex, bnetId);
+
+                    HousingPlayerHouseEntity proxy(GetSession(), plot.HouseGuid);
+                    proxy.SetObjectType(TYPEID_HOUSING_ENTITY);
+                    proxy.SetBnetAccount(plot.OwnerBnetGuid);
+                    proxy.SetCosmeticOwner(plot.OwnerGuid);
+                    proxy.SetPlotIndex(static_cast<int32>(plot.PlotIndex));
+                    proxy.SetLevel(plot.HouseLevel);
+                    proxy.SetFavor(plot.HouseFavor);
+                    proxy.SetBudgets(
+                        sHousingMgr.GetInteriorDecorBudgetForLevel(plot.HouseLevel),
+                        sHousingMgr.GetExteriorDecorBudgetForLevel(plot.HouseLevel),
+                        sHousingMgr.GetRoomBudgetForLevel(plot.HouseLevel),
+                        sHousingMgr.GetFixtureBudgetForLevel(plot.HouseLevel));
+                    proxy.SetEntityGUID(mirrorGuid);
+                    proxy.BuildCreateUpdateBlockForPlayer(data, target);
+                    ++proxyCount;
+
+                    for (HousingMirrorEntity* bm : hmap->GetHouseMeshMirrors(plot.PlotIndex))
+                    {
+                        bm->BuildCreateUpdateBlockForPlayer(data, target);
+                        ++mirrorCount;
+                    }
+                }
+            }
+            TC_LOG_DEBUG("housing", "Player::BuildCreateUpdateBlockForPlayer: housing-map create blocks for {}: "
+                "proxies={} mirrors={} skipOwn={} skipEmpty={} skipUnoccupied={} ownPlotIdx={}",
+                target->GetGUID().ToString(), proxyCount, mirrorCount, skipOwn, skipEmpty, skipUnoccupied, uint32(ownPlotIndex));
+
+            if (hmap && ownPlotIndex != INVALID_PLOT_INDEX)
+            {
+                for (HousingMirrorEntity* ownMeshMirror : hmap->GetHouseMeshMirrors(ownPlotIndex))
+                    ownMeshMirror->BuildCreateUpdateBlockForPlayer(data, target);
+            }
+
+            if (hmap && nbh)
+            {
+                for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+                {
+                    if (!plot.IsOccupied() || plot.HouseGuid.IsEmpty())
+                        continue;
+                    if (HousingRoomEntity* roomId = hmap->GetRoomIdentityEntity(plot.PlotIndex))
+                        roomId->BuildCreateUpdateBlockForPlayer(data, target);
+                }
+            }
+        }
     }
 
     Unit::BuildCreateUpdateBlockForPlayer(data, target);
@@ -3736,6 +3804,8 @@ void Player::ClearValuesChangesMask()
 {
     m_values.ClearChangesMask(&Player::m_playerData);
     m_values.ClearChangesMask(&Player::m_activePlayerData);
+    m_values.ClearChangesMask(&Player::m_playerHouseInfoComponentData);
+    m_values.ClearChangesMask(&Player::m_playerInitiativeComponentData);
     Unit::ClearValuesChangesMask();
 }
 
@@ -3807,6 +3877,13 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
 
     LoginDatabaseTransaction loginTransaction = LoginDatabase.BeginTransaction();
     LoginDatabasePreparedStatement* loginStmt = nullptr;
+
+    // purge the deleted character's warband group memberships (phantom members otherwise
+    // survive until the next full group resave)
+    loginStmt = LoginDatabase.GetPreparedStatement(LOGIN_DEL_ACCOUNT_WARBAND_MEMBER);
+    loginStmt->setUInt32(0, accountId);
+    loginStmt->setUInt64(1, guid);
+    loginTransaction->Append(loginStmt);
 
     CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
     if (ObjectGuid::LowType guildId = sCharacterCache->GetCharacterGuildIdByGuid(playerguid))
@@ -4390,10 +4467,6 @@ void Player::BuildPlayerRepop()
     // to prevent cheating
     corpse->ResetGhostTime();
 
-    StopMirrorTimers();                                     //disable timers(bars)
-
-    SendDirectMessage(WorldPackets::Misc::ForcedDeathUpdate().Write());
-
     // OnPlayerRepop hook
     sScriptMgr->OnPlayerRepop(this);
 }
@@ -4433,10 +4506,15 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
     {
         SetHealth(GetMaxHealth() * restore_percent);
         SetPower(POWER_MANA, GetMaxPower(POWER_MANA) * restore_percent);
-        SetPower(POWER_RAGE, 0);
-        SetPower(POWER_ENERGY, GetMaxPower(POWER_ENERGY) * restore_percent);
-        SetPower(POWER_FOCUS, GetMaxPower(POWER_FOCUS) * restore_percent);
-        SetPower(POWER_LUNAR_POWER, 0);
+    }
+
+    for (Powers power : GetPowerTypes())
+    {
+        PowerTypeEntry const* powerType = sDB2Manager.GetPowerTypeEntry(power);
+        if (powerType->GetFlags().HasFlag(PowerTypeFlags::SetToMaxOnResurrect))
+            SetPower(power, GetMaxPower(power));
+        else if (!powerType->GetFlags().HasFlag(PowerTypeFlags::NotSetToDefaultOnResurrect))
+            SetPower(power, powerType->DefaultPower);
     }
 
     // trigger update zone for alive state zone updates
@@ -4491,8 +4569,6 @@ void Player::KillPlayer()
 
     SetRooted(true);
 
-    StopMirrorTimers();                                     //disable timers(bars)
-
     setDeathState(CORPSE);
     //SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_IN_PVP);
 
@@ -4543,7 +4619,7 @@ Corpse* Player::CreateCorpse()
 
     _corpseLocation.WorldRelocate(*this);
 
-    uint32 flags = 0;
+    CorpseFlags flags = CORPSE_FLAG_NONE;
     if (*m_unitData->PvpFlags & UNIT_BYTE2_FLAG_PVP)
         flags |= CORPSE_FLAG_PVP;
     if (InBattleground() && !InArena())
@@ -4554,10 +4630,16 @@ Corpse* Player::CreateCorpse()
     corpse->SetRace(GetRace());
     corpse->SetSex(GetNativeGender());
     corpse->SetClass(GetClass());
-    corpse->SetCustomizations(Trinity::Containers::MakeIteratorPair(m_playerData->Customizations.begin(), m_playerData->Customizations.end()));
-    corpse->ReplaceAllFlags(flags);
+    corpse->SetCustomizations({ m_playerData->Customizations.begin(), m_playerData->Customizations.end() });
+    corpse->ReplaceAllCorpseFlags(flags);
     corpse->SetDisplayId(GetNativeDisplayId());
     corpse->SetFactionTemplate(sChrRacesStore.AssertEntry(GetRace())->FactionID);
+
+    if (Group const* group = GetGroup())
+        corpse->SetPartyGUID(group->GetGUID());
+
+    if (Guild const* guild = GetGuild())
+        corpse->SetGuildGUID(guild->GetGUID());
 
     for (uint8 i = EQUIPMENT_SLOT_START; i < EQUIPMENT_SLOT_END; i++)
         if (ItemModifiedAppearanceEntry const* itemModifiedAppearance = sItemModifiedAppearanceStore.LookupEntry(m_playerData->VisibleItems[i].ItemModifiedAppearanceID))
@@ -5436,6 +5518,7 @@ void Player::UpdateRating(CombatRating cr)
             float const multiplier = GetRatingMultiplier(cr);
             float const oldVal = ApplyRatingDiminishing(cr, oldRating * multiplier);
             float const newVal = ApplyRatingDiminishing(cr, amount * multiplier);
+            int32 highestOtherRating = 0;
             switch (cr)
             {
                 case CR_HASTE_MELEE:
@@ -5443,19 +5526,29 @@ void Player::UpdateRating(CombatRating cr)
                     ApplyAttackTimePercentMod(OFF_ATTACK, oldVal, false);
                     ApplyAttackTimePercentMod(BASE_ATTACK, newVal, true);
                     ApplyAttackTimePercentMod(OFF_ATTACK, newVal, true);
-                    if (GetClass() == CLASS_DEATH_KNIGHT)
-                        UpdatePowerRegen(POWER_RUNES);
+                    highestOtherRating = std::max({ m_activePlayerData->CombatRatings[CR_HASTE_RANGED], m_activePlayerData->CombatRatings[CR_HASTE_SPELL] });
                     break;
                 case CR_HASTE_RANGED:
                     ApplyAttackTimePercentMod(RANGED_ATTACK, oldVal, false);
                     ApplyAttackTimePercentMod(RANGED_ATTACK, newVal, true);
+                    highestOtherRating = std::max(m_activePlayerData->CombatRatings[CR_HASTE_MELEE], m_activePlayerData->CombatRatings[CR_HASTE_SPELL]);
                     break;
                 case CR_HASTE_SPELL:
                     ApplyCastTimePercentMod(oldVal, false);
+                    ApplySpellHastePercentMod(oldVal, false);
                     ApplyCastTimePercentMod(newVal, true);
+                    ApplySpellHastePercentMod(newVal, true);
+                    highestOtherRating = std::max(m_activePlayerData->CombatRatings[CR_HASTE_MELEE], m_activePlayerData->CombatRatings[CR_HASTE_RANGED]);
                     break;
                 default:
                     break;
+            }
+            float oldHasteRegenVal = ApplyRatingDiminishing(cr, std::max(oldRating, highestOtherRating) * multiplier);
+            float newHasteRegenVal = ApplyRatingDiminishing(cr, std::max(amount, highestOtherRating) * multiplier);
+            if (oldHasteRegenVal != newHasteRegenVal)
+            {
+                ApplyHasteRegenPercentMod(oldHasteRegenVal, false);
+                ApplyHasteRegenPercentMod(newHasteRegenVal, true);
             }
             break;
         }
@@ -15104,8 +15197,17 @@ void Player::OnGossipSelect(WorldObject* source, int32 gossipOptionId, uint32 me
             handled = false;
         case GossipOptionNpc::ProfessionsCraftingOrder: // NYI
             break;
-        case GossipOptionNpc::ProfessionsCustomerOrder: // NYI
+        case GossipOptionNpc::ProfessionsCustomerOrder:
+        {
+            // The clerk opens through SMSG_CRAFTING_HOUSE_HELLO_RESPONSE alone, not GOSSIP_OPTION_NPC_INTERACTION.
+            PlayerTalkClass->GetInteractionData().StartInteraction(guid, PlayerInteractionType::ProfessionsCustomerOrder);
+
+            WorldPackets::Housing::CraftingHouseHelloResponse craftingHouseHello;
+            craftingHouseHello.Guid = guid;
+            craftingHouseHello.OpenForBusiness = true;  // clear raises CRAFTING_HOUSE_DISABLED instead
+            SendDirectMessage(craftingHouseHello.Write());
             break;
+        }
         case GossipOptionNpc::BarbersChoice: // NYI - unknown if needs sending
             break;
         default:
@@ -16228,6 +16330,10 @@ void Player::RewardQuest(Quest const* quest, LootItemType rewardType, uint32 rew
 
     // make full db save
     SaveToDB(false);
+
+    if (std::find(std::begin(HOUSING_TUTORIAL_QUEST_CHAIN), std::end(HOUSING_TUTORIAL_QUEST_CHAIN), quest_id)
+        != std::end(HOUSING_TUTORIAL_QUEST_CHAIN))
+        UpdateHousingTutorialCVars();
 
     if (quest->HasFlag(QUEST_FLAGS_FLAGS_PVP))
     {
@@ -18289,12 +18395,12 @@ void Player::SendQuestReward(Quest const* quest, Creature const* questGiver, uin
         if (questGiver->IsGossip())
             packet.LaunchGossip = quest->HasFlag(QUEST_FLAGS_LAUNCH_GOSSIP_COMPLETE);
 
-        if (questGiver->IsQuestGiver())
-            packet.LaunchQuest = (GetQuestDialogStatus(questGiver) & ~QuestGiverStatusFutureMask) != QuestGiverStatus::None;
-
         if (!quest->HasFlag(QUEST_FLAGS_AUTO_COMPLETE))
             if (Quest const* rewardQuest = GetNextQuest(questGiver, quest))
                 packet.UseQuestReward = CanTakeQuest(rewardQuest, false);
+
+        if (questGiver->IsQuestGiver())
+            packet.LaunchQuest = !packet.UseQuestReward && (GetQuestDialogStatus(questGiver) & ~QuestGiverStatusFutureMask) != QuestGiverStatus::None;
     }
 
     packet.HideChatMessage = hideChatMessage;
@@ -19484,6 +19590,9 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         // try finding instance by id first
         map = sMapMgr->FindMap(mapId, instanceId);
     }
+    // Interior instance id is the owner's GUID counter, so log back into the visited house.
+    else if (mapEntry->IsHouseInterior() && instanceId)
+        SetHouseVisitTarget(ObjectGuid::Create<HighGuid::Player>(instanceId));
 
     // Map could be changed before
     mapEntry = sMapStore.LookupEntry(mapId);
@@ -19499,6 +19608,12 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     }
 
     // NOW player must have valid map
+    // Neighborhood instance id selects the neighborhood the player logged out in.
+    if (!map && instanceId && mapEntry && mapEntry->IsNeighborhood())
+        if (Neighborhood const* neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(instanceId))
+            if (sHousingMgr.GetWorldMapIdByNeighborhoodMapId(neighborhood->GetNeighborhoodMapID()) == mapId)
+                map = sMapMgr->FindOrCreateHousingMap(mapId, instanceId);
+
     // load the player's map here if it's not already loaded
     bool isNewMap = false;
     if (!map)
@@ -19701,8 +19816,8 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
     m_reputationMgr->LoadFromDB(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_REPUTATION));
 
     _LoadCharacterBankTabSettings(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_BANK_TAB_SETTINGS));
-    _LoadAccountBankTabSettings(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ACCOUNT_BANK_TAB_SETTINGS));
-    _LoadAccountBankCoinage(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ACCOUNT_BANK_COINAGE));
+    _LoadAccountBankTabSettings();
+    _LoadAccountBankCoinage();
 
     _LoadInventory(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_INVENTORY),
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ARTIFACTS),
@@ -19712,7 +19827,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_AZERITE_EMPOWERED),
         time_diff);
 
-    _LoadAccountBankItems(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_ACCOUNT_BANK_ITEMS), time_diff);
+    _LoadAccountBankItems(time_diff);
 
     // update items with duration and realtime
     UpdateItemDuration(time_diff, true);
@@ -19858,6 +19973,234 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder const& hol
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWERS),
         holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWER_ABILITIES)))
         _garrison = std::move(garrison);
+
+    std::unique_ptr<Housing> housing = std::make_unique<Housing>(this);
+    if (housing->LoadFromDB(holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_DECOR),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_ROOMS),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_FIXTURES),
+        holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_HOUSING_CATALOG)))
+        _housings.push_back(std::move(housing));
+
+    _LoadAccountHousings();
+    _LoadHouseRooms();
+    _LoadHouseTypes();
+
+    // Only preset the HousingModesUnlocked bit; the client owns and reports the rest of the tutorial state.
+    if (GetSession())
+        UpdateHousingTutorialCVars();
+
+    // Without this fragment C_Housing.StartTutorial() fails pre-flight (ERR_HOUSING_ACTION_UNAVAILABLE).
+    if (!m_playerHouseInfoComponentData.has_value())
+    {
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+            .ModifyValue(&UF::PlayerHouseInfoComponentData::EditorMode), uint8(0));
+        m_entityFragments.Add(WowCS::EntityFragment::PlayerHouseInfoComponent_C, false,
+            WowCS::GetRawFragmentData(m_playerHouseInfoComponentData));
+    }
+
+    // plot.HouseGuid must match the Housing/4 mirror verbatim, or the client renders the own plot as unowned.
+    for (auto const& h : _housings)
+    {
+        if (!h || h->GetHouseGuid().IsEmpty())
+            continue;
+
+        Neighborhood const* nh = sNeighborhoodMgr.GetNeighborhood(h->GetNeighborhoodGuid());
+        ObjectGuid entryHouseGuid = h->GetHouseGuid();  // fallback when neighborhood lookup fails
+        if (nh)
+        {
+            if (Neighborhood::PlotInfo const* pi = nh->GetPlotInfo(h->GetPlotIndex()))
+                if (!pi->HouseGuid.IsEmpty())
+                    entryHouseGuid = pi->HouseGuid;
+        }
+
+        UF::PlayerMirrorHouse& mirrorHouse = AddDynamicUpdateFieldValue(
+            m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+        mirrorHouse.HouseGUID = entryHouseGuid;
+        mirrorHouse.NeighborhoodGUID = h->GetNeighborhoodGuid();
+        mirrorHouse.Level = h->GetLevel();
+        mirrorHouse.Favor = static_cast<uint32>(std::min<uint64>(h->GetFavor64(), std::numeric_limits<uint32>::max()));
+        mirrorHouse.PlotID = h->GetPlotIndex();
+
+        // MapID from DB2 data so the dashboard works before entering the neighborhood.
+        mirrorHouse.MapID = 0;
+        if (nh)
+            if (NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(nh->GetNeighborhoodMapID()))
+                mirrorHouse.MapID = nmData->MapID;
+
+        TC_LOG_DEBUG("housing", "Player::LoadFromDB: PlayerMirrorHouse: HouseGuid={} (h->GetHouseGuid={}) NeighborhoodGuid={} PlotID={} Level={} MapID={} Favor={}",
+            entryHouseGuid.ToString(), h->GetHouseGuid().ToString(), h->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID, mirrorHouse.Favor);
+
+        uint64 nhGuid = h->GetNeighborhoodGuid().GetCounter();
+        if (ActiveInitiative* activeInit = sInitiativeManager.GetActiveInitiative(nhGuid))
+            mirrorHouse.InitiativeFavor = sInitiativeManager.GetPlayerContribution(nhGuid, activeInit->InitiativeID, GetGUID().GetCounter());
+    }
+
+    // The client's C_NeighborhoodInitiative Lua API reads initiative state from this fragment.
+    if (!m_playerInitiativeComponentData.has_value())
+    {
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+            .ModifyValue(&UF::PlayerInitiativeComponentData::NeighborhoodGUID), ObjectGuid::Empty);
+        m_entityFragments.Add(WowCS::EntityFragment::PlayerInitiativeComponent_C, false,
+            WowCS::GetRawFragmentData(m_playerInitiativeComponentData));
+    }
+
+    ObjectGuid initNhGuid;
+    if (!_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
+        initNhGuid = _housings[0]->GetNeighborhoodGuid();
+    else
+    {
+        auto neighborhoods = sNeighborhoodMgr.GetNeighborhoodsForPlayer(GetGUID());
+        if (!neighborhoods.empty())
+            initNhGuid = neighborhoods[0]->GetGuid();
+    }
+
+    if (!initNhGuid.IsEmpty())
+    {
+        uint64 nhLowGuid = initNhGuid.GetCounter();
+        ActiveInitiative* activeInit = sInitiativeManager.GetActiveInitiative(nhLowGuid);
+
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+            .ModifyValue(&UF::PlayerInitiativeComponentData::NeighborhoodGUID), initNhGuid);
+
+        if (activeInit)
+        {
+            NeighborhoodInitiativeEntry const* initEntry = sNeighborhoodInitiativeStore.LookupEntry(activeInit->InitiativeID);
+            uint32 cycleID = sInitiativeManager.GetActiveCycleForInitiative(activeInit->InitiativeID);
+
+            // DB2 Duration is in seconds; fall back to 7 days (Duration=0 hides the endeavor on the client).
+            int64 durationSec = 0;
+            if (initEntry && initEntry->Duration > 0)
+                durationSec = static_cast<int64>(initEntry->Duration);
+            if (durationSec <= 0)
+                durationSec = 7 * DAY;
+
+            int64 elapsed = static_cast<int64>(GameTime::GetGameTime()) - static_cast<int64>(activeInit->StartTime);
+            int64 remainingDuration = durationSec - elapsed;
+            // If expired, reset start time so the initiative stays active
+            if (remainingDuration <= 0)
+            {
+                activeInit->StartTime = static_cast<uint32>(GameTime::GetGameTime());
+                remainingDuration = durationSec;
+            }
+
+            // Calculate progress in the 0-1000 scale (sniff: ProgressRequired=1000)
+            float progressRequired = INITIATIVE_PROGRESS_REQUIRED;
+            float currentProgress = activeInit->Progress * progressRequired;
+
+            // RequiredContributionAmount is a percentage while Progress is a 0..1 fraction; scale before comparing.
+            int32 currentMilestoneID = -1;
+            auto milestones = sInitiativeManager.GetMilestonesForCycle(cycleID);
+            for (auto const& m : milestones)
+            {
+                if (activeInit->Progress * INITIATIVE_MILESTONE_SCALE < m.RequiredContributionAmount)
+                {
+                    currentMilestoneID = static_cast<int32>(m.MilestoneID);
+                    break;
+                }
+            }
+
+            float playerContribution = static_cast<float>(
+                sInitiativeManager.GetPlayerContribution(nhLowGuid, activeInit->InitiativeID, GetGUID().GetCounter()));
+
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::RemainingDuration), remainingDuration);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentInitiativeID), static_cast<int32>(activeInit->InitiativeID));
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentMilestoneID), currentMilestoneID);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentCycleID), static_cast<int32>(cycleID));
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::ProgressRequired), progressRequired);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::CurrentProgress), currentProgress);
+            SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                .ModifyValue(&UF::PlayerInitiativeComponentData::InitiativeInfo)
+                .ModifyValue(&UF::PlayerInitiativeInfo::PlayerTotalContribution), playerContribution);
+
+            for (auto const& h : _housings)
+            {
+                if (h && !h->GetHouseGuid().IsEmpty())
+                    InsertSetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerInitiativeComponentData, 0)
+                        .ModifyValue(&UF::PlayerInitiativeComponentData::Houses), h->GetHouseGuid());
+            }
+
+            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Populated PlayerInitiativeComponentData: "
+                "InitiativeID={} CycleID={} Progress={:.1f}/{:.0f} Milestone={} Duration={}",
+                activeInit->InitiativeID, cycleID, currentProgress, progressRequired,
+                currentMilestoneID, remainingDuration);
+        }
+    }
+
+    // Pre-populate Housing/4 and Housing/3 before BuildCreateUpdateBlockForPlayer runs so the CREATE carries the full Houses array.
+    if (GetSession() && !_housings.empty() && _housings[0] && !_housings[0]->GetNeighborhoodGuid().IsEmpty())
+    {
+        // The house the login bundle advertises: the map's house on a neighborhood map, the interior's house inside one, else the first.
+        Housing* primeHousing = _housings[0].get();
+        if (HousingMap const* loginHousingMap = dynamic_cast<HousingMap const*>(FindMap()))
+        {
+            if (Neighborhood const* loginNeighborhood = loginHousingMap->GetNeighborhood())
+                if (Housing* mapHousing = GetHousingForNeighborhood(loginNeighborhood->GetGuid()))
+                    primeHousing = mapHousing;
+        }
+        else if (HouseInteriorMap const* loginInteriorMap = dynamic_cast<HouseInteriorMap const*>(FindMap()))
+        {
+            if (Housing* interiorHousing = GetHousingByOwner(loginInteriorMap->GetOwnerGuid()))
+                primeHousing = interiorHousing;
+        }
+
+        // Re-prime our own plot before the mirror reads it; on a fresh server AddPlayerToMap would run too late.
+        if (Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhood(primeHousing->GetNeighborhoodGuid()))
+        {
+            ObjectGuid bnetGuid = GetSession() ? GetSession()->GetBattlenetAccountGUID() : ObjectGuid::Empty;
+            neighborhood->UpdatePlotHouseInfo(primeHousing->GetPlotIndex(),
+                                              primeHousing->GetHouseGuid(),
+                                              bnetGuid);
+
+            HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
+            mirrorEntity.ResetGuid(neighborhood->GetGuid()); // GUID must match the neighborhood's
+            mirrorEntity.SetName(neighborhood->GetName());
+            mirrorEntity.SetOwnerGUID(neighborhood->GetClientOwnerGuid());
+
+            // Fill every plot slot synchronously; placeholders keep empty plots aligned with their indices.
+            mirrorEntity.ClearHouses();
+            for (auto const& plot : neighborhood->GetPlots())
+            {
+                if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                    mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+                else
+                    mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+            }
+
+            // Add managers
+            mirrorEntity.ClearManagers();
+            for (auto const& member : neighborhood->GetMembers())
+            {
+                if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+                {
+                    ObjectGuid bnetGuid;
+                    if (Player* managerPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                        bnetGuid = managerPlayer->GetSession()->GetBattlenetAccountGUID();
+                    mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+                }
+            }
+
+            TC_LOG_DEBUG("housing", "Player::LoadFromDB: Pre-populated Housing/4 mirror entity with {} plots from neighborhood {}",
+                MAX_NEIGHBORHOOD_PLOTS, neighborhood->GetName());
+
+            // Re-key Housing/3 to the prime house; Housing::LoadFromDB left it keyed to the house loaded last.
+            if (!primeHousing->GetHouseGuid().IsEmpty())
+                primeHousing->SyncUpdateFields();
+        }
+    }
 
     _InitHonorLevelOnLoadFromDB(fields.honor, fields.honorLevel);
 
@@ -21431,9 +21774,12 @@ void Player::_LoadCharacterBankTabSettings(PreparedQueryResult result)
         AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::CharacterBankTabSettings));
 }
 
-void Player::_LoadAccountBankTabSettings(PreparedQueryResult result)
+void Player::_LoadAccountBankTabSettings()
 {
-    if (result)
+    // the warband bank is account-global, its state lives in the auth database
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_BANK_TAB_SETTINGS);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    if (PreparedQueryResult result = LoginDatabase.Query(stmt))
     {
         uint8 tabCount = 0;
         do
@@ -21455,9 +21801,11 @@ void Player::_LoadAccountBankTabSettings(PreparedQueryResult result)
         AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::AccountBankTabSettings));
 }
 
-void Player::_LoadAccountBankCoinage(PreparedQueryResult result)
+void Player::_LoadAccountBankCoinage()
 {
-    if (result)
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_SEL_ACCOUNT_BANK_COINAGE);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    if (PreparedQueryResult result = LoginDatabase.Query(stmt))
         SetAccountBankCoinage((*result)[0].GetUInt64());
 }
 
@@ -21472,8 +21820,13 @@ void Player::ModifyAccountBankCoinage(int64 delta)
     SetAccountBankCoinage(uint64(next));
 }
 
-void Player::_LoadAccountBankItems(PreparedQueryResult result, uint32 timeDiff)
+void Player::_LoadAccountBankItems(uint32 timeDiff)
 {
+    // the slot map lives in the auth database, every item row was pulled into this realm's
+    // database by the login migration before the character load started
+    QueryResult result = CharacterDatabase.Query(GetAccountBankItemsQuery(LoginDatabase.GetConnectionInfo()->database,
+        GetSession()->GetBattlenetAccountId()).c_str());
+
     // Same field layout as character_inventory load (SelectItemInstanceContent), with
     // abi.bag (tab index 0-4) at field 54 and abi.slot at field 55.
 
@@ -21952,11 +22305,14 @@ void Player::SaveToDB(LoginDatabaseTransaction loginTransaction, CharacterDataba
     _SaveCUFProfiles(trans);
     _SavePlayerData(trans);
     _SaveCharacterBankTabSettings(trans);
-    _SaveAccountBankTabSettings(trans);
-    _SaveAccountBankItems(trans);
-    _SaveAccountBankCoinage(trans);
+    _SaveAccountBankTabSettings(loginTransaction);
+    _SaveAccountBankItems(loginTransaction);
+    _SaveAccountBankCoinage(loginTransaction);
     if (_garrison)
         _garrison->SaveToDB(trans);
+    for (auto const& h : _housings)
+        if (h)
+            h->SaveToDB(trans);
 
     // check if stats should only be saved on logout
     // save stats can be out of transaction
@@ -23084,18 +23440,18 @@ void Player::_SaveCharacterBankTabSettings(CharacterDatabaseTransaction trans) c
     }
 }
 
-void Player::_SaveAccountBankTabSettings(CharacterDatabaseTransaction trans) const
+void Player::_SaveAccountBankTabSettings(LoginDatabaseTransaction trans) const
 {
     uint32 bnetAccountId = GetSession()->GetBattlenetAccountId();
 
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ACCOUNT_BANK_TAB_SETTINGS);
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_DEL_ACCOUNT_BANK_TAB_SETTINGS);
     stmt->setUInt32(0, bnetAccountId);
     trans->Append(stmt);
 
     for (std::size_t i = 0; i < m_activePlayerData->AccountBankTabSettings.size(); ++i)
     {
         UF::BankTabSettings const& tabSetting = m_activePlayerData->AccountBankTabSettings[i];
-        stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_ACCOUNT_BANK_TAB_SETTINGS);
+        stmt = LoginDatabase.GetPreparedStatement(LOGIN_INS_ACCOUNT_BANK_TAB_SETTINGS);
         stmt->setUInt32(0, bnetAccountId);
         stmt->setUInt8(1, i);
         stmt->setString(2, *tabSetting.Name);
@@ -23106,24 +23462,24 @@ void Player::_SaveAccountBankTabSettings(CharacterDatabaseTransaction trans) con
     }
 }
 
-void Player::_SaveAccountBankCoinage(CharacterDatabaseTransaction trans) const
+void Player::_SaveAccountBankCoinage(LoginDatabaseTransaction trans) const
 {
     uint32 bnetAccountId = GetSession()->GetBattlenetAccountId();
     if (!bnetAccountId)
         return;
 
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_ACCOUNT_BANK_COINAGE);
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_REP_ACCOUNT_BANK_COINAGE);
     stmt->setUInt32(0, bnetAccountId);
     stmt->setUInt64(1, GetAccountBankCoinage());
     trans->Append(stmt);
 }
 
-void Player::_SaveAccountBankItems(CharacterDatabaseTransaction trans)
+void Player::_SaveAccountBankItems(LoginDatabaseTransaction trans)
 {
     uint32 bnetAccountId = GetSession()->GetBattlenetAccountId();
 
     // Delete all account bank item positions - they will be re-inserted below
-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_ACCOUNT_BANK_ITEMS_BY_BNET);
+    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_DEL_ACCOUNT_BANK_ITEMS_BY_BNET);
     stmt->setUInt32(0, bnetAccountId);
     trans->Append(stmt);
 
@@ -23141,11 +23497,12 @@ void Player::_SaveAccountBankItems(CharacterDatabaseTransaction trans)
             if (!item)
                 continue;
 
-            stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_ACCOUNT_BANK_ITEM);
+            stmt = LoginDatabase.GetPreparedStatement(LOGIN_REP_ACCOUNT_BANK_ITEM);
             stmt->setUInt32(0, bnetAccountId);
             stmt->setUInt8(1, tabIndex);
             stmt->setUInt8(2, slot);
             stmt->setUInt64(3, item->GetGUID().GetCounter());
+            stmt->setUInt32(4, sRealmList->GetCurrentRealmId().Realm);
             trans->Append(stmt);
         }
     }
@@ -26069,6 +26426,12 @@ void Player::UpdateVisibilityOf(Trinity::IteratorPair<WorldObject**> targets)
             case TYPEID_CONVERSATION:
                 UpdateVisibilityOf(target->ToConversation(), udata, newVisibleObjects);
                 break;
+            case TYPEID_MESH_OBJECT:
+                UpdateVisibilityOf(target->ToMeshObject(), udata, newVisibleObjects);
+                break;
+            case TYPEID_HOUSING_ENTITY:
+                UpdateVisibilityOf(static_cast<HousingRoomEntity*>(target), udata, newVisibleObjects);
+                break;
             default:
                 break;
         }
@@ -26254,6 +26617,8 @@ template void Player::UpdateVisibilityOf(DynamicObject* target, UpdateData& data
 template void Player::UpdateVisibilityOf(AreaTrigger*   target, UpdateData& data, std::set<WorldObject*>& visibleNow);
 template void Player::UpdateVisibilityOf(SceneObject*   target, UpdateData& data, std::set<WorldObject*>& visibleNow);
 template void Player::UpdateVisibilityOf(Conversation*  target, UpdateData& data, std::set<WorldObject*>& visibleNow);
+template void Player::UpdateVisibilityOf(MeshObject*           target, UpdateData& data, std::set<WorldObject*>& visibleNow);
+template void Player::UpdateVisibilityOf(HousingRoomEntity*    target, UpdateData& data, std::set<WorldObject*>& visibleNow);
 
 void Player::UpdateObjectVisibility(bool forced)
 {
@@ -26471,6 +26836,22 @@ void Player::SendInitialPacketsBeforeAddToMap()
     // worldServerInfo.RestrictedAccountMaxMoney; /// @todo
     worldServerInfo.DifficultyID = GetMap()->GetDifficultyID();
     // worldServerInfo.XRealmPvpAlert;  /// @todo
+    // House fields are filled inside a house interior only; a neighborhood map carries just that map's neighborhood.
+    if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(GetMap()))
+    {
+        if (Housing* housing = GetHousingByOwner(interiorMap->GetOwnerGuid()))
+        {
+            worldServerInfo.HouseGUID = housing->GetHouseGuid();
+            worldServerInfo.HouseOwnerAccountGUID = GetSession()->GetBattlenetAccountGUID();
+            worldServerInfo.HouseCosmeticOwnerGUID = housing->GetOwnerGuid();
+            worldServerInfo.NeighborhoodGUID = housing->GetNeighborhoodGuid();
+        }
+    }
+    else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
+    {
+        if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+            worldServerInfo.NeighborhoodGUID = neighborhood->GetGuid();
+    }
     SendDirectMessage(worldServerInfo.Write());
 
     // Spell modifiers
@@ -26524,7 +26905,27 @@ void Player::SendInitialPacketsBeforeAddToMap()
 
 void Player::SendInitialPacketsAfterAddToMap()
 {
+    // Mark the session entities created by Map::AddPlayerToMap before UpdateVisibilityForPlayer, or they are created twice.
+    m_clientGUIDs.insert(GetSession()->GetBattlenetAccount().GetGUID());
+    m_clientGUIDs.insert(GetSession()->GetHousingPlayerHouseEntity().GetGUID());
+    if (GetMap()->GetEntry()->IsNeighborhood())
+        m_clientGUIDs.insert(GetSession()->GetHousingNeighborhoodMirrorEntity().GetGUID());
+
     UpdateVisibilityForPlayer();
+
+    // Send the full account room collection once per login.
+    if (!m_houseRoomCollectionSent)
+    {
+        m_houseRoomCollectionSent = true;
+        WorldPackets::Housing::AccountRoomCollectionUpdate roomCollection;
+        for (uint32 houseRoomId : m_houseRoomCollection)
+            roomCollection.AddSingle(houseRoomId, false);
+        SendDirectMessage(roomCollection.Write());
+
+        // Houses leveled before the awards were granted get them now.
+        for (std::unique_ptr<Housing> const& ownedHousing : _housings)
+            ownedHousing->GrantLevelAwards(2, ownedHousing->GetLevel());
+    }
 
     SetPlayerLocalFlag(PLAYER_LOCAL_FLAG_ACCOUNT_SECURED);
 
@@ -26605,6 +27006,65 @@ void Player::SendInitialPacketsAfterAddToMap()
 
     if (_garrison)
         _garrison->SendRemoteInfo();
+
+    // The one unprompted housing message of the login burst: SMSG_INITIATIVE_REWARD_AVAILABLE for an unclaimed milestone.
+    sInitiativeManager.SendRewardsAvailable(this);
+
+    // No unprompted housing SMSGs here: housing state rides the Player CREATE bundle as UpdateField data.
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
+    {
+        Neighborhood* neighborhood = housingMap->GetNeighborhood();
+        if (neighborhood)
+        {
+            Housing* housing = GetHousingForNeighborhood(neighborhood->GetGuid());
+
+            HousingNeighborhoodMirrorEntity& mirrorEntity = GetSession()->GetHousingNeighborhoodMirrorEntity();
+            mirrorEntity.SetName(neighborhood->GetName());
+            mirrorEntity.SetOwnerGUID(neighborhood->GetClientOwnerGuid());
+            mirrorEntity.ClearHouses();
+            for (auto const& plot : neighborhood->GetPlots())
+            {
+                if (plot.IsOccupied() && !plot.HouseGuid.IsEmpty())
+                    mirrorEntity.AddHouse(plot.HouseGuid, plot.OwnerGuid);
+                else
+                    mirrorEntity.AddHouse(ObjectGuid::Empty, ObjectGuid::Empty);
+            }
+            mirrorEntity.ClearManagers();
+            for (auto const& member : neighborhood->GetMembers())
+            {
+                if (member.Role == NEIGHBORHOOD_ROLE_MANAGER || member.Role == NEIGHBORHOOD_ROLE_OWNER)
+                {
+                    ObjectGuid bnetGuid;
+                    if (Player* managerPlayer = ObjectAccessor::FindPlayer(member.PlayerGuid))
+                        bnetGuid = managerPlayer->GetSession()->GetBattlenetAccountGUID();
+                    mirrorEntity.AddManager(bnetGuid, member.PlayerGuid);
+                }
+            }
+
+            if (housing)
+            {
+                HousingPlayerHouseEntity& houseEntity = GetSession()->GetHousingPlayerHouseEntity();
+                houseEntity.SetBnetAccount(GetSession()->GetBattlenetAccountGUID());
+                houseEntity.SetCosmeticOwner(housing->GetOwnerGuid());
+                houseEntity.SetEntityGUID(housing->GetHouseGuid());
+                houseEntity.SetPlotIndex(static_cast<int32>(housing->GetPlotIndex()));
+                houseEntity.SetLevel(housing->GetLevel());
+                houseEntity.SetFavor(housing->GetFavor64());
+                houseEntity.SetBudgets(
+                    housing->GetMaxInteriorDecorBudget(),
+                    housing->GetMaxExteriorDecorBudget(),
+                    housing->GetMaxRoomBudget(),
+                    housing->GetMaxFixtureBudget()
+                );
+
+                // Populate FHousingStorage_C so the BNetAccount CREATE bundle serialises the Decor map.
+                housing->PopulateCatalogStorageEntries();
+            }
+
+            // Re-prime the map state; the setter-only refresh above rides a VALUES_UPDATE the client's map-icon build ignores.
+            GetSession()->SendNeighborhoodMapRefresh();
+        }
+    }
 
     UpdateItemLevelAreaBasedScaling();
 
@@ -28303,8 +28763,22 @@ void Player::UpdateLiquidMirrorTimerFlagsOnPositionChange(Optional<LiquidData> c
                 m_MirrorTimerFlags |= UNDERWATER_INSLIME;
     }
 
-    if (HasAuraType(SPELL_AURA_FORCE_BREATH_BAR))
-        m_MirrorTimerFlags |= UNDERWATER_INWATER;
+    m_mirrorTimers[MIRROR_TIMER_FATIGUE].SetScale((m_MirrorTimerFlags & UNDERWATER_INDARKWATER) != 0 ? -1 : 10);
+    m_mirrorTimers[MIRROR_TIMER_BREATH].SetScale(
+        ((m_MirrorTimerFlags & UNDERWATER_INWATER) != 0 || HasAuraType(SPELL_AURA_FORCE_BREATH_BAR)) && !HasAuraType(SPELL_AURA_WATER_BREATHING)
+        ? -1 : 10);
+}
+
+void Player::UpdateLiquidMirrorTimerValuesOnAura()
+{
+    if (m_mirrorTimers[MIRROR_TIMER_BREATH].IsActive())
+    {
+        int32 oldMaxValue = m_mirrorTimers[MIRROR_TIMER_BREATH].GetMaxValue();
+        int32 newMaxValue = GetMirrorTimerMaxValue(MIRROR_TIMER_BREATH);
+        m_mirrorTimers[MIRROR_TIMER_BREATH].SetMaxValue(newMaxValue);
+        int32 valueDiff = newMaxValue - oldMaxValue;
+        m_mirrorTimers[MIRROR_TIMER_BREATH].SetValue(m_mirrorTimers[MIRROR_TIMER_BREATH].GetValue() + valueDiff);
+    }
 }
 
 void Player::AtEnterCombat()
@@ -28543,24 +29017,14 @@ uint8 Player::GetRunesState() const
 
 uint32 Player::GetRuneBaseCooldown() const
 {
-    double cooldown = RUNE_BASE_COOLDOWN;
+    PowerTypeEntry const* powerType = sDB2Manager.GetPowerTypeEntry(POWER_RUNES);
+    float regen = powerType->RegenPeace;
 
-    AuraEffectList const& regenAura = GetAuraEffectsByType(SPELL_AURA_MOD_POWER_REGEN_PERCENT);
-    for (AuraEffectList::const_iterator i = regenAura.begin();i != regenAura.end(); ++i)
-        if ((*i)->GetMiscValue() == POWER_RUNES)
-            cooldown *= 1.0 - (*i)->GetAmount() / 100.0;
+    uint32 powerIndex = GetPowerIndex(POWER_RUNES);
+    if (powerIndex <= MAX_POWERS_PER_CLASS)
+        regen += m_unitData->PowerRegenFlatModifier[powerIndex];
 
-    // Runes cooldown are now affected by player's haste from equipment ...
-    float hastePct = GetRatingBonusValue(CR_HASTE_MELEE);
-
-    // ... and some auras.
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE);
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE_2);
-    hastePct += GetTotalAuraModifier(SPELL_AURA_MOD_MELEE_HASTE_3);
-
-    cooldown *= 1.0f - (hastePct / 100.0f);
-
-    return static_cast<float>(cooldown);
+    return 1.0f / regen * uint32(IN_MILLISECONDS);
 }
 
 void Player::SetRuneCooldown(uint8 index, uint32 cooldown)
@@ -32298,6 +32762,489 @@ void Player::DeleteGarrison()
     {
         _garrison->Delete();
         _garrison.reset();
+    }
+}
+
+void Player::CreateHousing(ObjectGuid neighborhoodGuid, uint8 plotIndex)
+{
+    std::unique_ptr<Housing> housing(new Housing(this));
+    if (housing->Create(neighborhoodGuid, plotIndex) == HOUSING_RESULT_SUCCESS)
+    {
+        // Immediately persist to DB so housing survives server restarts
+        CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+        housing->SaveToDB(trans);
+        CharacterDatabase.CommitTransaction(trans);
+
+        // Update PlayerHouseInfoComponentData::Houses UpdateField so dashboard works mid-session
+        UF::PlayerMirrorHouse& mirrorHouse = AddDynamicUpdateFieldValue(
+            m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+        mirrorHouse.HouseGUID = housing->GetHouseGuid();
+        mirrorHouse.NeighborhoodGUID = housing->GetNeighborhoodGuid();
+        mirrorHouse.Level = housing->GetLevel();
+        mirrorHouse.Favor = 0;
+        mirrorHouse.MapID = static_cast<int32>(GetMapId());
+        mirrorHouse.PlotID = housing->GetPlotIndex();
+
+        TC_LOG_DEBUG("housing", "Player::CreateHousing: PlayerMirrorHouse: HouseGuid={} NeighborhoodGuid={} PlotID={} Level={} MapID={}",
+            housing->GetHouseGuid().ToString(), housing->GetNeighborhoodGuid().ToString(), mirrorHouse.PlotID, mirrorHouse.Level, mirrorHouse.MapID);
+
+        _housings.push_back(std::move(housing));
+    }
+}
+
+void Player::DeleteHousing(ObjectGuid neighborhoodGuid)
+{
+    auto it = std::find_if(_housings.begin(), _housings.end(),
+        [&neighborhoodGuid](std::unique_ptr<Housing> const& h) { return h && h->GetNeighborhoodGuid() == neighborhoodGuid; });
+    if (it != _housings.end())
+    {
+        ObjectGuid const houseGuid = (*it)->GetHouseGuid();
+
+        // Drop the matching PlayerHouseInfoComponentData::Houses entry, or the client keeps rendering the sold house as owned.
+        if (m_playerHouseInfoComponentData.has_value())
+        {
+            auto const& houses = m_playerHouseInfoComponentData->Houses;
+            for (std::size_t i = 0; i < houses.size(); ++i)
+            {
+                if (houses[i].HouseGUID == houseGuid || houses[i].NeighborhoodGUID == neighborhoodGuid)
+                {
+                    RemoveDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses), i);
+                    break;
+                }
+            }
+        }
+
+        (*it)->Delete();
+        _housings.erase(it);
+    }
+}
+
+bool Player::HousingTutorialChainComplete() const
+{
+    return std::ranges::all_of(HOUSING_TUTORIAL_QUEST_CHAIN, [this](uint32 questId)
+    {
+        return IsQuestRewarded(questId);
+    });
+}
+
+void Player::UpdateHousingTutorialCVars()
+{
+    if (!GetSession())
+        return;
+
+    bool const tutorialEnabled = sWorld->getBoolConfig(CONFIG_HOUSING_TUTORIALS_ENABLED) && !HousingTutorialChainComplete();
+
+    AccountData const* configCache = GetSession()->GetAccountData(GLOBAL_CONFIG_CACHE);
+    std::string configData = configCache ? configCache->Data : "";
+    bool configModified = false;
+
+    // Set or replace a CVar value in the config string
+    auto ensureCVar = [&](std::string_view cvarName, std::string_view value)
+    {
+        std::string setPrefix = std::string("SET ") + std::string(cvarName) + " \"";
+        size_t pos = configData.find(setPrefix);
+        if (pos != std::string::npos)
+        {
+            size_t valStart = pos + setPrefix.size();
+            size_t valEnd = configData.find('"', valStart);
+            if (valEnd != std::string::npos)
+            {
+                std::string oldVal = configData.substr(valStart, valEnd - valStart);
+                if (oldVal != value)
+                {
+                    configData.replace(valStart, valEnd - valStart, value);
+                    configModified = true;
+                }
+            }
+        }
+        else
+        {
+            if (!configData.empty() && configData.back() != '\n')
+                configData += '\n';
+            configData += "SET ";
+            configData += cvarName;
+            configData += " \"";
+            configData += value;
+            configData += "\"\n";
+            configModified = true;
+        }
+    };
+
+    ensureCVar("closedInfoFramesAccountWide", HOUSING_MODES_UNLOCKED_CVAR);
+    ensureCVar("housingTutorialsEnabled", tutorialEnabled ? "1" : "0");
+
+    if (configModified)
+    {
+        GetSession()->SetAccountData(GLOBAL_CONFIG_CACHE, GameTime::GetGameTime(), configData);
+        // Re-send the timestamps so the client re-fetches GLOBAL_CONFIG_CACHE instead of
+        // keeping the copy it fetched during auth.
+        GetSession()->SendAccountDataTimes(GetGUID(), GLOBAL_CACHE_MASK);
+        TC_LOG_DEBUG("housing", "Player::UpdateHousingTutorialCVars: Account {} housingTutorialsEnabled={}",
+            GetSession()->GetAccountId(), tutorialEnabled ? "1" : "0");
+    }
+}
+
+Housing* Player::GetHousing() const
+{
+    if (_housings.empty())
+        return nullptr;
+
+    // If on a HousingMap, return the housing for that map's neighborhood
+    if (IsInWorld())
+    {
+        if (HousingMap* housingMap = dynamic_cast<HousingMap*>(GetMap()))
+        {
+            if (Neighborhood* neighborhood = housingMap->GetNeighborhood())
+            {
+                ObjectGuid neighborhoodGuid = neighborhood->GetGuid();
+                for (auto const& h : _housings)
+                    if (h && h->GetNeighborhoodGuid() == neighborhoodGuid)
+                        return h.get();
+            }
+        }
+    }
+
+    // Inside a house interior: the house of that interior (any character of the account may be in it)
+    if (IsInWorld())
+        if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(GetMap()))
+            if (Housing* interiorHousing = GetHousingByOwner(interiorMap->GetOwnerGuid()))
+                return interiorHousing;
+
+    // Default: this character's own house, then the account's first
+    if (Housing* own = GetHousingByOwner(GetGUID()))
+        return own;
+    return _housings[0].get();
+}
+
+Housing* Player::GetHousingForNeighborhood(ObjectGuid neighborhoodGuid) const
+{
+    for (auto const& h : _housings)
+        if (h && h->GetNeighborhoodGuid() == neighborhoodGuid)
+            return h.get();
+    return nullptr;
+}
+
+Housing* Player::GetHousingByOwner(ObjectGuid ownerGuid) const
+{
+    for (auto const& h : _housings)
+        if (h && h->GetOwnerGuid() == ownerGuid)
+            return h.get();
+    return nullptr;
+}
+
+Housing* Player::GetHousingByHouseGuid(ObjectGuid houseGuid) const
+{
+    for (auto const& h : _housings)
+        if (h && h->GetHouseGuid() == houseGuid)
+            return h.get();
+    return nullptr;
+}
+
+std::vector<Housing const*> Player::GetAllHousings() const
+{
+    std::vector<Housing const*> result;
+    result.reserve(_housings.size());
+    for (auto const& h : _housings)
+        if (h)
+            result.push_back(h.get());
+    return result;
+}
+
+void Player::SetHousingEditorModeUpdateField(uint8 mode)
+{
+    if (m_playerHouseInfoComponentData.has_value())
+    {
+        SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+            .ModifyValue(&UF::PlayerHouseInfoComponentData::EditorMode), mode);
+    }
+}
+
+void Player::UpdateHousingMapId(ObjectGuid houseGuid, int32 mapId)
+{
+    if (!m_playerHouseInfoComponentData.has_value())
+        return;
+
+    // DynamicUpdateField nested fields are PublicSet=false, so we snapshot, clear,
+    // and re-add entries with the updated MapID.
+    struct HouseSnapshot
+    {
+        ObjectGuid HouseGUID;
+        ObjectGuid NeighborhoodGUID;
+        uint32 Level;
+        uint32 Favor;
+        uint32 InitiativeFavor;
+        int32 MapID;
+        int32 PlotID;
+    };
+
+    UF::PlayerHouseInfoComponentData const& data = *m_playerHouseInfoComponentData;
+    bool found = false;
+    std::vector<HouseSnapshot> snapshots;
+    snapshots.reserve(data.Houses.size());
+
+    for (uint32 i = 0; i < data.Houses.size(); ++i)
+    {
+        HouseSnapshot s;
+        s.HouseGUID = data.Houses[i].HouseGUID;
+        s.NeighborhoodGUID = data.Houses[i].NeighborhoodGUID;
+        s.Level = data.Houses[i].Level;
+        s.Favor = data.Houses[i].Favor;
+        s.InitiativeFavor = data.Houses[i].InitiativeFavor;
+        s.PlotID = data.Houses[i].PlotID;
+
+        if (data.Houses[i].HouseGUID == houseGuid)
+        {
+            s.MapID = mapId;
+            found = true;
+        }
+        else
+        {
+            s.MapID = data.Houses[i].MapID;
+        }
+        snapshots.push_back(s);
+    }
+
+    if (!found)
+    {
+        TC_LOG_ERROR("housing", "Player::UpdateHousingMapId: House {} not found in PlayerHouseInfoComponentData for player {}",
+            houseGuid.ToString(), GetGUID().ToString());
+        return;
+    }
+
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+
+    for (auto const& s : snapshots)
+    {
+        UF::PlayerMirrorHouse& h = AddDynamicUpdateFieldValue(
+            m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+        h.HouseGUID = s.HouseGUID;
+        h.NeighborhoodGUID = s.NeighborhoodGUID;
+        h.Level = s.Level;
+        h.Favor = s.Favor;
+        h.InitiativeFavor = s.InitiativeFavor;
+        h.MapID = s.MapID;
+        h.PlotID = s.PlotID;
+    }
+
+    TC_LOG_DEBUG("housing", "Player::UpdateHousingMapId: Updated house {} MapID to {} for player {}",
+        houseGuid.ToString(), mapId, GetGUID().ToString());
+}
+
+void Player::SetCurrentHouse(ObjectGuid houseGuid)
+{
+    if (!m_playerHouseInfoComponentData.has_value())
+        return;
+
+    if (*m_playerHouseInfoComponentData->CurrentHouse == houseGuid)
+        return;
+
+    SetUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+        .ModifyValue(&UF::PlayerHouseInfoComponentData::CurrentHouse), houseGuid);
+
+    TC_LOG_DEBUG("housing", "Player::SetCurrentHouse: player={} currentHouse={}",
+        GetGUID().ToString(), houseGuid.IsEmpty() ? "<empty>" : houseGuid.ToString());
+}
+
+void Player::_LoadAccountHousings()
+{
+    // Houses belong to the account; every character loads the houses bought by the account's other characters.
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ACCOUNT_HOUSING_OWNERS);
+    stmt->setUInt32(0, GetSession()->GetAccountId());
+    stmt->setUInt64(1, GetGUID().GetCounter());
+    PreparedQueryResult owners = CharacterDatabase.Query(stmt);
+    if (!owners)
+        return;
+
+    do
+    {
+        ObjectGuid::LowType const ownerLow = (*owners)[0].GetUInt64();
+        auto query = [ownerLow](CharacterDatabaseStatements index)
+            {
+                CharacterDatabasePreparedStatement* ownerStmt = CharacterDatabase.GetPreparedStatement(index);
+                ownerStmt->setUInt64(0, ownerLow);
+                return CharacterDatabase.Query(ownerStmt);
+            };
+
+        std::unique_ptr<Housing> housing = std::make_unique<Housing>(this, ObjectGuid::Create<HighGuid::Player>(ownerLow));
+        if (housing->LoadFromDB(query(CHAR_SEL_CHARACTER_HOUSING), query(CHAR_SEL_CHARACTER_HOUSING_DECOR),
+            query(CHAR_SEL_CHARACTER_HOUSING_ROOMS), query(CHAR_SEL_CHARACTER_HOUSING_FIXTURES), query(CHAR_SEL_CHARACTER_HOUSING_CATALOG)))
+            _housings.push_back(std::move(housing));
+    } while (owners->NextRow());
+}
+
+void Player::_LoadHouseRooms()
+{
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ACCOUNT_HOUSING_ROOMS);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
+    {
+        do
+        {
+            uint32 const houseRoomId = (*result)[0].GetUInt32();
+            SetHouseRoomBit(houseRoomId);
+            m_houseRoomCollection.push_back(houseRoomId);
+        } while (result->NextRow());
+    }
+}
+
+void Player::SetHouseRoomBit(uint32 houseRoomId)
+{
+    uint32 const block = houseRoomId / 32;
+    while (m_activePlayerData->HouseRooms.size() <= block)
+        AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::HouseRooms)) = 0;
+
+    SetUpdateFieldFlagValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::HouseRooms, block), 1u << (houseRoomId % 32));
+}
+
+bool Player::HasHouseRoom(uint32 houseRoomId) const
+{
+    uint32 const block = houseRoomId / 32;
+    return block < m_activePlayerData->HouseRooms.size() && (m_activePlayerData->HouseRooms[block] & (1u << (houseRoomId % 32))) != 0;
+}
+
+void Player::LearnHouseRoom(uint32 houseRoomId)
+{
+    if (HasHouseRoom(houseRoomId))
+        return;
+
+    // A learned room only sets its HouseRooms bit (no collection packet).
+    SetHouseRoomBit(houseRoomId);
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_ACCOUNT_HOUSING_ROOM);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    stmt->setUInt32(1, houseRoomId);
+    CharacterDatabase.Execute(stmt);
+}
+
+void Player::_LoadHouseTypes()
+{
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ACCOUNT_HOUSING_HOUSE_TYPES);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    if (PreparedQueryResult result = CharacterDatabase.Query(stmt))
+    {
+        do
+        {
+            SetHouseTypeBit((*result)[0].GetUInt32());
+        } while (result->NextRow());
+    }
+}
+
+void Player::SetHouseTypeBit(uint32 houseExteriorWmoDataId)
+{
+    uint32 const block = houseExteriorWmoDataId / 32;
+    while (m_activePlayerData->HouseTypes.size() <= block)
+        AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::HouseTypes)) = 0;
+
+    SetUpdateFieldFlagValue(m_values.ModifyValue(&Player::m_activePlayerData).ModifyValue(&UF::ActivePlayerData::HouseTypes, block), 1u << (houseExteriorWmoDataId % 32));
+}
+
+bool Player::HasHouseType(uint32 houseExteriorWmoDataId) const
+{
+    uint32 const block = houseExteriorWmoDataId / 32;
+    return block < m_activePlayerData->HouseTypes.size() && (m_activePlayerData->HouseTypes[block] & (1u << (houseExteriorWmoDataId % 32))) != 0;
+}
+
+void Player::LearnHouseType(uint32 houseExteriorWmoDataId)
+{
+    if (HasHouseType(houseExteriorWmoDataId))
+        return;
+
+    SetHouseTypeBit(houseExteriorWmoDataId);
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_ACCOUNT_HOUSING_HOUSE_TYPE);
+    stmt->setUInt32(0, GetSession()->GetBattlenetAccountId());
+    stmt->setUInt32(1, houseExteriorWmoDataId);
+    CharacterDatabase.Execute(stmt);
+}
+
+void Player::UpdateHousingLevelFavor(ObjectGuid houseGuid, uint32 level, uint32 favor)
+{
+    if (!m_playerHouseInfoComponentData.has_value())
+        return;
+
+    // Houses[] is a dynamic field of plain structs: rebuild it with the new level/favor for this house.
+    UF::PlayerHouseInfoComponentData const& data = *m_playerHouseInfoComponentData;
+    std::vector<UF::PlayerMirrorHouse> houses;
+    houses.reserve(data.Houses.size());
+    for (uint32 i = 0; i < data.Houses.size(); ++i)
+        houses.push_back(data.Houses[i]);
+    bool found = false;
+    for (UF::PlayerMirrorHouse& house : houses)
+    {
+        if (house.HouseGUID != houseGuid)
+            continue;
+
+        if (house.Level == level && house.Favor == favor)
+            return;
+
+        house.Level = level;
+        house.Favor = favor;
+        found = true;
+    }
+
+    if (!found)
+        return;
+
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+    for (UF::PlayerMirrorHouse const& house : houses)
+        AddDynamicUpdateFieldValue(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+            .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses)) = house;
+}
+
+void Player::UpdateInitiativeFavor(uint32 favor)
+{
+    if (!m_playerHouseInfoComponentData.has_value())
+        return;
+
+    UF::PlayerHouseInfoComponentData const& data = *m_playerHouseInfoComponentData;
+
+    struct HouseSnapshot
+    {
+        ObjectGuid HouseGUID;
+        ObjectGuid NeighborhoodGUID;
+        uint32 Level;
+        uint32 Favor;
+        uint32 InitiativeFavor;
+        int32 MapID;
+        int32 PlotID;
+    };
+
+    std::vector<HouseSnapshot> snapshots;
+    snapshots.reserve(data.Houses.size());
+
+    for (uint32 i = 0; i < data.Houses.size(); ++i)
+    {
+        HouseSnapshot s;
+        s.HouseGUID = data.Houses[i].HouseGUID;
+        s.NeighborhoodGUID = data.Houses[i].NeighborhoodGUID;
+        s.Level = data.Houses[i].Level;
+        s.Favor = data.Houses[i].Favor;
+        s.InitiativeFavor = favor;
+        s.MapID = data.Houses[i].MapID;
+        s.PlotID = data.Houses[i].PlotID;
+        snapshots.push_back(s);
+    }
+
+    ClearDynamicUpdateFieldValues(m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+        .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+
+    for (auto const& s : snapshots)
+    {
+        UF::PlayerMirrorHouse& h = AddDynamicUpdateFieldValue(
+            m_values.ModifyValue(&Player::m_playerHouseInfoComponentData, 0)
+                .ModifyValue(&UF::PlayerHouseInfoComponentData::Houses));
+        h.HouseGUID = s.HouseGUID;
+        h.NeighborhoodGUID = s.NeighborhoodGUID;
+        h.Level = s.Level;
+        h.Favor = s.Favor;
+        h.InitiativeFavor = s.InitiativeFavor;
+        h.MapID = s.MapID;
+        h.PlotID = s.PlotID;
     }
 }
 

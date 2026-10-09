@@ -63,6 +63,9 @@
 #include "GroupMgr.h"
 #include "GuildMgr.h"
 #include "GuildRenameMgr.h"
+#include "HousingBlueprintMgr.h"
+#include "HousingMgr.h"
+#include "InitiativeManager.h"
 #include "IPLocation.h"
 #include "InstanceLockMgr.h"
 #include "ItemBonusMgr.h"
@@ -79,6 +82,7 @@
 #include "MapUtils.h"
 #include "Metric.h"
 #include "MiscPackets.h"
+#include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "OutdoorPvPMgr.h"
@@ -709,6 +713,12 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "AllowLoggingIPAddressesInDatabase"sv, .DefaultValue = true, .Index = CONFIG_ALLOW_LOGGING_IP_ADDRESSES_IN_DATABASE },
         { .Name = "Loot.EnableAELoot"sv, .DefaultValue = true, .Index = CONFIG_ENABLE_AE_LOOT },
         { .Name = "Load.Locales"sv, .DefaultValue = true, .Index = CONFIG_LOAD_LOCALES },
+        { .Name = "Housing.EnableBuyHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_BUY_HOUSE },
+        { .Name = "Housing.EnableDeleteHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_DELETE_HOUSE },
+        { .Name = "Housing.EnableMoveHouse"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_MOVE_HOUSE },
+        { .Name = "Housing.EnableCreateCharterNeighborhood"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD },
+        { .Name = "Housing.EnableCreateGuildNeighborhood"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_ENABLE_CREATE_GUILD_NEIGHBORHOOD },
+        { .Name = "Housing.TutorialsEnabled"sv, .DefaultValue = true, .Index = CONFIG_HOUSING_TUTORIALS_ENABLED },
     } };
 
     static constexpr ConfigOptionLoadDefinitionArray<uint32, INT_CONFIG_VALUE_COUNT> ints =
@@ -855,6 +865,10 @@ void World::LoadConfigSettings(bool reload)
         { .Name = "Visibility.Notify.Period.InInstances"sv, .DefaultValue = DEFAULT_VISIBILITY_NOTIFY_PERIOD, .Index = CONFIG_VISIBILITY_NOTIFY_PERIOD_INSTANCE },
         { .Name = "Visibility.Notify.Period.InBG"sv, .DefaultValue = DEFAULT_VISIBILITY_NOTIFY_PERIOD, .Index = CONFIG_VISIBILITY_NOTIFY_PERIOD_BATTLEGROUND },
         { .Name = "Visibility.Notify.Period.InArenas"sv, .DefaultValue = DEFAULT_VISIBILITY_NOTIFY_PERIOD, .Index = CONFIG_VISIBILITY_NOTIFY_PERIOD_ARENA },
+        { .Name = "Housing.MaxHousesPerAccount"sv, .DefaultValue = 2, .Index = CONFIG_HOUSING_MAX_HOUSES_PER_ACCOUNT },
+        { .Name = "Housing.CharterFoundingCost"sv, .DefaultValue = 0, .Index = CONFIG_HOUSING_CHARTER_FOUNDING_COST },
+        { .Name = "Housing.CharterRequiredSignatures"sv, .DefaultValue = 10, .Index = CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES },
+        { .Name = "Housing.GuildNeighborhoodMinAccounts"sv, .DefaultValue = 3, .Index = CONFIG_HOUSING_GUILD_NEIGHBORHOOD_MIN_ACCOUNTS },
         { .Name = "CharDelete.Method"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_METHOD },
         { .Name = "CharDelete.MinLevel"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_MIN_LEVEL },
         { .Name = "CharDelete.DeathKnight.MinLevel"sv, .DefaultValue = 0, .Index = CONFIG_CHARDELETE_DEATH_KNIGHT_MIN_LEVEL },
@@ -1222,7 +1236,7 @@ void World::LoadConfigSettings(bool reload)
     _gameRules =
     {
         { .Rule = ::GameRule::TransmogEnabled, .Value = true },
-        { .Rule = ::GameRule::HousingEnabled, .Value = true }
+        { .Rule = ::GameRule::HousingEnabled, .Value = int32(EXPANSION_MIDNIGHT) }
     };
 
     if (reload)
@@ -1334,6 +1348,12 @@ bool World::SetInitialWorldSettings()
     uint32 realm_zone = getIntConfig(CONFIG_REALM_ZONE);
 
     LoginDatabase.PExecute("UPDATE realmlist SET icon = {}, timezone = {} WHERE id = '{}'", server_type, realm_zone, sRealmList->GetCurrentRealmId().Realm);      // One-time query
+
+    // realm -> characters schema registry for CharacterSelect.ExtraRealms = "auto": every worldserver
+    // registers itself so sibling realms pick the mapping up without listing each realm manually
+    if (sConfigMgr->GetStringDefault("CharacterSelect.ExtraRealms", "") == "auto")
+        LoginDatabase.PExecute("REPLACE INTO realm_character_schemas (realmId, schemaName) VALUES ({}, '{}')",
+            sRealmList->GetCurrentRealmId().Realm, CharacterDatabase.GetConnectionInfo()->database);
 
     TC_LOG_INFO("server.loading", "Loading GameObject models...");
     if (!LoadGameObjectModelList(m_dataPath))
@@ -1978,6 +1998,18 @@ bool World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Loading garrison info...");
     sGarrisonMgr.Initialize();
 
+    TC_LOG_INFO("server.loading", "Loading housing info...");
+    sHousingMgr.Initialize();
+
+    TC_LOG_INFO("server.loading", "Loading neighborhood info...");
+    sNeighborhoodMgr.Initialize();
+
+    TC_LOG_INFO("server.loading", "Loading housing blueprints...");
+    sHousingBlueprintMgr.LoadFromDB();
+
+    TC_LOG_INFO("server.loading", "Loading initiative info...");
+    sInitiativeManager.Initialize();
+
     ///- Handle outdated emails (delete/return)
     TC_LOG_INFO("server.loading", "Returning old mails...");
     sObjectMgr->ReturnOrDeleteOldMails(false);
@@ -2015,6 +2047,10 @@ bool World::SetInitialWorldSettings()
     TC_LOG_INFO("server.loading", "Initializing Scripts...");
     sScriptMgr->Initialize();
     sScriptMgr->OnConfigLoad(false);                                // must be done after the ScriptMgr has been properly initialized
+
+    ///- Must run after sScriptMgr->Initialize(): preloaded plot GOs/ATs resolve their AI once at construction.
+    TC_LOG_INFO("server.loading", "Pre-loading housing neighborhood maps...");
+    sMapMgr->PreloadHousingMaps();
 
     TC_LOG_INFO("server.loading", "Validating spell scripts...");
     sObjectMgr->ValidateSpellScripts();
@@ -2434,6 +2470,9 @@ void World::Update(uint32 diff)
         TC_METRIC_TIMER("world_update_time", TC_METRIC_TAG("type", "Update battlefields"));
         sBattlefieldMgr->Update(diff);
     }
+
+    sInitiativeManager.Update(diff);
+    sNeighborhoodMgr.Update(diff);
 
     ///- Delete all characters which have been deleted X days before
     if (m_timers[WUPDATE_DELETECHARS].Passed())
@@ -3649,6 +3688,90 @@ void World::UpdateWarModeRewardValues()
 uint32 GetVirtualRealmAddress()
 {
     return sRealmList->GetCurrentRealmId().GetAddress();
+}
+
+std::vector<RealmRegistryEntry> const& GetRealmRegistry()
+{
+    static std::vector<RealmRegistryEntry> const registry = []
+    {
+        std::vector<RealmRegistryEntry> realms;
+        if (PreparedQueryResult result = LoginDatabase.Query(LoginDatabase.GetPreparedStatement(LOGIN_SEL_REALMLIST)))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                uint32 const realmId = fields[0].GetUInt32();
+                uint8 const region = fields[13].GetUInt8();
+                uint8 const battlegroup = fields[14].GetUInt8();
+
+                realms.push_back({ realmId, Battlenet::RealmHandle(region, battlegroup, realmId).GetAddress(), fields[1].GetString() });
+            } while (result->NextRow());
+        }
+        return realms;
+    }();
+    return registry;
+}
+
+std::vector<CrossRealmSchema> const& GetCrossRealmSchemas()
+{
+    static std::vector<CrossRealmSchema> const schemas = []
+    {
+        std::vector<CrossRealmSchema> result;
+        uint32 const currentRealmId = sRealmList->GetCurrentRealmId().Realm;
+        std::string const extraRealmsConfig = sConfigMgr->GetStringDefault("CharacterSelect.ExtraRealms", "");
+
+        auto addRealm = [&result, currentRealmId](uint32 realmId, std::string schema)
+        {
+            if (realmId == currentRealmId)
+                return;
+
+            auto realmItr = std::find_if(GetRealmRegistry().begin(), GetRealmRegistry().end(), [realmId](RealmRegistryEntry const& realm)
+            {
+                return realm.Id == realmId;
+            });
+            if (realmItr == GetRealmRegistry().end())
+            {
+                TC_LOG_ERROR("misc", "CharacterSelect.ExtraRealms: realm {} is not present in the realmlist table, skipping", realmId);
+                return;
+            }
+
+            result.push_back({ realmItr->Address, realmItr->Id, std::move(schema) });
+        };
+
+        if (extraRealmsConfig == "auto")
+        {
+            if (QueryResult rows = LoginDatabase.Query("SELECT realmId, schemaName FROM realm_character_schemas"))
+                do
+                {
+                    Field* fields = rows->Fetch();
+                    addRealm(fields[0].GetUInt32(), fields[1].GetString());
+                } while (rows->NextRow());
+        }
+        else
+        {
+            for (std::string_view entry : Trinity::Tokenize(extraRealmsConfig, ';', true))
+            {
+                std::vector<std::string_view> parts = Trinity::Tokenize(entry, ':', true);
+                if (parts.size() != 2)
+                {
+                    TC_LOG_ERROR("misc", "CharacterSelect.ExtraRealms: malformed entry '{}', expected '<realmId>:<schema>'", entry);
+                    continue;
+                }
+
+                Optional<uint32> const realmId = Trinity::StringTo<uint32>(parts[0]);
+                if (!realmId)
+                {
+                    TC_LOG_ERROR("misc", "CharacterSelect.ExtraRealms: malformed realm id '{}'", parts[0]);
+                    continue;
+                }
+
+                addRealm(*realmId, std::string(parts[1]));
+            }
+        }
+
+        return result;
+    }();
+    return schemas;
 }
 
 CliCommandHolder::CliCommandHolder(void* callbackArg, char const* command, Print zprint, CommandFinished commandFinished)

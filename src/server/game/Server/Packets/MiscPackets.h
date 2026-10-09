@@ -496,15 +496,15 @@ namespace WorldPackets
             explicit StartMirrorTimer() : ServerPacket(SMSG_START_MIRROR_TIMER, 1 + 4 + 4 + 4 + 4 + 1) { }
             explicit StartMirrorTimer(uint8 timer, int32 value, int32 maxValue, int32 scale, int32 spellID, bool paused)
                 : ServerPacket(SMSG_START_MIRROR_TIMER, 1 + 4 + 4 + 4 + 4 + 1),
-                Timer(timer), Scale(scale), MaxValue(maxValue), SpellID(spellID), Value(value), Paused(paused) { }
+                Timer(timer), Value(value), MaxValue(maxValue), Scale(scale), SpellID(spellID), Paused(paused) { }
 
             WorldPacket const* Write() override;
 
             uint8 Timer = 0;
-            int32 Scale = 0;
-            int32 MaxValue = 0;
-            int32 SpellID = 0;
             int32 Value = 0;
+            int32 MaxValue = 0;
+            int32 Scale = 0;
+            int32 SpellID = 0;
             bool Paused = false;
         };
 
@@ -1269,6 +1269,32 @@ namespace WorldPackets
             uint32 StoreFrontID = 0;
             int32 Result = 0;
             uint32 Unknown = 0;
+        };
+
+        // Floats a server-authored, already-formatted string in the 3D world (the
+        // engine behind the Lua AddWorldText / AddCustomWorldText bindings) — not a
+        // chat line or combat-text entry. The client formats the string tokens with
+        // Arg1/Arg2 and raises no Lua event, so the display string is entirely the
+        // server's to compose. Retail uses it for "+XP", "+Gold" and "+Neighborly"
+        // style floats, sometimes with a null guid.
+        //
+        // Wire (sniff-verified):
+        //   PackedGuid Guid    anchor unit; a null guid falls back to the receiver
+        //   uint32     Arg1
+        //   uint32     Arg2
+        //   Bits<12>   Text length, then FlushBits (pad bits are always 0)
+        //   char[len]  Text    no NUL on the wire
+        class DisplayWorldText final : public ServerPacket
+        {
+        public:
+            explicit DisplayWorldText() : ServerPacket(SMSG_DISPLAY_WORLD_TEXT) { }
+
+            WorldPacket const* Write() override;
+
+            ObjectGuid Guid;
+            uint32 Arg1 = 0;
+            uint32 Arg2 = 0;
+            std::string Text;
         };
     }
 }

@@ -831,6 +831,12 @@ class TC_GAME_API PlayerScript : public ScriptObject
         // Called when a player completes a movie
         virtual void OnMovieComplete(Player* player, uint32 movieId);
 
+        // Called when a player places decor in a house
+        virtual void OnPlayerHousingDecorAdd(Player* player, uint32 decorEntryId);
+
+        // Called when a player removes decor from a house
+        virtual void OnPlayerHousingDecorRemove(Player* player, uint32 decorEntryId);
+
         // Called when a player take damage
         virtual void OnTakeDamage(Player* /*player*/, uint32 /*damage*/, SpellSchoolMask /*schoolMask*/) { }
 
@@ -1326,6 +1332,8 @@ class TC_GAME_API ScriptMgr
         void OnQuestStatusChange(Player* player, uint32 questId);
         void OnPlayerRepop(Player* player);
         void OnMovieComplete(Player* player, uint32 movieId);
+        void OnPlayerHousingDecorAdd(Player* player, uint32 decorEntryId);
+        void OnPlayerHousingDecorRemove(Player* player, uint32 decorEntryId);
         void OnPlayerChoiceResponse(WorldObject* object, Player* player, PlayerChoice const* choice, PlayerChoiceResponse const* response, uint16 clientIdentifier);
         void OnPlayerSuccessfulSpellCast(Player* player, Spell* spell);
         void OnCooldownStart(Player* player, SpellInfo const* spellInfo, uint32 itemId, int32& cooldown, uint32& categoryId, int32& categoryCooldown);

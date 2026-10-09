@@ -384,6 +384,23 @@ void WorldSession::HandleMoveWorldportAck()
     player->ProcessDelayedOperations();
 }
 
+namespace
+{
+    // Stock far-teleport NewWorld; the redirect release builds its own packet to match the
+    // retail in-world transfer form.
+    void SendNewWorldToPlayer(Player* player, WorldSession* session)
+    {
+        TeleportLocation const& loc = player->GetTeleportDest();
+
+        WorldPackets::Movement::NewWorld packet;
+        packet.MapID = loc.Location.GetMapId();
+        packet.Loc.Pos = loc.Location;
+        packet.Reason = player->GetTeleportOptions().HasFlag(TELE_TO_SEAMLESS) ? NEW_WORLD_SEAMLESS : NEW_WORLD_NORMAL;
+        packet.Counter = player->GetNewWorldCounter();
+        session->SendPacket(packet.Write());
+    }
+}
+
 void WorldSession::HandleSuspendTokenResponse(WorldPackets::Movement::SuspendTokenResponse& /*suspendTokenResponse*/)
 {
     if (_player->GetTeleportState() != TeleportState::WaitingForSuspendTokenResponse)
@@ -398,12 +415,19 @@ void WorldSession::HandleSuspendTokenResponse(WorldPackets::Movement::SuspendTok
         SendPacket(updateLastInstance.Write());
     }
 
-    WorldPackets::Movement::NewWorld packet;
-    packet.MapID = loc.Location.GetMapId();
-    packet.Loc.Pos = loc.Location;
-    packet.Reason = !_player->GetTeleportOptions().HasFlag(TELE_TO_SEAMLESS) ? NEW_WORLD_NORMAL : NEW_WORLD_SEAMLESS;
-    packet.Counter = _player->GetNewWorldCounter();
-    SendPacket(packet.Write());
+    // World redirect: instead of NewWorld, point the client back at our own world connection.
+    // The client re-auths and re-attaches to this session; the deferred NewWorld is released
+    // once comms are resumed on the new connection.
+    if (_worldRedirectStage == WorldRedirectStage::Pending)
+    {
+        _worldRedirectStage = WorldRedirectStage::DelayConnectTo;
+        _worldRedirectDeadline = std::chrono::steady_clock::now() + WorldRedirectPhaseDelay;
+        _worldRedirectOldSocket = m_Socket[CONNECTION_TYPE_INSTANCE];
+        _player->SetTeleportState(TeleportState::WaitingForWorldPortAck);
+        return;
+    }
+
+    SendNewWorldToPlayer(_player, this);
 
     _player->SetTeleportState(TeleportState::WaitingForWorldPortAck);
 
@@ -902,6 +926,25 @@ void WorldSession::HandleMoveRemoveInertiaAck(WorldPackets::Movement::MoveRemove
     mover->SendMessageToSet(updateRemoveInertia.Write(), false);
 }
 
+void WorldSession::HandleMoveForceGravityModifierChangeAck(WorldPackets::Movement::MoveForceGravityModifierChangeAck& moveForceGravityModifierChangeAck)
+{
+    Unit* mover = ValidateAndGetUnitBeingMoved(moveForceGravityModifierChangeAck.Ack.Status.guid, moveForceGravityModifierChangeAck.GetOpcode(), true);
+    if (!mover)
+        return;
+
+    if (!ValidateMovementInfo(mover, &moveForceGravityModifierChangeAck.Ack.Status))
+        return;
+
+    moveForceGravityModifierChangeAck.Ack.Status.time = AdjustClientMovementTime(moveForceGravityModifierChangeAck.Ack.Status.time);
+    mover->m_movementInfo = moveForceGravityModifierChangeAck.Ack.Status;
+    mover->m_movementInfo.gravityModifier = moveForceGravityModifierChangeAck.Ack.Status.gravityModifier;
+
+    WorldPackets::Movement::MoveUpdateSetGravityModifier updateSetGravityModifier;
+    updateSetGravityModifier.Status = &mover->m_movementInfo;
+    updateSetGravityModifier.GravityModifier = moveForceGravityModifierChangeAck.GravityModifier;
+    mover->SendMessageToSet(updateSetGravityModifier.Write(), false);
+}
+
 void WorldSession::HandleMoveSplineDoneOpcode(WorldPackets::Movement::MoveSplineDone& moveSplineDone)
 {
     Unit* mover = ValidateAndGetUnitBeingMoved(moveSplineDone.Status.guid, moveSplineDone.GetOpcode(), false);
@@ -1005,9 +1048,30 @@ void WorldSession::HandleTimeSyncResponse(WorldPackets::Misc::TimeSyncResponse c
     HandleTimeSync(timeSyncResponse.SequenceIndex, timeSyncResponse.ClientTime, timeSyncResponse.GetReceivedTime());
 }
 
+void WorldSession::HandleSuspendCommsAck(WorldPackets::Null& /*null*/)
+{
+    if (_worldRedirectStage != WorldRedirectStage::AwaitCommsAck)
+        return;
+
+    _worldRedirectStage = WorldRedirectStage::AwaitQueuedEnd;
+    _worldRedirectOldSocket.reset();
+    RegisterTimeSync(SPECIAL_RESUME_COMMS_TIME_SYNC_COUNTER);
+    SendPacket(WorldPackets::Auth::ResumeComms(CONNECTION_TYPE_INSTANCE).Write());
+}
+
 void WorldSession::HandleQueuedMessagesEnd(WorldPackets::Auth::QueuedMessagesEnd const& queuedMessagesEnd)
 {
     HandleTimeSync(SPECIAL_RESUME_COMMS_TIME_SYNC_COUNTER, queuedMessagesEnd.Timestamp, queuedMessagesEnd.GetRawPacket()->GetReceivedTime());
+
+    // Release the world-redirect transfer: the client finished the reconnect handshake and
+    // is owed its NewWorld. The release itself is paced from WorldSession::Update - the
+    // client needs the phase gap to finish its post-reconnect rebuild.
+    if (_worldRedirectStage == WorldRedirectStage::AwaitQueuedEnd && _player
+        && _player->GetTeleportState() == TeleportState::WaitingForWorldPortAck)
+    {
+        _worldRedirectStage = WorldRedirectStage::DelayNewWorld;
+        _worldRedirectDeadline = std::chrono::steady_clock::now() + WorldRedirectPhaseDelay;
+    }
 }
 
 void WorldSession::HandleMoveInitActiveMoverComplete(WorldPackets::Movement::MoveInitActiveMoverComplete const& moveInitActiveMoverComplete)

@@ -1156,7 +1156,7 @@ class spell_pal_judgment_of_justice : public SpellScript
             caster->CastSpell(GetHitUnit(), SPELL_PALADIN_JUDGMENT_OF_JUSTICE, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
-                });
+        });
     }
 
     void Register() override
@@ -2290,7 +2290,7 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript(spell_pal_hand_of_sacrifice);
     RegisterSpellScript(spell_pal_infusion_of_light);
     RegisterSpellScript(spell_pal_moment_of_glory);
-    RegisterSpellScript(spell_pal_judgment); //Modified (need test)
+    RegisterSpellScript(spell_pal_judgment);
     RegisterSpellScript(spell_pal_judgment_of_justice);
     RegisterSpellScript(spell_pal_justicars_vengeance);
     RegisterSpellScript(spell_pal_holy_prism);

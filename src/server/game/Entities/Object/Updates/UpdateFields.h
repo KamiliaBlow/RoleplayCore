@@ -1971,6 +1971,7 @@ struct HousingDoorData : public IsUpdateFieldStructureTag, public HasChangesMask
     void ClearChangesMask();
 };
 
+// 12.0.7 dropped the trailing int32 FloorIndex from this fragment; the floor is server-side only, do not re-add it.
 struct HousingRoomData : public IsUpdateFieldStructureTag, public HasChangesMask<6>
 {
     DynamicUpdateField<ObjectGuid, 0, 1> MeshObjects;

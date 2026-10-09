@@ -25,9 +25,15 @@
 #include "DB2Stores.h"
 #include "GarrisonMap.h"
 #include "Group.h"
+#include "HouseInteriorMap.h"
+#include "Housing.h"
+#include "HousingMap.h"
+#include "HousingMgr.h"
 #include "InstanceLockMgr.h"
 #include "Log.h"
 #include "Map.h"
+#include "Neighborhood.h"
+#include "NeighborhoodMgr.h"
 #include "OutdoorPvPMgr.h"
 #include "Player.h"
 #include "ScenarioMgr.h"
@@ -149,6 +155,164 @@ GarrisonMap* MapManager::CreateGarrison(uint32 mapId, uint32 instanceId, Player*
     return map;
 }
 
+HousingMap* MapManager::CreateHousing(uint32 mapId, uint32 instanceId, uint32 neighborhoodId)
+{
+    HousingMap* map = new HousingMap(mapId, i_gridCleanUpDelay, instanceId, DIFFICULTY_NONE, neighborhoodId);
+    map->LoadNeighborhoodData();
+    map->InitSpawnGroupState();
+
+    // Housing maps need every plot visible regardless of which grids are loaded.
+    map->SpawnPlotGameObjects();
+
+    // Lock all plot grids: they span far beyond normal grid visibility.
+    map->LockPlotGrids();
+
+    TC_LOG_DEBUG("housing", "MapManager::CreateHousing: Created housing map {} instanceId {} for neighborhood {}",
+        mapId, instanceId, neighborhoodId);
+
+    return map;
+}
+
+void MapManager::PreloadHousingMaps()
+{
+    uint32 oldMSTime = getMSTime();
+    uint32 count = 0;
+
+    for (Neighborhood* neighborhood : sNeighborhoodMgr.GetAllNeighborhoods())
+    {
+        // GetNeighborhoodMapID() is a NeighborhoodMap.db2 id, not a Map.db2 id.
+        NeighborhoodMapData const* nmData = sHousingMgr.GetNeighborhoodMapData(neighborhood->GetNeighborhoodMapID());
+        if (!nmData)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: neighborhood '{}' references NeighborhoodMap id {} which is not in NeighborhoodMap.db2 - skipping",
+                neighborhood->GetName(), neighborhood->GetNeighborhoodMapID());
+            continue;
+        }
+
+        uint32 mapId = uint32(nmData->MapID);
+        uint32 instanceId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+
+        if (FindMap_i(mapId, instanceId))
+            continue; // already loaded
+
+        // Validate map exists in DB2 and is actually a housing neighborhood map
+        MapEntry const* mapEntry = sMapStore.LookupEntry(mapId);
+        if (!mapEntry)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Map {} does not exist in Map.db2 - skipping neighborhood '{}' (instanceId={})",
+                mapId, neighborhood->GetName(), instanceId);
+            continue;
+        }
+
+        if (mapEntry->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Map {} '{}' is type {} (expected {}=MAP_HOUSE_NEIGHBORHOOD) - skipping neighborhood '{}'. Fix the neighborhoodMapID in the database!",
+                mapId, mapEntry->MapName[DEFAULT_LOCALE], mapEntry->InstanceType, MAP_HOUSE_NEIGHBORHOOD, neighborhood->GetName());
+            continue;
+        }
+
+        HousingMap* map = CreateHousing(mapId, instanceId, instanceId);
+        if (!map)
+        {
+            TC_LOG_ERROR("housing", "MapManager::PreloadHousingMaps: Failed to create map {} instanceId {} for neighborhood '{}'",
+                mapId, instanceId, neighborhood->GetName());
+            continue;
+        }
+
+        // Register in the map store (same as CreateMap does)
+        Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId() }];
+        ptr.reset(map);
+        map->SetWeakPtr(ptr);
+
+        sScriptMgr->OnCreateMap(map);
+
+        // Load every grid so all entities are fully spawned before any player connects.
+        map->LoadAllGrids();
+
+        ++count;
+        TC_LOG_INFO("housing", "MapManager::PreloadHousingMaps: Pre-loaded neighborhood '{}' (map={} instanceId={}) with all cells",
+            neighborhood->GetName(), mapId, instanceId);
+    }
+
+    TC_LOG_INFO("server.loading", ">> Pre-loaded {} housing neighborhood maps in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
+}
+
+HousingMap* MapManager::FindOrCreateHousingMap(uint32 mapId, uint32 neighborhoodId)
+{
+    std::scoped_lock lock(_mapsLock);
+    if (Map* map = FindMap_i(mapId, neighborhoodId))
+        return dynamic_cast<HousingMap*>(map);
+
+    MapEntry const* mapEntry = sMapStore.LookupEntry(mapId);
+    if (!mapEntry || mapEntry->InstanceType != MAP_HOUSE_NEIGHBORHOOD)
+        return nullptr;
+
+    HousingMap* map = CreateHousing(mapId, neighborhoodId, neighborhoodId);
+
+    Trinity::unique_trackable_ptr<Map>& ptr = i_maps[{ map->GetId(), map->GetInstanceId() }];
+    ptr.reset(map);
+    map->SetWeakPtr(ptr);
+
+    sScriptMgr->OnCreateMap(map);
+    return map;
+}
+
+HouseInteriorMap* MapManager::CreateHouseInterior(uint32 mapId, uint32 instanceId, Player* creator, ObjectGuid houseOwner)
+{
+    // An empty `houseOwner` means the creator is entering their own interior.
+    ObjectGuid effectiveOwner = !houseOwner.IsEmpty() ? houseOwner : creator->GetGUID();
+
+    HouseInteriorMap* map = new HouseInteriorMap(mapId, i_gridCleanUpDelay, instanceId, effectiveOwner);
+    map->InitSpawnGroupState();
+
+    // Source neighborhood info for the exit teleport.
+    uint32 sourceWorldMapId = 0;
+    uint8 sourcePlotIndex = 0;
+    // FindMap(), not GetMap(): this also runs from Player::LoadFromDB, before the player is on any map.
+    Map const* creatorMap = creator->FindMap();
+    if (creatorMap && creatorMap->GetEntry()->IsNeighborhood())
+        sourceWorldMapId = creator->GetMapId();
+    if (sourceWorldMapId == 0)
+    {
+        uint32 neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(creator->GetMapId());
+        if (neighborhoodMapId)
+            sourceWorldMapId = creator->GetMapId();
+    }
+
+    // Resolve the plot index being visited: the creator's own Housing for own interiors, the owner's plot otherwise.
+    if (houseOwner.IsEmpty())
+    {
+        if (Housing* housing = creator->GetHousing())
+            sourcePlotIndex = housing->GetPlotIndex();
+    }
+    else if (Housing* accountHousing = creator->GetHousingByOwner(houseOwner))
+        sourcePlotIndex = accountHousing->GetPlotIndex();
+    else
+    {
+        for (Neighborhood* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(houseOwner))
+        {
+            for (Neighborhood::PlotInfo const& plot : nbh->GetPlots())
+            {
+                if (plot.OwnerGuid == houseOwner)
+                {
+                    sourcePlotIndex = plot.PlotIndex;
+                    break;
+                }
+            }
+            if (sourcePlotIndex != 0)
+                break;
+        }
+    }
+
+    map->SetSourceNeighborhoodMapId(sourceWorldMapId);
+    map->SetSourcePlotIndex(sourcePlotIndex);
+
+    TC_LOG_DEBUG("housing", "MapManager::CreateHouseInterior: Created interior map {} instanceId {} for owner {} (creator {}, srcMap {}, srcPlot {})",
+        mapId, instanceId, effectiveOwner.ToString(), creator->GetGUID().ToString(), sourceWorldMapId, sourcePlotIndex);
+
+    return map;
+}
+
 /*
 - return the right instance for the object, based on its InstanceId
 - create the instance if it's not created already
@@ -244,6 +408,95 @@ Map* MapManager::CreateMap(uint32 mapId, Player* player, Optional<uint32> lfgDun
         if (!map)
             map = CreateGarrison(mapId, newInstanceId, player);
     }
+    else if (entry->IsHouseInterior())
+    {
+        // Per-house instanced map: the instance id is the owner's GUID counter, so visitors share one instance.
+        ObjectGuid visitTarget = player->GetHouseVisitTarget();
+        ObjectGuid effectiveOwner = !visitTarget.IsEmpty() ? visitTarget : player->GetGUID();
+        // A house bought by another character of the account is the player's own house.
+        bool isVisit = !visitTarget.IsEmpty() && !player->GetHousingByOwner(visitTarget);
+        player->ClearHouseVisitTarget();
+        newInstanceId = effectiveOwner.GetCounter();
+        map = FindMap_i(mapId, newInstanceId);
+        if (map)
+        {
+            // Only the owner updates the source info on reuse; the exit handler reads it for every leaver.
+            if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(map); interiorMap && !isVisit)
+            {
+                if (Housing* housing = player->GetHousingByOwner(effectiveOwner))
+                {
+                    // FindMap(), not GetMap(): this also runs from Player::LoadFromDB, before the player is on any map.
+                    Map const* playerMap = player->FindMap();
+                    uint32 sourceWorldMapId = 0;
+                    if (playerMap && playerMap->GetEntry()->IsNeighborhood())
+                        sourceWorldMapId = player->GetMapId();
+                    if (sourceWorldMapId == 0)
+                    {
+                        uint32 nhMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(player->GetMapId());
+                        if (nhMapId)
+                            sourceWorldMapId = player->GetMapId();
+                    }
+                    interiorMap->SetSourceNeighborhoodMapId(sourceWorldMapId);
+                    interiorMap->SetSourcePlotIndex(housing->GetPlotIndex());
+                }
+            }
+
+            TC_LOG_DEBUG("housing", "MapManager::CreateMap: Reusing HouseInteriorMap mapId={} instanceId={} for player {}",
+                mapId, newInstanceId, player->GetGUID().ToString());
+        }
+        else
+        {
+            map = CreateHouseInterior(mapId, newInstanceId, player, effectiveOwner == player->GetGUID() ? ObjectGuid::Empty : effectiveOwner);
+            TC_LOG_DEBUG("housing", "MapManager::CreateMap: Created HouseInteriorMap mapId={} instanceId={} for player {} (visit={} owner={})",
+                mapId, newInstanceId, player->GetGUID().ToString(), isVisit, effectiveOwner.ToString());
+        }
+    }
+    else if (entry->IsNeighborhood())
+    {
+        // Determine which neighborhood instance this player belongs to
+        uint32 neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(mapId);
+
+        Neighborhood* neighborhood = nullptr;
+
+        // The neighborhood of a house the account owns on this map comes first (houses belong to the account).
+        for (Housing const* accountHousing : player->GetAllHousings())
+        {
+            Neighborhood* housingNeighborhood = sNeighborhoodMgr.GetNeighborhood(accountHousing->GetNeighborhoodGuid());
+            if (housingNeighborhood && housingNeighborhood->GetNeighborhoodMapID() == neighborhoodMapId)
+            {
+                neighborhood = housingNeighborhood;
+                break;
+            }
+        }
+
+        if (!neighborhood)
+            for (Neighborhood* n : sNeighborhoodMgr.GetNeighborhoodsForPlayer(player->GetGUID()))
+                if (n->GetNeighborhoodMapID() == neighborhoodMapId)
+                {
+                    neighborhood = n;
+                    break;
+                }
+
+        // Public-neighborhood fallback is for map rendering only; membership is never granted here.
+        if (!neighborhood)
+            neighborhood = sNeighborhoodMgr.FindPublicNeighborhoodForMap(neighborhoodMapId);
+
+        if (!neighborhood)
+        {
+            TC_LOG_ERROR("housing", "MapManager::CreateMap: No neighborhood for player {} on map {}",
+                player->GetGUID().ToString(), mapId);
+            return nullptr;
+        }
+
+        TC_LOG_DEBUG("housing", "MapManager::CreateMap: Using neighborhood '{}' guid={} neighborhoodMapId={} for player {}",
+            neighborhood->GetName(), neighborhood->GetGuid().ToString(), neighborhood->GetNeighborhoodMapID(),
+            player->GetGUID().ToString());
+
+        newInstanceId = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+        map = FindMap_i(mapId, newInstanceId);
+        if (!map)
+            map = CreateHousing(mapId, newInstanceId, newInstanceId);
+    }
     else
     {
         newInstanceId = 0;
@@ -312,6 +565,14 @@ uint32 MapManager::FindInstanceIdForPlayer(uint32 mapId, Player const* player) c
     }
     else if (entry->IsGarrison())
         return uint32(player->GetGUID().GetCounter());
+    else if (entry->IsNeighborhood())
+    {
+        uint32 neighborhoodMapId = sHousingMgr.GetNeighborhoodMapIdByWorldMap(mapId);
+        for (Neighborhood* n : sNeighborhoodMgr.GetNeighborhoodsForPlayer(player->GetGUID()))
+            if (n->GetNeighborhoodMapID() == neighborhoodMapId)
+                return static_cast<uint32>(n->GetGuid().GetCounter());
+        return 0;
+    }
     else
     {
         if (entry->IsSplitByFaction())

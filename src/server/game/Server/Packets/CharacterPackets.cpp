@@ -195,7 +195,7 @@ WorldPacket const* RegionwideCharacterMailData::Write()
     return &_worldPacket;
 }
 
-EnumCharactersResult::CharacterInfoBasic::CharacterInfoBasic(Field const* fields)
+EnumCharactersResult::CharacterInfoBasic::CharacterInfoBasic(Field const* fields, uint32 virtualRealmAddress, uint32 homeRealmId)
 {
     //         0                1                2                3                 4                  5
     // "SELECT characters.guid, characters.name, characters.race, characters.class, characters.gender, characters.level, "
@@ -211,8 +211,13 @@ EnumCharactersResult::CharacterInfoBasic::CharacterInfoBasic(Field const* fields
     //  180
     // "character_declinedname.genitive"
 
-    Guid              = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
-    VirtualRealmAddress = GetVirtualRealmAddress();
+    // cross-realm entries carry their home realm in the guid, the client identifies characters
+    // by the full guid and the same character must look identical from every realm's list
+    // (subType and arg1 are zero for plain player guids)
+    Guid = homeRealmId
+        ? ObjectGuidFactory::CreatePlayer(homeRealmId, 0, 0, fields[0].GetUInt64())
+        : ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
+    VirtualRealmAddress = virtualRealmAddress ? virtualRealmAddress : GetVirtualRealmAddress();
     GuildClubMemberID = ::Battlenet::Services::Clubs::CreateClubMemberId(Guid);
     Name              = fields[1].GetStringView();
     RaceID            = fields[2].GetUInt8();
@@ -519,11 +524,11 @@ ByteBuffer& operator<<(ByteBuffer& data, WarbandGroup const& warbandGroup)
     return data;
 }
 
-EnumCharactersResult::CharacterInfo::CharacterInfo(Field const* fields) : Basic(fields)
+EnumCharactersResult::CharacterInfo::CharacterInfo(Field const* fields, uint32 virtualRealmAddress, uint32 homeRealmId) : Basic(fields, virtualRealmAddress, homeRealmId)
 {
 }
 
-EnumCharactersResult::RegionwideCharacterListEntry::RegionwideCharacterListEntry(Field const* fields) : Basic(fields)
+EnumCharactersResult::RegionwideCharacterListEntry::RegionwideCharacterListEntry(Field const* fields, uint32 virtualRealmAddress, uint32 homeRealmId) : Basic(fields, virtualRealmAddress, homeRealmId)
 {
 }
 

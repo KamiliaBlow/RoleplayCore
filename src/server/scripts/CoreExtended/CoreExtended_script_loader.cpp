@@ -23,6 +23,8 @@ void AddSC_custom_the_wandering_isle_player();
 void AddSC_custom_the_wandering_isle_quests();
 void AddSC_custom_the_wandering_isle_spells();
 
+void AddSC_custom_housing_player();
+
 // #################################################### //
 // Add in AddCoreExtendedScripts(){ .. } without void. //
 // #################################################### //
@@ -46,8 +48,10 @@ void AddCoreExtendedScripts()
     AddSC_custom_the_wandering_isle_quests();
     AddSC_custom_the_wandering_isle_spells();
 	
-	AddSC_custom_westfall_at();
-	AddSC_custom_westfall_npcs();
-	AddSC_custom_westfall_quests();
+    AddSC_custom_westfall_at();
+    AddSC_custom_westfall_npcs();
+    AddSC_custom_westfall_quests();
+	
+    AddSC_custom_housing_player();
 }
 

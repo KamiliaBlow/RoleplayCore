@@ -206,6 +206,12 @@ enum WorldBoolConfigs : uint32
     CONFIG_BATTLEGROUNDMAP_LOAD_GRIDS,
     CONFIG_ENABLE_AE_LOOT,
     CONFIG_LOAD_LOCALES,
+    CONFIG_HOUSING_ENABLE_BUY_HOUSE,
+    CONFIG_HOUSING_ENABLE_DELETE_HOUSE,
+    CONFIG_HOUSING_ENABLE_MOVE_HOUSE,
+    CONFIG_HOUSING_ENABLE_CREATE_CHARTER_NEIGHBORHOOD,
+    CONFIG_HOUSING_ENABLE_CREATE_GUILD_NEIGHBORHOOD,
+    CONFIG_HOUSING_TUTORIALS_ENABLED,
     BOOL_CONFIG_VALUE_COUNT
 };
 
@@ -441,6 +447,10 @@ enum WorldIntConfigs : uint32
     CONFIG_VISIBILITY_NOTIFY_PERIOD_ARENA,
     CONFIG_CLUB_STREAM_HISTORY_MAX_MESSAGES,
     CONFIG_CLUB_STREAM_HISTORY_MAX_DAYS,
+    CONFIG_HOUSING_MAX_HOUSES_PER_ACCOUNT,
+    CONFIG_HOUSING_CHARTER_FOUNDING_COST,
+    CONFIG_HOUSING_CHARTER_REQUIRED_SIGNATURES,
+    CONFIG_HOUSING_GUILD_NEIGHBORHOOD_MIN_ACCOUNTS,
     INT_CONFIG_VALUE_COUNT
 };
 
@@ -935,6 +945,29 @@ class TC_GAME_API World
 };
 
 TC_GAME_API uint32 GetVirtualRealmAddress();
+
+// Snapshot of the realmlist table taken once on first use: the regionwide character list
+// and the auth realm registry need to know the sibling realms of the connect group
+struct TC_GAME_API RealmRegistryEntry
+{
+    uint32 Id;
+    uint32 Address;
+    std::string Name;
+};
+
+TC_GAME_API std::vector<RealmRegistryEntry> const& GetRealmRegistry();
+
+// CharacterSelect.ExtraRealms = "; "-separated list of "<realmId>:<characters schema name>"
+// entries, or "auto" to read the realm -> schema registry from the auth database. Sibling
+// realm data (regionwide character list, warband bank items) is read from those schemas.
+struct TC_GAME_API CrossRealmSchema
+{
+    uint32 VirtualRealmAddress;
+    uint32 HomeRealmId;
+    std::string Schema;
+};
+
+TC_GAME_API std::vector<CrossRealmSchema> const& GetCrossRealmSchemas();
 
 #define sWorld World::instance()
 
