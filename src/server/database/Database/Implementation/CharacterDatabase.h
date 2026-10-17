@@ -835,6 +835,10 @@ enum CharacterDatabaseStatements : uint32
     CHAR_SEL_INITIATIVE_CONTRIBUTIONS,
     CHAR_SEL_PLAYER_INITIATIVE_FAVOR,
 
+    // Append new statements ONLY here: mid-enum inserts shift every later index and
+    // break partially rebuilt binaries (the prepared-statement arrays are index-addressed).
+    CHAR_SEL_ACTIVE_CHARS_BY_ACCOUNT,
+
     MAX_CHARACTERDATABASE_STATEMENTS
 };
 

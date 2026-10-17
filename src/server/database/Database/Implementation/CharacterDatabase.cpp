@@ -1083,6 +1083,7 @@ void CharacterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(CHAR_INS_INITIATIVE_CONTRIBUTION, "INSERT INTO neighborhood_initiative_contributions (initiativeDbId, playerGuid, taskId, amount, lastUpdated) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount = amount + VALUES(amount), lastUpdated = VALUES(lastUpdated)", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_INITIATIVE_CONTRIBUTIONS, "SELECT playerGuid, taskId, amount, lastUpdated FROM neighborhood_initiative_contributions WHERE initiativeDbId = ?", CONNECTION_SYNCH);
     PrepareStatement(CHAR_SEL_PLAYER_INITIATIVE_FAVOR, "SELECT COALESCE(SUM(amount), 0) FROM neighborhood_initiative_contributions WHERE initiativeDbId = ? AND playerGuid = ?", CONNECTION_SYNCH);
+    PrepareStatement(CHAR_SEL_ACTIVE_CHARS_BY_ACCOUNT, "SELECT guid, race, logout_time FROM characters WHERE account = ? AND deleteDate IS NULL AND deleteInfos_Name IS NULL ORDER BY logout_time DESC", CONNECTION_SYNCH);
 }
 
 CharacterDatabaseConnection::CharacterDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags) : MySQLConnection(connInfo, connectionFlags)

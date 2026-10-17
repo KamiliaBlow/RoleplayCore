@@ -879,7 +879,6 @@ void Player::UpdatePowerRegen(Powers power)
     if (powerIndex >= MAX_POWERS_PER_CLASS)
         return;
 
-    // TODO: updating haste should update UnitData::PowerRegenFlatModifier for certain power types
     PowerTypeEntry const* powerType = sDB2Manager.GetPowerTypeEntry(power);
     if (!powerType)
         return;

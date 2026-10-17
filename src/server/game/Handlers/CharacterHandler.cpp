@@ -28,6 +28,7 @@
 #include "CalendarMgr.h"
 #include "CharacterCache.h"
 #include "CharacterPackets.h"
+#include "HousingMgr.h"
 #include "Chat.h"
 #include "Common.h"
 #include "Config.h"
@@ -1632,6 +1633,9 @@ void WorldSession::HandleCharDeleteOpcode(WorldPackets::Character::CharDelete& c
     }
 
     sCalendarMgr->RemoveAllPlayerEventsAndInvites(charDelete.Guid);
+    // The house goes with the character the moment deletion is requested - even when the
+    // character itself lingers in the undelete window.
+    sHousingMgr.DeleteHouseForOwner(charDelete.Guid);
     Player::DeleteFromDB(charDelete.Guid, accountId);
 
     _legitCharacters.erase(charDelete.Guid);

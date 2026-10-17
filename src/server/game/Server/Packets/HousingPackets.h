@@ -192,10 +192,10 @@ namespace WorldPackets::Housing
     };
 
     // Empty PetGuid clears the binding.
-    class HousingDecorSetPet final : public ClientPacket
+    class HousingDecorSetBattlePet final : public ClientPacket
     {
     public:
-        explicit HousingDecorSetPet(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SET_PET, std::move(packet)) { }
+        explicit HousingDecorSetBattlePet(WorldPacket&& packet) : ClientPacket(CMSG_HOUSING_DECOR_SET_BATTLE_PET, std::move(packet)) { }
 
         void Read() override;
 
@@ -1043,7 +1043,7 @@ namespace WorldPackets::Housing
     public:
         HousingRoomApplyComponentMaterialsResponse() : ServerPacket(SMSG_HOUSING_ROOM_APPLY_COMPONENT_MATERIALS_RESPONSE) { }
         WorldPacket const* Write() override;
-        // ColorOverride is NOT echoed in the response — only TextureID.
+        // ColorOverride is NOT echoed in the response - only TextureID.
         ObjectGuid RoomGuid;
         uint32 RoomComponentTextureID = 0;
         uint8 Result = 0;
@@ -1548,7 +1548,7 @@ namespace WorldPackets::Housing
         GetInitiativeActivityLogResult() : ServerPacket(SMSG_GET_INITIATIVE_ACTIVITY_LOG_RESULT) { }
         WorldPacket const* Write() override;
 
-        // No leading Result byte — failures go via SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE.
+        // No leading Result byte - failures go via SMSG_HOUSING_SVCS_NOTIFY_PERMISSIONS_FAILURE.
         ObjectGuid NeighborhoodGuid;
         std::vector<NICompletedTasksEntry> CompletedTasks;
     };
@@ -1626,8 +1626,8 @@ namespace WorldPackets::Housing
         WorldPacket const* Write() override;
 
         ObjectGuid Guid;
-        bool Field0 = false;            // bit 0x80 — unrecovered
-        bool OpenForBusiness = false;   // bit 0x40 — false raises CRAFTING_HOUSE_DISABLED instead
+        bool Field0 = false;            // bit 0x80 - unrecovered
+        bool OpenForBusiness = false;   // bit 0x40 - false raises CRAFTING_HOUSE_DISABLED instead
     };
 
     class GuildOthersOwnedHousesResult final : public ServerPacket

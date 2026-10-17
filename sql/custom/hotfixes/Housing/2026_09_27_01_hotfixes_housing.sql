@@ -286,7 +286,6 @@ CREATE TABLE IF NOT EXISTS `house_decor` (
   `InitialRotationY` float NOT NULL DEFAULT '0',
   `InitialRotationZ` float NOT NULL DEFAULT '0',
   `ID` int unsigned NOT NULL DEFAULT '0',
-  `Field_003` int NOT NULL DEFAULT '0',
   `GameObjectID` int NOT NULL DEFAULT '0',
   `Flags` int NOT NULL DEFAULT '0',
   `Type` tinyint unsigned NOT NULL DEFAULT '0',

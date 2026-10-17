@@ -21,6 +21,8 @@
 #include "Define.h"
 #include "Duration.h"
 
+#include <array>
+
 // Enum.HousingResult client values, sent as uint8
 enum HousingResult : uint8
 {
@@ -935,6 +937,13 @@ static constexpr uint8 HOUSE_DECOR_MODEL_TYPE_WMO = 2; // HouseDecor.ModelType: 
 static constexpr uint32 STARTER_DOOR_DECOR_ID_ALLIANCE = 9144;   // Founders' Front Door (GO 575017)
 static constexpr uint32 STARTER_DOOR_DECOR_ID_HORDE    = 10952;  // Thornwind Front Door (GO 587318)
 
+// HouseRoom.db2 12.1 ships exactly two BASE_ROOM floor plans; a starter house pairs them both.
+static constexpr uint32 BASE_LAYOUT_ROOM_ENTRY = 18;
+static constexpr uint32 ENTRY_HALL_ROOM_ENTRY  = 46;
+// The base layout renders broken as an interior room; the starter pairs the entry hall with the
+// small square room instead.
+static constexpr uint32 DEFAULT_VISUAL_ROOM_ENTRY = 1;
+
 // Both starter doors are granted to every house; the placed one anchors the interior entry point.
 inline bool IsStarterDoorDecor(uint32 decorEntryId)
 {
@@ -942,6 +951,31 @@ inline bool IsStarterDoorDecor(uint32 decorEntryId)
 }
 static constexpr uint32 INTERIOR_DOOR_GO_ALLIANCE = 575017; // displayId 113554
 static constexpr uint32 INTERIOR_DOOR_GO_HORDE    = 587318;
+
+struct StarterDecorPlacement
+{
+    uint32 DecorEntry;
+    uint8  Faction;
+    float  OffsetX, OffsetY, OffsetZ;
+    float  Yaw;
+};
+
+// fireplace, crates/boxes, window, painting. Positions are not blizzlike and may be incomplete.
+// The painting has no horde variant - entry 388 serves both factions. The crates/boxes (1994/2549)
+// carry no HouseDecor.StartingQuantity, so PopulateStarterDecor grants them on placement miss.
+inline constexpr std::array<StarterDecorPlacement, 7> STARTER_DECOR_SET
+{{
+    // Alliance
+    { 80,   NEIGHBORHOOD_FACTION_ALLIANCE,  7.5f, -11.0f,  0.02f,  1.5708f }, // fireplace
+    { 1994, NEIGHBORHOOD_FACTION_ALLIANCE,  4.751f,  6.587f, 0.0625f, 0.0f    }, // crates/boxes
+    { 389,  NEIGHBORHOOD_FACTION_ALLIANCE, 26.48f,  7.5f,   3.4f,   3.1388f }, // window
+    // Horde
+    { 81,   NEIGHBORHOOD_FACTION_HORDE,     7.5f, -11.0f,  0.02f,  1.5708f }, // fireplace
+    { 2549, NEIGHBORHOOD_FACTION_HORDE,     4.751f,  6.587f, 0.0625f, 0.0f    }, // crates/boxes
+    { 1700, NEIGHBORHOOD_FACTION_HORDE,    26.48f,  7.5f,   3.4f,   3.1388f }, // window
+    // Both factions
+    { 388,  NEIGHBORHOOD_FACTION_NONE,     26.438f, -7.020f, 3.1126f, 3.1388f }, // painting
+}};
 
 // Housing blueprints: enum values are the client's; limits are the Constants.HousingConsts values.
 

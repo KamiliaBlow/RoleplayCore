@@ -498,7 +498,7 @@ struct Areas
 struct Runes
 {
     std::deque<uint8> CooldownOrder;
-    uint32 Cooldown[MAX_RUNES];
+    std::array<float, MAX_RUNES> Cooldown;                  // cooldown progress [0,1] where 1 means rune is ready
     uint8 RuneState;                                        // mask of available runes
 
     void SetRuneState(uint8 index, bool set = true);
@@ -1690,8 +1690,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         Item* GetItemFromBuyBackSlot(uint32 slot);
         void RemoveItemFromBuyBackSlot(uint32 slot, bool del);
         void SendEquipError(InventoryResult msg, Item const* item1 = nullptr, Item const* item2 = nullptr, uint32 itemId = 0) const;
-        void SendBuyError(BuyResult msg, Creature* creature, uint32 item, uint32 param) const;
-        void SendSellError(SellResult msg, Creature* creature, ObjectGuid guid) const;
+        void SendBuyError(BuyResult msg, Creature const* creature, uint32 item) const;
+        void SendSellError(SellResult msg, Creature const* creature, ObjectGuid guid) const;
         void AddWeaponProficiency(uint32 newflag) { m_WeaponProficiency |= newflag; }
         void AddArmorProficiency(uint32 newflag) { m_ArmorProficiency |= newflag; }
         uint32 GetWeaponProficiency() const { return m_WeaponProficiency; }
@@ -3010,9 +3010,8 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         UF::DeclinedNames const* GetDeclinedNames() const { return m_playerData->DeclinedNames.has_value() ? &*m_playerData->DeclinedNames : nullptr; }
         uint8 GetRunesState() const;
-        uint32 GetRuneCooldown(uint8 index) const { return m_runes->Cooldown[index]; }
-        uint32 GetRuneBaseCooldown() const;
-        void SetRuneCooldown(uint8 index, uint32 cooldown);
+        float GetRuneCooldown(uint8 index) const { return m_runes->Cooldown[index]; }
+        void SetRuneCooldown(uint8 index, float cooldown);
         void ResyncRunes() const;
         void InitRunes();
 

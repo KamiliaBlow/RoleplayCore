@@ -609,7 +609,7 @@ namespace WorldPackets
 
         struct PhaseShiftDataPhase
         {
-            uint32 PhaseFlags = 0;
+            uint8 PhaseFlags = 0;
             uint16 Id = 0;
         };
 

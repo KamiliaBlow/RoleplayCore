@@ -630,7 +630,7 @@ namespace WorldPackets
         class HousingDecorMove;
         class HousingDecorRemove;
         class HousingDecorLock;
-        class HousingDecorSetPet;
+        class HousingDecorSetBattlePet;
         class HousingDecorSetDyeSlots;
         class HousingDecorDeleteFromStorage;
         class HousingDecorRequestStorage;
@@ -1717,7 +1717,7 @@ class TC_GAME_API WorldSession
         void HandleHousingDecorMove(WorldPackets::Housing::HousingDecorMove const& housingDecorMove);
         void HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorRemove const& housingDecorRemove);
         void HandleHousingDecorLock(WorldPackets::Housing::HousingDecorLock const& housingDecorLock);
-        void HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorSetPet const& housingDecorSetPet);
+        void HandleHousingDecorSetBattlePet(WorldPackets::Housing::HousingDecorSetBattlePet const& housingDecorSetBattlePet);
         void HandleHousingDecorSetDyeSlots(WorldPackets::Housing::HousingDecorSetDyeSlots const& housingDecorSetDyeSlots);
         void HandleHousingDecorDeleteFromStorage(WorldPackets::Housing::HousingDecorDeleteFromStorage const& housingDecorDeleteFromStorage);
         void HandleHousingDecorRequestStorage(WorldPackets::Housing::HousingDecorRequestStorage const& housingDecorRequestStorage);

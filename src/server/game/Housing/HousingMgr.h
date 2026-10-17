@@ -297,6 +297,11 @@ public:
     // Get the world MapID for a NeighborhoodMapID (reverse lookup, returns 0 if not found)
     uint32 GetWorldMapIdByNeighborhoodMapId(uint32 neighborhoodMapId) const;
 
+    // Character deletion: hand the offline owner's house to a same-account, same-faction heir
+    // on this realm, or tear it down completely when no candidate exists. Returns true when a
+    // house existed and was transferred or removed.
+    bool DeleteHouseForOwner(ObjectGuid ownerGuid);
+
     // Name generation
     std::string GenerateNeighborhoodName(uint32 neighborhoodMapId) const;
 

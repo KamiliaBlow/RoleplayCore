@@ -140,4 +140,12 @@ void Account::RemoveHousingDecorStorageEntry(ObjectGuid decorGuid)
     RemoveMapUpdateFieldValue(setter, decorGuid);
 }
 
+std::vector<std::pair<ObjectGuid, ObjectGuid>> Account::GetHousingDecorStorageEntries()
+{
+    std::vector<std::pair<ObjectGuid, ObjectGuid>> entries;
+    for (auto const& [decorGuid, data] : m_values.ModifyValue(&Account::m_housingStorageData).ModifyValue(&UF::HousingStorageData::Decor).GetValues())
+        entries.emplace_back(decorGuid, data.value.HouseGUID);
+    return entries;
+}
+
 }

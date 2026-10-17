@@ -2304,7 +2304,8 @@ enum class PlayerInteractionType : int32
     GuildRename                         = 76,
     OpenNeighborhoodCharterConfirmation = 77,
     OpenHouseFinder                     = 78,
-    PlaceholderType79                   = 79,
+    TieredEntrance                      = 79,
+    RewardsShop                         = 80,
 };
 
 enum class PowerTypeFlags : int32

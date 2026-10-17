@@ -106,6 +106,15 @@ public:
     /// True when the position lies inside one of the rooms (its RoomWmoData box, on its floor).
     bool IsInsideAnyRoom(Position const& pos, std::vector<Housing::Room const*> const& rooms) const;
 
+    /// Spawn the owner's whole layout (rooms + decor) without anyone entering; used to form the
+    /// interior right at house purchase. Returns the housing it formed from, null when unavailable.
+    /// A formed instance whose layout turns stale is rebuilt on the next owner entry (AddPlayerToMap).
+    Housing* FormOwnerLayout(Player* ownerPlayer);
+
+    /// Arm the empty-instance unload timer (a layout formed at purchase with nobody inside must
+    /// not pin the map forever; entering disarms it, leaving re-arms it through the normal path).
+    void ScheduleUnloadWhenEmpty();
+
     /// Where the house puts people: the entry hall at the interior origin (SMSG_NEW_WORLD on entry).
     /// Where entering players appear: the placed starter door decor's position when it exists,
     /// else the entry hall origin.

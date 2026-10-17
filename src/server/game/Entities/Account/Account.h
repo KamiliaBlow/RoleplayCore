@@ -53,6 +53,9 @@ public:
     void SetHousingDecorStorageEntry(ObjectGuid decorGuid, ObjectGuid houseGuid, uint8 sourceType,
         std::string sourceValue = {}, std::optional<uint8> placementStatus = {});
     void RemoveHousingDecorStorageEntry(ObjectGuid decorGuid);
+    // Read side for storage reconciliation: every entry currently on the field as
+    // (decor GUID, house GUID); an empty house GUID means unplaced catalog stock.
+    std::vector<std::pair<ObjectGuid, ObjectGuid>> GetHousingDecorStorageEntries();
     // DyeColor.db2 IDs per DecorDyeSlot (0 = undyed); all zero drops the optional DyeSlots.
     void SetHousingDecorDyeSlots(ObjectGuid decorGuid, std::array<uint32, 3> const& dyeSlots);
 

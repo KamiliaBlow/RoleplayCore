@@ -62,9 +62,12 @@ namespace
     constexpr float MIN_DECOR_SCALE = 0.01f;
     constexpr float MAX_DECOR_SCALE = 5.0f;
 
-    // Synthetic storage GUID band for unplaced catalog copies: ownerCounter * 100000 + decorEntryId * 100 + index.
-    constexpr uint64 STORAGE_GUID_OWNER_SCALE = 100000;
-    constexpr uint64 STORAGE_GUID_ENTRY_SCALE = 100;
+    // Synthetic storage GUID band for unplaced catalog copies: ownerCounter * 1e11 + decorEntryId * 1e5 + index.
+    // The scales must leave headroom for the largest decor entry id: keys of one owner's catalog
+    // stay inside that owner's band (entryId < 1'000'000, up to 100'000 copies per entry) or they
+    // collide with other owners' keys and read as stale ghosts.
+    constexpr uint64 STORAGE_GUID_OWNER_SCALE = 100000000000ULL;
+    constexpr uint64 STORAGE_GUID_ENTRY_SCALE = 100000;
 
     // House type (HouseExteriorWmoData) of the component a hook hangs on, 0 if unknown.
     uint32 GetHookOwnerWmo(uint32 hookId)
@@ -213,21 +216,34 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
     // Runtime fixup for houses saved by older builds: ensure the entry hall and a visual room exist.
     {
         // Migrate the exterior geobox room entry to the entry hall entry (the geobox entry is exterior-plot only).
+        // 12.1 starters legitimately hold BOTH base entries, so only a save that lacks an entry hall
+        // is a pre-fixup one - and only its slot-0 room is converted.
         uint32 entryHallEntry = sHousingMgr.GetEntryHallRoomEntryId();
         uint32 extGeoboxEntry = sHousingMgr.GetBaseRoomEntryId();
         if (entryHallEntry != extGeoboxEntry)
         {
-            for (auto& [guid, room] : _rooms)
+            bool hasEntryHall = false;
+            for (auto const& [guid, room] : _rooms)
             {
-                if (room.RoomEntryId == extGeoboxEntry)
+                if (room.RoomEntryId == entryHallEntry)
                 {
-                    TC_LOG_INFO("housing", "Housing::LoadFromDB: Migrating interior base room {} -> {} "
-                        "in slot {} for house {} (entry hall fixup)",
-                        extGeoboxEntry, entryHallEntry, room.SlotIndex, _houseGuid.ToString());
-                    room.RoomEntryId = entryHallEntry;
+                    hasEntryHall = true;
                     break;
                 }
             }
+
+            if (!hasEntryHall)
+                for (auto& [guid, room] : _rooms)
+                {
+                    if (room.RoomEntryId == extGeoboxEntry && room.SlotIndex == 0)
+                    {
+                        TC_LOG_INFO("housing", "Housing::LoadFromDB: Migrating interior base room {} -> {} "
+                            "in slot {} for house {} (entry hall fixup)",
+                            extGeoboxEntry, entryHallEntry, room.SlotIndex, _houseGuid.ToString());
+                        room.RoomEntryId = entryHallEntry;
+                        break;
+                    }
+                }
         }
 
         bool hasBaseRoom = false;
@@ -249,14 +265,16 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 entryHallRoomEntry, _houseGuid.ToString(), baseResult);
         }
 
-        // Only add a default visual room when the house has no non-base rooms at all.
+        // Only add a default visual room when the house has no other room beyond the entry hall.
         uint32 correctVisualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
         bool hasVisualRoom = false;
         ObjectGuid wrongRoomGuid;
 
         for (auto const& [guid, room] : _rooms)
         {
-            if (sHousingMgr.IsBaseRoom(room.RoomEntryId))
+            // Only the entry hall is skipped: the default visual room is itself a base
+            // floor plan in 12.1 (the base layout), so a base entry can satisfy the check.
+            if (room.RoomEntryId == sHousingMgr.GetEntryHallRoomEntryId())
                 continue;
 
             if (room.RoomEntryId == correctVisualRoom)
@@ -265,7 +283,7 @@ bool Housing::LoadFromDB(PreparedQueryResult housing, PreparedQueryResult decor,
                 break;
             }
 
-            // If not the correct one and it's the only non-base room, replace it
+            // If not the correct one and it's the only other room, replace it
             if (wrongRoomGuid.IsEmpty())
                 wrongRoomGuid = guid;
             else
@@ -728,12 +746,30 @@ HousingResult Housing::Create(ObjectGuid neighborhoodGuid, uint8 plotIndex)
     uint32 visualRoom = sHousingMgr.GetDefaultVisualRoomEntry();
     if (visualRoom)
     {
-        // Entry door at +3, Room1 door at -12 -> spacing = 3-(-12) = 15 yards
-        HousingResult visualResult = PlaceRoom(visualRoom, /*slotIndex*/ 1, /*orientation*/ 0, /*mirrored*/ false, nullptr, /*gridX*/ 15, /*gridY*/ 0);
+        // Dock the starter room onto the entry hall's +X door: the two opposing door offsets
+        // give the exact center spacing (the old square-room pair worked out to 3 - (-12) = 15).
+        int32 gridX = 15;
+        int32 gridY = 0;
+        {
+            for (RoomDoor const& door : GetRoomDoors(sHousingMgr.GetEntryHallRoomEntryId(), 0.0f, 0.0f, 0))
+                if (door.DirX > 0)
+                {
+                    gridY = int32(std::round(door.Y));
+                    for (RoomDoor const& visualDoor : GetRoomDoors(visualRoom, 0.0f, 0.0f, 0))
+                        if (visualDoor.DirX < 0)
+                        {
+                            gridX = int32(std::round(door.Local.GetPositionX() - visualDoor.Local.GetPositionX()));
+                            break;
+                        }
+                    break;
+                }
+        }
+
+        HousingResult visualResult = PlaceRoom(visualRoom, /*slotIndex*/ 1, /*orientation*/ 0, /*mirrored*/ false, nullptr, gridX, gridY);
         if (visualResult == HOUSING_RESULT_SUCCESS)
         {
-            TC_LOG_DEBUG("housing", "Housing::Create: Auto-placed visual room entry {} in slot 1 for player {}",
-                visualRoom, _owner->GetName());
+            TC_LOG_DEBUG("housing", "Housing::Create: Auto-placed visual room entry {} in slot 1 at grid ({}, {}) for player {}",
+                visualRoom, gridX, gridY, _owner->GetName());
         }
         else
         {
@@ -777,12 +813,34 @@ void Housing::Delete()
             neighborhood->ReleasePlot(_ownerGuid);
     }
 
-    // Remove all decor storage entries from account UpdateField (only if storage is populated)
-    if (_storagePopulated && _owner->GetSession() && !_placedDecor.empty())
+    // Remove this house's decor storage entries from the account UpdateField: the placed
+    // instances by their real GUIDs, and the unplaced catalog stock by the synthetic GUIDs
+    // PopulateOwnStorageEntries emitted (both must go, or the client keeps ghost copies).
+    if (_storagePopulated && _owner->GetSession())
     {
         Battlenet::Account& account = _owner->GetSession()->GetBattlenetAccount();
         for (auto const& [decorGuid, decor] : _placedDecor)
             account.RemoveHousingDecorStorageEntry(decorGuid);
+
+        std::unordered_map<uint32, uint32> placedCountByEntry;
+        for (auto const& [decorGuid, decor] : _placedDecor)
+            ++placedCountByEntry[decor.DecorEntryId];
+
+        uint64 const catalogGuidBase = _ownerGuid.GetCounter() * STORAGE_GUID_OWNER_SCALE;
+        for (auto const& [entryId, entry] : _catalog)
+        {
+            uint32 const placedOfType = placedCountByEntry.count(entryId) ? placedCountByEntry[entryId] : 0;
+            for (uint32 i = 0; i < entry.Count + placedOfType; ++i)
+            {
+                ObjectGuid catalogDecorGuid = ObjectGuid::Create<HighGuid::Housing>(
+                    /*subType*/ 1,
+                    /*arg1*/ sRealmList->GetCurrentRealmId().Realm,
+                    /*arg2*/ entryId,
+                    catalogGuidBase + uint64(entryId) * STORAGE_GUID_ENTRY_SCALE + i);
+                if (!_placedDecor.contains(catalogDecorGuid))
+                    account.RemoveHousingDecorStorageEntry(catalogDecorGuid);
+            }
+        }
     }
 
     _houseGuid.Clear();
@@ -1280,8 +1338,7 @@ HousingResult Housing::MoveDecor(ObjectGuid decorGuid, float x, float y, float z
     return HOUSING_RESULT_SUCCESS;
 }
 
-HousingResult Housing::RemoveDecor(ObjectGuid decorGuid,
-    std::vector<std::pair<ObjectGuid, std::pair<uint8, std::string>>>* removedChildren /*= nullptr*/)
+HousingResult Housing::RemoveDecor(ObjectGuid decorGuid, std::vector<RemovedDecor>* removedChildren /*= nullptr*/)
 {
     if (_houseGuid.IsEmpty())
         return HOUSING_RESULT_HOUSE_NOT_FOUND;
@@ -1383,7 +1440,13 @@ HousingResult Housing::RemoveDecor(ObjectGuid decorGuid,
         sScriptMgr->OnPlayerHousingDecorRemove(_owner, childEntryId);
 
         if (removedChildren)
-            removedChildren->emplace_back(childGuid, std::pair<uint8, std::string>(childSourceType, childSourceValue));
+        {
+            RemovedDecor& removed = removedChildren->emplace_back();
+            removed.Guid = childGuid;
+            removed.DecorEntryId = childEntryId;
+            removed.SourceType = childSourceType;
+            removed.SourceValue = childSourceValue;
+        }
     }
 
     // Immediate persist for crash safety
@@ -1581,13 +1644,13 @@ HousingResult Housing::PlaceRoom(uint32 roomEntryId, uint32 slotIndex, uint32 or
     if (_rooms.empty() && !roomData->IsBaseRoom())
         return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-    // Only one base room allowed
+    // Base floor plans are one-per-kind: the entry hall and the base layout coexist in a
+    // starter, but the same plan cannot be placed twice.
     if (roomData->IsBaseRoom())
     {
         for (auto const& [guid, existingRoom] : _rooms)
         {
-            HouseRoomData const* existingData = sHousingMgr.GetHouseRoomData(existingRoom.RoomEntryId);
-            if (existingData && existingData->IsBaseRoom())
+            if (existingRoom.RoomEntryId == roomEntryId)
                 return HOUSING_RESULT_ROOM_UPDATE_FAILED;
         }
     }
@@ -1649,9 +1712,9 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
     if (itr == _rooms.end())
         return HOUSING_RESULT_ROOM_NOT_FOUND;
 
-    // Can't remove the base room
-    HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(itr->second.RoomEntryId);
-    if (roomData && roomData->IsBaseRoom())
+    // The entry hall anchors the front door and the interior entry point; every other room -
+    // the base layout included - is deletable through the layout editor.
+    if (itr->second.RoomEntryId == sHousingMgr.GetEntryHallRoomEntryId())
         return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
     // Can't remove the last room
@@ -1662,11 +1725,19 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
     if (!IsRoomGraphConnectedWithout(roomGuid))
         return HOUSING_RESULT_ROOM_UPDATE_FAILED;
 
-    // Auto-remove any placed decor in this room (return to catalog)
+    // Auto-remove any placed decor in this room (return to catalog); the front door is exempt -
+    // it re-anchors to the nearest surviving room instead of dropping to storage, so a rebuilt
+    // room lands on the same wall spot and the door is still standing.
+    std::vector<ObjectGuid> doorGuids;
     std::vector<ObjectGuid> decorToRemove;
     for (auto const& [guid, decor] : _placedDecor)
     {
-        if (decor.RoomGuid == roomGuid)
+        if (decor.RoomGuid != roomGuid)
+            continue;
+
+        if (IsStarterDoorDecor(decor.DecorEntryId))
+            doorGuids.push_back(guid);
+        else
             decorToRemove.push_back(guid);
     }
     for (ObjectGuid const& decorGuid : decorToRemove)
@@ -1682,6 +1753,34 @@ HousingResult Housing::RemoveRoom(ObjectGuid roomGuid)
         _roomWeightUsed = 0;
 
     _rooms.erase(itr);
+
+    // The door keeps its world position; only its owning room moves to whatever still stands
+    // closest to it.
+    if (NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID))
+        for (ObjectGuid const& doorGuid : doorGuids)
+        {
+            auto doorItr = _placedDecor.find(doorGuid);
+            if (doorItr == _placedDecor.end())
+                continue;
+
+            Room const* nearest = nullptr;
+            float nearestSq = 0.0f;
+            for (auto const& [survivingGuid, room] : _rooms)
+            {
+                float const distSq = (doorItr->second.PosX - (interior->Origin[0] + float(room.GridX)))
+                    * (doorItr->second.PosX - (interior->Origin[0] + float(room.GridX)))
+                    + (doorItr->second.PosY - (interior->Origin[1] + float(room.GridY)))
+                    * (doorItr->second.PosY - (interior->Origin[1] + float(room.GridY)));
+                if (!nearest || distSq < nearestSq)
+                {
+                    nearest = &room;
+                    nearestSq = distSq;
+                }
+            }
+
+            if (nearest)
+                doorItr->second.RoomGuid = nearest->Guid;
+        }
 
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
@@ -2355,6 +2454,16 @@ ObjectGuid Housing::FindBaseRoomGuid() const
         if (roomData && roomData->IsBaseRoom())
             return guid;
     }
+
+    return ObjectGuid::Empty;
+}
+
+ObjectGuid Housing::GetEntryHallRoomGuid() const
+{
+    uint32 const entryHallEntry = sHousingMgr.GetEntryHallRoomEntryId();
+    for (auto const& [guid, room] : _rooms)
+        if (room.RoomEntryId == entryHallEntry)
+            return guid;
 
     return ObjectGuid::Empty;
 }
@@ -3040,6 +3149,21 @@ HousingResult Housing::RemoveFromCatalog(uint32 decorEntryId)
     return HOUSING_RESULT_SUCCESS;
 }
 
+void Housing::ReturnStorageEntryToAccount(uint32 decorEntryId, uint8 sourceType, std::string const& sourceValue)
+{
+    if (!_owner || !_owner->GetSession())
+        return;
+
+    // The catalog copy already exists (the refund incremented it); only its storage
+    // representation is minted here, inside the owner's synthetic GUID band.
+    HousingResult mintResult = HOUSING_RESULT_SUCCESS;
+    ObjectGuid stockGuid = MintStorageDecorInstance(decorEntryId, mintResult);
+    if (mintResult != HOUSING_RESULT_SUCCESS)
+        return;
+
+    _owner->GetSession()->GetBattlenetAccount().SetHousingDecorStorageEntry(stockGuid, ObjectGuid::Empty, sourceType, sourceValue);
+}
+
 ObjectGuid Housing::MintStorageDecorInstance(uint32 decorEntryId, HousingResult& result)
 {
     result = HOUSING_RESULT_SUCCESS;
@@ -3072,7 +3196,11 @@ ObjectGuid Housing::MintStorageDecorInstance(uint32 decorEntryId, HousingResult&
             /*arg2*/ decorEntryId,
             catalogGuidBase + uint64(decorEntryId) * STORAGE_GUID_ENTRY_SCALE + i);
         if (!_placedDecor.contains(candidate))
+        {
+            TC_LOG_ERROR("housing", "[StorageFlow] mint: housing {} owner {} entry {} -> guid {} (Count={} placed={})",
+                (void*)this, _ownerGuid.ToString(), decorEntryId, candidate.ToString(), itr->second.Count, placedOfType);
             return candidate;
+        }
     }
 
     // Unreachable when Count > placedOfType, kept as a safe fallback.
@@ -3420,12 +3548,6 @@ Housing::PlacedDecor const* Housing::EnsureStarterDoorPlaced()
         if (IsStarterDoorDecor(decor.DecorEntryId))
             return nullptr;
 
-    // The owner withdrew the door to storage on purpose - a relog must not re-place it
-    // (the withdrawn copy stayed in storage while a second door spawned at the default wall: a dupe).
-    for (auto const& [entryId, entry] : _catalog)
-        if (IsStarterDoorDecor(entryId))
-            return nullptr;
-
     uint32 const doorDecorId = GetNeighborhoodFaction() == NEIGHBORHOOD_FACTION_HORDE
         ? STARTER_DOOR_DECOR_ID_HORDE : STARTER_DOOR_DECOR_ID_ALLIANCE;
 
@@ -3456,17 +3578,32 @@ Housing::PlacedDecor const* Housing::EnsureStarterDoorPlaced()
     float const wy = roomPos.GetPositionY() + sinY * -2.52f + cosY * 0.006f;
     float const wz = roomPos.GetPositionZ() + 0.02f;
 
-    // A granted copy PlaceDecor can consume; on failure the grant never happened.
-    CatalogEntry& grant = _catalog[doorDecorId];
-    grant.DecorEntryId = doorDecorId;
-    grant.Count = 1;
-    grant.SourceType = DECOR_SOURCE_DEFERRED; // mirrors the loader's starter catalog fixup
-
-    if (PlaceDecor(doorDecorId, wx, wy, wz, 0.0f, 0.0f, 0.0f, 1.0f, entryRoom->Guid) != HOUSING_RESULT_SUCCESS)
+    // The loader's starter catalog fixup seeds the door into storage before the first interior
+    // entry; the placement consumes that copy instead of letting it sit there. A grant happens
+    // only when storage holds none, and is rolled back when the placement fails.
+    bool const grantedCopy = !_catalog.contains(doorDecorId);
+    if (grantedCopy)
     {
-        _catalog.erase(doorDecorId);
-        TC_LOG_ERROR("housing", "StarterDoor: failed to place decor {} for house {}",
-            doorDecorId, _houseGuid.ToString());
+        CatalogEntry& grant = _catalog[doorDecorId];
+        grant.DecorEntryId = doorDecorId;
+        grant.Count = 1;
+        grant.SourceType = DECOR_SOURCE_DEFERRED; // mirrors the loader's starter catalog fixup
+    }
+
+    // Mint reuses the synthetic GUID the catalog entry was emitted under; a freshly generated
+    // GUID would strand the storage entry in the client's Decor map as a ghost copy forever.
+    HousingResult placementResult = HOUSING_RESULT_SUCCESS;
+    ObjectGuid doorInstanceGuid = MintStorageDecorInstance(doorDecorId, placementResult);
+    if (placementResult == HOUSING_RESULT_SUCCESS)
+        placementResult = PlaceDecorWithGuid(doorInstanceGuid, doorDecorId, wx, wy, wz, 0.0f, 0.0f, 0.0f, 1.0f,
+            entryRoom->Guid, GetDecorInitialScale(doorDecorId));
+
+    if (placementResult != HOUSING_RESULT_SUCCESS)
+    {
+        if (grantedCopy)
+            _catalog.erase(doorDecorId);
+        TC_LOG_ERROR("housing", "StarterDoor: failed to place decor {} for house {} (result={})",
+            doorDecorId, _houseGuid.ToString(), placementResult);
         return nullptr;
     }
 
@@ -3547,10 +3684,26 @@ void Housing::PopulateCatalogStorageEntries()
     if (!_owner)
         return;
 
-    PopulateOwnStorageEntries();
+    Battlenet::Account* account = _owner->GetSession() ? &_owner->GetSession()->GetBattlenetAccount() : nullptr;
+    if (!account)
+        return;
+
+    // Converge, not accumulate: drop every unplaced (HouseGUID-empty) stock entry first - stale
+    // keys from migrated ownership bands, undelivered deletions or split housing objects would
+    // otherwise pile up on the client - then re-emit the authoritative catalog from scratch.
+    for (auto const& [decorGuid, houseGuid] : account->GetHousingDecorStorageEntries())
+        if (houseGuid.IsEmpty())
+            account->RemoveHousingDecorStorageEntry(decorGuid);
+
     for (Housing const* accountHousing : _owner->GetAllHousings())
-        if (accountHousing != this)
-            const_cast<Housing*>(accountHousing)->PopulateOwnStorageEntries();
+        const_cast<Housing*>(accountHousing)->ResetStoragePopulated();
+
+    PopulateOwnStorageEntries();
+
+    // Ordering matters: the changes above only mark the update field, and any other
+    // ClearUpdateMask() before the next flush would silently drop them - push the
+    // reconciled snapshot out right now.
+    account->SendUpdateToPlayer(_owner);
 }
 
 void Housing::PopulateOwnStorageEntries()
@@ -3680,6 +3833,9 @@ HousingResult Housing::ChangeOwner(ObjectGuid newOwnerGuid)
     CharacterDatabase.CommitTransaction(trans);
 
     _ownerGuid = newOwnerGuid;
+    // The storage stock keys live in the owner's synthetic band; the rekey moved the band.
+    // Re-emit under the new band on the next populate (its reconcile drops the old band's keys).
+    _storagePopulated = false;
     SyncUpdateFields();
     return HOUSING_RESULT_SUCCESS;
 }
@@ -4013,6 +4169,75 @@ void Housing::PopulateStarterFixtures()
     }
 }
 
+void Housing::PopulateStarterDecor()
+{
+    if (STARTER_DECOR_SET.empty())
+        return;
+
+    // Starter decor hangs on the entry hall - the anchor room of every starter layout.
+    Room const* entryRoom = GetRoom(GetEntryHallRoomGuid());
+    NeighborhoodMapData const* interior = sHousingMgr.GetNeighborhoodMapDataForWorldMap(HOUSE_INTERIOR_MAP_ID);
+    if (!entryRoom || !interior)
+    {
+        TC_LOG_ERROR("housing", "Housing::PopulateStarterDecor: entry hall or interior map data missing for house {} - skipping",
+            _houseGuid.ToString());
+        return;
+    }
+
+    // Same room positioning as HouseInteriorMap::GetRoomWorldPosition.
+    float const roomX = interior->Origin[0] + float(entryRoom->GridX);
+    float const roomY = interior->Origin[1] + float(entryRoom->GridY);
+    float const roomZ = interior->Origin[2] + float(entryRoom->FloorIndex) * HOUSE_INTERIOR_FLOOR_HEIGHT;
+    float const roomYaw = float(entryRoom->Orientation) * float(M_PI / 2.0);
+    float const cosY = std::cos(roomYaw);
+    float const sinY = std::sin(roomYaw);
+
+    int32 const faction = GetNeighborhoodFaction();
+
+    // The purchase flow already put the StartingQuantity stock into the catalog (NeighborhoodHandler
+    // buy, DECOR_SOURCE_DEFERRED); this only auto-places the entry-hall subset from it, leftovers
+    // stay in the chest, redeemable. Entries with no StartingQuantity (crates/boxes 1994/2549) are
+    // granted one copy on placement miss, so they join the collection like the rest of the set.
+    uint32 placed = 0;
+    for (StarterDecorPlacement const& starter : STARTER_DECOR_SET)
+    {
+        if (starter.Faction != NEIGHBORHOOD_FACTION_NONE && starter.Faction != faction)
+            continue;
+
+        if (!sHousingMgr.GetHouseDecorData(starter.DecorEntry))
+        {
+            TC_LOG_ERROR("housing", "Housing::PopulateStarterDecor: unknown starter decor entry {} for house {}",
+                starter.DecorEntry, _houseGuid.ToString());
+            continue;
+        }
+
+        float const worldX = roomX + starter.OffsetX * cosY - starter.OffsetY * sinY;
+        float const worldY = roomY + starter.OffsetX * sinY + starter.OffsetY * cosY;
+        float const worldZ = roomZ + starter.OffsetZ;
+
+        // Yaw-only quaternion: z = sin(yaw/2), w = cos(yaw/2).
+        float const cz = std::cos(starter.Yaw / 2.0f);
+        float const sz = std::sin(starter.Yaw / 2.0f);
+
+        HousingResult result = PlaceDecor(starter.DecorEntry, worldX, worldY, worldZ, 0.0f, 0.0f, sz, cz, entryRoom->Guid);
+        if (result == HOUSING_RESULT_DECOR_NOT_FOUND_IN_STORAGE)
+        {
+            // Not part of the StartingQuantity grant: add one copy to the collection, then place it.
+            if (AddToCatalog(starter.DecorEntry, DECOR_SOURCE_DEFERRED) == HOUSING_RESULT_SUCCESS)
+                result = PlaceDecor(starter.DecorEntry, worldX, worldY, worldZ, 0.0f, 0.0f, sz, cz, entryRoom->Guid);
+        }
+
+        if (result == HOUSING_RESULT_SUCCESS)
+            ++placed;
+        else
+            TC_LOG_ERROR("housing", "Housing::PopulateStarterDecor: PlaceDecor FAILED for entry {} in house {} - result={} (piece stays in storage)",
+                starter.DecorEntry, _houseGuid.ToString(), result);
+    }
+
+    TC_LOG_DEBUG("housing", "Housing::PopulateStarterDecor: placed {} of {} starter pieces for house {}",
+        placed, uint32(STARTER_DECOR_SET.size()), _houseGuid.ToString());
+}
+
 Housing::Room const* Housing::GetRoom(ObjectGuid roomGuid) const
 {
     auto itr = _rooms.find(roomGuid);
@@ -4027,12 +4252,12 @@ uint32 Housing::GetNextRoomSlotIndex() const
     return nextSlot;
 }
 
-void Housing::RemoveAllNonBaseRooms()
+void Housing::RemoveAllRoomsExceptEntryHall()
 {
+    uint32 const entryHallEntry = sHousingMgr.GetEntryHallRoomEntryId();
     for (auto itr = _rooms.begin(); itr != _rooms.end();)
     {
-        HouseRoomData const* roomData = sHousingMgr.GetHouseRoomData(itr->second.RoomEntryId);
-        if (roomData && roomData->IsBaseRoom())
+        if (itr->second.RoomEntryId == entryHallEntry)
             ++itr;
         else
             itr = _rooms.erase(itr);

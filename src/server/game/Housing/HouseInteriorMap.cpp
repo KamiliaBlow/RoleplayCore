@@ -102,6 +102,47 @@ bool HouseInteriorMap::IsHouseOwnerAccount(Player const* player) const
     return player->GetGUID() == _owner || player->GetHousingByOwner(_owner) != nullptr;
 }
 
+Housing* HouseInteriorMap::FormOwnerLayout(Player* ownerPlayer)
+{
+    Housing* housing = ownerPlayer->GetHousingByOwner(_owner);
+    if (!housing && ownerPlayer->GetGUID() == _owner)
+        housing = ownerPlayer->GetHousing();
+    if (!housing)
+    {
+        TC_LOG_ERROR("housing", "HouseInteriorMap::FormOwnerLayout: no housing of owner {} on session {} - layout not formed",
+            _owner.ToString(), ownerPlayer->GetGUID().ToString());
+        return nullptr;
+    }
+
+    // Rebuild stale rooms from an earlier visit, but only while nobody is standing in them
+    // (a later rebuild would destroy entities the initial UPDATE_OBJECT just delivered).
+    if (_roomsSpawned && !HavePlayers())
+        DespawnAllRoomMeshObjects();
+
+    if (_roomsSpawned)
+        return housing; // already formed (e.g. formed at purchase, or someone is inside)
+
+    int32 faction = housing->GetNeighborhoodFaction();
+    SpawnRoomMeshObjects(housing, faction);
+    SpawnInteriorDecor(housing);
+    _roomsSpawned = true;
+
+    TC_LOG_DEBUG("housing", "HouseInteriorMap::FormOwnerLayout: formed layout for owner {} "
+        "({} rooms, {} decor) on map {} instance {}",
+        _owner.ToString(), uint32(_roomMeshObjects.size()), uint32(_decorGuidToObjGuid.size()),
+        GetId(), GetInstanceId());
+    return housing;
+}
+
+void HouseInteriorMap::ScheduleUnloadWhenEmpty()
+{
+    if (HavePlayers())
+        return;
+
+    // Same delay the normal leave path uses; entering disarms the timer, leaving re-arms it.
+    m_unloadTimer = std::max(sWorld->getIntConfig(CONFIG_INSTANCE_UNLOAD_DELAY), (uint32)MIN_UNLOAD_DELAY);
+}
+
 void HouseInteriorMap::SpawnRoomMeshObjects(Housing* housing, int32 factionRestriction)
 {
     if (!housing)
@@ -782,6 +823,13 @@ void HouseInteriorMap::DespawnAllRoomMeshObjects()
             RemoveFromMap(mesh, true);
     }
     _decorGuidToObjGuid.clear();
+    _decorAttachParentObj.clear();
+
+    // Companion pets belong to their decor and must not outlive it.
+    for (auto const& [decorGuid, petGuid] : _decorGuidToPetSummon)
+        if (Creature* pet = GetCreature(petGuid))
+            RemoveFromMap(pet, true);
+    _decorGuidToPetSummon.clear();
 
     _roomMeshObjects.clear();
     _roomsSpawned = false;
@@ -1572,15 +1620,19 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         IsHouseOwnerAccount(player), _roomsSpawned,
         GetId(), GetInstanceId(), (void*)this);
 
+    // A pending empty-instance unload (formed at purchase, never entered) dies with the entry.
+    m_unloadTimer = 0;
+
     if (IsHouseOwnerAccount(player))
         _loadingPlayer = player;
 
     // === PRE-SPAWN: populate all housing entities BEFORE Map::AddPlayerToMap so the initial
     // UPDATE_OBJECT carries full housing context (visits to offline owners spawn from PlotInfo).
-    Housing* preloadHousing = IsHouseOwnerAccount(player) ? player->GetHousingByOwner(_owner) : player->GetHousing();
-    if (!preloadHousing && player->GetGUID() == _owner)
-        preloadHousing = player->GetHousing();
-    bool visitingOfflineOwner = !_roomsSpawned && !IsHouseOwnerAccount(player);
+    Housing* preloadHousing = nullptr;
+    bool const ownerAccount = IsHouseOwnerAccount(player);
+    if (ownerAccount)
+        preloadHousing = FormOwnerLayout(player);
+    bool visitingOfflineOwner = !_roomsSpawned && !ownerAccount;
     if (visitingOfflineOwner)
     {
         for (Neighborhood* nbh : sNeighborhoodMgr.GetNeighborhoodsForPlayer(_owner))
@@ -1610,14 +1662,8 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         }
     }
 
-    bool const ownerPreSpawn = preloadHousing && IsHouseOwnerAccount(player);
-    if (ownerPreSpawn)
+    if (preloadHousing)
     {
-        // Rebuild stale rooms from an earlier visit, but only while nobody is standing in them
-        // (a later rebuild would destroy entities the initial UPDATE_OBJECT just delivered).
-        if (_roomsSpawned && !HavePlayers())
-            DespawnAllRoomMeshObjects();
-
         // Clear exterior fixture edit mode that persists across map transfer
         if (preloadHousing->GetEditorMode() != HOUSING_EDITOR_MODE_NONE)
         {
@@ -1628,15 +1674,6 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         }
 
         preloadHousing->SetInInterior(true);
-
-        // Spawn rooms + decor onto the map (before player enters)
-        if (!_roomsSpawned)
-        {
-            int32 faction = preloadHousing->GetNeighborhoodFaction();
-            SpawnRoomMeshObjects(preloadHousing, faction);
-            SpawnInteriorDecor(preloadHousing);
-            _roomsSpawned = true;
-        }
 
         // Populate the Account entity so the initial UPDATE_OBJECT includes full housing context.
         preloadHousing->PopulateCatalogStorageEntries();
@@ -1676,7 +1713,7 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
 
             // Spawn room meshes on first entry. The owner's rooms were already (re)built in the
             // pre-spawn above and delivered with the initial UPDATE_OBJECT.
-            if (IsHouseOwnerAccount(player) && !ownerPreSpawn)
+            if (IsHouseOwnerAccount(player) && !preloadHousing)
             {
                 // Force a fresh spawn on login (stale fragment formats); safe only while the arriving
                 // owner has received no entities yet - leave the rooms standing when others are present.
@@ -1807,6 +1844,32 @@ bool HouseInteriorMap::AddPlayerToMap(Player* player, bool initPlayer /*= true*/
         {
             TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: NO HOUSING for player {} - "
                 "cannot spawn rooms/decor", player->GetGUID().ToString());
+        }
+
+        // Nothing resolved for this player: no owner-account housing and no offline-owner snapshot.
+        // Never leave the player standing in an empty void - run the standard interior exit path,
+        // which sends them to the house's plot (or homebind when nothing resolves).
+        if (_roomMeshObjects.empty() && _decorGuidToObjGuid.empty())
+        {
+            std::string sessionHousingOwners;
+            for (auto const& h : player->GetAllHousings())
+                sessionHousingOwners += (sessionHousingOwners.empty() ? "" : ", ") + h->GetOwnerGuid().ToString();
+
+            TC_LOG_ERROR("housing", "HouseInteriorMap::AddPlayerToMap: nothing spawned for player {} "
+                "(map owner={}) - housing owners on session: [{}] - evicting via LeaveHouseInterior",
+                player->GetGUID().ToString(), _owner.ToString(), sessionHousingOwners.empty() ? "none" : sessionHousingOwners);
+
+            ObjectGuid const evicteeGuid = player->GetGUID();
+            player->m_Events.AddEventAtOffset([this, evicteeGuid]()
+            {
+                Player* evictee = ObjectAccessor::FindPlayer(evicteeGuid);
+                if (!evictee || evictee->GetMap() != this || evictee->IsBeingTeleported())
+                    return;
+
+                // A later entrant may have populated the interior meanwhile.
+                if (_roomMeshObjects.empty() && _decorGuidToObjGuid.empty())
+                    evictee->GetSession()->LeaveHouseInterior();
+            }, Seconds(1));
         }
 
         // Toggle WS[30906]=1 for EVERYONE entering (a houseless visitor needs it too), synchronously.

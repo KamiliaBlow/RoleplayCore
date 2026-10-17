@@ -903,9 +903,11 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
     if (CoversInterior(blueprint.Type))
     {
         TakeDecorOut(housing, /*exterior*/ false, pool, result);
-        housing->RemoveAllNonBaseRooms();
+        housing->RemoveAllRoomsExceptEntryHall();
 
-        ObjectGuid const baseRoomGuid = housing->GetBaseRoomGuid();
+        // The entry hall is the undeletable anchor the blueprint's own entry hall maps onto;
+        // every other room - the base layout included - places as a normal room.
+        ObjectGuid const entryHallGuid = housing->GetEntryHallRoomGuid();
         uint32 slot = housing->GetNextRoomSlotIndex();
         for (size_t i = 0; i < content.Rooms.size(); ++i)
         {
@@ -915,8 +917,8 @@ HousingResult HousingBlueprintMgr::ApplyLayout(Player* player, Housing* housing,
                 continue;
 
             ObjectGuid roomGuid;
-            if (roomData->IsBaseRoom())
-                roomGuid = baseRoomGuid;
+            if (room.RoomEntryId == sHousingMgr.GetEntryHallRoomEntryId() && !entryHallGuid.IsEmpty())
+                roomGuid = entryHallGuid;
             else if (housing->PlaceRoom(room.RoomEntryId, slot++, room.Orientation, room.Mirrored, &roomGuid, room.GridX, room.GridY,
                 room.FloorIndex) != HOUSING_RESULT_SUCCESS)
                 continue;

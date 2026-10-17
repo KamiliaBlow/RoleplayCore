@@ -87,7 +87,7 @@ void HousingDecorLock::Read()
     _worldPacket >> Bits<1>(Field_49);
 }
 
-void HousingDecorSetPet::Read()
+void HousingDecorSetBattlePet::Read()
 {
     _worldPacket >> DecorGuid;
     _worldPacket >> PetGuid;
@@ -620,7 +620,7 @@ WorldPacket const* HousingRoomSetComponentThemeResponse::Write()
 
 WorldPacket const* HousingRoomApplyComponentMaterialsResponse::Write()
 {
-    // ColorOverride is NOT echoed in the response — only TextureID.
+    // ColorOverride is NOT echoed in the response - only TextureID.
     _worldPacket << RoomGuid;
     _worldPacket << uint32(OptionIDs.size());
     _worldPacket << uint32(RoomComponentTextureID);

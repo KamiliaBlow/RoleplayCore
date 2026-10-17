@@ -24,6 +24,7 @@
 #include "Housing.h"
 #include "HousingDefines.h"
 #include "HousingMap.h"
+#include "HouseInteriorMap.h"
 #include "HousingMgr.h"
 #include "HousingNeighborhoodMirrorEntity.h"
 #include "HousingPackets.h"
@@ -1160,6 +1161,23 @@ void WorldSession::HandleNeighborhoodBuyHouse(WorldPackets::Neighborhood::Neighb
             }
             // No auto-placement; the set stays in storage for the player to place.
         }
+
+        // 1a-2. Auto-place the entry-hall starter subset FROM the stock granted above (consumes
+        // catalog copies; leftovers stay redeemable). Runs here, not in Housing::Create - the
+        // stock only exists after the grant. Tutorial removal quests need something placed.
+        if (housing)
+            housing->PopulateStarterDecor();
+
+        // 1a-3. Form the interior at purchase: create the interior instance and spawn the whole
+        // layout immediately, so the first entry walks into an already-built house. An idle formed
+        // instance unloads on the standard empty-instance delay and re-forms on the next entry.
+        if (housing)
+            if (Map* interiorMap = sMapMgr->CreateMap(HOUSE_INTERIOR_MAP_ID, player))
+                if (HouseInteriorMap* houseInterior = dynamic_cast<HouseInteriorMap*>(interiorMap))
+                {
+                    houseInterior->FormOwnerLayout(player);
+                    houseInterior->ScheduleUnloadWhenEmpty();
+                }
 
         // 1b. No FirstTimeDecorAcquisition - it would double-count the chest UI and dupe the starter set via REDEEM.
         // 2. Build buy response with HouseInfo

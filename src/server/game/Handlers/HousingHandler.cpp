@@ -202,6 +202,10 @@ namespace
                                     .Location = WorldLocation(worldMapId, exitPlot->TeleportPosition[0], exitPlot->TeleportPosition[1],
                                         exitPlot->TeleportPosition[2], exitPlot->TeleportFacing),
                                     .InstanceId = neighborhoodInstance });
+
+                        // The interior instance outlives the destroyed house (a re-buy lands on the same
+                        // owner-keyed instance id); strip its visuals or the next owner walks into this layout.
+                        interiorMap->DespawnAllRoomMeshObjects();
                     }
                 }
             }
@@ -978,6 +982,9 @@ void WorldSession::HandleHousingDecorPlace(WorldPackets::Housing::HousingDecorPl
         posX, posY, posZ, rotX, rotY, rotZ, rotW, roomGuid, housingDecorPlace.Scale,
         DecorStackParentFrom(housingDecorPlace.AttachParentGuid));
 
+    TC_LOG_ERROR("housing", "[StorageFlow] place: player {} entry {} guid {} -> result {}",
+        player->GetGUID().ToString(), decorEntryId, housingDecorPlace.DecorGuid.ToString(), result);
+
     // Response must precede the MeshObject CREATE or the preview snaps to camera.
     WorldPackets::Housing::HousingDecorPlaceResponse response;
     response.PlayerGuid = player->GetGUID();
@@ -1156,13 +1163,15 @@ void WorldSession::HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorR
     ObjectGuid decorGuid = housingDecorRemove.DecorGuid;
     uint8 removedSourceType = DECOR_SOURCE_STANDARD;
     std::string removedSourceValue;
+    uint32 removedEntryId = 0;
     if (auto const* placedDecor = housing->GetPlacedDecor(decorGuid))
     {
         removedSourceType = placedDecor->SourceType;
         removedSourceValue = placedDecor->SourceValue;
+        removedEntryId = placedDecor->DecorEntryId;
     }
 
-    std::vector<std::pair<ObjectGuid, std::pair<uint8, std::string>>> removedChildren;
+    std::vector<Housing::RemovedDecor> removedChildren;
     HousingResult result = housing->RemoveDecor(decorGuid, &removedChildren);
 
     // Despawn the decor GO from the map and update Account entity
@@ -1172,21 +1181,25 @@ void WorldSession::HandleHousingDecorRemove(WorldPackets::Housing::HousingDecorR
         if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
         {
             housingMap->DespawnDecorItem(plotIndex, decorGuid);
-            for (auto const& [childGuid, source] : removedChildren)
-                housingMap->DespawnDecorItem(plotIndex, childGuid);
+            for (auto const& child : removedChildren)
+                housingMap->DespawnDecorItem(plotIndex, child.Guid);
         }
         else if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
         {
             interiorMap->DespawnDecorItem(decorGuid);
-            for (auto const& [childGuid, source] : removedChildren)
-                interiorMap->DespawnDecorItem(childGuid);
+            for (auto const& child : removedChildren)
+                interiorMap->DespawnDecorItem(child.Guid);
         }
 
-        // RemoveDecor deletes the storage entry; re-add with HouseGUID=Empty to return it to storage.
+        // RemoveDecor already dropped the placed entries; the refunded copies re-enter storage
+        // under synthetic GUIDs of the owner's band - real-GUID entries would never be consumed
+        // again and haunt the chest as unplaceable ghosts.
         Battlenet::Account& account = GetBattlenetAccount();
-        account.SetHousingDecorStorageEntry(decorGuid, ObjectGuid::Empty, removedSourceType, removedSourceValue);
-        for (auto const& [childGuid, source] : removedChildren)
-            account.SetHousingDecorStorageEntry(childGuid, ObjectGuid::Empty, source.first, source.second);
+
+        if (removedEntryId)
+            housing->ReturnStorageEntryToAccount(removedEntryId, removedSourceType, removedSourceValue);
+        for (auto const& child : removedChildren)
+            housing->ReturnStorageEntryToAccount(child.DecorEntryId, child.SourceType, child.SourceValue);
         account.SendUpdateToPlayer(player);
     }
 
@@ -1498,6 +1511,8 @@ void WorldSession::HandleHousingDecorRedeemDeferredDecor(WorldPackets::Housing::
     response.DecorGuid = decorGuid;
     response.Result = 0;
     response.SequenceIndex = sequenceIndex;
+    TC_LOG_ERROR("housing", "[StorageFlow] redeem: player {} entry {} seq {} -> guid {}",
+        player->GetGUID().ToString(), decorEntryId, sequenceIndex, decorGuid.ToString());
     SendPacket(response.Write());
 }
 
@@ -2538,11 +2553,12 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
         return;
     }
 
-    // Collect info BEFORE RemoveRoom erases data
+    // Collect info BEFORE RemoveRoom erases data; the front door is skipped - RemoveRoom
+    // re-anchors it to a surviving room and its spawned GameObject must stay in the world.
     std::vector<ObjectGuid> roomDecorGuids;
     for (auto const* decor : housing->GetAllPlacedDecor())
     {
-        if (decor && decor->RoomGuid == housingRoomRemove.RoomGuid)
+        if (decor && decor->RoomGuid == housingRoomRemove.RoomGuid && !IsStarterDoorDecor(decor->DecorEntryId))
             roomDecorGuids.push_back(decor->Guid);
     }
 
@@ -2565,7 +2581,7 @@ void WorldSession::HandleHousingRoomRemove(WorldPackets::Housing::HousingRoomRem
             removedCells.push_back({ half->GridX, half->GridY, half->FloorIndex });
             if (half->Guid != housingRoomRemove.RoomGuid)
                 for (auto const* decor : housing->GetAllPlacedDecor())
-                    if (decor && decor->RoomGuid == half->Guid)
+                    if (decor && decor->RoomGuid == half->Guid && !IsStarterDoorDecor(decor->DecorEntryId))
                         roomDecorGuids.push_back(decor->Guid);
         }
     }
@@ -4499,7 +4515,7 @@ void WorldSession::HandleHousingResetHouse(WorldPackets::Housing::HousingResetHo
 }
 
 // Binds (or clears) a battle pet on a placed decor slot; acknowledged via the account decor storage entity.
-void WorldSession::HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorSetPet const& housingDecorSetPet)
+void WorldSession::HandleHousingDecorSetBattlePet(WorldPackets::Housing::HousingDecorSetBattlePet const& housingDecorSetBattlePet)
 {
     Player* player = GetPlayer();
     if (!player)
@@ -4514,11 +4530,11 @@ void WorldSession::HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorS
         return;
 
     // The target decor instance must exist in this house.
-    if (!housing->GetPlacedDecor(housingDecorSetPet.DecorGuid))
+    if (!housing->GetPlacedDecor(housingDecorSetBattlePet.DecorGuid))
         return;
 
     // When binding a pet (non-empty GUID), it must belong to this player's battle-pet journal.
-    ObjectGuid petGuid = housingDecorSetPet.PetGuid;
+    ObjectGuid petGuid = housingDecorSetBattlePet.PetGuid;
     if (!petGuid.IsEmpty())
     {
         BattlePets::BattlePetMgr* petMgr = GetBattlePetMgr();
@@ -4528,7 +4544,7 @@ void WorldSession::HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorS
         }
     }
 
-    HousingResult result = housing->SetDecorPet(housingDecorSetPet.DecorGuid, petGuid, housingDecorSetPet.Flag);
+    HousingResult result = housing->SetDecorPet(housingDecorSetBattlePet.DecorGuid, petGuid, housingDecorSetBattlePet.Flag);
     if (result == HOUSING_RESULT_SUCCESS)
     {
         // The binding lives in FHousingDecor_C.PetInfo of the decor's visual object.
@@ -4544,9 +4560,9 @@ void WorldSession::HandleHousingDecorSetPet(WorldPackets::Housing::HousingDecorS
             }
 
         if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(player->GetMap()))
-            interiorMap->UpdateDecorPet(housingDecorSetPet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetPet.Flag);
+            interiorMap->UpdateDecorPet(housingDecorSetBattlePet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetBattlePet.Flag);
         else if (HousingMap* housingMap = dynamic_cast<HousingMap*>(player->GetMap()))
-            housingMap->UpdateDecorPet(housingDecorSetPet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetPet.Flag);
+            housingMap->UpdateDecorPet(housingDecorSetBattlePet.DecorGuid, battlePetGuid, creatureId, petName, housingDecorSetBattlePet.Flag);
 
         GetBattlenetAccount().SendUpdateToPlayer(player);
     }

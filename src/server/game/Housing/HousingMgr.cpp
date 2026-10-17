@@ -21,9 +21,12 @@
 #include "DB2Stores.h"
 #include "DB2Structure.h"
 #include "GameObjectData.h"
+#include "HouseInteriorMap.h"
 #include "Housing.h"
 #include "HousingDefines.h"
+#include "HousingMap.h"
 #include "Log.h"
+#include "MapManager.h"
 #include "Neighborhood.h"
 #include "NeighborhoodMgr.h"
 #include "ObjectAccessor.h"
@@ -44,6 +47,44 @@
 namespace
 {
     char const* SafeStr(char const* str) { return str ? str : ""; }
+
+    // The heir is the last-played surviving character of the account on this realm whose faction
+    // matches the neighborhood; candidates already owning a house in the same neighborhood are
+    // skipped (an account holds one house per neighborhood).
+    ObjectGuid FindAccountHouseHeir(ObjectGuid deceasedGuid, uint32 accountId, uint64 neighborhoodCounter, int32 houseFaction)
+    {
+        CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ACTIVE_CHARS_BY_ACCOUNT);
+        stmt->setUInt32(0, accountId);
+        PreparedQueryResult result = CharacterDatabase.Query(stmt);
+        if (!result)
+            return ObjectGuid::Empty;
+
+        do
+        {
+            Field* fields = result->Fetch();
+            ObjectGuid const candidate = ObjectGuid::Create<HighGuid::Player>(fields[0].GetUInt64());
+            if (candidate == deceasedGuid)
+                continue;
+
+            if (houseFaction != NEIGHBORHOOD_FACTION_NONE)
+            {
+                int32 const teamFaction = Player::TeamIdForRace(fields[1].GetUInt8()) == TEAM_HORDE
+                    ? NEIGHBORHOOD_FACTION_HORDE : NEIGHBORHOOD_FACTION_ALLIANCE;
+                if (teamFaction != houseFaction)
+                    continue;
+            }
+
+            CharacterDatabasePreparedStatement* houseStmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING);
+            houseStmt->setUInt64(0, candidate.GetCounter());
+            if (PreparedQueryResult house = CharacterDatabase.Query(houseStmt))
+                if ((*house)[1].GetUInt64() == neighborhoodCounter)
+                    continue;
+
+            return candidate;
+        } while (result->NextRow());
+
+        return ObjectGuid::Empty;
+    }
 }
 
 HousingMgr::HousingMgr() = default;
@@ -84,31 +125,38 @@ void HousingMgr::Initialize()
     // Must run before any Housing objects are loaded to prevent cross-player ID collisions.
     Housing::InitializeDbIdGenerators();
 
-    // Base room entry: the first DB2 room with the BASE_ROOM flag (exterior geobox).
-    for (auto const& [id, roomData] : _houseRoomStore)
-    {
-        if (roomData.IsBaseRoom())
+    // 12.1 has exactly two BASE_ROOM floor plans: the entry hall ("Вход") and the base layout
+    // ("Базовая планировка (сред.)"). Pick them by their known ids so store iteration order
+    // cannot swap the roles; fall back to flag scans for any future data shape.
+    if (_houseRoomStore.contains(BASE_LAYOUT_ROOM_ENTRY))
+        _baseRoomEntryId = BASE_LAYOUT_ROOM_ENTRY;
+    else
+        for (auto const& [id, roomData] : _houseRoomStore)
         {
-            _baseRoomEntryId = id;
-            break;
+            if (roomData.IsBaseRoom())
+            {
+                _baseRoomEntryId = id;
+                break;
+            }
         }
-    }
     if (!_baseRoomEntryId)
     {
-        _baseRoomEntryId = 18; // fallback
+        _baseRoomEntryId = BASE_LAYOUT_ROOM_ENTRY;
         TC_LOG_WARN("housing", "HousingMgr::Initialize: No room with BASE_ROOM flag found, "
-            "falling back to entry 18");
+            "falling back to entry {}", BASE_LAYOUT_ROOM_ENTRY);
     }
 
-    // Interior entry hall: the second DB2 BASE_ROOM (the first is the exterior geobox).
-    for (auto const& [id, roomData] : _houseRoomStore)
-    {
-        if (roomData.IsBaseRoom() && id != _baseRoomEntryId)
+    if (_houseRoomStore.contains(ENTRY_HALL_ROOM_ENTRY) && ENTRY_HALL_ROOM_ENTRY != _baseRoomEntryId)
+        _entryHallRoomEntryId = ENTRY_HALL_ROOM_ENTRY;
+    else
+        for (auto const& [id, roomData] : _houseRoomStore)
         {
-            _entryHallRoomEntryId = id;
-            break;
+            if (roomData.IsBaseRoom() && id != _baseRoomEntryId)
+            {
+                _entryHallRoomEntryId = id;
+                break;
+            }
         }
-    }
     if (!_entryHallRoomEntryId)
     {
         _entryHallRoomEntryId = _baseRoomEntryId;
@@ -477,6 +525,130 @@ uint32 HousingMgr::GetWorldMapIdByNeighborhoodMapId(uint32 neighborhoodMapId) co
             return static_cast<uint32>(worldMapId);
     }
     return 0;
+}
+
+bool HousingMgr::DeleteHouseForOwner(ObjectGuid ownerGuid)
+{
+    // An online owner tears the house down through their own session-aware flow
+    // (DestroyPlayerHousing); this path serves characters that are already gone.
+    if (ObjectAccessor::FindConnectedPlayer(ownerGuid))
+        return false;
+
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOUSING);
+    stmt->setUInt64(0, ownerGuid.GetCounter());
+    PreparedQueryResult result = CharacterDatabase.Query(stmt);
+    if (!result)
+        return false;
+
+    Field* fields = result->Fetch();
+    Neighborhood* neighborhood = sNeighborhoodMgr.GetNeighborhoodByCounter(fields[1].GetUInt64());
+    uint8 const plotIndex = fields[2].GetUInt8();
+
+    // The house belongs to the whole Battle.net account (its GUID is built from the account id),
+    // so the deletion of one character hands it to a surviving same-faction sibling.
+    if (CharacterCacheEntry const* characterInfo = sCharacterCache->GetCharacterCacheByGuid(ownerGuid))
+    {
+        ObjectGuid const heirGuid = FindAccountHouseHeir(ownerGuid, characterInfo->AccountId, fields[1].GetUInt64(),
+            neighborhood ? neighborhood->GetFactionRestriction() : NEIGHBORHOOD_FACTION_NONE);
+        if (!heirGuid.IsEmpty())
+        {
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            if (!neighborhood || neighborhood->TransferPlot(ownerGuid, heirGuid, trans))
+            {
+                auto rekey = [&](CharacterDatabaseStatements index)
+                {
+                    CharacterDatabasePreparedStatement* rekeyStmt = CharacterDatabase.GetPreparedStatement(index);
+                    rekeyStmt->setUInt64(0, heirGuid.GetCounter());
+                    rekeyStmt->setUInt64(1, ownerGuid.GetCounter());
+                    trans->Append(rekeyStmt);
+                };
+                rekey(CHAR_UPD_CHARACTER_HOUSING_OWNER);
+                rekey(CHAR_UPD_CHARACTER_HOUSING_DECOR_OWNER);
+                rekey(CHAR_UPD_CHARACTER_HOUSING_ROOMS_OWNER);
+                rekey(CHAR_UPD_CHARACTER_HOUSING_FIXTURES_OWNER);
+
+                // The catalog travels with the house; rows left from an earlier house of the heir would collide.
+                CharacterDatabasePreparedStatement* catalogStmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHARACTER_HOUSING_CATALOG);
+                catalogStmt->setUInt64(0, heirGuid.GetCounter());
+                trans->Append(catalogStmt);
+                rekey(CHAR_UPD_CHARACTER_HOUSING_CATALOG_OWNER);
+
+                CharacterDatabase.CommitTransaction(trans);
+                TC_LOG_INFO("housing", "DeleteHouseForOwner: house of deleted owner {} inherited by {}",
+                    ownerGuid.ToString(), heirGuid.ToString());
+                return true;
+            }
+        }
+    }
+
+    // No heir: demolish the house outright.
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    Housing::DeleteFromDB(ownerGuid.GetCounter(), trans);
+    CharacterDatabase.CommitTransaction(trans);
+    TC_LOG_INFO("housing", "DeleteHouseForOwner: removed house of owner {} (neighborhood counter {}, plot {}) - no heir on the account",
+        ownerGuid.ToString(), fields[1].GetUInt64(), plotIndex);
+
+    if (!neighborhood)
+        return true;
+
+    // Free the plot, then drop the roster row (a neighborhood founder keeps theirs - ownership
+    // transfer of the neighborhood itself is a live, player-driven decision).
+    neighborhood->ReleasePlot(ownerGuid);
+    if (!neighborhood->IsOwner(ownerGuid))
+        neighborhood->EvictPlayer(ownerGuid);
+
+    if (plotIndex == INVALID_PLOT_INDEX)
+        return true;
+
+    // Tear the plot's visuals off the neighborhood map.
+    uint32 const worldMapId = GetWorldMapIdByNeighborhoodMapId(neighborhood->GetNeighborhoodMapID());
+    uint32 const neighborhoodInstance = static_cast<uint32>(neighborhood->GetGuid().GetCounter());
+    if (HousingMap* housingMap = dynamic_cast<HousingMap*>(sMapMgr->FindMap(worldMapId, neighborhoodInstance)))
+    {
+        housingMap->DespawnAllDecorForPlot(plotIndex);
+        housingMap->DespawnAllMeshObjectsForPlot(plotIndex);
+        housingMap->DespawnRoomForPlot(plotIndex);
+        housingMap->DespawnHouseForPlot(plotIndex);
+        housingMap->SetPlotOwnershipState(plotIndex, false);
+    }
+
+    // Evacuate everyone still inside the house interior, then reset the instance so the next
+    // owner of the plot never walks into the demolished layout.
+    if (HouseInteriorMap* interiorMap = dynamic_cast<HouseInteriorMap*>(
+            sMapMgr->FindMap(HOUSE_INTERIOR_MAP_ID, ownerGuid.GetCounter())))
+    {
+        NeighborhoodPlotData const* exitPlot = nullptr;
+        for (NeighborhoodPlotData const* plotData : GetPlotsForMap(neighborhood->GetNeighborhoodMapID()))
+            if (plotData->PlotIndex == static_cast<int32>(plotIndex))
+                exitPlot = plotData;
+
+        if (exitPlot)
+        {
+            // TeleportTo with an instance id requires the destination map instance to exist.
+            if (!sMapMgr->FindOrCreateHousingMap(worldMapId, neighborhoodInstance))
+                TC_LOG_ERROR("housing", "DeleteHouseForOwner: cannot create neighborhood map {} instance {} "
+                    "to evacuate the interior of deleted owner {}", worldMapId, neighborhoodInstance, ownerGuid.ToString());
+            else
+            {
+                Map::PlayerList const& interiorPlayers = interiorMap->GetPlayers();
+                std::vector<ObjectGuid> evacuees;
+                for (MapReference const& ref : interiorPlayers)
+                    if (Player* occupant = ref.GetSource())
+                        evacuees.push_back(occupant->GetGUID());
+
+                for (ObjectGuid const& occupantGuid : evacuees)
+                    if (Player* occupant = ObjectAccessor::FindConnectedPlayer(occupantGuid))
+                        occupant->TeleportTo(TeleportLocation{
+                            .Location = WorldLocation(worldMapId, exitPlot->TeleportPosition[0], exitPlot->TeleportPosition[1],
+                                exitPlot->TeleportPosition[2], exitPlot->TeleportFacing),
+                            .InstanceId = neighborhoodInstance });
+
+                interiorMap->DespawnAllRoomMeshObjects();
+            }
+        }
+    }
+
+    return true;
 }
 
 WorldLocation HousingMgr::GetPlotTeleportLocation(uint32 worldMapId, NeighborhoodPlotData const& plot)
@@ -1556,7 +1728,13 @@ std::vector<RoomComponentOptionEntry const*> HousingMgr::FindAllRoomComponentOpt
 
 uint32 HousingMgr::GetDefaultVisualRoomEntry() const
 {
-    // Pick the lowest-ID non-base room with UNLOCKED_BY_DEFAULT + visual components (both factions use "Square Room Small").
+    // The starter's second room: the medium square room (the base layout renders broken as an
+    // interior room and stays an unsupported floor plan for now).
+    if (_houseRoomStore.contains(DEFAULT_VISUAL_ROOM_ENTRY))
+        return DEFAULT_VISUAL_ROOM_ENTRY;
+
+    // Fallback for data without that entry: lowest-ID non-base room with
+    // UNLOCKED_BY_DEFAULT + visual components.
     uint32 bestId = 0;
     uint32 fallbackId = 0;
 
