@@ -1695,6 +1695,7 @@ class TC_GAME_API Unit : public WorldObject
         void _UnregisterAreaTrigger(AreaTrigger* areaTrigger);
         AreaTrigger* GetAreaTrigger(uint32 spellId) const;
         std::vector<AreaTrigger*> GetAreaTriggers(uint32 spellId) const;
+        std::vector<AreaTrigger*> GetAreaTriggers(std::function<bool(AreaTrigger const*)> const& predicate) const;
 
         enum class AreaTriggerRemoveReason : uint8
         {

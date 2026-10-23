@@ -215,7 +215,7 @@ void HousingMap::SpawnPlotGameObjects()
         GOState plotState = isOwned ? GO_STATE_ACTIVE : GO_STATE_READY;
 
         Position pos(x, y, z, rotZ);
-        GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, 255, plotState);
+        GameObject* go = GameObject::CreateGameObject(goEntry, this, pos, rot, InitialPhaseShift(), 255, plotState);
         if (!go)
         {
             TC_LOG_ERROR("housing", "HousingMap::SpawnPlotGameObjects: Failed to create GO entry {} at ({}, {}, {}) for plot {} in neighborhood '{}'",
@@ -2320,7 +2320,7 @@ uint32 HousingMap::SpawnExtCompTree(uint8 plotIndex, uint32 extCompID,
                 _houseGameObjects.erase(existingItr);
             }
 
-            GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this, doorPos, doorRot, 255, GO_STATE_READY);
+            GameObject* doorGo = GameObject::CreateGameObject(doorGoEntry, this, doorPos, doorRot, InitialPhaseShift(), 255, GO_STATE_READY);
             if (doorGo)
             {
                 doorGo->SetFlag(GO_FLAG_NODESPAWN);
@@ -2899,7 +2899,7 @@ bool HousingMap::SpawnDecorItem(uint8 plotIndex, Housing::PlacedDecor const& dec
             Position goWorldPos(worldX, worldY, worldZ, orientation);
 
             GameObject* go = GameObject::CreateGameObject(goEntry, this, goWorldPos, rot,
-                255 /*animProgress*/, GO_STATE_READY, 0 /*artKit*/);
+                InitialPhaseShift(), 255 /*animProgress*/, GO_STATE_READY, 0 /*artKit*/);
             if (!go)
             {
                 TC_LOG_ERROR("housing", "HousingMap::SpawnDecorItem: CreateGameObject failed for decor entry={} "

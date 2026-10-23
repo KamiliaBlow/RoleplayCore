@@ -293,7 +293,7 @@ void TryLoadDB2(char const* name, DB2FileSystemSource* source, DB2FileLoader* db
     }
     catch (std::exception const& e)
     {
-        printf("Fatal error: Invalid %s file format! %s\n", name, CASC::HumanReadableCASCError(GetCascError()), e.what());
+        printf("Fatal error: Invalid %s file format! %s\n%s\n", name, CASC::HumanReadableCASCError(GetCascError()), e.what());
         exit(1);
     }
 }

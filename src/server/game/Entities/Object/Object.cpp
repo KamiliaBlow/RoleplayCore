@@ -1318,6 +1318,10 @@ TempSummon* Map::SummonCreature(uint32 entry, Position const& pos, SummonPropert
         }
     }
 
+    InitialPhaseShift phase;
+    if (summoner && !(properties && properties->GetFlags().HasFlag(SummonPropertiesFlags::IgnoreSummonerPhase)))
+        phase = summoner;
+
     Unit* summonerUnit = summoner ? summoner->ToUnit() : nullptr;
 
     TempSummon* summon = nullptr;
@@ -1340,7 +1344,7 @@ TempSummon* Map::SummonCreature(uint32 entry, Position const& pos, SummonPropert
             break;
     }
 
-    if (!summon->Create(GenerateLowGuid<HighGuid::Creature>(), this, entry, pos, nullptr, vehId, true))
+    if (!summon->Create(GenerateLowGuid<HighGuid::Creature>(), this, phase, entry, pos, nullptr, vehId, true))
     {
         delete summon;
         return nullptr;
@@ -1352,9 +1356,6 @@ TempSummon* Map::SummonCreature(uint32 entry, Position const& pos, SummonPropert
         // This object must be added to transport before adding to map for the client to properly display it
         transport->AddPassenger(summon, transport->GetPositionOffsetTo(pos));
     }
-
-    if (summoner && !(properties && properties->GetFlags().HasFlag(SummonPropertiesFlags::IgnoreSummonerPhase)))
-        PhasingHandler::InheritPhaseShift(summon, summoner);
 
     summon->SetCreatedBySpell(spellId);
 
@@ -1536,11 +1537,10 @@ GameObject* WorldObject::SummonGameObject(uint32 entry, Position const& pos, Qua
     }
 
     Map* map = GetMap();
-    GameObject* go = GameObject::CreateGameObject(entry, map, pos, rot, 255, GO_STATE_READY);
+    GameObject* go = GameObject::CreateGameObject(entry, map, pos, rot, InitialPhaseShift(this), 255, GO_STATE_READY);
     if (!go)
         return nullptr;
 
-    PhasingHandler::InheritPhaseShift(go, this);
     if (!privateObjectOwner.IsEmpty())
         go->SetPrivateObjectOwner(privateObjectOwner);
 

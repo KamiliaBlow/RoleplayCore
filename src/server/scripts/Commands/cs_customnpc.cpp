@@ -528,7 +528,7 @@ public:
             return true;
         }
 
-        Creature* creature = Creature::CreateCreature(id, map, chr->GetPosition());
+        Creature* creature = Creature::CreateCreature(id, map, chr->GetPosition(), InitialPhaseShift(chr));
         if (!creature)
         {
             handler->PSendSysMessage("Could not spawn customnpc '%s', this can happen when an unknown displayid is set.", name.c_str());
@@ -540,7 +540,6 @@ public:
         if (!variation)
             variation = 1;
 
-        PhasingHandler::InheritPhaseShift(creature, chr);
         creature->SaveToDB(map->GetId(), { map->GetDifficultyID() });
         ObjectGuid::LowType db_guid = creature->GetSpawnId();
 

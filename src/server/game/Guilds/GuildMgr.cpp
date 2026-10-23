@@ -119,8 +119,7 @@ void GuildMgr::LoadGuilds()
     TC_LOG_INFO("server.loading", "Loading guilds definitions...");
     {
         uint32 oldMSTime = getMSTime();
-
-                                                    //          0          1       2             3              4              5              6        7
+                                                     //          0          1       2             3              4              5              6        7
         QueryResult result = CharacterDatabase.Query("SELECT g.guildid, g.name, g.leaderguid, g.flags, g.EmblemStyle, g.EmblemColor, g.BorderStyle, g.BorderColor, "
             //   8                  9       10       11            12          13
             "g.BackgroundColor, g.info, g.motd, g.createdate, g.BankMoney, COUNT(gbt.guildid) "

@@ -38,7 +38,7 @@ bool CreatureOutfit::HasModelSwapCustomization()
 
         for (UF::ChrCustomizationChoice const& choice : Customizations)
             for (ChrCustomizationElementEntry const* element : sChrCustomizationElementStore)
-                if (element->ChrCustomizationChoiceID == choice.ChrCustomizationChoiceID && element->ChrCustomizationCondModelID)
+                if (element->ChrCustomizationChoiceID == static_cast<int32>(choice.ChrCustomizationChoiceID) && element->ChrCustomizationCondModelID)
                 {
                     _hasModelSwap = true;
                     return _hasModelSwap;

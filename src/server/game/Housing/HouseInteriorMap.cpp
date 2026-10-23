@@ -1080,7 +1080,7 @@ void HouseInteriorMap::SpawnInteriorDecorFromList(std::vector<Housing::PlacedDec
                 Position goWorldPos(worldX, worldY, worldZ, orientation);
 
                 GameObject* go = GameObject::CreateGameObject(goEntry, this, goWorldPos, rot,
-                    255, GO_STATE_READY, 0);
+                    InitialPhaseShift(), 255, GO_STATE_READY, 0);
                 if (go)
                 {
                     PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);
@@ -1287,7 +1287,7 @@ void HouseInteriorMap::SpawnSingleInteriorDecor(Housing::PlacedDecor const& deco
             Position goWorldPos(worldX, worldY, worldZ, orientation);
 
             GameObject* go = GameObject::CreateGameObject(goEntry, this, goWorldPos, rot,
-                255, GO_STATE_READY, 0);
+                InitialPhaseShift(), 255, GO_STATE_READY, 0);
             if (go)
             {
                 PhasingHandler::InitDbPhaseShift(go->GetPhaseShift(), PHASE_USE_FLAGS_ALWAYS_VISIBLE, 0, 0);

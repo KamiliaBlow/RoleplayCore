@@ -219,7 +219,7 @@ class TC_DATABASE_API LoginDatabaseConnection : public MySQLConnection
 public:
     typedef LoginDatabaseStatements Statements;
 
-    LoginDatabaseConnection(MySQLConnectionInfo& connInfo, ConnectionFlags connectionFlags);
+    LoginDatabaseConnection(MySQLConnectionInfo const& connInfo, ConnectionFlags connectionFlags);
     ~LoginDatabaseConnection();
 
     //- Loads database type specific prepared statements

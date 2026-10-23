@@ -8,6 +8,7 @@
 #define GLOBALMETHODS_H
 
 #include "BindingMap.h"
+#include "PhasingHandler.h"
 #include <Containers.h>
 
 /***
@@ -1802,7 +1803,7 @@ namespace LuaGlobalFunctions
             if (save)
             {
                 Creature* creature = new Creature();
-                if (!creature->CreateCreature(entry, map, pos))
+                if (!creature->CreateCreature(entry, map, pos, InitialPhaseShift()))
                 {
                     delete creature;
                     E->Push();
@@ -1868,7 +1869,7 @@ namespace LuaGlobalFunctions
             uint32 guidLow = map->GenerateLowGuid<HighGuid::GameObject>();
             QuaternionData rot = QuaternionData::fromEulerAnglesZYX(o, 0.f, 0.f);
 
-            if (!object->CreateGameObject(entry, map, Position(x, y, z, o), rot, 0, GO_STATE_READY))
+            if (!object->CreateGameObject(entry, map, Position(x, y, z, o), rot, InitialPhaseShift(), 0, GO_STATE_READY))
             {
                 delete object;
                 E->Push();

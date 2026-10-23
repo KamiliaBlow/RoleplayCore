@@ -438,11 +438,10 @@ Creature* Roleplay::CreatureCreate(Player* creator, CreatureTemplate const* crea
         }
     }
 
-    Creature* creature = Creature::CreateCreature(entryId, map, creator->GetPosition());
+    Creature* creature = Creature::CreateCreature(entryId, map, creator->GetPosition(), InitialPhaseShift(creator));
     if (!creature)
         return creature;
 
-    PhasingHandler::InheritPhaseShift(creature, creator);
     creature->SaveToDB(map->GetId(), { map->GetDifficultyID() });
 
     ObjectGuid::LowType db_guid = creature->GetSpawnId();

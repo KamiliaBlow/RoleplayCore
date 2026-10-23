@@ -84,11 +84,9 @@ enum HunterSpells
     SPELL_HUNTER_FLARE_VISUAL                       = 214000,
     SPELL_HUNTER_FOCUSED_AIM                        = 378767,
     SPELL_HUNTER_GREVIOUS_INJURY                    = 1217789,
-    SPELL_HUNTER_HIGH_EXPLOSIVE_TRAP                = 236775,
     SPELL_HUNTER_HIGH_EXPLOSIVE_TRAP_DAMAGE         = 236777,
     SPELL_HUNTER_HORSEHAIR_TETHER_TALENT            = 472729,
     SPELL_HUNTER_HORSEHAIR_TETHER_GRIP              = 472731,
-    SPELL_HUNTER_IMPLOSIVE_TRAP                     = 462032,
     SPELL_HUNTER_IMPLOSIVE_TRAP_DAMAGE              = 462033,
     SPELL_HUNTER_INTIMIDATION                       = 19577,
     SPELL_HUNTER_INTIMIDATION_MARKSMANSHIP          = 474421,
@@ -128,7 +126,6 @@ enum HunterSpells
     SPELL_HUNTER_T9_4P_GREATNESS                    = 68130,
     SPELL_HUNTER_T29_2P_MARKSMANSHIP_DAMAGE         = 394371,
     SPELL_HUNTER_TAKE_AIM                           = 1273132,
-    SPELL_HUNTER_TAR_TRAP                           = 187699,
     SPELL_HUNTER_TAR_TRAP_AREATRIGGER               = 187700,
     SPELL_HUNTER_TAR_TRAP_SLOW                      = 135299,
     SPELL_HUNTER_TENSILE_BOWSTRING                  = 471366,
@@ -322,13 +319,6 @@ class spell_hun_binding_shot : public SpellScript
 struct at_hun_binding_shot : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
-
-    void OnInitialize() override
-    {
-        if (Unit* caster = at->GetCaster())
-            for (AreaTrigger* other : caster->GetAreaTriggers(SPELL_HUNTER_BINDING_SHOT))
-                other->SetDuration(0);
-    }
 
     void OnCreate(Spell const* /*creatingSpell*/) override
     {
@@ -746,13 +736,6 @@ struct areatrigger_hun_high_explosive_trap : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
 
-    void OnInitialize() override
-    {
-        if (Unit* caster = at->GetCaster())
-            for (AreaTrigger* other : caster->GetAreaTriggers(SPELL_HUNTER_HIGH_EXPLOSIVE_TRAP))
-                other->SetDuration(0);
-    }
-
     void OnUnitEnter(Unit* unit) override
     {
         if (Unit* caster = at->GetCaster())
@@ -796,13 +779,6 @@ class spell_hun_hunting_party : public AuraScript
 struct areatrigger_hun_implosive_trap : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
-
-    void OnInitialize() override
-    {
-        if (Unit* caster = at->GetCaster())
-            for (AreaTrigger* other : caster->GetAreaTriggers(SPELL_HUNTER_IMPLOSIVE_TRAP))
-                other->SetDuration(0);
-    }
 
     void OnUnitEnter(Unit* unit) override
     {
@@ -1771,13 +1747,6 @@ struct areatrigger_hun_tar_trap : AreaTriggerAI
 struct areatrigger_hun_tar_trap_activate : AreaTriggerAI
 {
     using AreaTriggerAI::AreaTriggerAI;
-
-    void OnInitialize() override
-    {
-        if (Unit* caster = at->GetCaster())
-            for (AreaTrigger* other : caster->GetAreaTriggers(SPELL_HUNTER_TAR_TRAP))
-                other->SetDuration(0);
-    }
 
     void OnUnitEnter(Unit* unit) override
     {
