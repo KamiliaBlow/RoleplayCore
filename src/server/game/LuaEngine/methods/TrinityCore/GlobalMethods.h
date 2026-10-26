@@ -9,6 +9,7 @@
 
 #include "BindingMap.h"
 #include "PhasingHandler.h"
+#include "RpsCombatMethods.h"
 #include <Containers.h>
 
 /***
@@ -3338,6 +3339,12 @@ namespace LuaGlobalFunctions
         { "WorldDBQueryAsync", &LuaGlobalFunctions::WorldDBQueryAsync },
         { "CharDBQuery", &LuaGlobalFunctions::CharDBQuery, METHOD_REG_ALL, METHOD_FLAG_UNSAFE },
         { "CharDBExecute", &LuaGlobalFunctions::CharDBExecute },
+        { "RpsCommitAsync", &LuaGlobalFunctions::RpsCommitAsync, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
+        { "RpsQueueDiceCast", &LuaGlobalFunctions::RpsQueueDiceCast, METHOD_REG_MAP },
+        { "RpsPollDiceCasts", &LuaGlobalFunctions::RpsPollDiceCasts, METHOD_REG_WORLD },
+        { "RpsTargetContext", &LuaGlobalFunctions::RpsTargetContext, METHOD_REG_WORLD },
+        { "RpsRuntimeEpoch", &LuaGlobalFunctions::RpsRuntimeEpoch, METHOD_REG_ALL },
+        { "RpsIsDiceSpell", &LuaGlobalFunctions::RpsIsDiceSpell, METHOD_REG_ALL },
         { "CharDBQueryAsync", &LuaGlobalFunctions::CharDBQueryAsync },
         { "AuthDBQuery", &LuaGlobalFunctions::AuthDBQuery, METHOD_REG_ALL, METHOD_FLAG_UNSAFE },
         { "AuthDBExecute", &LuaGlobalFunctions::AuthDBExecute },

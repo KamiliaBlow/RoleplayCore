@@ -2049,6 +2049,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
         void SendUnlearnSpells();
         bool AddSpell(uint32 spellId, bool active, bool learning, bool dependent, bool disabled, bool loading = false, int32 fromSkill = 0, bool favorite = false, Optional<PlayerSpellTrait> trait = {});
         void LearnSpell(uint32 spell_id, bool dependent, int32 fromSkill = 0, bool suppressMessaging = false, Optional<PlayerSpellTrait> trait = {});
+        uint32 LearnSpellsSilently(std::vector<uint32> const& spellIds);
         void RemoveSpell(uint32 spell_id, bool disabled = false, bool learn_low_rank = true, bool suppressMessaging = false);
         void ResetSpells(bool myClassOnly = false);
         void LearnCustomSpells();
@@ -3500,6 +3501,7 @@ class TC_GAME_API Player final : public Unit, public GridObject<Player>
 
         PlayerMails m_mail;
         PlayerSpellMap m_spells;
+        bool m_silentSpellLearning = false;
         std::unordered_map<uint32 /*overridenSpellId*/, std::unordered_set<uint32> /*newSpellId*/> m_overrideSpells;
         std::unordered_map<uint32, StoredAuraTeleportLocation> m_storedAuraTeleportLocations;
         float m_empowerMinHoldStagePercent;

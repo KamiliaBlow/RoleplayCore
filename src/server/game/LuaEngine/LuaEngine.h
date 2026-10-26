@@ -9,6 +9,8 @@
 
 #include "Common.h"
 #include "ElunaUtility.h"
+#include "Transaction.h"
+#include "AsyncCallbackProcessor.h"
 #include "Hooks.h"
 
 #include "DBCEnums.h"
@@ -187,12 +189,14 @@ private:
     void HookPush(T const* ptr)                     { Push(ptr); ++push_counter; }
 
     QueryCallbackProcessor queryProcessor;
+    AsyncCallbackProcessor<TransactionCallback> transactionProcessor;
 public:
 
     lua_State* L;
     std::unique_ptr<EventMgr> eventMgr;
 
     QueryCallbackProcessor& GetQueryProcessor() { return queryProcessor; }
+    AsyncCallbackProcessor<TransactionCallback>& GetTransactionProcessor() { return transactionProcessor; }
 
     static int StackTrace(lua_State* _L);
     static void Report(lua_State* _L);

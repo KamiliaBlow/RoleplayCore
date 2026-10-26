@@ -3422,6 +3422,30 @@ namespace LuaPlayer
     }
 
     /**
+     * Teaches the [Player] a list of spells in one batch: no per-spell chat messages,
+     * no "added to collection" toasts and no achievement/criteria updates.
+     * Sends a single learned-spells packet and, if mounts were added, a single full mount collection update.
+     *
+     * @param table spellIds : array of spell IDs
+     * @return uint32 learnedCount
+     */
+    int LearnSpellsSilently(Eluna* E, Player* player)
+    {
+        luaL_checktype(E->L, 2, LUA_TTABLE);
+        std::vector<uint32> spellIds;
+        for (int i = 1; ; ++i)
+        {
+            lua_rawgeti(E->L, 2, i);
+            if (lua_isnil(E->L, -1)) { lua_pop(E->L, 1); break; }
+            spellIds.push_back(E->CHECKVAL<uint32>(-1));
+            lua_pop(E->L, 1);
+        }
+
+        E->Push(player->LearnSpellsSilently(spellIds));
+        return 1;
+    }
+
+    /**
      * Learn the [Player] the talent specified by talent_id and talentRank
      *
      * @param uint32 talent_id
@@ -4892,6 +4916,7 @@ namespace LuaPlayer
         { "ModifyMoney", &LuaPlayer::ModifyMoney },
         { "ModifyCurrency", &LuaPlayer::ModifyCurrency },
         { "LearnSpell", &LuaPlayer::LearnSpell },
+        { "LearnSpellsSilently", &LuaPlayer::LearnSpellsSilently },
         { "LearnTalent", &LuaPlayer::LearnTalent },
         { "RemoveArenaSpellCooldowns", &LuaPlayer::RemoveArenaSpellCooldowns },
         { "RemoveItem", &LuaPlayer::RemoveItem },

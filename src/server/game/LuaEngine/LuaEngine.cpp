@@ -39,6 +39,7 @@ void Eluna::_ReloadEluna()
 
     // Cancel all pending async queries
     GetQueryProcessor().CancelAll();
+    GetTransactionProcessor().CancelAll();
 
     // Close lua
     CloseLua();
@@ -877,13 +878,14 @@ void Eluna::UpdateEluna(uint32 diff)
 {
     if (reload && sElunaLoader->GetCacheState() == SCRIPT_CACHE_READY)
 
-        if (GetQueryProcessor().Empty())
+        if (GetQueryProcessor().Empty() && GetTransactionProcessor().Empty())
 
             _ReloadEluna();
 
     eventMgr->globalProcessor->Update(diff);
 
     GetQueryProcessor().ProcessReadyCallbacks();
+    GetTransactionProcessor().ProcessReadyCallbacks();
 }
 
 /*

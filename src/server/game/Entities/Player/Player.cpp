@@ -3088,7 +3088,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
     {
         if (!itr2->second.AutoLearned)
         {
-            if (!IsInWorld() || !itr2->second.Active)       // at spells loading, no output, but allow save
+            if (!IsInWorld() || !itr2->second.Active || m_silentSpellLearning) // at spells loading, no output, but allow save
                 AddSpell(itr2->second.Spell, itr2->second.Active, true, true, false);
             else                                            // at normal learning
                 LearnSpell(itr2->second.Spell, true);
@@ -3098,7 +3098,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
             AddOverrideSpell(itr2->second.OverridesSpell, itr2->second.Spell);
     }
 
-    if (!GetSession()->PlayerLoading())
+    if (!GetSession()->PlayerLoading() && !m_silentSpellLearning)
     {
         // not ranked skills
         for (SkillLineAbilityMap::const_iterator _spell_idx = skill_bounds.first; _spell_idx != skill_bounds.second; ++_spell_idx)
@@ -3112,7 +3112,7 @@ bool Player::AddSpell(uint32 spellId, bool active, bool learning, bool dependent
 
     // needs to be when spell is already learned, to prevent infinite recursion crashes
     if (sDB2Manager.GetMount(spellId))
-        GetSession()->GetCollectionMgr()->AddMount(spellId, MOUNT_STATUS_NONE, false, IsInWorld() ? false : true);
+        GetSession()->GetCollectionMgr()->AddMount(spellId, MOUNT_STATUS_NONE, false, !IsInWorld() || m_silentSpellLearning);
 
     // return true (for send learn packet) only if spell active (in case ranked spells) and not replace old spell
     return active && !disabled && !superceded_old;
@@ -3218,6 +3218,50 @@ void Player::LearnSpell(uint32 spell_id, bool dependent, int32 fromSkill /*= 0*/
     }
     else
         UpdateQuestObjectiveProgress(QUEST_OBJECTIVE_LEARNSPELL, spell_id, 1);
+}
+
+uint32 Player::LearnSpellsSilently(std::vector<uint32> const& spellIds)
+{
+    WorldPackets::Spells::LearnedSpells learnedSpells;
+    learnedSpells.SuppressMessaging = true;
+    bool mountsChanged = false;
+
+    m_silentSpellLearning = true;
+    for (uint32 spellId : spellIds)
+    {
+        if (HasSpell(spellId))
+            continue;
+
+        PlayerSpellMap::iterator itr = m_spells.find(spellId);
+        bool disabled = itr != m_spells.end() && itr->second.disabled;
+        bool active = disabled ? itr->second.active : true;
+        bool favorite = itr != m_spells.end() && itr->second.favorite;
+
+        if (!AddSpell(spellId, active, true, false, false, false, 0, favorite))
+            continue;
+
+        learnedSpells.ClientLearnedSpellData.emplace_back().SpellID = spellId;
+        learnedSpells.ClientLearnedSpellData.back().Favorite = favorite;
+        if (sDB2Manager.GetMount(spellId))
+            mountsChanged = true;
+    }
+    m_silentSpellLearning = false;
+
+    if (!IsInWorld())
+        return uint32(learnedSpells.ClientLearnedSpellData.size());
+
+    if (!learnedSpells.ClientLearnedSpellData.empty())
+        SendDirectMessage(learnedSpells.Write());
+
+    if (mountsChanged)
+    {
+        WorldPackets::Misc::AccountMountUpdate mountUpdate;
+        mountUpdate.IsFullUpdate = true;
+        mountUpdate.Mounts = &GetSession()->GetCollectionMgr()->GetAccountMounts();
+        SendDirectMessage(mountUpdate.Write());
+    }
+
+    return uint32(learnedSpells.ClientLearnedSpellData.size());
 }
 
 void Player::RemoveSpell(uint32 spell_id, bool disabled /*= false*/, bool learn_low_rank /*= true*/, bool suppressMessaging /*= false*/)
