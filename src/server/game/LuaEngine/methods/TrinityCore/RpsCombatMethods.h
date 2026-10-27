@@ -31,21 +31,36 @@ namespace RpsCombatBridge
             return false;
         return true;
     }
+
+    // "ok" | "zero_id" | "no_spellinfo" | "effect:<index>:<type>"
+    inline std::string DiceSpellStatus(uint32 id)
+    {
+        if (!id)
+            return "zero_id";
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(id, DIFFICULTY_NONE);
+        if (!info)
+            return "no_spellinfo";
+        for (SpellEffectInfo const& effect : info->GetEffects())
+            if (effect.Effect != SPELL_EFFECT_NONE && effect.Effect != SPELL_EFFECT_DUMMY)
+                return "effect:" + std::to_string(effect.EffectIndex) + ":" + std::to_string(uint32(effect.Effect));
+        return "ok";
+    }
 }
 
 namespace LuaGlobalFunctions
 {
     int RpsIsDiceSpell(Eluna* E)
     {
-        uint32 id = E->CHECKVAL<uint32>(1);
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(id, DIFFICULTY_NONE);
-        bool safe = info != nullptr;
-        if (info)
-            for (SpellEffectInfo const& effect : info->GetEffects())
-                if (effect.Effect != SPELL_EFFECT_NONE && effect.Effect != SPELL_EFFECT_DUMMY)
-                    safe = false;
-        E->Push(safe);
+        E->Push(RpsCombatBridge::DiceSpellStatus(E->CHECKVAL<uint32>(1)) == "ok");
         return 1;
+    }
+
+    int RpsDiceSpellStatus(Eluna* E)
+    {
+        std::string reason = RpsCombatBridge::DiceSpellStatus(E->CHECKVAL<uint32>(1));
+        E->Push(reason == "ok");
+        E->Push(reason);
+        return 2;
     }
 
     // Server scripts only. Same SQL authority as existing Execute, with a commit callback.
@@ -95,13 +110,13 @@ namespace LuaGlobalFunctions
     {
         Player* player = E->CHECKOBJ<Player>(1);
         Spell* spell = E->CHECKOBJ<Spell>(2);
-        if (spell->GetCaster() != player) { E->Push(false); return 1; }
+        if (spell->GetCaster() != player) { E->Push(false); E->Push("caster_mismatch"); return 2; }
         std::lock_guard lock(RpsCombatBridge::Mutex);
         auto now = RpsCombatBridge::Clock::now();
         std::erase_if(RpsCombatBridge::Casts, [now](auto const& cast) { return now - cast.Created > std::chrono::seconds(5); });
-        if (RpsCombatBridge::Casts.size() >= 1024
-            || std::ranges::any_of(RpsCombatBridge::Casts, [player](auto const& cast) { return cast.PlayerGuid == player->GetGUID(); }))
-        { E->Push(false); return 1; }
+        if (RpsCombatBridge::Casts.size() >= 1024) { E->Push(false); E->Push("queue_full"); return 2; }
+        if (std::ranges::any_of(RpsCombatBridge::Casts, [player](auto const& cast) { return cast.PlayerGuid == player->GetGUID(); }))
+        { E->Push(false); E->Push("cast_pending"); return 2; }
         RpsCombatBridge::Casts.push_back({player->GetGUID(), player->GetTarget(), spell->GetSpellInfo()->Id,
             player->GetMapId(), player->GetInstanceId(), now});
         E->Push(true);
@@ -117,13 +132,19 @@ namespace LuaGlobalFunctions
         for (auto const& cast : casts)
         {
             Player* player = ObjectAccessor::FindPlayer(cast.PlayerGuid);
-            if (!player || !player->IsInWorld() || player->GetMapId() != cast.MapId
-                || player->GetInstanceId() != cast.InstanceId || player->GetTarget() != cast.TargetGuid
-                || RpsCombatBridge::Clock::now() - cast.Created > std::chrono::seconds(5))
+            if (!player || !player->IsInWorld())
                 continue;
-            lua_createtable(E->L, 0, 2);
+            char const* rejected = nullptr;
+            if (player->GetMapId() != cast.MapId || player->GetInstanceId() != cast.InstanceId)
+                rejected = "map_changed";
+            else if (player->GetTarget() != cast.TargetGuid)
+                rejected = "target_changed";
+            else if (RpsCombatBridge::Clock::now() - cast.Created > std::chrono::seconds(5))
+                rejected = "expired";
+            lua_createtable(E->L, 0, 3);
             E->Push(player); lua_setfield(E->L, -2, "player");
             E->Push(cast.SpellId); lua_setfield(E->L, -2, "spellId");
+            if (rejected) { E->Push(rejected); lua_setfield(E->L, -2, "rejected"); }
             lua_rawseti(E->L, -2, ++index);
         }
         return 1;

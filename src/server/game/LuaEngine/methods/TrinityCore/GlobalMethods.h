@@ -3345,6 +3345,7 @@ namespace LuaGlobalFunctions
         { "RpsTargetContext", &LuaGlobalFunctions::RpsTargetContext, METHOD_REG_WORLD },
         { "RpsRuntimeEpoch", &LuaGlobalFunctions::RpsRuntimeEpoch, METHOD_REG_ALL },
         { "RpsIsDiceSpell", &LuaGlobalFunctions::RpsIsDiceSpell, METHOD_REG_ALL },
+        { "RpsDiceSpellStatus", &LuaGlobalFunctions::RpsDiceSpellStatus, METHOD_REG_ALL },
         { "CharDBQueryAsync", &LuaGlobalFunctions::CharDBQueryAsync },
         { "AuthDBQuery", &LuaGlobalFunctions::AuthDBQuery, METHOD_REG_ALL, METHOD_FLAG_UNSAFE },
         { "AuthDBExecute", &LuaGlobalFunctions::AuthDBExecute },
