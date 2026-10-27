@@ -287,6 +287,19 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPackets::NPC::GossipSelec
         return;
     }
 
+    // Custom (Hero windows): a gossip menu the player opened for themselves (Eluna player gossip).
+    // Without this the code below falls through to go->AI() with go == nullptr and crashes.
+    if (packet.GossipUnit.IsPlayer())
+    {
+#ifdef ELUNA
+        if (Eluna* e = GetPlayer()->GetEluna())
+            e->HandleGossipSelectOption(_player, _player->PlayerTalkClass->GetGossipMenu().GetMenuId(),
+                _player->PlayerTalkClass->GetGossipOptionSender(gossipMenuItem->OrderIndex),
+                _player->PlayerTalkClass->GetGossipOptionAction(gossipMenuItem->OrderIndex), packet.PromotionCode);
+#endif
+        return;
+    }
+
     if (!packet.PromotionCode.empty())
     {
         if (unit)

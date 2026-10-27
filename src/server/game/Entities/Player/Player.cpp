@@ -32033,6 +32033,10 @@ void Player::ApplyTraitEntry(int32 traitNodeEntryId, int32 rank, int32 grantedRa
     if (!traitDefinition)
         return;
 
+    // Custom (pure Hero): no retail class talents while Hero Essence (aura 1400010) is active
+    if (apply && HasAura(1400010))
+        return;
+
     if (traitDefinition->SpellID)
     {
         ASSERT(traitNodeEntry->TraitDefinitionID <= 0xFFFFFF && rank + grantedRanks <= 0xFF);
