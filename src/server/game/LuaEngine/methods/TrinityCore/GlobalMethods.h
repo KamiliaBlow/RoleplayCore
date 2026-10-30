@@ -10,6 +10,7 @@
 #include "BindingMap.h"
 #include "PhasingHandler.h"
 #include "RpsCombatMethods.h"
+#include "RpsConsumableMethods.h"
 #include <Containers.h>
 
 /***
@@ -3339,10 +3340,24 @@ namespace LuaGlobalFunctions
         { "WorldDBQueryAsync", &LuaGlobalFunctions::WorldDBQueryAsync },
         { "CharDBQuery", &LuaGlobalFunctions::CharDBQuery, METHOD_REG_ALL, METHOD_FLAG_UNSAFE },
         { "CharDBExecute", &LuaGlobalFunctions::CharDBExecute },
+        { "RpsConsumableContext", &LuaGlobalFunctions::RpsConsumableContext, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
+        { "RpsQueueConsumableUse", &LuaGlobalFunctions::RpsQueueConsumableUse, METHOD_REG_MAP, METHOD_FLAG_UNSAFE },
+        { "RpsPollConsumableUses", &LuaGlobalFunctions::RpsPollConsumableUses, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
         { "RpsCommitAsync", &LuaGlobalFunctions::RpsCommitAsync, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
+        { "RpsSaveXpAsync", &LuaGlobalFunctions::RpsSaveXpAsync, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
+        { "RpsXpGrantContext", &LuaGlobalFunctions::RpsXpGrantContext, METHOD_REG_WORLD },
         { "RpsQueueDiceCast", &LuaGlobalFunctions::RpsQueueDiceCast, METHOD_REG_MAP },
         { "RpsPollDiceCasts", &LuaGlobalFunctions::RpsPollDiceCasts, METHOD_REG_WORLD },
         { "RpsTargetContext", &LuaGlobalFunctions::RpsTargetContext, METHOD_REG_WORLD },
+        { "RpsFindOwnedItem", &LuaGlobalFunctions::RpsFindOwnedItem, METHOD_REG_WORLD },
+        { "RpsIsRoleplayItem", &LuaGlobalFunctions::RpsIsRoleplayItem, METHOD_REG_ALL },
+        { "RpsGetItemTemplate", &LuaGlobalFunctions::RpsGetItemTemplate, METHOD_REG_ALL },
+        { "RpsGetItemModifierDefinitions", &LuaGlobalFunctions::RpsGetItemModifierDefinitions, METHOD_REG_ALL },
+        { "RpsParseItemMetadata", &LuaGlobalFunctions::RpsParseItemMetadata, METHOD_REG_WORLD },
+        { "RpsGetItemQuality", &LuaGlobalFunctions::RpsGetItemQuality, METHOD_REG_WORLD },
+        { "RpsSetItemGrade", &LuaGlobalFunctions::RpsSetItemGrade, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
+        { "RpsGetItemEnchants", &LuaGlobalFunctions::RpsGetItemEnchants, METHOD_REG_WORLD },
+        { "RpsSetItemEnchant", &LuaGlobalFunctions::RpsSetItemEnchant, METHOD_REG_WORLD, METHOD_FLAG_UNSAFE },
         { "RpsRuntimeEpoch", &LuaGlobalFunctions::RpsRuntimeEpoch, METHOD_REG_ALL },
         { "RpsIsDiceSpell", &LuaGlobalFunctions::RpsIsDiceSpell, METHOD_REG_ALL },
         { "RpsDiceSpellStatus", &LuaGlobalFunctions::RpsDiceSpellStatus, METHOD_REG_ALL },

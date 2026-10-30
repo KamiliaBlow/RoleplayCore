@@ -22,6 +22,7 @@
 #include "AzeriteEmpoweredItem.h"
 #include "AzeriteItem.h"
 #include "Chat.h"
+#include "Config.h"
 #include "Containers.h"
 #include "CreatureAIFactory.h"
 #include "CriteriaHandler.h"
@@ -3432,6 +3433,13 @@ void ObjectMgr::LoadItemTemplateAddon()
             itemTemplate->SpellPPMRate = fields[6].GetFloat();
             itemTemplate->RandomBonusListTemplateId = fields[7].GetUInt32();
             itemTemplate->QuestLogItemId = fields[8].GetInt32();
+            if (itemTemplate->IsRoleplayOnly())
+            {
+                // RPS: durability and effects are computed before custom flags are known.
+                itemTemplate->MaxDurability = 0;
+                itemTemplate->RandomBonusListTemplateId = 0;
+                itemTemplate->Effects.clear();
+            }
             ++count;
         } while (result->NextRow());
     }
@@ -4052,6 +4060,16 @@ void ObjectMgr::LoadPlayerInfo()
                     }
                 }
             }
+        }
+    }
+
+    // RPS: playercreateinfo_item replaces the DB2 new-character loadout instead of extending it.
+    if (sConfigMgr->GetBoolDefault("RPS.StarterOutfit.ReplaceLoadout", false))
+    {
+        for (auto& [_, playerInfo] : _playerInfo)
+        {
+            playerInfo->item.clear();
+            playerInfo->itemContext = ItemContext::NONE;
         }
     }
 

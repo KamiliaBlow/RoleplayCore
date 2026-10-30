@@ -330,7 +330,9 @@ enum ItemFlagsCustom
 {
     ITEM_FLAGS_CU_UNUSED                = 0x0001,
     ITEM_FLAGS_CU_IGNORE_QUEST_STATUS   = 0x0002,   // No quest status will be checked when this item drops
-    ITEM_FLAGS_CU_FOLLOW_LOOT_RULES     = 0x0004    // Item will always follow group/master/need before greed looting rules
+    ITEM_FLAGS_CU_FOLLOW_LOOT_RULES     = 0x0004,   // Item will always follow group/master/need before greed looting rules
+    ITEM_FLAGS_CU_RP_ONLY               = 0x0008,   // RPS: visual carrier, native stats/armor/sets/sockets and stat effects of enchants are ignored
+    ITEM_FLAGS_CU_NO_VENDOR_VALUE       = 0x0010    // Free supplies cannot be converted into currency at any vendor
 };
 
 enum BAG_FAMILY_MASK
@@ -886,12 +888,12 @@ struct TC_GAME_API ItemTemplate
     uint32 GetPageText() const { return ExtendedData->PageID; }
     uint32 GetStartQuest() const { return ExtendedData->StartQuestID; }
     uint32 GetLockID() const { return ExtendedData->LockID; }
-    uint32 GetItemSet() const { return ExtendedData->ItemSet; }
+    uint32 GetItemSet() const { return IsRoleplayOnly() ? 0 : ExtendedData->ItemSet; }
     uint32 GetArea(uint32 index) const { ASSERT(index < MAX_ITEM_PROTO_ZONES); return ExtendedData->ZoneBound[index]; }
     uint32 GetMap() const { return ExtendedData->InstanceBound; }
     uint32 GetBagFamily() const { return ExtendedData->BagFamily; }
     uint32 GetTotemCategory() const { return ExtendedData->TotemCategoryID; }
-    SocketColor GetSocketColor(uint32 index) const { ASSERT(index < MAX_ITEM_PROTO_SOCKETS); return SocketColor(ExtendedData->SocketType[index]); }
+    SocketColor GetSocketColor(uint32 index) const { ASSERT(index < MAX_ITEM_PROTO_SOCKETS); return SocketColor(IsRoleplayOnly() ? 0 : ExtendedData->SocketType[index]); }
     uint32 GetSocketBonus() const { return ExtendedData->SocketMatchEnchantmentId; }
     uint32 GetGemProperties() const { return ExtendedData->GemProperties; }
     float GetQualityModifier() const { return ExtendedData->QualityModifier; }
@@ -962,6 +964,7 @@ struct TC_GAME_API ItemTemplate
     inline bool HasFlag(ItemFlags3 flag) const { return (ExtendedData->Flags[2] & flag) != 0; }
     inline bool HasFlag(ItemFlags4 flag) const { return (ExtendedData->Flags[3] & flag) != 0; }
     inline bool HasFlag(ItemFlagsCustom customFlag) const { return (FlagsCu & customFlag) != 0; }
+    bool IsRoleplayOnly() const { return HasFlag(ITEM_FLAGS_CU_RP_ONLY); }
 
     char const* GetDefaultLocaleName() const;
     uint32 GetArmor(uint32 itemLevel) const;

@@ -235,11 +235,12 @@ class TC_GAME_API Item : public Object
         ItemBondingType GetBonding() const { return _bonusData.Bonding; }
         void SetBinding(bool val)
         {
-            if (val)
+            if (val && !IsRpsTradableEquipment())
                 SetItemFlag(ITEM_FIELD_FLAG_SOULBOUND);
             else
                 RemoveItemFlag(ITEM_FIELD_FLAG_SOULBOUND);
         }
+        bool IsRpsTradableEquipment() const;
         bool HasItemFlag(ItemFieldFlags flag) const { return (*m_itemData->DynamicFlags & flag) != 0; }
         void SetItemFlag(ItemFieldFlags flags) { SetUpdateFieldFlagValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::DynamicFlags), flags); }
         void RemoveItemFlag(ItemFieldFlags flags) { RemoveUpdateFieldFlagValue(m_values.ModifyValue(&Item::m_itemData).ModifyValue(&UF::ItemData::DynamicFlags), flags); }

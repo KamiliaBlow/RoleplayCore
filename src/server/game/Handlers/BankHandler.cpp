@@ -518,6 +518,9 @@ void WorldSession::MigrateAccountBankItems()
         trans->PAppend("INSERT INTO item_instance (guid, itemEntry, owner_guid, creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomBonusListId, durability, playedTime, createTime, text, battlePetSpeciesId, battlePetBreedData, battlePetLevel, battlePetDisplayId, context, bonusListIDs) "
             "SELECT {}, itemEntry, owner_guid, creatorGuid, giftCreatorGuid, count, duration, charges, flags, enchantments, randomBonusListId, durability, playedTime, createTime, text, battlePetSpeciesId, battlePetBreedData, battlePetLevel, battlePetDisplayId, context, bonusListIDs FROM {}.item_instance WHERE guid = {}",
             newGuid, sourceSchema, oldGuid);
+        trans->PAppend("INSERT INTO rps_item_metadata (item_guid, metadata) "
+            "SELECT {}, irm.metadata FROM {}.rps_item_metadata irm INNER JOIN {}.item_instance ii ON ii.guid = irm.item_guid WHERE irm.item_guid = {}",
+            newGuid, sourceSchema, sourceSchema, oldGuid);
         trans->PAppend("INSERT INTO item_instance_gems (itemGuid, gemItemId1, gemBonuses1, gemContext1, gemScalingLevel1, gemItemId2, gemBonuses2, gemContext2, gemScalingLevel2, gemItemId3, gemBonuses3, gemContext3, gemScalingLevel3) "
             "SELECT {}, gemItemId1, gemBonuses1, gemContext1, gemScalingLevel1, gemItemId2, gemBonuses2, gemContext2, gemScalingLevel2, gemItemId3, gemBonuses3, gemContext3, gemScalingLevel3 FROM {}.item_instance_gems WHERE itemGuid = {}",
             newGuid, sourceSchema, oldGuid);
@@ -547,6 +550,7 @@ void WorldSession::MigrateAccountBankItems()
             newGuid, sourceSchema, oldGuid);
 
         trans->PAppend("DELETE FROM {}.item_instance WHERE guid = {}", sourceSchema, oldGuid);
+        trans->PAppend("DELETE FROM {}.rps_item_metadata WHERE item_guid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_gems WHERE itemGuid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_transmog WHERE itemGuid = {}", sourceSchema, oldGuid);
         trans->PAppend("DELETE FROM {}.item_instance_modifiers WHERE itemGuid = {}", sourceSchema, oldGuid);

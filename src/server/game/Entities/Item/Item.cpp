@@ -24,6 +24,7 @@
 #include "CollectionMgr.h"
 #include "Common.h"
 #include "ConditionMgr.h"
+#include "Config.h"
 #include "DB2Stores.h"
 #include "DatabaseEnv.h"
 #include "GameTables.h"
@@ -1067,7 +1068,7 @@ bool Item::LoadFromDB(ObjectGuid::LowType guid, ObjectGuid ownerGuid, Field* fie
     m_randomBonusListId = fields[9].GetUInt32();
 
     // Remove bind flag for items vs BIND_NONE set
-    if (IsSoulBound() && GetBonding() == BIND_NONE)
+    if (IsSoulBound() && (GetBonding() == BIND_NONE || IsRpsTradableEquipment()))
     {
         RemoveItemFlag(ITEM_FIELD_FLAG_SOULBOUND);
         need_save = true;
@@ -1795,6 +1796,16 @@ void Item::ConvertToSoulbound()
     SetState(ITEM_CHANGED, GetOwner());
 }
 
+bool Item::IsRpsTradableEquipment() const
+{
+    ItemTemplate const* proto = GetTemplate();
+    if (!proto || IsBoundAccountWide() || proto->GetBonding() == BIND_QUEST)
+        return false;
+    if (proto->GetClass() != ITEM_CLASS_WEAPON && proto->GetClass() != ITEM_CLASS_ARMOR)
+        return false;
+    return sConfigMgr->GetBoolDefault("RPS.Items.TradableEquipment", false);
+}
+
 bool Item::IsBindedNotWith(Player const* player) const
 {
     // not binded item
@@ -2285,6 +2296,8 @@ uint32 Item::GetSellPrice(Player const* owner, bool forVendor /*= false*/) const
 
 uint32 Item::GetSellPrice(ItemTemplate const* proto, uint32 quality, uint32 itemLevel)
 {
+    if (proto->HasFlag(ITEM_FLAGS_CU_NO_VENDOR_VALUE))
+        return 0;
     if (proto->HasFlag(ITEM_FLAG2_OVERRIDE_GOLD_COST))
         return proto->GetSellPrice();
     else

@@ -3999,7 +3999,7 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
                     do
                     {
                         Field* fields = resultItems->Fetch();
-                        uint64 mailId = fields[54].GetUInt64();
+                        uint64 mailId = fields[55].GetUInt64();
                         if (Item* mailItem = _LoadMailedItem(playerguid, nullptr, mailId, nullptr, fields, Trinity::Containers::MapGetValuePtr(additionalData, fields[0].GetUInt64())))
                             itemsByMail[mailId].push_back(mailItem);
 
@@ -8445,7 +8445,8 @@ void Player::_ApplyItemMods(Item* item, uint8 slot, bool apply, bool updateItemA
 void Player::_ApplyItemBonuses(Item* item, uint8 slot, bool apply)
 {
     ItemTemplate const* proto = item->GetTemplate();
-    if (slot >= REAGENT_BAG_SLOT_END || !proto)
+    // RPS: every native stat/armor/weapon-damage path of equipped items passes through here.
+    if (slot >= REAGENT_BAG_SLOT_END || !proto || proto->IsRoleplayOnly())
         return;
 
     uint32 itemLevel = item->GetItemLevel(this);
@@ -14555,6 +14556,12 @@ void Player::ApplyEnchantment(Item* item, EnchantmentSlot slot, bool apply, bool
             uint32 enchant_display_type = pEnchant->Effect[s];
             int32 enchant_amount = pEnchant->EffectPointsMin[s];
             uint32 enchant_spell_id = pEnchant->EffectArg[s];
+
+            // RPS: RP-only carriers keep enchant names/visuals/procs, but never native stats from enchants or gems.
+            if (item->GetTemplate()->IsRoleplayOnly() && (enchant_display_type == ITEM_ENCHANTMENT_TYPE_DAMAGE
+                || enchant_display_type == ITEM_ENCHANTMENT_TYPE_RESISTANCE || enchant_display_type == ITEM_ENCHANTMENT_TYPE_STAT
+                || enchant_display_type == ITEM_ENCHANTMENT_TYPE_TOTEM))
+                continue;
 
             switch (enchant_display_type)
             {
@@ -20929,7 +20936,8 @@ Item* Player::_LoadMailedItem(ObjectGuid const& playerGuid, Player* player, uint
 
     Item* item = NewItemOrBag(proto);
 
-    ObjectGuid ownerGuid = fields[54].GetUInt64() ? ObjectGuid::Create<HighGuid::Player>(fields[52].GetUInt64()) : ObjectGuid::Empty;
+    // RPS: SelectItemInstanceContent has 54 columns, then owner_guid (54) and mail id (55).
+    ObjectGuid ownerGuid = fields[54].GetUInt64() ? ObjectGuid::Create<HighGuid::Player>(fields[54].GetUInt64()) : ObjectGuid::Empty;
     if (!item->LoadFromDB(itemGuid, ownerGuid, fields, itemEntry))
     {
         TC_LOG_ERROR("entities.player", "Player::_LoadMailedItems: Item (GUID: {}) in mail ({}) doesn't exist, deleted from mail.", itemGuid, mailId);
@@ -21006,7 +21014,7 @@ void Player::_LoadMail(PreparedQueryResult mailsResult, PreparedQueryResult mail
         do
         {
             Field* fields = mailItemsResult->Fetch();
-            uint64 mailId = fields[53].GetUInt64();
+            uint64 mailId = fields[55].GetUInt64();
             _LoadMailedItem(GetGUID(), this, mailId, mailById[mailId], fields, Trinity::Containers::MapGetValuePtr(additionalData, fields[0].GetUInt64()));
         } while (mailItemsResult->NextRow());
     }
@@ -25655,7 +25663,7 @@ bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uin
         return false;
     }
 
-    uint64 basePrice = pProto->GetBuyPrice();
+    uint64 basePrice = crItem->GetBuyPrice(pProto);
     if (crItem->ExtendedCost)
     {
         // Can only buy full stacks for extended cost

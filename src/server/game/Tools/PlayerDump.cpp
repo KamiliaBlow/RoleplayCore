@@ -136,6 +136,7 @@ DumpTable const DumpTables[] =
     { "pet_spell_charges",                DTT_PET_TABLE  }, // must be after character_pet
     { "pet_spell_cooldown",               DTT_PET_TABLE  }, // must be after character_pet
     { "item_instance",                    DTT_ITEM       }, // must be after character_inventory and mail_items
+    { "rps_item_metadata",                DTT_ITEM_TABLE }, // must be after item_instance
     { "character_equipmentsets",          DTT_EQSET_TABLE}, // must be after item_instance
     { "character_gifts",                  DTT_ITEM_GIFT  }, // must be after item_instance
     { "item_instance_artifact",           DTT_ITEM_TABLE }, // must be after item_instance
@@ -384,10 +385,12 @@ void PlayerDump::InitializeTables()
                 MarkDependentColumn(t, "item_guid", GUID_TYPE_ITEM);
                 break;
             case DTT_ITEM_TABLE:
-                MarkWhereField(t, "itemGuid");
-
-                MarkDependentColumn(t, "itemGuid", GUID_TYPE_ITEM);
+            {
+                char const* itemGuidField = t.TableName == "rps_item_metadata" ? "item_guid" : "itemGuid";
+                MarkWhereField(t, itemGuidField);
+                MarkDependentColumn(t, itemGuidField, GUID_TYPE_ITEM);
                 break;
+            }
             case DTT_PET:
                 MarkWhereField(t, "owner");
 
