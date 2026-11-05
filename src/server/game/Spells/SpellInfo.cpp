@@ -4053,6 +4053,11 @@ Optional<SpellPowerCost> SpellInfo::CalcPowerCost(SpellPowerEntry const* power, 
     if (power->RequiredAuraSpellID && !unitCaster->HasAura(power->RequiredAuraSpellID))
         return {};
 
+    // Draconic-WoW Hero Essence: abilities in the Hero pool cost Essence (alt power bar 9990)
+    // for players only. Creatures casting the same spells (NPC mages, healers...) pay nothing.
+    if (power->PowerType == POWER_ALTERNATE_POWER && power->AltPowerBarID == 9990 && !unitCaster->IsPlayer())
+        return {};
+
     // Spell drain all exist power on cast (Only paladin lay of Hands)
     if (HasAttribute(SPELL_ATTR1_USE_ALL_MANA))
     {
