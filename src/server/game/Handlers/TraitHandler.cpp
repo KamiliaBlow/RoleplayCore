@@ -17,6 +17,7 @@
 
 #include "WorldSession.h"
 #include "Battleground.h"
+#include "Chat.h"
 #include "DB2Stores.h"
 #include "Player.h"
 #include "SpellHistory.h"
@@ -36,6 +37,14 @@ void WorldSession::HandleTraitsCommitConfig(WorldPackets::Traits::TraitsCommitCo
     if (_player->IsInCombat())
     {
         SendPacket(WorldPackets::Traits::TraitConfigCommitFailed(configId, 0, TALENT_FAILED_AFFECTING_COMBAT).Write());
+        return;
+    }
+
+    // Custom (pure Hero): Hero characters (Hero Essence aura 1400010) use Hero talents, not the class tree
+    if (_player->HasAura(1400010) && static_cast<TraitConfigType>(*existingConfig->Type) == TraitConfigType::Combat)
+    {
+        ChatHandler(this).SendSysMessage("|cffff8000[Hero]|r Heroes do not use the class talent tree. Open Character Advancement (/ca) for Hero talents.");
+        SendPacket(WorldPackets::Traits::TraitConfigCommitFailed(configId, 0, TALENT_FAILED_UNKNOWN).Write());
         return;
     }
 

@@ -44,16 +44,24 @@ else()
   set(BOOST_REQUIRED_VERSION 1.74)
 endif()
 
+# Draconic-WoW local: Boost from NuGet has no BoostConfig.cmake -> fall back
+# to CMake's FindBoost (module mode) when no config package is found.
 find_package(Boost ${BOOST_REQUIRED_VERSION}
-  REQUIRED
-  COMPONENTS 
+  COMPONENTS
     filesystem
     program_options
     regex
     locale
-  CONFIG
+  CONFIG QUIET
   HINTS
     ${BOOST_SEARCH_HINTS})
+if(NOT Boost_FOUND)
+  if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 OLD)
+  endif()
+  find_package(Boost ${BOOST_REQUIRED_VERSION} REQUIRED MODULE
+    COMPONENTS filesystem program_options regex locale system thread)
+endif()
 
 if(NOT Boost_FOUND)
   if(NOT DEFINED ENV{BOOST_ROOT} AND NOT DEFINED Boost_DIR AND NOT DEFINED BOOST_ROOT AND NOT DEFINED BOOSTROOT)
