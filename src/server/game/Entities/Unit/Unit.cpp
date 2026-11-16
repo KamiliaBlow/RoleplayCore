@@ -7106,7 +7106,10 @@ float Unit::SpellDamagePctDone(Unit* victim, SpellInfo const* spellProto, Damage
     // Done total percent damage auras
     float DoneTotalMod = 1.0f;
 
-    // Pet damage?
+    if (IsSummon())
+        if (Unit* owner = GetOwner())
+            DoneTotalMod *= owner->GetTotalAuraMultiplier(IsPet() ? SPELL_AURA_MOD_DAMAGE_PCT_DONE_PET : SPELL_AURA_MOD_DAMAGE_PCT_DONE_SUMMON);
+
     if (GetTypeId() == TYPEID_UNIT && !IsPet())
         DoneTotalMod *= ToCreature()->GetSpellDamageMod(ToCreature()->GetCreatureTemplate()->Classification);
 
@@ -7660,6 +7663,10 @@ float Unit::SpellHealingPctDone(Unit* victim, SpellInfo const* spellProto) const
     }
     else // SPELL_AURA_MOD_HEALING_DONE_PERCENT is included in m_activePlayerData->ModHealingDonePercent for players
         DoneTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_HEALING_DONE_PERCENT);
+
+    if (IsPet())
+        if (Unit* owner = GetOwner())
+            DoneTotalMod *= owner->GetTotalAuraMultiplier(SPELL_AURA_MOD_HEALING_PCT_DONE_PET);
 
     // bonus against aurastate
     DoneTotalMod *= GetTotalAuraMultiplier(SPELL_AURA_MOD_DAMAGE_DONE_VERSUS_AURASTATE, [victim](AuraEffect const* aurEff) -> bool
@@ -8275,6 +8282,10 @@ int32 Unit::MeleeDamageBonusDone(Unit* pVictim, int32 damage, WeaponAttackType a
         for (AuraEffect const* autoAttackDamage : GetAuraEffectsByType(SPELL_AURA_MOD_AUTOATTACK_DAMAGE))
             AddPct(DoneTotalMod, autoAttackDamage->GetAmount());
     }
+
+    if (IsSummon())
+        if (Unit* owner = GetOwner())
+            DoneTotalMod *= owner->GetTotalAuraMultiplier(IsPet() ? SPELL_AURA_MOD_DAMAGE_PCT_DONE_PET : SPELL_AURA_MOD_DAMAGE_PCT_DONE_SUMMON);
 
     DoneTotalMod *= GetTotalAuraMultiplierByMiscMask(SPELL_AURA_MOD_DAMAGE_DONE_VERSUS, creatureTypeMask);
 
