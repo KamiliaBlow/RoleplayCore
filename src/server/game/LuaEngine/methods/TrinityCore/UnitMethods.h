@@ -7,6 +7,8 @@
 #ifndef UNITMETHODS_H
 #define UNITMETHODS_H
 
+#include "PathGenerator.h"
+
 /***
  * Inherits all methods from: [Object], [WorldObject]
  */
@@ -1980,6 +1982,36 @@ namespace LuaUnit
     }
 
     /**
+     * Custom (living world): like MoveTo, but only moves when the navmesh has a
+     * path toward the point (partial paths are fine). Ground walkers never take the straight-line
+     * shortcut through the air, walls or under bridges.
+     *
+     * @param uint32 id : unique waypoint Id
+     * @param float x
+     * @param float y
+     * @param float z
+     * @return bool moved
+     */
+    int MoveToSafe(Eluna* E, Unit* unit)
+    {
+        uint32 id = E->CHECKVAL<uint32>(2);
+        float x = E->CHECKVAL<float>(3);
+        float y = E->CHECKVAL<float>(4);
+        float z = E->CHECKVAL<float>(5);
+
+        PathGenerator path(unit);
+        bool ok = path.CalculatePath(x, y, z, false);
+        if (!ok || (path.GetPathType() & (PATHFIND_NOPATH | PATHFIND_SHORTCUT | PATHFIND_NOT_USING_PATH)))
+        {
+            E->Push(false);
+            return 1;
+        }
+        unit->GetMotionMaster()->MovePoint(id, x, y, z, true);
+        E->Push(true);
+        return 1;
+    }
+
+    /**
      * Makes the [Unit] jump to the coordinates
      *
      * @param float x
@@ -2725,6 +2757,7 @@ namespace LuaUnit
         { "MoveConfused", &LuaUnit::MoveConfused },
         { "MoveFleeing", &LuaUnit::MoveFleeing },
         { "MoveTo", &LuaUnit::MoveTo },
+        { "MoveToSafe", &LuaUnit::MoveToSafe },
         { "MoveJump", &LuaUnit::MoveJump },
         { "MoveStop", &LuaUnit::MoveStop },
         { "MoveExpire", &LuaUnit::MoveExpire },

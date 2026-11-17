@@ -6558,6 +6558,12 @@ void AuraEffect::HandleEnableAltPower(AuraApplication const* aurApp, uint8 mode,
         aurApp->GetTarget()->SetMaxPower(POWER_ALTERNATE_POWER, powerEntry->MaxPower);
     else
         aurApp->GetTarget()->SetMaxPower(POWER_ALTERNATE_POWER, 0);
+
+    // Custom (pure Hero): Hero Essence (bar 9990) turns the retail class talent tree off.
+    // Hero talents are learned by the Hero system (lua wildcard.lua) instead.
+    if (apply && altPowerId == 9990)
+        if (Player* player = aurApp->GetTarget()->ToPlayer())
+            player->ApplyTraitConfig(player->m_activePlayerData->ActiveCombatTraitConfigID, false);
 }
 
 void AuraEffect::HandleModGravity(AuraApplication const* aurApp, uint8 mode, bool /*apply*/) const
